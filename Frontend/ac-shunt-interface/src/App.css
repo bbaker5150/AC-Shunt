@@ -530,15 +530,6 @@ select:focus {
   color: #495057;
 }
 
-/* Chart Container */
-.chart-container {
-  border: 1px solid #e9ecef; 
-  padding: 20px;
-  border-radius: 8px;
-  background: #fdfdfd;
-  margin-top: 20px; 
-  box-shadow: 0 1px 3px rgba(0,0,0,0.03);
-}
 
 /* =============================================== */
 /* =========== Dark Mode Theme Styles ============ */
@@ -630,8 +621,4 @@ body.dark-mode .test-set-details {
 }
 body.dark-mode .test-set-details div {
   color: #cbd5e0;
-}
-body.dark-mode .chart-container {
-  background: #2d3748;
-  border-color: #4a5568;
 }

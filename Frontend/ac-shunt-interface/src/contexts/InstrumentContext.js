@@ -10,100 +10,6 @@ export const InstrumentContextProvider = ({ children }) => {
   const [selectedSessionId, setSelectedSessionId] = useState(null);
   const [selectedSessionName, setSelectedSessionName] = useState('');
 
-  // --- DMM Measurement State & WebSocket Logic ---
-  const [dmmData, setDmmData] = useState([]);
-  const [isDmmMeasuring, setIsDmmMeasuring] = useState(false);
-  const [dmmWebSocketStatus, setDmmWebSocketStatus] = useState('Disconnected');
-  const [dmmActiveSetDetails, setDmmActiveSetDetails] = useState(null);
-  const dmmWs = useRef(null);
-  const refreshDmmSetsCallback = useRef(null);
-
-  const registerRefreshDmmSets = useCallback((callback) => {
-    refreshDmmSetsCallback.current = callback;
-  }, []);
-
-  const connectDmmWebSocket = useCallback((gpibAddress) => {
-    if (!gpibAddress) {
-        setDmmWebSocketStatus('Error: GPIB address not provided.');
-        return;
-    }
-    if (dmmWs.current && dmmWs.current.readyState === WebSocket.OPEN) {
-      if (dmmWs.current.url.endsWith(`${encodeURIComponent(gpibAddress)}/`)) {
-          return;
-      }
-      dmmWs.current.close();
-    }
-    
-    if (dmmWs.current && dmmWs.current.readyState === WebSocket.CONNECTING) {
-      return;
-    }
-    
-    setDmmWebSocketStatus('Connecting...');
-    
-    const socketUrl = `${WS_BASE_URL}/dmm_live/${encodeURIComponent(gpibAddress)}/`;
-    dmmWs.current = new WebSocket(socketUrl);
-
-    dmmWs.current.onopen = () => setDmmWebSocketStatus('Connected');
-
-    dmmWs.current.onmessage = (event) => {
-        const message = JSON.parse(event.data);
-        if (message.type === 'measurement_update' || (message.value !== undefined && message.error === null)) {
-            const new_data = message.data || [{value: message.value, timestamp: message.timestamp}];
-            setDmmData(prevData => [...prevData, ...new_data]);
-        } else if (message.status === 'measurements_started' || message.type === 'measurement_start_ack') {
-            setIsDmmMeasuring(true);
-            setDmmActiveSetDetails({
-                id: message.set_id,
-                name: message.set_name,
-                targetReadings: message.target_readings,
-            });
-            setDmmData([]); 
-        } else if (message.status === 'measurements_stopped' || message.type === 'measurement_complete' || message.type === 'measurement_stop_ack') {
-            setIsDmmMeasuring(false);
-            if (refreshDmmSetsCallback.current) {
-                refreshDmmSetsCallback.current();
-            }
-        } else if (message.error || message.type === 'error') {
-            setDmmWebSocketStatus(`Error: ${message.error || message.message}`);
-        }
-    };
-
-    dmmWs.current.onerror = () => setDmmWebSocketStatus('Error: Connection failed.');
-
-    dmmWs.current.onclose = () => {
-        setIsDmmMeasuring(false);
-        setDmmWebSocketStatus(prevStatus => 
-            (prevStatus && (prevStatus.startsWith('Error') || prevStatus === 'Completed')) ? prevStatus : 'Disconnected'
-        );
-    };
-  }, []);
-
-  const startDMMMeasurements = useCallback(async (setName, numReadings, gpibAddress) => {
-    connectDmmWebSocket(gpibAddress); 
-    await new Promise(resolve => setTimeout(resolve, 500)); 
-
-    if (dmmWs.current && dmmWs.current.readyState === WebSocket.OPEN) {
-        dmmWs.current.send(JSON.stringify({
-            command: 'start_new_measurement_set',
-            setName: setName,
-            num_readings: numReadings,
-        }));
-    } else {
-        setDmmWebSocketStatus('Failed to connect');
-    }
-  }, [connectDmmWebSocket]);
-  
-  const stopDMMMeasurements = useCallback(() => {
-    if (dmmWs.current && dmmWs.current.readyState === WebSocket.OPEN && isDmmMeasuring) {
-        dmmWs.current.send(JSON.stringify({ command: 'stop_measurements' }));
-    }
-  }, [isDmmMeasuring]);
-
-  useEffect(() => {
-    return () => dmmWs.current?.close();
-  }, []);
-
-
   // --- Generic Instrument Status State & WebSocket Logic ---
   const [instrumentStatuses, setInstrumentStatuses] = useState({});
   const [isFetchingStatuses, setIsFetchingStatuses] = useState({});
@@ -187,15 +93,6 @@ export const InstrumentContextProvider = ({ children }) => {
     setSelectedSessionId,
     selectedSessionName,
     setSelectedSessionName,
-    // DMM values
-    dmmData,
-    isDmmMeasuring,
-    dmmWebSocketStatus,
-    dmmActiveSetDetails,
-    startDMMMeasurements,
-    stopDMMMeasurements,
-    connectDmmWebSocket,
-    registerRefreshDmmSets,
     // Generic Status values
     instrumentStatuses,
     isFetchingStatuses,

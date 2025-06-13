@@ -1,12 +1,11 @@
 import React, { useState, useEffect } from 'react';
 import './App.css';
-import DMMMeasurementManager from './components/DMMMeasurementManager';
 import InitializationManager from './components/InitializationManager';
 import CalibrationSetup from './components/CalibrationSetup';
 import { InstrumentContextProvider } from './contexts/InstrumentContext'; 
 
+// Define your tabs
 const TABS = {
-  DMM: 'DMM Measurements',
   INITIALIZATION: 'Initialization',
   CAL_SETUP: 'Calibration Setup',
   CALIBRATION: 'Calibration',
@@ -27,10 +26,6 @@ function App() {
 
   const renderTabContent = () => {
     switch (activeTab) {
-      // *** THIS IS THE CHANGE ***
-      // Pass the current theme to the DMM component
-      case TABS.DMM:
-        return <DMMMeasurementManager theme={theme} />;
       case TABS.INITIALIZATION:
         return <InitializationManager />;
       case TABS.CAL_SETUP:
@@ -68,12 +63,6 @@ function App() {
               {TABS.CAL_SETUP}
             </button>
             <button
-              className={`tab-button ${activeTab === TABS.DMM ? 'active' : ''}`}
-              onClick={() => setActiveTab(TABS.DMM)}
-            >
-              {TABS.DMM}
-            </button>
-            <button
               className={`tab-button ${activeTab === TABS.CALIBRATION ? 'active' : ''}`}
               onClick={() => setActiveTab(TABS.CALIBRATION)}
             >
@@ -81,6 +70,7 @@ function App() {
             </button>
           </nav>
         </header>
+
         <main className="tab-content-container">
           {renderTabContent()}
         </main>
