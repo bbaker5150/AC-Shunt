@@ -1,0 +1,24 @@
+# Python/Django
+__pycache__/
+*.pyc
+*.pyo
+*.pyd
+db.sqlite3
+/venv/
+/env/
+.env
+
+# Frontend (React)
+/node_modules/
+/build/
+.pnp
+.pnp.js
+
+# IDE and Editor-specific
+.vscode/
+.idea/
+*.swp
+
+# OS-specific
+.DS_Store
+Thumbs.db
