@@ -622,3 +622,105 @@ body.dark-mode .test-set-details {
 body.dark-mode .test-set-details div {
   color: #cbd5e0;
 }
+
+/* --- Add these styles to src/App.css --- */
+
+/* Theme Colors */
+body.light-mode {
+  --background-color: #f0f2f5;
+  --text-color: #333;
+  --header-background: #ffffff;
+  --content-background: #ffffff;
+  --border-color: #dee2e6;
+  --input-background: #f8f9fa;
+}
+
+body.dark-mode {
+  --background-color: #121212;
+  --text-color: #e0e0e0;
+  --header-background: #1e1e1e;
+  --content-background: #2a2a2a;
+  --border-color: #444;
+  --input-background: #333;
+}
+
+/* Apply theme variables */
+body {
+  background-color: var(--background-color);
+  color: var(--text-color);
+}
+
+.App-header {
+  background-color: var(--header-background);
+  border-bottom: 1px solid var(--border-color);
+  /* other styles... */
+}
+
+/* ... update other components to use variables ... */
+/* Example for content areas */
+.content-area {
+  background: var(--content-background);
+  border: 1px solid var(--border-color);
+}
+
+
+/* Theme Switcher Styles */
+.theme-switcher {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  position: absolute;
+  top: 20px;
+  right: 20px;
+}
+
+.switch {
+  position: relative;
+  display: inline-block;
+  width: 50px;
+  height: 24px;
+}
+
+.switch input {
+  opacity: 0;
+  width: 0;
+  height: 0;
+}
+
+.slider {
+  position: absolute;
+  cursor: pointer;
+  top: 0;
+  left: 0;
+  right: 0;
+  bottom: 0;
+  background-color: #ccc;
+  transition: .4s;
+}
+
+.slider:before {
+  position: absolute;
+  content: "";
+  height: 16px;
+  width: 16px;
+  left: 4px;
+  bottom: 4px;
+  background-color: white;
+  transition: .4s;
+}
+
+input:checked + .slider {
+  background-color: #2196F3;
+}
+
+input:checked + .slider:before {
+  transform: translateX(26px);
+}
+
+.slider.round {
+  border-radius: 24px;
+}
+
+.slider.round:before {
+  border-radius: 50%;
+}

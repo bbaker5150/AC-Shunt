@@ -12,22 +12,24 @@ import SessionManager from './SessionManager';
 import SessionDetailsForm from './SessionDetailsForm';
 import InstrumentStatusPanel from '../instruments/InstrumentStatusPanel';
 
-function SessionSetup() {
+function SessionSetup({ showNotification }) { 
     const [sessionsList, setSessionsList] = useState([]);
     const [isLoadingSessions, setIsLoadingSessions] = useState(false);
 
     return (
         <React.Fragment>
             <div className="content-area">
-                <SessionManager
+                <SessionManager 
                     sessionsList={sessionsList}
                     setSessionsList={setSessionsList}
                     isLoadingSessions={isLoadingSessions}
                     setIsLoadingSessions={setIsLoadingSessions}
+                    // Pass the prop down to SessionManager
+                    showNotification={showNotification} 
                 />
-                <SessionDetailsForm
-                    sessionsList={sessionsList}
-                    fetchSessionsList={() => setIsLoadingSessions(true)} // Trigger refresh
+                <SessionDetailsForm 
+                    sessionsList={sessionsList} 
+                    fetchSessionsList={() => setIsLoadingSessions(true)}
                 />
             </div>
             <InstrumentStatusPanel />

@@ -7,7 +7,8 @@
  * calibration session. It allows users to generate points, add them to a list,
  * and save the entire configuration, including AC Shunt Range and TVC Upper
  * Limit settings, to the backend API. It relies on the active session ID from
- * the InstrumentContext to fetch and save data.
+ * the InstrumentContext to fetch and save data. It receives the showNotification
+ * function as a prop from a parent component to display status messages.
  */
 import React, { useState, useEffect, useCallback } from 'react';
 import axios from 'axios';
@@ -27,23 +28,13 @@ const AVAILABLE_FREQUENCIES = [
     { text: '50kHz', value: 50000 }, { text: '100kHz', value: 100000 }
 ];
 
-const Notification = ({ message, type, onDismiss }) => {
-    if (!message) return null;
-    return (
-        <div className={`notification-bar notification-${type}`}>
-            <span>{message}</span>
-            <button onClick={onDismiss} className="dismiss">&times;</button>
-        </div>
-    );
-};
-
-function TestPointEditor() {
+// The TestPointEditor now receives `showNotification` as a prop
+function TestPointEditor({ showNotification }) {
     const { selectedSessionId, selectedSessionName } = useInstruments();
 
     const [selectedCurrent, setSelectedCurrent] = useState('');
-    const [frequencyInputs, setFrequencyInputs] = useState([{ text: '', value: '' }]);
+    const [frequencyInputs, setFrequencyInputs] = useState([{text: '', value: ''}]);
     const [testPoints, setTestPoints] = useState([]);
-    const [notification, setNotification] = useState({ message: '', type: 'info', key: 0 });
 
     const [acShuntRange, setAcShuntRange] = useState('');
     const [tvcUpperLimit, setTvcUpperLimit] = useState('');
@@ -51,26 +42,13 @@ function TestPointEditor() {
     const [savedAcShuntRange, setSavedAcShuntRange] = useState('');
     const [savedTvcUpperLimit, setSavedTvcUpperLimit] = useState('');
 
-
-    const showNotification = useCallback((message, type = 'info', duration = 4000) => {
-        const newKey = Date.now();
-        setNotification({ message, type, key: newKey });
-        if (duration > 0) {
-            setTimeout(() => {
-                setNotification(prev => (prev.key === newKey ? { message: '', type: 'info', key: 0 } : prev));
-            }, duration);
-        }
-    }, []);
-
-    const dismissNotification = useCallback(() => {
-        setNotification({ message: '', type: 'info', key: 0 });
-    }, []);
-
     const fetchTestPointSet = useCallback(async () => {
         if (!selectedSessionId) {
             setTestPoints([]);
-            setAcShuntRange(''); setTvcUpperLimit('');
-            setSavedAcShuntRange(''); setSavedTvcUpperLimit('');
+            setAcShuntRange('');
+            setTvcUpperLimit('');
+            setSavedAcShuntRange('');
+            setSavedTvcUpperLimit('');
             return;
         }
         try {
@@ -119,7 +97,6 @@ function TestPointEditor() {
     };
 
     const handleGenerateTestPoints = () => {
-        dismissNotification();
         const shuntRangeValue = parseFloat(acShuntRange);
         const currentInputValue = parseFloat(selectedCurrent);
 
@@ -150,7 +127,7 @@ function TestPointEditor() {
             frequency: freq.value
         }));
         setTestPoints(prevPoints => [...prevPoints, ...newTestPoints]);
-        setFrequencyInputs([{ text: '', value: '' }]);
+        setFrequencyInputs([{text: '', value: ''}]);
     };
 
     const handleDeleteTestPoint = (idToDelete) => {
@@ -164,12 +141,12 @@ function TestPointEditor() {
     const handleFrequencyChange = (index, selectedValue) => {
         const newFrequencyInputs = [...frequencyInputs];
         const selectedFreqObject = AVAILABLE_FREQUENCIES.find(f => f.value.toString() === selectedValue);
-        newFrequencyInputs[index] = selectedFreqObject || { text: '', value: '' };
+        newFrequencyInputs[index] = selectedFreqObject || {text: '', value: ''};
         setFrequencyInputs(newFrequencyInputs);
     };
 
     const handleAddFrequency = () => {
-        setFrequencyInputs([...frequencyInputs, { text: '', value: '' }]);
+        setFrequencyInputs([...frequencyInputs, {text: '', value: ''}]);
     };
 
     const handleRemoveFrequency = (indexToRemove) => {
@@ -217,8 +194,6 @@ function TestPointEditor() {
 
     return (
         <React.Fragment>
-            {notification.message && <Notification message={notification.message} type={notification.type} onDismiss={dismissNotification} key={notification.key} />}
-
             <div className="content-area calibration-setup">
                 <h2>Test Point Configuration</h2>
                 {selectedSessionId ? (
@@ -242,7 +217,7 @@ function TestPointEditor() {
                             <input type="number" id="tvc-upper-limit" value={tvcUpperLimit} onChange={(e) => setTvcUpperLimit(e.target.value)} disabled={!selectedSessionId} placeholder="e.g., 100.5" />
                         </div>
                         <div className="form-section-action">
-                            <button onClick={handleSaveSettings} className="button button-secondary" disabled={!selectedSessionId}>Save Settings</button>
+                             <button onClick={handleSaveSettings} className="button button-secondary" disabled={!selectedSessionId}>Reset</button>
                         </div>
                     </div>
 
@@ -267,7 +242,7 @@ function TestPointEditor() {
                                     </div>
                                 ))}
                             </div>
-                            <button type="button" onClick={handleAddFrequency} className="button button-secondary" style={{ marginRight: '10px' }} disabled={!selectedSessionId}>Add Frequency</button>
+                             <button type="button" onClick={handleAddFrequency} className="button button-secondary" style={{marginRight: '10px'}} disabled={!selectedSessionId}>Add Frequency</button>
                             <button type="button" onClick={handleGenerateTestPoints} className="button button-success" disabled={!selectedSessionId}>Generate Points</button>
                         </div>
                     </div>
@@ -276,17 +251,17 @@ function TestPointEditor() {
 
             <div className="content-area">
                 <div className="test-points-header">
-                    <h2>Test Points ({testPoints.length})</h2>
+                    <h2>Total Test Points: {testPoints.length}</h2>
                     <div>
-                        {testPoints.length > 0 && (<button onClick={handleClearAllTestPoints} className="button button-danger" style={{ marginRight: '10px' }}>Clear List</button>)}
-                        <button onClick={handleSaveAll} className="button button-success" disabled={!selectedSessionId}>Save Points to Set</button>
+                        {testPoints.length > 0 && (<button onClick={handleClearAllTestPoints} className="button button-danger" style={{marginRight: '10px'}}>Clear List</button>)}
+                        <button onClick={handleSaveAll} className="button button-success" disabled={!selectedSessionId}>Save Test Points</button>
                     </div>
                 </div>
 
                 {selectedSessionId && (
                     <div className="test-set-details">
-                        <div><strong>Saved AC Shunt Range:</strong> {savedAcShuntRange ? `${savedAcShuntRange}A` : 'Not Set'}</div>
-                        <div><strong>Saved TVC Upper Limit:</strong> {savedTvcUpperLimit || 'Not Set'}</div>
+                        <div><strong>Saved AC Shunt Range:</strong> {savedAcShuntRange ? `${savedAcShuntRange} A` : 'Not Set'}</div>
+                        <div><strong>Saved TVC Upper Limit:</strong> {`${savedTvcUpperLimit} A` || 'Not Set'}</div>
                     </div>
                 )}
 
@@ -307,7 +282,7 @@ function TestPointEditor() {
                             </tr>
                         )) : (
                             <tr>
-                                <td colSpan="3" style={{ textAlign: 'center', fontStyle: 'italic', color: '#6c757d' }}>
+                                <td colSpan="3" style={{textAlign: 'center', fontStyle: 'italic', color: '#6c757d'}}>
                                     {selectedSessionId ? "No test points generated for this session." : "Select a session to view its test points."}
                                 </td>
                             </tr>
