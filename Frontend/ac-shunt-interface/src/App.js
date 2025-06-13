@@ -1,18 +1,25 @@
+/**
+ * @file App.js
+ * This is the root component of the application. It sets up the main layout,
+ * context provider, and routing between the primary tabs (Session Setup, 
+ * Test Point Editor, etc.). It also manages the application-wide state for
+ * the light/dark theme.
+ */
+
 import React, { useState, useEffect } from 'react';
 import './App.css';
-import InitializationManager from './components/InitializationManager';
-import CalibrationSetup from './components/CalibrationSetup';
-import { InstrumentContextProvider } from './contexts/InstrumentContext'; 
+import SessionSetup from './components/session/SessionSetup';
+import TestPointEditor from './components/calibration/TestPointEditor';
+import { InstrumentContextProvider } from './contexts/InstrumentContext';
 
-// Define your tabs
 const TABS = {
-  INITIALIZATION: 'Initialization',
-  CAL_SETUP: 'Calibration Setup',
-  CALIBRATION: 'Calibration',
+  SESSION_SETUP: 'Session Setup',
+  TEST_POINTS: 'Test Point Editor',
+  CALIBRATION: 'Run Calibration', // Placeholder for the future
 };
 
 function App() {
-  const [activeTab, setActiveTab] = useState(TABS.INITIALIZATION);
+  const [activeTab, setActiveTab] = useState(TABS.SESSION_SETUP);
   const [theme, setTheme] = useState('light');
 
   useEffect(() => {
@@ -26,12 +33,12 @@ function App() {
 
   const renderTabContent = () => {
     switch (activeTab) {
-      case TABS.INITIALIZATION:
-        return <InitializationManager />;
-      case TABS.CAL_SETUP:
-        return <CalibrationSetup />;
+      case TABS.SESSION_SETUP:
+        return <SessionSetup />;
+      case TABS.TEST_POINTS:
+        return <TestPointEditor />;
       case TABS.CALIBRATION:
-        return <div className="content-area"><p>Calibration section content will go here.</p></div>;
+        return <div className="content-area"><p>The main calibration execution screen will go here.</p></div>;
       default:
         return <div className="content-area"><p>Select a tab to view content.</p></div>;
     }
@@ -51,16 +58,16 @@ function App() {
           </div>
           <nav className="tab-navigation">
             <button
-              className={`tab-button ${activeTab === TABS.INITIALIZATION ? 'active' : ''}`}
-              onClick={() => setActiveTab(TABS.INITIALIZATION)}
+              className={`tab-button ${activeTab === TABS.SESSION_SETUP ? 'active' : ''}`}
+              onClick={() => setActiveTab(TABS.SESSION_SETUP)}
             >
-              {TABS.INITIALIZATION}
+              {TABS.SESSION_SETUP}
             </button>
             <button
-              className={`tab-button ${activeTab === TABS.CAL_SETUP ? 'active' : ''}`}
-              onClick={() => setActiveTab(TABS.CAL_SETUP)}
+              className={`tab-button ${activeTab === TABS.TEST_POINTS ? 'active' : ''}`}
+              onClick={() => setActiveTab(TABS.TEST_POINTS)}
             >
-              {TABS.CAL_SETUP}
+              {TABS.TEST_POINTS}
             </button>
             <button
               className={`tab-button ${activeTab === TABS.CALIBRATION ? 'active' : ''}`}

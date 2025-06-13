@@ -1,18 +1,29 @@
+/**
+ * @file TestPointEditor.js
+ * @brief Manages the configuration of test points for a calibration session.
+ *
+ * This component provides the UI for creating, viewing, and managing a set of
+ * test points (current and frequency combinations) associated with a specific
+ * calibration session. It allows users to generate points, add them to a list,
+ * and save the entire configuration, including AC Shunt Range and TVC Upper
+ * Limit settings, to the backend API. It relies on the active session ID from
+ * the InstrumentContext to fetch and save data.
+ */
 import React, { useState, useEffect, useCallback } from 'react';
 import axios from 'axios';
-import { useInstruments } from '../contexts/InstrumentContext';
+import { useInstruments } from '../../contexts/InstrumentContext';
 
 const API_BASE_URL = 'http://10.206.104.144:8000/api';
 
 const AVAILABLE_CURRENTS = [
-    { text: '1A', value: 1 }, { text: '2A', value: 2 }, 
+    { text: '1A', value: 1 }, { text: '2A', value: 2 },
     { text: '5A', value: 5 }, { text: '10A', value: 10 }, { text: '20A', value: 20 }
 ];
 const AVAILABLE_FREQUENCIES = [
-    { text: '10Hz', value: 10 }, { text: '20Hz', value: 20 }, { text: '50Hz', value: 50 }, 
-    { text: '60Hz', value: 60 }, { text: '100Hz', value: 100 }, { text: '200Hz', value: 200 }, 
-    { text: '500Hz', value: 500 }, { text: '1kHz', value: 1000 }, { text: '2kHz', value: 2000 }, 
-    { text: '5kHz', value: 5000 }, { text: '10kHz', value: 10000 }, { text: '20kHz', value: 20000 }, 
+    { text: '10Hz', value: 10 }, { text: '20Hz', value: 20 }, { text: '50Hz', value: 50 },
+    { text: '60Hz', value: 60 }, { text: '100Hz', value: 100 }, { text: '200Hz', value: 200 },
+    { text: '500Hz', value: 500 }, { text: '1kHz', value: 1000 }, { text: '2kHz', value: 2000 },
+    { text: '5kHz', value: 5000 }, { text: '10kHz', value: 10000 }, { text: '20kHz', value: 20000 },
     { text: '50kHz', value: 50000 }, { text: '100kHz', value: 100000 }
 ];
 
@@ -26,18 +37,17 @@ const Notification = ({ message, type, onDismiss }) => {
     );
 };
 
-function CalibrationSetup() {
+function TestPointEditor() {
     const { selectedSessionId, selectedSessionName } = useInstruments();
 
     const [selectedCurrent, setSelectedCurrent] = useState('');
-    const [frequencyInputs, setFrequencyInputs] = useState([{text: '', value: ''}]); 
+    const [frequencyInputs, setFrequencyInputs] = useState([{ text: '', value: '' }]);
     const [testPoints, setTestPoints] = useState([]);
-    const [testPointSetId, setTestPointSetId] = useState(null);
     const [notification, setNotification] = useState({ message: '', type: 'info', key: 0 });
 
     const [acShuntRange, setAcShuntRange] = useState('');
     const [tvcUpperLimit, setTvcUpperLimit] = useState('');
-    
+
     const [savedAcShuntRange, setSavedAcShuntRange] = useState('');
     const [savedTvcUpperLimit, setSavedTvcUpperLimit] = useState('');
 
@@ -51,14 +61,14 @@ function CalibrationSetup() {
             }, duration);
         }
     }, []);
-    
+
     const dismissNotification = useCallback(() => {
         setNotification({ message: '', type: 'info', key: 0 });
     }, []);
 
     const fetchTestPointSet = useCallback(async () => {
         if (!selectedSessionId) {
-            setTestPoints([]); setTestPointSetId(null);
+            setTestPoints([]);
             setAcShuntRange(''); setTvcUpperLimit('');
             setSavedAcShuntRange(''); setSavedTvcUpperLimit('');
             return;
@@ -70,7 +80,6 @@ function CalibrationSetup() {
                 id: `server_${Math.random().toString(36).substring(2, 9)}`
             }));
             setTestPoints(pointsWithIds);
-            setTestPointSetId(response.data.id);
             setAcShuntRange(response.data.ac_shunt_range || '');
             setTvcUpperLimit(response.data.tvc_upper_limit || '');
             setSavedAcShuntRange(response.data.ac_shunt_range || '');
@@ -86,7 +95,7 @@ function CalibrationSetup() {
     useEffect(() => {
         fetchTestPointSet();
     }, [fetchTestPointSet]);
-    
+
     const handleSaveSettings = async () => {
         if (!selectedSessionId) {
             showNotification('No active session to save to.', 'error');
@@ -99,16 +108,16 @@ function CalibrationSetup() {
             await axios.put(`${API_BASE_URL}/calibration_sessions/${selectedSessionId}/test_point_set/`, {
                 points: existingPoints,
                 ac_shunt_range: parseFloat(acShuntRange) || null,
-                tvc_upper_limit: parseFloat(tvcUpperLimit) || null 
+                tvc_upper_limit: parseFloat(tvcUpperLimit) || null
             });
             showNotification('Settings saved successfully!', 'success');
-            fetchTestPointSet(); 
+            fetchTestPointSet();
         } catch (error) {
             console.error("Failed to save settings:", error);
             showNotification('An error occurred while saving settings.', 'error');
         }
     };
-    
+
     const handleGenerateTestPoints = () => {
         dismissNotification();
         const shuntRangeValue = parseFloat(acShuntRange);
@@ -123,7 +132,7 @@ function CalibrationSetup() {
             showNotification('Please set and save a valid AC Shunt Range before generating points.', 'error');
             return;
         }
-        
+
         if (currentInputValue > shuntRangeValue) {
             const currentDisplay = AVAILABLE_CURRENTS.find(c => c.value === currentInputValue)?.text || `${currentInputValue}A`;
             showNotification(`The selected current (${currentDisplay}) cannot exceed the AC Shunt Range (${acShuntRange}A).`, 'error');
@@ -141,9 +150,9 @@ function CalibrationSetup() {
             frequency: freq.value
         }));
         setTestPoints(prevPoints => [...prevPoints, ...newTestPoints]);
-        setFrequencyInputs([{text: '', value: ''}]);
+        setFrequencyInputs([{ text: '', value: '' }]);
     };
-    
+
     const handleDeleteTestPoint = (idToDelete) => {
         setTestPoints(testPoints.filter(point => point.id !== idToDelete));
     };
@@ -155,12 +164,12 @@ function CalibrationSetup() {
     const handleFrequencyChange = (index, selectedValue) => {
         const newFrequencyInputs = [...frequencyInputs];
         const selectedFreqObject = AVAILABLE_FREQUENCIES.find(f => f.value.toString() === selectedValue);
-        newFrequencyInputs[index] = selectedFreqObject || {text: '', value: ''};
+        newFrequencyInputs[index] = selectedFreqObject || { text: '', value: '' };
         setFrequencyInputs(newFrequencyInputs);
     };
 
     const handleAddFrequency = () => {
-        setFrequencyInputs([...frequencyInputs, {text: '', value: ''}]);
+        setFrequencyInputs([...frequencyInputs, { text: '', value: '' }]);
     };
 
     const handleRemoveFrequency = (indexToRemove) => {
@@ -187,20 +196,20 @@ function CalibrationSetup() {
             await axios.put(`${API_BASE_URL}/calibration_sessions/${selectedSessionId}/test_point_set/`, {
                 points: pointsToSave,
                 ac_shunt_range: shuntRangeValue || null,
-                tvc_upper_limit: parseFloat(tvcUpperLimit) || null 
+                tvc_upper_limit: parseFloat(tvcUpperLimit) || null
             });
             showNotification('Configuration and test points saved successfully!', 'success');
-            fetchTestPointSet(); 
+            fetchTestPointSet();
         } catch (error) {
             showNotification('An error occurred while saving the configuration.', 'error');
         }
     };
-    
+
     const formatFrequency = (value) => {
         const freqObject = AVAILABLE_FREQUENCIES.find(f => f.value === value);
         return freqObject ? freqObject.text : `${value}Hz`;
     };
-    
+
     const formatCurrent = (value) => {
         const currentObject = AVAILABLE_CURRENTS.find(c => c.value === value);
         return currentObject ? currentObject.text : `${value}A`;
@@ -214,14 +223,14 @@ function CalibrationSetup() {
                 <h2>Test Point Configuration</h2>
                 {selectedSessionId ? (
                     <h3 className="session-title-header">
-                        Calibration Session: <span>{selectedSessionName || `ID: ${selectedSessionId}`}</span>
+                        For Session: <span>{selectedSessionName || `ID: ${selectedSessionId}`}</span>
                     </h3>
                 ) : (
                     <div className="form-section-warning">
                         <p>Please select a session from the "Initialization" tab to add or view test points.</p>
                     </div>
                 )}
-                
+
                 <div className="config-grid">
                     <div className="config-column">
                         <div className="form-section">
@@ -233,10 +242,10 @@ function CalibrationSetup() {
                             <input type="number" id="tvc-upper-limit" value={tvcUpperLimit} onChange={(e) => setTvcUpperLimit(e.target.value)} disabled={!selectedSessionId} placeholder="e.g., 100.5" />
                         </div>
                         <div className="form-section-action">
-                             <button onClick={handleSaveSettings} className="button button-secondary" disabled={!selectedSessionId}>Update</button>
+                            <button onClick={handleSaveSettings} className="button button-secondary" disabled={!selectedSessionId}>Save Settings</button>
                         </div>
                     </div>
-                    
+
                     <div className="config-column">
                         <div className="form-section">
                             <label htmlFor="current-select">Standard Current to Generate</label>
@@ -258,26 +267,26 @@ function CalibrationSetup() {
                                     </div>
                                 ))}
                             </div>
-                             <button type="button" onClick={handleAddFrequency} className="button button-secondary" style={{marginRight: '10px'}} disabled={!selectedSessionId}>Add Frequency</button>
-                            <button type="button" onClick={handleGenerateTestPoints} className="button button-success" disabled={!selectedSessionId}>Generate Test Points</button>
+                            <button type="button" onClick={handleAddFrequency} className="button button-secondary" style={{ marginRight: '10px' }} disabled={!selectedSessionId}>Add Frequency</button>
+                            <button type="button" onClick={handleGenerateTestPoints} className="button button-success" disabled={!selectedSessionId}>Generate Points</button>
                         </div>
                     </div>
                 </div>
             </div>
-            
+
             <div className="content-area">
                 <div className="test-points-header">
                     <h2>Test Points ({testPoints.length})</h2>
                     <div>
-                        {testPoints.length > 0 && (<button onClick={handleClearAllTestPoints} className="button button-danger" style={{marginRight: '10px'}}>Clear List</button>)}
-                        <button onClick={handleSaveAll} className="button button-success" disabled={!selectedSessionId}>Save Test Points</button>
+                        {testPoints.length > 0 && (<button onClick={handleClearAllTestPoints} className="button button-danger" style={{ marginRight: '10px' }}>Clear List</button>)}
+                        <button onClick={handleSaveAll} className="button button-success" disabled={!selectedSessionId}>Save Points to Set</button>
                     </div>
                 </div>
 
                 {selectedSessionId && (
                     <div className="test-set-details">
-                        <div><strong>AC Shunt Range:</strong> {savedAcShuntRange ? `${savedAcShuntRange} A` : 'Not Set'}</div>
-                        <div><strong>TVC Upper Limit:</strong> {`${savedTvcUpperLimit} A` || 'Not Set'}</div>
+                        <div><strong>Saved AC Shunt Range:</strong> {savedAcShuntRange ? `${savedAcShuntRange}A` : 'Not Set'}</div>
+                        <div><strong>Saved TVC Upper Limit:</strong> {savedTvcUpperLimit || 'Not Set'}</div>
                     </div>
                 )}
 
@@ -298,7 +307,7 @@ function CalibrationSetup() {
                             </tr>
                         )) : (
                             <tr>
-                                <td colSpan="3" style={{textAlign: 'center', fontStyle: 'italic', color: '#6c757d'}}>
+                                <td colSpan="3" style={{ textAlign: 'center', fontStyle: 'italic', color: '#6c757d' }}>
                                     {selectedSessionId ? "No test points generated for this session." : "Select a session to view its test points."}
                                 </td>
                             </tr>
@@ -310,4 +319,4 @@ function CalibrationSetup() {
     );
 }
 
-export default CalibrationSetup;
+export default TestPointEditor;
