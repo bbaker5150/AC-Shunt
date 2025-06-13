@@ -27,9 +27,9 @@ const Notification = ({ message, type, onDismiss }) => {
 };
 
 function CalibrationSetup() {
-    const { selectedSessionId } = useInstruments();
+    const { selectedSessionId, selectedSessionName } = useInstruments();
 
-    const [selectedCurrent, setSelectedCurrent] = useState(AVAILABLE_CURRENTS[0].value);
+    const [selectedCurrent, setSelectedCurrent] = useState('');
     const [frequencyInputs, setFrequencyInputs] = useState([{text: '', value: ''}]); 
     const [testPoints, setTestPoints] = useState([]);
     const [testPointSetId, setTestPointSetId] = useState(null);
@@ -87,25 +87,9 @@ function CalibrationSetup() {
         fetchTestPointSet();
     }, [fetchTestPointSet]);
     
-    const validateSettings = () => {
-        const shuntRangeValue = parseFloat(acShuntRange);
-        const tvcLimitValue = parseFloat(tvcUpperLimit);
-
-        if (acShuntRange && tvcUpperLimit && !isNaN(shuntRangeValue) && !isNaN(tvcLimitValue)) {
-            if (shuntRangeValue > tvcLimitValue) {
-                showNotification(`AC Shunt Range (${acShuntRange}A) cannot exceed the TVC Upper Limit (${tvcUpperLimit}).`, 'error');
-                return false;
-            }
-        }
-        return true;
-    };
-
     const handleSaveSettings = async () => {
         if (!selectedSessionId) {
             showNotification('No active session to save to.', 'error');
-            return;
-        }
-        if (!validateSettings()) {
             return;
         }
         try {
@@ -128,16 +112,21 @@ function CalibrationSetup() {
     const handleGenerateTestPoints = () => {
         dismissNotification();
         const shuntRangeValue = parseFloat(acShuntRange);
-        const currentInputValue = selectedCurrent;
+        const currentInputValue = parseFloat(selectedCurrent);
+
+        if (!currentInputValue) {
+            showNotification('Please select a Standard Current before generating points.', 'error');
+            return;
+        }
 
         if (!acShuntRange || isNaN(shuntRangeValue)) {
             showNotification('Please set and save a valid AC Shunt Range before generating points.', 'error');
             return;
         }
         
-        if (shuntRangeValue < currentInputValue) {
+        if (currentInputValue > shuntRangeValue) {
             const currentDisplay = AVAILABLE_CURRENTS.find(c => c.value === currentInputValue)?.text || `${currentInputValue}A`;
-            showNotification(`AC Shunt Range (${acShuntRange}A) must be greater or equal to the selected standard current (${currentDisplay}).`, 'error');
+            showNotification(`The selected current (${currentDisplay}) cannot exceed the AC Shunt Range (${acShuntRange}A).`, 'error');
             return;
         }
 
@@ -181,20 +170,15 @@ function CalibrationSetup() {
     const handleSaveAll = async () => {
         if (!selectedSessionId) return;
 
-        if (!validateSettings()) {
-            return;
-        }
-
         const shuntRangeValue = parseFloat(acShuntRange);
         if (testPoints.length > 0 && acShuntRange) {
             if (isNaN(shuntRangeValue)) {
                 showNotification('AC Shunt Range must be a valid number.', 'error');
                 return;
             }
-            // *** THIS IS THE FIX: The check is now correctly <= ***
             const maxCurrentInPoints = Math.max(...testPoints.map(p => p.current));
-            if (shuntRangeValue <= maxCurrentInPoints) {
-                showNotification(`Save failed: AC Shunt Range (${acShuntRange}A) must be greater than the highest current in the test points list (${maxCurrentInPoints}A).`, 'error');
+            if (maxCurrentInPoints > shuntRangeValue) {
+                showNotification(`Save failed: The highest current in the list (${maxCurrentInPoints}A) exceeds the AC Shunt Range (${acShuntRange}A).`, 'error');
                 return;
             }
         }
@@ -228,7 +212,11 @@ function CalibrationSetup() {
 
             <div className="content-area calibration-setup">
                 <h2>Test Point Configuration</h2>
-                {!selectedSessionId && (
+                {selectedSessionId ? (
+                    <h3 className="session-title-header">
+                        Calibration Session: <span>{selectedSessionName || `ID: ${selectedSessionId}`}</span>
+                    </h3>
+                ) : (
                     <div className="form-section-warning">
                         <p>Please select a session from the "Initialization" tab to add or view test points.</p>
                     </div>
@@ -244,8 +232,8 @@ function CalibrationSetup() {
                             <label htmlFor="tvc-upper-limit">TVC Upper Limit</label>
                             <input type="number" id="tvc-upper-limit" value={tvcUpperLimit} onChange={(e) => setTvcUpperLimit(e.target.value)} disabled={!selectedSessionId} placeholder="e.g., 100.5" />
                         </div>
-                        <div className="form-section">
-                             <button onClick={handleSaveSettings} className="button button-secondary" disabled={!selectedSessionId}>Save</button>
+                        <div className="form-section-action">
+                             <button onClick={handleSaveSettings} className="button button-secondary" disabled={!selectedSessionId}>Update</button>
                         </div>
                     </div>
                     
@@ -271,7 +259,7 @@ function CalibrationSetup() {
                                 ))}
                             </div>
                              <button type="button" onClick={handleAddFrequency} className="button button-secondary" style={{marginRight: '10px'}} disabled={!selectedSessionId}>Add Frequency</button>
-                            <button type="button" onClick={handleGenerateTestPoints} className="button button-success" disabled={!selectedSessionId}>Generate Points</button>
+                            <button type="button" onClick={handleGenerateTestPoints} className="button button-success" disabled={!selectedSessionId}>Generate Test Points</button>
                         </div>
                     </div>
                 </div>
@@ -279,17 +267,17 @@ function CalibrationSetup() {
             
             <div className="content-area">
                 <div className="test-points-header">
-                    <h2>Total Test Points: {testPoints.length}</h2>
+                    <h2>Test Points ({testPoints.length})</h2>
                     <div>
                         {testPoints.length > 0 && (<button onClick={handleClearAllTestPoints} className="button button-danger" style={{marginRight: '10px'}}>Clear List</button>)}
-                        <button onClick={handleSaveAll} className="button button-success" disabled={!selectedSessionId}>Save Points to Set</button>
+                        <button onClick={handleSaveAll} className="button button-success" disabled={!selectedSessionId}>Save Test Points</button>
                     </div>
                 </div>
 
                 {selectedSessionId && (
                     <div className="test-set-details">
-                        <div><strong>Saved AC Shunt Range:</strong> {savedAcShuntRange ? `${savedAcShuntRange} A` : 'Not Set'}</div>
-                        <div><strong>Saved TVC Upper Limit:</strong> {`${savedTvcUpperLimit} A` || 'Not Set'}</div>
+                        <div><strong>AC Shunt Range:</strong> {savedAcShuntRange ? `${savedAcShuntRange} A` : 'Not Set'}</div>
+                        <div><strong>TVC Upper Limit:</strong> {`${savedTvcUpperLimit} A` || 'Not Set'}</div>
                     </div>
                 )}
 

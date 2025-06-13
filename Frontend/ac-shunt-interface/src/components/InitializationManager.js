@@ -1,25 +1,15 @@
 import React, { useState, useEffect, useCallback, useRef } from 'react';
 import axios from 'axios';
-import { useInstruments } from '../contexts/InstrumentContext'; // Import the custom hook
+import { useInstruments } from '../contexts/InstrumentContext';
 
 const API_BASE_URL = 'http://10.206.104.144:8000/api';
 
-// --- Reusable Child Components (unchanged) ---
 const Notification = ({ message, type, onDismiss }) => {
     if (!message) return null;
-    const baseStyle = {
-        padding: '10px 15px', margin: '10px 0', borderRadius: '4px', color: 'white',
-        display: 'flex', justifyContent: 'space-between', alignItems: 'center',
-        position: 'fixed', bottom: '20px', right: '20px', zIndex: 1000,
-        minWidth: '300px', boxShadow: '0 2px 10px rgba(0,0,0,0.2)'
-    };
-    const typeStyles = {
-        error: { backgroundColor: '#dc3545' }, success: { backgroundColor: '#28a745' }, info: { backgroundColor: '#17a2b8' },
-    };
     return (
-        <div style={{ ...baseStyle, ...typeStyles[type] }} className={`notification-bar ${type}`}>
+        <div className={`notification-bar notification-${type}`}>
             <span>{message}</span>
-            <button onClick={onDismiss} className="dismiss" style={{ background: 'none', border: 'none', color: 'white', fontSize: '1.2em', cursor: 'pointer', marginLeft: '15px' }}>&times;</button>
+            <button onClick={onDismiss} className="dismiss">&times;</button>
         </div>
     );
 };
@@ -54,7 +44,6 @@ const InfoDialog = ({ isOpen, title, message, onClose }) => {
     );
 };
 
-
 const statusBitDescriptions = {
     OPER: "Operating", EXTGARD: "External Guard", EXTSENS: "External Sensing", BOOST: "Boost Active",
     RCOMP: "R-Comp Active", RLOCK: "Range Locked", PSHIFT: "Phase Shift", PLOCK: "Phase Locked",
@@ -77,8 +66,9 @@ function InitializationManager() {
         instrumentStatuses,
         isFetchingStatuses,
         getInstrumentStatus,
-        selectedSessionId,      // Get shared state from context
-        setSelectedSessionId,   // Get shared setter from context
+        selectedSessionId,
+        setSelectedSessionId,
+        setSelectedSessionName,
     } = useInstruments();
 
     const [formData, setFormData] = useState(initialFormData);
@@ -89,7 +79,6 @@ function InitializationManager() {
     const [isLoadingDetails, setIsLoadingDetails] = useState(false);
     const [deleteConfirmation, setDeleteConfirmation] = useState({ isOpen: false, sessionId: null, sessionName: '' });
     const [infoDialog, setInfoDialog] = useState({ isOpen: false, title: '', message: '' });
-    const componentInstanceId = useRef(`InitMgr-${Math.random().toString(36).substr(2, 9)}`);
     
     const [discoveredInstruments, setDiscoveredInstruments] = useState([]);
     const [isScanning, setIsScanning] = useState(false);
@@ -129,7 +118,6 @@ function InitializationManager() {
                 showNotification('Scan returned unexpected data format.', 'error');
             }
         } catch (error) {
-            console.error(`[${componentInstanceId.current}] Error scanning for instruments:`, error);
             const errMsg = error.response?.data?.error || 'Failed to scan for instruments.';
             showNotification(errMsg, 'error');
         } finally {
@@ -143,7 +131,6 @@ function InitializationManager() {
             const response = await axios.get(`${API_BASE_URL}/calibration_sessions/`);
             setSessionsList(response.data || []);
         } catch (error) {
-            console.error(`[${componentInstanceId.current}] Error fetching sessions:`, error);
             showNotification('Failed to fetch sessions list.', 'error');
         } finally {
             setIsLoadingSessions(false);
@@ -153,15 +140,25 @@ function InitializationManager() {
     const handleChange = (e) => setFormData(prev => ({ ...prev, [e.target.name]: e.target.value }));
 
     const handleSessionSelectChange = (e) => {
-        setSelectedSessionId(e.target.value || null); // Use the context setter
+        const sessionId = e.target.value;
+        if (sessionId) {
+            const session = sessionsList.find(s => s.id.toString() === sessionId);
+            if (session) {
+                setSelectedSessionName(session.session_name);
+            }
+        } else {
+            setSelectedSessionName('');
+        }
+        setSelectedSessionId(sessionId || null);
     };
 
     const handleClearForm = useCallback((showMsg = true) => {
         setFormData(initialFormData);
-        setSelectedSessionId(null); // Clear the shared session ID
+        setSelectedSessionId(null);
+        setSelectedSessionName('');
         dismissNotification();
         if (showMsg) showNotification('Form cleared.', 'info', 3000);
-    }, [setSelectedSessionId, showNotification, dismissNotification]);
+    }, [setSelectedSessionId, setSelectedSessionName, showNotification, dismissNotification]);
 
     const handleSubmit = async (e) => {
         e.preventDefault();
@@ -188,11 +185,10 @@ function InitializationManager() {
         try {
             const response = await axios.post(`${API_BASE_URL}/calibration_sessions/`, payload);
             setInfoDialog({ isOpen: true, title: 'Save Successful', message: `Session "${response.data.session_name}" saved!` });
-            handleClearForm(false);
             fetchSessionsList();
-            setSelectedSessionId(response.data.id); // Automatically select the new session
+            setSelectedSessionId(response.data.id);
+            setSelectedSessionName(response.data.session_name);
         } catch (error) {
-            console.error(`[${componentInstanceId.current}] Error saving session:`, error);
             let errMsg = error.response?.data?.detail || (typeof error.response?.data === 'object' ? JSON.stringify(error.response.data) : error.message) || 'Failed to save session.';
             showNotification(`Error: ${errMsg}`, 'error', 0);
         } finally {
@@ -232,8 +228,7 @@ function InitializationManager() {
     
     useEffect(() => {
         if (!selectedSessionId) {
-            // Do not clear the form when context value changes to null initially
-            // handleClearForm(false) handles this explicitly
+            setFormData(initialFormData);
             return;
         }
         setIsLoadingDetails(true);
@@ -255,7 +250,7 @@ function InitializationManager() {
             })
             .catch(error => {
                 showNotification(`Failed to load session ${selectedSessionId}.`, 'error');
-                handleClearForm(false); // Clear form if session fails to load
+                handleClearForm(false);
             })
             .finally(() => setIsLoadingDetails(false));
     }, [selectedSessionId, showNotification, dismissNotification, handleClearForm]);
@@ -272,7 +267,7 @@ function InitializationManager() {
             <div className="content-area initialization-manager">
                  <h2>Calibration Session Information</h2>
                  <div className="form-section">
-                     <label htmlFor="session-select">Load Existing Session:</label>
+                     <label htmlFor="session-select">Calibration Session:</label>
                      <div style={{ display: 'flex', gap: '10px', alignItems: 'center', flexWrap: 'wrap' }}>
                          <select id="session-select" value={selectedSessionId || ''} onChange={handleSessionSelectChange} disabled={isLoadingSessions || isLoadingDetails || isLoadingForm} style={{ flexGrow: 1 }}>
                              <option value="">-- Start New Session --</option>
@@ -287,10 +282,10 @@ function InitializationManager() {
                  <form onSubmit={handleSubmit} style={{ marginTop: '20px' }}>
                      <div style={formRowStyle}>
                          <div style={columnStyle}>
-                             <div className="form-section"><label htmlFor="sessionName">Session Name:</label><input type="text" id="sessionName" name="sessionName" value={formData.sessionName} onChange={handleChange} disabled={isLoadingForm} required /></div>
-                             <div className="form-section"><label htmlFor="testInstrument">Test Instrument:</label><input type="text" id="testInstrument" name="testInstrument" value={formData.testInstrument} onChange={handleChange} placeholder="e.g., DMM Model XYZ" disabled={isLoadingForm} required /></div>
-                             <div className="form-section"><label htmlFor="testInstrumentSerial">Test Instrument Serial:</label><input type="text" id="testInstrumentSerial" name="testInstrumentSerial" value={formData.testInstrumentSerial} onChange={handleChange} placeholder="e.g., SN12345" disabled={isLoadingForm} required /></div>
-                             <div className="form-section"><label htmlFor="standardInstrumentIdentity">Standard Instrument:</label><input type="text" id="standardInstrumentIdentity" name="standardInstrumentIdentity" value={formData.standardInstrumentIdentity} onChange={handleChange} placeholder="e.g., Fluke 5730A" disabled={isLoadingForm} required /></div>
+                             <div className="form-section"><label htmlFor="sessionName">Calibration Session Name:</label><input type="text" id="sessionName" name="sessionName" value={formData.sessionName} onChange={handleChange} disabled={isLoadingForm} required /></div>
+                             <div className="form-section"><label htmlFor="testInstrument">Test Instrument:</label><input type="text" id="testInstrument" name="testInstrument" value={formData.testInstrument} onChange={handleChange} placeholder="e.g., Fluke, 5790B" disabled={isLoadingForm} required /></div>
+                             <div className="form-section"><label htmlFor="testInstrumentSerial">Test Instrument Serial:</label><input type="text" id="testInstrumentSerial" name="testInstrumentSerial" value={formData.testInstrumentSerial} onChange={handleChange} placeholder="e.g., 5444504" disabled={isLoadingForm} required /></div>
+                             <div className="form-section"><label htmlFor="standardInstrumentIdentity">Standard Instrument:</label><input type="text" id="standardInstrumentIdentity" name="standardInstrumentIdentity" value={formData.standardInstrumentIdentity} onChange={handleChange} placeholder="e.g., Fluke, 5730A" disabled={isLoadingForm} required /></div>
                          </div>
                          <div style={columnStyle}>
                              <div className="form-section"><label htmlFor="temperature">Temperature (°C):</label><input type="number" id="temperature" name="temperature" value={formData.temperature} onChange={handleChange} placeholder="e.g., 23.5" step="0.1" disabled={isLoadingForm} required /></div>

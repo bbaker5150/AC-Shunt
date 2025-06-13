@@ -435,6 +435,40 @@ select:focus {
 
 
 /* Calibration Setup */
+.session-title-header {
+    font-size: 1.1rem;
+    font-weight: 500;
+    color: #6c757d;
+    border-bottom: 1px solid #e9ecef;
+    padding-bottom: 15px;
+    margin-top: -10px;
+    margin-bottom: 25px;
+}
+.session-title-header span {
+    font-weight: 600;
+    color: #333;
+}
+.config-grid {
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+    gap: 40px;
+    border-top: 1px solid #e9ecef;
+    padding-top: 20px;
+}
+.config-column {
+    display: flex;
+    flex-direction: column;
+}
+.form-section-action {
+    margin-top: auto;
+    padding-top: 10px;
+}
+@media (max-width: 768px) {
+    .config-grid {
+        grid-template-columns: 1fr;
+        gap: 20px;
+    }
+}
 .frequency-list-container {
     display: flex;
     flex-direction: column;
@@ -494,34 +528,6 @@ select:focus {
 }
 .test-set-details div {
   color: #495057;
-}
-
-/* Add these styles to your App.css file */
-
-.config-grid {
-    display: grid;
-    grid-template-columns: 1fr 1fr;
-    gap: 40px;
-    border-top: 1px solid #e9ecef;
-    padding-top: 20px;
-}
-
-.config-column {
-    display: flex;
-    flex-direction: column;
-}
-
-.form-section-action {
-    margin-top: auto; /* Pushes the button to the bottom of the column */
-    padding-top: 10px;
-}
-
-/* On smaller screens, stack the columns */
-@media (max-width: 768px) {
-    .config-grid {
-        grid-template-columns: 1fr;
-        gap: 20px;
-    }
 }
 
 /* Chart Container */
@@ -599,22 +605,25 @@ body.dark-mode .instrument-identity,
 body.dark-mode .instrument-status-header h2 {
     color: #e2e8f0;
 }
-
+body.dark-mode .session-title-header {
+    color: #a0aec0;
+    border-bottom-color: #4a5568;
+}
+body.dark-mode .session-title-header span {
+    color: #e2e8f0;
+}
 body.dark-mode .status-badge {
     background-color: #2b6cb0;
     color: #bee3f8;
 }
-
 body.dark-mode .status-card-body {
     border-top-color: #4a5568;
 }
-
 body.dark-mode .form-section-warning {
   background-color: #4a3a19;
   border-color: #9c6b0a;
   color: #f6e05e;
 }
-
 body.dark-mode .test-set-details {
   background-color: #1a202c;
   border-color: #4a5568;
@@ -622,7 +631,6 @@ body.dark-mode .test-set-details {
 body.dark-mode .test-set-details div {
   color: #cbd5e0;
 }
-
 body.dark-mode .chart-container {
   background: #2d3748;
   border-color: #4a5568;

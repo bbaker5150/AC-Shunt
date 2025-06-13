@@ -1,14 +1,14 @@
 import React, { createContext, useState, useEffect, useRef, useCallback, useContext } from 'react';
 
-// Define Base URLs
 const API_BASE_URL = 'http://10.206.104.144:8000/api';
 const WS_BASE_URL = 'ws://10.206.104.144:8000/ws';
 
 export const InstrumentContext = createContext();
 
 export const InstrumentContextProvider = ({ children }) => {
-  // --- NEW: Shared State for Active Session ---
+  // --- Shared State for Active Session ---
   const [selectedSessionId, setSelectedSessionId] = useState(null);
+  const [selectedSessionName, setSelectedSessionName] = useState('');
 
   // --- DMM Measurement State & WebSocket Logic ---
   const [dmmData, setDmmData] = useState([]);
@@ -17,7 +17,6 @@ export const InstrumentContextProvider = ({ children }) => {
   const [dmmActiveSetDetails, setDmmActiveSetDetails] = useState(null);
   const dmmWs = useRef(null);
   const refreshDmmSetsCallback = useRef(null);
-  const dmmComponentInstanceId = useRef(`DMMContext-${Math.random().toString(36).substr(2, 5)}`);
 
   const registerRefreshDmmSets = useCallback((callback) => {
     refreshDmmSetsCallback.current = callback;
@@ -186,6 +185,8 @@ export const InstrumentContextProvider = ({ children }) => {
     // Session State
     selectedSessionId,
     setSelectedSessionId,
+    selectedSessionName,
+    setSelectedSessionName,
     // DMM values
     dmmData,
     isDmmMeasuring,
