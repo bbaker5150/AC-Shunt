@@ -217,7 +217,7 @@ function TestPointEditor({ showNotification }) {
                             <input type="number" id="tvc-upper-limit" value={tvcUpperLimit} onChange={(e) => setTvcUpperLimit(e.target.value)} disabled={!selectedSessionId} placeholder="e.g., 100.5" />
                         </div>
                         <div className="form-section-action">
-                             <button onClick={handleSaveSettings} className="button button-secondary" disabled={!selectedSessionId}>Reset</button>
+                             <button onClick={handleSaveSettings} className="button button-secondary" disabled={!selectedSessionId}>Update</button>
                         </div>
                     </div>
 
@@ -243,7 +243,7 @@ function TestPointEditor({ showNotification }) {
                                 ))}
                             </div>
                              <button type="button" onClick={handleAddFrequency} className="button button-secondary" style={{marginRight: '10px'}} disabled={!selectedSessionId}>Add Frequency</button>
-                            <button type="button" onClick={handleGenerateTestPoints} className="button button-success" disabled={!selectedSessionId}>Generate Points</button>
+                            <button type="button" onClick={handleGenerateTestPoints} className="button button-success" disabled={!selectedSessionId}>Generate Test Points</button>
                         </div>
                     </div>
                 </div>
@@ -261,7 +261,7 @@ function TestPointEditor({ showNotification }) {
                 {selectedSessionId && (
                     <div className="test-set-details">
                         <div><strong>Saved AC Shunt Range:</strong> {savedAcShuntRange ? `${savedAcShuntRange} A` : 'Not Set'}</div>
-                        <div><strong>Saved TVC Upper Limit:</strong> {`${savedTvcUpperLimit} A` || 'Not Set'}</div>
+                        <div><strong>Saved TVC Upper Limit:</strong> {savedTvcUpperLimit ? `${savedTvcUpperLimit} A` : 'Not Set'}</div>
                     </div>
                 )}
 

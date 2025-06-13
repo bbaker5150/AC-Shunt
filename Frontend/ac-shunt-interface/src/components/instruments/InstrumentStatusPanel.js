@@ -22,7 +22,7 @@ const statusBitDescriptions = {
     SETTLED: "Settled", ZERO_CAL: "Zero Cal Needed", AC_XFER: "AC/DC Transfer", UNUSED_15: "Unused"
 };
 
-function InstrumentStatusPanel() {
+function InstrumentStatusPanel({ showNotification }) {
     const { instrumentStatuses, isFetchingStatuses, getInstrumentStatus } = useInstruments();
     const [discoveredInstruments, setDiscoveredInstruments] = useState([]);
     const [isScanning, setIsScanning] = useState(false);
@@ -42,9 +42,11 @@ function InstrumentStatusPanel() {
                         getInstrumentStatus(model, inst.address);
                     }
                 });
+                showNotification(`Scan complete. Found ${instruments.length} instrument(s).`, 'success');
             }
         } catch (error) {
             console.error("Failed to scan instruments", error);
+            showNotification('Failed to scan for instruments.', 'error');
         } finally {
             setIsScanning(false);
         }
@@ -59,51 +61,51 @@ function InstrumentStatusPanel() {
                 </button>
             </div>
             <div className="status-list">
-                {discoveredInstruments.length > 0 ? (
-                    discoveredInstruments.map(inst => {
-                        const status = instrumentStatuses[inst.address];
-                        const isFetching = isFetchingStatuses[inst.address];
-                        const isSupported = SUPPORTED_STATUS_MODELS.some(m => inst.identity.includes(m));
+            {discoveredInstruments.length > 0 ? (
+                discoveredInstruments.map(inst => {
+                    const status = instrumentStatuses[inst.address];
+                    const isFetching = isFetchingStatuses[inst.address];
+                    const isSupported = SUPPORTED_STATUS_MODELS.some(m => inst.identity.includes(m));
 
-                        return (
-                            <div key={inst.address} className="status-card">
-                                <div className="status-card-header">
-                                    <div>
-                                        <p className="instrument-identity">{inst.identity}</p>
-                                        <p className="instrument-address">{inst.address}</p>
-                                    </div>
-                                    <div className="status-badge">
-                                        <span className="status-badge-icon">●</span>
-                                        Connected
-                                    </div>
+                    return (
+                        <div key={inst.address} className="status-card">
+                            <div className="status-card-header">
+                                <div>
+                                    <p className="instrument-identity">{inst.identity}</p>
+                                    <p className="instrument-address">{inst.address}</p>
                                 </div>
-                                {isSupported && (
-                                    <div className="status-card-body">
-                                        {isFetching && <p className="fetching-text">Fetching status details...</p>}
-                                        {status?.decoded && !status.error && (
-                                            <>
-                                                <h4 className="status-flags-header">Active Status Flags</h4>
-                                                <ul className="status-flags-list">
-                                                    {Object.entries(status.decoded).filter(([, value]) => value === true).length > 0 ?
-                                                        Object.entries(status.decoded).filter(([, value]) => value === true).map(([key]) => (
-                                                            <li key={key} className="status-flag-item">
-                                                                <span className="status-flag-icon">●</span>
-                                                                {statusBitDescriptions[key] || key}
-                                                            </li>
-                                                        )) : <li className="no-flags-text">No active status flags.</li>
-                                                    }
-                                                </ul>
-                                            </>
-                                        )}
-                                        {status?.error && <p className="error-text">Could not retrieve status flags.</p>}
-                                    </div>
-                                )}
+                                <div className="status-badge">
+                                    <span className="status-badge-icon">●</span>
+                                    Connected
+                                </div>
                             </div>
-                        );
-                    })
-                ) : (
-                    <p className="no-instruments-text">Scan for instruments to see their status.</p>
-                )}
+                            {isSupported && (
+                                <div className="status-card-body">
+                                    {isFetching && <p className="fetching-text">Fetching status details...</p>}
+                                    {status?.decoded && !status.error && (
+                                         <>
+                                            <h4 className="status-flags-header">Active Status Flags</h4>
+                                            <ul className="status-flags-list">
+                                                {Object.entries(status.decoded).filter(([, value]) => value === true).length > 0 ?
+                                                    Object.entries(status.decoded).filter(([, value]) => value === true).map(([key]) => (
+                                                        <li key={key} className="status-flag-item">
+                                                            <span className="status-flag-icon">●</span>
+                                                            {statusBitDescriptions[key] || key}
+                                                        </li>
+                                                    )) : <li className="no-flags-text">No active status flags.</li>
+                                                }
+                                            </ul>
+                                        </>
+                                    )}
+                                    {status?.error && <p className="error-text">Could not retrieve status flags.</p>}
+                                </div>
+                            )}
+                        </div>
+                    );
+                })
+            ) : (
+                <p className="no-instruments-text">Scan for instruments to see their status.</p>
+            )}
             </div>
         </div>
     );

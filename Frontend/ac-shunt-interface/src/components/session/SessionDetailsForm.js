@@ -21,7 +21,7 @@ const initialFormData = {
     temperature: '', humidity: '', notes: '',
 };
 
-function SessionDetailsForm({ sessionsList, fetchSessionsList }) {
+function SessionDetailsForm({ sessionsList, fetchSessionsList, showNotification }) {
     const { selectedSessionId, setSelectedSessionId, setSelectedSessionName } = useInstruments();
     const [formData, setFormData] = useState(initialFormData);
     const [isLoading, setIsLoading] = useState(false);
@@ -69,19 +69,22 @@ function SessionDetailsForm({ sessionsList, fetchSessionsList }) {
             let response;
             if (selectedSessionId) {
                 response = await axios.put(`${API_BASE_URL}/calibration_sessions/${selectedSessionId}/`, payload);
+                showNotification('Session updated successfully!', 'success');
             } else {
                 response = await axios.post(`${API_BASE_URL}/calibration_sessions/`, payload);
+                showNotification('New session saved successfully!', 'success');
             }
             fetchSessionsList(); // Refresh the session list
             setSelectedSessionId(response.data.id);
             setSelectedSessionName(response.data.session_name);
         } catch (error) {
             console.error("Failed to save session", error);
+            showNotification('Failed to save session.', 'error');
         } finally {
             setIsLoading(false);
         }
     };
-
+    
     return (
         <form onSubmit={handleSubmit} style={{ marginTop: '20px' }}>
             <div style={{ display: 'flex', gap: '20px', flexWrap: 'wrap' }}>
@@ -94,7 +97,7 @@ function SessionDetailsForm({ sessionsList, fetchSessionsList }) {
                         <label htmlFor="testInstrument">Test Instrument</label>
                         <input type="text" id="testInstrument" name="testInstrument" value={formData.testInstrument} onChange={handleChange} required />
                     </div>
-                    <div className="form-section">
+                     <div className="form-section">
                         <label htmlFor="testInstrumentSerial">Test Instrument Serial</label>
                         <input type="text" id="testInstrumentSerial" name="testInstrumentSerial" value={formData.testInstrumentSerial} onChange={handleChange} required />
                     </div>
@@ -104,15 +107,15 @@ function SessionDetailsForm({ sessionsList, fetchSessionsList }) {
                     </div>
                 </div>
                 <div style={{ flex: 1, display: 'flex', flexDirection: 'column', gap: '15px', minWidth: '300px' }}>
-                    <div className="form-section">
+                     <div className="form-section">
                         <label htmlFor="temperature">Temperature (°C)</label>
                         <input type="number" id="temperature" name="temperature" value={formData.temperature} onChange={handleChange} step="0.1" required />
                     </div>
-                    <div className="form-section">
+                     <div className="form-section">
                         <label htmlFor="humidity">Humidity (%RH)</label>
                         <input type="number" id="humidity" name="humidity" value={formData.humidity} onChange={handleChange} step="0.1" required />
                     </div>
-                    <div className="form-section">
+                     <div className="form-section">
                         <label htmlFor="notes">Notes</label>
                         <textarea id="notes" name="notes" value={formData.notes} onChange={handleChange} rows="4" />
                     </div>

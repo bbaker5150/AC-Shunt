@@ -7,32 +7,52 @@
  * manage session data and view the status of connected instruments from a
  * single screen.
  */
+
 import React, { useState } from 'react';
 import SessionManager from './SessionManager';
 import SessionDetailsForm from './SessionDetailsForm';
 import InstrumentStatusPanel from '../instruments/InstrumentStatusPanel';
+import axios from 'axios';
 
-function SessionSetup({ showNotification }) { 
+const API_BASE_URL = 'http://10.206.104.144:8000/api';
+
+function SessionSetup({ showNotification }) {
     const [sessionsList, setSessionsList] = useState([]);
     const [isLoadingSessions, setIsLoadingSessions] = useState(false);
+
+    // This function will be passed to SessionManager to fetch sessions
+    // and to SessionDetailsForm to refresh the list after a save.
+    const fetchSessionsList = async () => {
+        setIsLoadingSessions(true);
+        try {
+            const response = await axios.get(`${API_BASE_URL}/calibration_sessions/`);
+            setSessionsList(response.data || []);
+        } catch (error) {
+            // Use the notification function here
+            showNotification('Failed to fetch sessions list.', 'error');
+        } finally {
+            setIsLoadingSessions(false);
+        }
+    };
 
     return (
         <React.Fragment>
             <div className="content-area">
-                <SessionManager 
+                <SessionManager
                     sessionsList={sessionsList}
                     setSessionsList={setSessionsList}
                     isLoadingSessions={isLoadingSessions}
                     setIsLoadingSessions={setIsLoadingSessions}
-                    // Pass the prop down to SessionManager
-                    showNotification={showNotification} 
+                    showNotification={showNotification}
+                    fetchSessionsList={fetchSessionsList} 
                 />
-                <SessionDetailsForm 
-                    sessionsList={sessionsList} 
-                    fetchSessionsList={() => setIsLoadingSessions(true)}
+                <SessionDetailsForm
+                    sessionsList={sessionsList}
+                    fetchSessionsList={fetchSessionsList}
+                    showNotification={showNotification}
                 />
             </div>
-            <InstrumentStatusPanel />
+            <InstrumentStatusPanel showNotification={showNotification} />
         </React.Fragment>
     );
 }
