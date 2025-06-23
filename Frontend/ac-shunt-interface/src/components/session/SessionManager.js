@@ -11,7 +11,7 @@ import React, { useEffect, useCallback } from 'react';
 import axios from 'axios';
 import { useInstruments } from '../../contexts/InstrumentContext';
 
-const API_BASE_URL = 'http://10.206.104.144:8000/api';
+const API_BASE_URL = 'http://127.0.0.1:8000/api';
 
 function SessionManager({ sessionsList, setSessionsList, isLoadingSessions, setIsLoadingSessions, showNotification }) {
     const { selectedSessionId, setSelectedSessionId, setSelectedSessionName } = useInstruments();
@@ -62,7 +62,7 @@ function SessionManager({ sessionsList, setSessionsList, isLoadingSessions, setI
                         <option key={s.id} value={s.id}>{s.session_name} (ID: {s.id})</option>
                     ))}
                 </select>
-                <button type="button" onClick={handleReset} className="button button-secondary">
+                <button type="button" onClick={handleReset} className="button button-danger">
                     Reset
                 </button>
             </div>

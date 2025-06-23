@@ -579,19 +579,33 @@ body.dark-mode select:focus {
 body.dark-mode .form-section label {
   color: #cbd5e0;
 }
-body.dark-mode .test-points-table th {
+body.dark-mode .test-points-table th,
+body.dark-mode .cal-results-table th {
     background-color: #1a202c;
 }
-body.dark-mode .test-points-table td,
 body.dark-mode .instrument-status-panel,
 body.dark-mode .status-card,
-body.dark-mode .test-points-table th {
+body.dark-mode .test-points-table td,
+body.dark-mode .test-points-table th,
+body.dark-mode .cal-freq-table td,
+body.dark-mode .cal-results-table td,
+body.dark-mode .dcal-results-table th {
   border-color: #4a5568;
 }
-body.dark-mode .test-points-table tr:nth-child(even),
-body.dark-mode .status-card {
+
+body.dark-mode .cal-results-table tr:nth-child(even),
+body.dark-mode .status-card { /* Keep this for other elements if needed, but remove from test-points-table if it causes issues */
     background-color: #2d3748;
 }
+
+/* Add this specifically for dark mode test-points-table alternating rows */
+body.dark-mode .test-points-table tr:nth-child(even) {
+    background-color: #252525; /* A slightly darker shade for even rows in dark mode */
+}
+body.dark-mode .test-points-table tr:nth-child(odd) {
+    background-color: #2d3748; /* The default content background for odd rows */
+}
+
 body.dark-mode .instrument-identity,
 body.dark-mode .instrument-status-header h2 {
     color: #e2e8f0;
@@ -621,6 +635,19 @@ body.dark-mode .test-set-details {
 }
 body.dark-mode .test-set-details div {
   color: #cbd5e0;
+}
+
+body.dark-mode .reading {
+  background-color: #1e1e1e;
+  color: #f0f0f0;
+}
+
+body.dark-mode .reading h3 {
+  color: #ffd166;
+}
+
+body.dark-mode .reading p {
+  color: #e0e0e0;
 }
 
 /* --- Add these styles to src/App.css --- */
@@ -720,4 +747,86 @@ input:checked + .slider:before {
 
 .slider.round:before {
   border-radius: 50%;
+}
+
+.table-container {
+  width: 100%;
+  overflow-x: auto;
+}
+
+.cal-freq-table,
+.cal-freq-table,
+.cal-results-table {
+  width: 100%;
+  border-collapse: collapse;
+  margin-bottom: 40px;
+}
+
+.cal-freq-table td,
+.cal-results-table td {
+  border: 1px solid #ddd;
+  padding: 8px;
+}
+
+.cal-freq-table th,
+.cal-results-table th {
+  border: 1px solid #ddd;
+  padding: 8px;
+  background-color: #f2f2f2;
+  white-space: nowrap;
+  width: 180px;
+}
+
+.header-row {
+  display: flex;
+  gap: 1em;
+  align-items: center;
+}
+
+.reading-group {
+  display: flex;
+  gap: 20px;
+  flex-wrap: wrap;
+  margin-bottom: 1em;
+}
+
+.reading {
+  background-color: #f5f5f5;
+  border-radius: 8px;
+  padding: 15px;
+  min-width: 150px;
+  box-shadow: 0 2px 4px rgba(0,0,0,0.1);
+}
+
+.reading h3 {
+  margin-top: 0;
+  font-size: 1.1em;
+  color: #333;
+}
+
+.reading p {
+  margin: 4px 0;
+  font-size: 0.95em;
+}
+
+/* Add this to App.css for the download icon */
+.download-icon {
+    font-size: 1.5em; /* Adjust size as needed */
+    color: #007bff; /* Blue color, can be changed */
+    cursor: pointer;
+    margin-left: 10px; /* Space from the heading */
+    transition: color 0.2s ease-in-out;
+}
+
+.download-icon:hover {
+    color: #0056b3; /* Darker blue on hover */
+}
+
+/* Dark mode adjustments for the icon */
+body.dark-mode .download-icon {
+    color: #4299e1; /* Lighter blue for dark mode */
+}
+
+body.dark-mode .download-icon:hover {
+    color: #63b3ed; /* Even lighter blue on hover in dark mode */
 }

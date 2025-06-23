@@ -12,7 +12,7 @@ import React, { useState } from 'react';
 import axios from 'axios';
 import { useInstruments } from '../../contexts/InstrumentContext';
 
-const API_BASE_URL = 'http://10.206.104.144:8000/api';
+const API_BASE_URL = 'http://127.0.0.1:8000/api';
 const SUPPORTED_STATUS_MODELS = ['5730', '5790'];
 
 const statusBitDescriptions = {

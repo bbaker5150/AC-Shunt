@@ -12,7 +12,7 @@ import React, { useState, useEffect } from 'react';
 import axios from 'axios';
 import { useInstruments } from '../../contexts/InstrumentContext';
 
-const API_BASE_URL = 'http://10.206.104.144:8000/api';
+const API_BASE_URL = 'http://127.0.0.1:8000/api';
 
 const initialFormData = {
     sessionName: `Calibration Session - ${new Date().toLocaleString()}`,
@@ -104,6 +104,10 @@ function SessionDetailsForm({ sessionsList, fetchSessionsList, showNotification 
                     <div className="form-section">
                         <label htmlFor="standardInstrumentModel">Standard Instrument</label>
                         <input type="text" id="standardInstrumentModel" name="standardInstrumentModel" value={formData.standardInstrumentModel} onChange={handleChange} required />
+                    </div>
+                    <div className="form-section">
+                        <label htmlFor="standardInstrumentSerial">Standard Serial</label>
+                        <input type="text" id="standardInstrumentSerial" name="standardInstrumentSerial" value={formData.standardInstrumentSerial} onChange={handleChange} required />
                     </div>
                 </div>
                 <div style={{ flex: 1, display: 'flex', flexDirection: 'column', gap: '15px', minWidth: '300px' }}>

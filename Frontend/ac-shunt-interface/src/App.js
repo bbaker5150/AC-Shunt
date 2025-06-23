@@ -7,7 +7,10 @@
  */
 import React, { useState, useEffect, useCallback } from 'react';
 import SessionSetup from './components/session/SessionSetup';
+import Calibration from './components/calibration/Calibration';
 import TestPointEditor from './components/calibration/TestPointEditor';
+import CalibrationResults from './components/calibration/CalibrationResults';
+
 // NOTE: You may need to import your actual component for the calibration tab
 // import RunCalibration from './components/calibration/RunCalibration'; 
 import './App.css';
@@ -92,6 +95,9 @@ function App() {
                     <button onClick={() => setActiveTab('runCalibration')} className={activeTab === 'runCalibration' ? 'tab-button active' : 'tab-button'}>
                         Run Calibration
                     </button>
+                    <button onClick={() => setActiveTab('calibrationResults')} className={activeTab === 'calibrationResults' ? 'tab-button active' : 'tab-button'}>
+                        Calibration Results
+                    </button>
                 </nav>
             </header>
 
@@ -103,7 +109,10 @@ function App() {
                     <TestPointEditor showNotification={showNotification} />
                 )}
                 {activeTab === 'runCalibration' && (
-                    <div>Run Calibration Component Goes Here</div>
+                    <Calibration showNotification={showNotification} />
+                )}
+                {activeTab === 'calibrationResults' && (
+                    <CalibrationResults showNotification={showNotification} />
                 )}
             </main>
         </div>
