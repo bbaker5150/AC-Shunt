@@ -48,7 +48,7 @@ class Migration(migrations.Migration):
                 ('tvc_upper_limit', models.FloatField(blank=True, null=True)),
                 ('created_at', models.DateTimeField(auto_now_add=True)),
                 ('updated_at', models.DateTimeField(auto_now=True)),
-                ('session', models.OneToOneField(on_delete=django.db.models.deletion.CASCADE, related_name='test_point_set', to='api.calibrationsession')),
+                ('session', models.OneToOneField(on_delete=django.db.models.deletion.CASCADE, related_name='test_points', to='api.calibrationsession')),
             ],
             options={
                 'ordering': ['created_at'],
