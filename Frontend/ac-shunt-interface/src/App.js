@@ -2,17 +2,14 @@
  * @file App.js
  * This is the root component of the application. It sets up the main layout,
  * context provider, and routing between the primary tabs (Session Setup, 
- * Test Point Editor, etc.). It also manages the application-wide state for
- * the light/dark theme.
+ * Test Point Editor, etc.).
  */
-import React, { useState, useEffect, useCallback } from 'react';
+import React, { useState, useCallback } from 'react';
 import SessionSetup from './components/session/SessionSetup';
 import Calibration from './components/calibration/Calibration';
 import TestPointEditor from './components/calibration/TestPointEditor';
 import CalibrationResults from './components/calibration/CalibrationResults';
-
-// NOTE: You may need to import your actual component for the calibration tab
-// import RunCalibration from './components/calibration/RunCalibration'; 
+import { ThemeProvider, useTheme } from './contexts/ThemeContext'; // Import provider and hook
 import './App.css';
 
 const Notification = ({ message, type, onDismiss }) => {
@@ -25,23 +22,12 @@ const Notification = ({ message, type, onDismiss }) => {
     );
 };
 
-function App() {
+// We create a new component for the content. This is necessary so it can
+// access the theme context provided by ThemeProvider in the main App component.
+function AppContent() {
     const [activeTab, setActiveTab] = useState('sessionSetup');
     const [notification, setNotification] = useState({ message: '', type: 'info', key: 0 });
-    
-    // --- Dark Mode State and Logic ---
-    const [theme, setTheme] = useState('light');
-
-    const toggleTheme = () => {
-        setTheme(prevTheme => (prevTheme === 'light' ? 'dark' : 'light'));
-    };
-
-    useEffect(() => {
-        // Apply the theme class to the body element
-        document.body.className = '';
-        document.body.classList.add(`${theme}-mode`);
-    }, [theme]);
-    // ---------------------------------
+    const { theme, toggleTheme } = useTheme(); // Now we get theme from context
 
     const showNotification = useCallback((message, type = 'info', duration = 4000) => {
         const newKey = Date.now();
@@ -71,7 +57,6 @@ function App() {
             <header className="App-header">
                 <h1>AC Shunt Calibration</h1>
 
-                {/* --- Restored Theme Switcher --- */}
                 <div className="theme-switcher">
                     <span>{theme === 'light' ? 'Light' : 'Dark'} Mode</span>
                     <label className="switch">
@@ -83,7 +68,6 @@ function App() {
                         <span className="slider round" />
                     </label>
                 </div>
-                {/* ---------------------------------- */}
                 
                 <nav className="tab-navigation">
                     <button onClick={() => setActiveTab('sessionSetup')} className={activeTab === 'sessionSetup' ? 'tab-button active' : 'tab-button'}>
@@ -116,6 +100,15 @@ function App() {
                 )}
             </main>
         </div>
+    );
+}
+
+// The main App component now only needs to provide the theme context.
+function App() {
+    return (
+        <ThemeProvider>
+            <AppContent />
+        </ThemeProvider>
     );
 }
 
