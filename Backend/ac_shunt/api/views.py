@@ -8,7 +8,7 @@ from rest_framework.decorators import action
 from rest_framework.response import Response
 from .models import Message, CalibrationSession, TestPointSet, Calibration, CalibrationSettings, CalibrationReadings, CalibrationResults
 from .serializers import MessageSerializer, CalibrationSessionSerializer, TestPointSetSerializer, CalibrationSerializer, CalibrationSettingsSerializer, CalibrationReadingsSerializer, CalibrationResultsSerializer
-
+from .NPSL_Tools.instruments.instrument_34420A import Instrument34420A
 # --- Hardcoded Readings Dev Testing ---
 
 STD_AC_OPEN_READINGS_INITIAL = [14, 15, 16, 17, 18]
@@ -114,6 +114,53 @@ class CalibrationSessionViewSet(viewsets.ModelViewSet):
     queryset = CalibrationSession.objects.all().order_by('-created_at')
     serializer_class = CalibrationSessionSerializer
 
+    # --- NEW: Action to collect a specified number of samples from an instrument ---
+    # @action(detail=True, methods=['post'], url_path='collect-readings')
+    # def collect_readings(self, request, pk=None):
+    #     session = self.get_object()
+        
+    #     # Extract data from the frontend request
+    #     reading_type = request.data.get('reading_type') # e.g., 'std_ac_open'
+    #     num_samples = request.data.get('num_samples')
+
+    #     if not all([reading_type, num_samples]):
+    #         return Response(
+    #             {'error': 'reading_type and num_samples are required.'},
+    #             status=status.HTTP_400_BAD_REQUEST
+    #         )
+        
+    #     # For now, we use the hardcoded address for the 34420A as requested
+    #     instrument_address = 'GPIB0::22::INSTR'
+
+    #     try:
+    #         instrument = Instrument34420A(channel=instrument_address)
+            
+    #         collected_readings = []
+    #         for _ in range(int(num_samples)):
+    #             # Call the read_instrument method for each sample
+    #             reading = instrument.read_instrument()
+    #             collected_readings.append(reading)
+
+    #         # Get the related readings model
+    #         calibration, _ = Calibration.objects.get_or_create(session=session)
+    #         readings, _ = CalibrationReadings.objects.get_or_create(calibration=calibration)
+
+    #         # Update the correct field on the model with the new list of readings
+    #         field_name = f"{reading_type}_readings"  # e.g., 'std_ac_open_readings'
+    #         if hasattr(readings, field_name):
+    #             setattr(readings, field_name, collected_readings)
+    #             readings.save()
+    #         else:
+    #             return Response({'error': f'Invalid reading_type: {reading_type}'}, status=status.HTTP_400_BAD_REQUEST)
+
+    #         return Response({
+    #             'message': f'Successfully collected {num_samples} samples.',
+    #             'readings': collected_readings
+    #         }, status=status.HTTP_200_OK)
+
+    #     except Exception as e:
+    #         return Response({'error': f'Instrument communication failed: {str(e)}'}, status=status.HTTP_500_INTERNAL_SERVER_ERROR)
+
     @action(detail=True, methods=['get', 'put'], url_path='test_points')
     def test_points_handler(self, request, pk=None):
         session = self.get_object()
@@ -136,8 +183,6 @@ class CalibrationSessionViewSet(viewsets.ModelViewSet):
         session = self.get_object()
         calibration, _ = Calibration.objects.get_or_create(session=session)
 
-        # **FIX**: Proactively create related objects if they don't exist.
-        # This prevents other endpoints from failing and fixes the race condition.
         CalibrationSettings.objects.get_or_create(calibration=calibration)
         CalibrationReadings.objects.get_or_create(calibration=calibration)
         CalibrationResults.objects.get_or_create(calibration=calibration)
@@ -212,22 +257,6 @@ class CalibrationSessionViewSet(viewsets.ModelViewSet):
         readings, _ = CalibrationReadings.objects.get_or_create(calibration=calibration)
 
         if request.method == 'GET':
-            # Check if the object is unpopulated, not just if it was created.
-            # An empty list is "falsy" in Python, so this check works.
-            if not readings.std_ac_open_readings:
-                # If a key field is empty, populate the entire object.
-                readings.std_ac_open_readings = STD_AC_OPEN_READINGS_INITIAL
-                readings.std_dc_pos_readings = STD_DC_POS_READINGS_INITIAL
-                readings.std_dc_neg_readings = STD_DC_NEG_READINGS_INITIAL
-                readings.std_ac_close_readings = STD_AC_CLOSE_READINGS_INITIAL
-
-                readings.ti_ac_open_readings = TI_AC_OPEN_READINGS_INITIAL
-                readings.ti_dc_pos_readings = TI_DC_POS_READINGS_INITIAL
-                readings.ti_dc_neg_readings = TI_DC_NEG_READINGS_INITIAL
-                readings.ti_ac_close_readings = TI_AC_CLOSE_READINGS_INITIAL
-                
-                readings.save()
-
             serializer = CalibrationReadingsSerializer(readings)
             return Response(serializer.data)
 

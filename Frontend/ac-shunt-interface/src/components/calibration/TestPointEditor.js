@@ -4,9 +4,9 @@
  *
  * This component provides the UI for creating, viewing, and managing a set of
  * test points (current and frequency combinations) associated with a specific
- * calibration session. It allows users to generate points, add them to a list,
- * and save the entire configuration, including a single Input Current,
- * AC Shunt Range, and TVC Upper Limit settings, to the backend API.
+ * calibration session. It allows users to generate points and save the entire
+ * configuration, including a single Input Current, AC Shunt Range, and TVC 
+ * Upper Limit settings, to the backend API in a single action.
  * It relies on the active session ID from the InstrumentContext to fetch and save data.
  * It receives the showNotification function as a prop from a parent component to display status messages.
  */
@@ -16,10 +16,15 @@ import { useInstruments } from '../../contexts/InstrumentContext';
 
 const API_BASE_URL = 'http://127.0.0.1:8000/api';
 
-const AVAILABLE_CURRENENTS = [
-    { text: '1A', value: 1 }, { text: '2A', value: 2 },
-    { text: '5A', value: 5 }, { text: '10A', value: 10 }, { text: '20A', value: 20 }
+const AVAILABLE_CURRENTS = [
+    { text: '1mA', value: 0.001 }, { text: '2mA', value: 0.002 }, 
+    { text: '5mA', value: 0.005 }, { text: '10mA', value: 0.01 }, { text: '20mA', value: 0.02 },
+    { text: '50mA', value: 0.05 }, { text: '100mA', value: 0.1 }, { text: '200mA', value: 0.2 },
+    { text: '500mA', value: 0.5 }, { text: '1A', value: 1 }, { text: '2A', value: 2 },
+    { text: '5A', value: 5 }, { text: '10A', value: 10 }, { text: '20A', value: 20 },
+    { text: '50A', value: 50 }, { text: '100A', value: 100 }
 ];
+
 const AVAILABLE_FREQUENCIES = [
     { text: '10Hz', value: 10 }, { text: '20Hz', value: 20 }, { text: '50Hz', value: 50 },
     { text: '60Hz', value: 60 }, { text: '100Hz', value: 100 }, { text: '200Hz', value: 200 },
@@ -28,22 +33,73 @@ const AVAILABLE_FREQUENCIES = [
     { text: '50kHz', value: 50000 }, { text: '100kHz', value: 100000 }
 ];
 
+const AMPLIFIER_RANGES_A = [0.002, 0.02, 0.2, 2, 20, 100];
+
+// Helper component for the new Frequency Selection Modal
+const FrequencySelectionModal = ({ onConfirm, onCancel, preselectedFrequencies }) => {
+    const [selected, setSelected] = useState(() => new Set(preselectedFrequencies.map(f => f.value)));
+
+    const handleCheckboxChange = (value) => {
+        const newSelected = new Set(selected);
+        if (newSelected.has(value)) {
+            newSelected.delete(value);
+        } else {
+            newSelected.add(value);
+        }
+        setSelected(newSelected);
+    };
+
+    const handleConfirm = () => {
+        const selectedFrequencyObjects = AVAILABLE_FREQUENCIES.filter(f => selected.has(f.value));
+        onConfirm(selectedFrequencyObjects);
+    };
+
+    return (
+        <div className="modal-overlay">
+            <div className="modal-content" style={{textAlign: 'left'}}>
+                <h3>Select Frequencies</h3>
+                <div className="frequency-list-container" style={{ maxHeight: '400px', overflowY: 'auto', paddingRight: '15px' }}>
+                    {AVAILABLE_FREQUENCIES.map(freq => (
+                        <div key={freq.value} style={{ display: 'flex', alignItems: 'center', marginBottom: '10px' }}>
+                            <input
+                                type="checkbox"
+                                id={`freq-${freq.value}`}
+                                checked={selected.has(freq.value)}
+                                onChange={() => handleCheckboxChange(freq.value)}
+                                style={{ width: 'auto', marginRight: '10px' }}
+                            />
+                            <label htmlFor={`freq-${freq.value}`} style={{ marginBottom: '0', fontWeight: 'normal' }}>
+                                {freq.text}
+                            </label>
+                        </div>
+                    ))}
+                </div>
+                <div className="modal-actions" style={{marginTop: '20px'}}>
+                    <button onClick={onCancel} className="button button-secondary">Cancel</button>
+                    <button onClick={handleConfirm} className="button">Confirm</button>
+                </div>
+            </div>
+        </div>
+    );
+};
+
 function TestPointEditor({ showNotification }) {
     const { selectedSessionId, selectedSessionName } = useInstruments();
 
-    const [frequencyInputs, setFrequencyInputs] = useState([{ text: '', value: '' }]);
+    const [stagedFrequencies, setStagedFrequencies] = useState([]);
     const [testPoints, setTestPoints] = useState([]);
+    const [isModalOpen, setIsModalOpen] = useState(false);
 
     // Settings state
     const [inputCurrent, setInputCurrent] = useState('');
-    const [acShuntRange, setAcShuntRange] = useState('');
+    const [amplifierRange, setAmplifierRange] = useState('');
     const [tvcUpperLimit, setTvcUpperLimit] = useState('');
 
     const fetchTestPointSetAndSettings = useCallback(async () => {
         if (!selectedSessionId) {
             setTestPoints([]);
             setInputCurrent('');
-            setAcShuntRange('');
+            setAmplifierRange('');
             setTvcUpperLimit('');
             return;
         }
@@ -58,10 +114,8 @@ function TestPointEditor({ showNotification }) {
             const settingsResponse = await axios.get(`${API_BASE_URL}/calibration_sessions/${selectedSessionId}/information/`);
             const { settings } = settingsResponse.data;
 
-            // If points exist, the current is derived from them; otherwise, use saved settings
             const current = pointsWithIds.length > 0 ? pointsWithIds[0].current : (settings?.input_current || '');
             setInputCurrent(current);
-            setAcShuntRange(settings?.ac_shunt_range || '');
             setTvcUpperLimit(settings?.tvc_upper_limit || '');
 
         } catch (error) {
@@ -74,6 +128,22 @@ function TestPointEditor({ showNotification }) {
         fetchTestPointSetAndSettings();
     }, [fetchTestPointSetAndSettings]);
 
+    useEffect(() => {
+        const current = parseFloat(inputCurrent);
+        if (!current || isNaN(current)) {
+            setAmplifierRange('');
+            return;
+        }
+
+        const suitableRange = AMPLIFIER_RANGES_A.find(range => current <= range);
+
+        if (suitableRange !== undefined) {
+            setAmplifierRange(suitableRange);
+        } else {
+            setAmplifierRange('Out of Range');
+        }
+    }, [inputCurrent]);
+    
     const handleSaveSettings = async () => {
         if (!selectedSessionId) {
             showNotification('No active session to save to.', 'error');
@@ -82,8 +152,7 @@ function TestPointEditor({ showNotification }) {
         try {
             await axios.put(`${API_BASE_URL}/calibration_sessions/${selectedSessionId}/information/`, {
                 settings: {
-                    input_current: parseFloat(inputCurrent) || null,
-                    ac_shunt_range: parseFloat(acShuntRange) || null,
+                    ac_shunt_range: parseFloat(amplifierRange) || null,
                     tvc_upper_limit: parseFloat(tvcUpperLimit) || null
                 }
             });
@@ -96,117 +165,90 @@ function TestPointEditor({ showNotification }) {
         }
     };
 
-    const handleGenerateTestPoints = () => {
+    const handleGenerateAndSavePoints = async () => {
         const currentInputValue = parseFloat(inputCurrent);
         if (!currentInputValue) {
             showNotification('Please set a valid Input Current before generating points.', 'error');
             return;
         }
-
-        const shuntRangeValue = parseFloat(acShuntRange);
-        if (!acShuntRange || isNaN(shuntRangeValue)) {
-            showNotification('Please set and save a valid AC Shunt Range before generating points.', 'error');
+        if (amplifierRange === 'Out of Range') {
+            showNotification(`Input Current of ${currentInputValue}A exceeds the maximum amplifier range of 100A.`, 'error');
             return;
         }
-
-        if (currentInputValue > shuntRangeValue) {
-            showNotification(`The Input Current (${inputCurrent}A) cannot exceed the AC Shunt Range (${acShuntRange}A).`, 'error');
+        if (stagedFrequencies.length === 0) {
+            showNotification('Please select at least one frequency to add.', 'error');
             return;
         }
 
         const existingFrequencies = new Set(testPoints.map(p => p.frequency));
-        const validNewFrequencies = frequencyInputs.filter(f => f.value && !existingFrequencies.has(f.value));
-        const duplicateFrequencies = frequencyInputs.filter(f => f.value && existingFrequencies.has(f.value));
+        const newFrequenciesToAdd = stagedFrequencies.filter(f => !existingFrequencies.has(f.value));
 
-        if (duplicateFrequencies.length > 0) {
-            showNotification('Duplicate frequencies were found and have been ignored.', 'error');
+        if (newFrequenciesToAdd.length !== stagedFrequencies.length) {
+            showNotification('One or more selected frequencies already exist and were ignored.', 'warning');
         }
-        
-        if (validNewFrequencies.length === 0) {
-            if (duplicateFrequencies.length === 0) {
-                 showNotification('Please select at least one new frequency.', 'error');
-            }
+
+        if (newFrequenciesToAdd.length === 0) {
+            showNotification('All selected frequencies have already been added.', 'error');
             return;
         }
 
-        const newTestPoints = validNewFrequencies.map(freq => ({
-            id: `local_${Math.random().toString(36).substring(2, 9)}`,
+        const newTestPoints = newFrequenciesToAdd.map(freq => ({
             current: currentInputValue,
             frequency: freq.value
         }));
-        setTestPoints(prevPoints => [...prevPoints, ...newTestPoints]);
-        setFrequencyInputs([{ text: '', value: '' }]);
-    };
-
-    const handleDeleteTestPoint = (idToDelete) => {
-        setTestPoints(prevPoints => {
-            const newPoints = prevPoints.filter(point => point.id !== idToDelete);
-            if (newPoints.length === 0) {
-                setInputCurrent('');
-            }
-            return newPoints;
-        });
-    };
-
-    const handleClearAllTestPoints = () => {
-        setTestPoints([]);
-        setInputCurrent('');
-    };
-
-    const handleFrequencyChange = (index, selectedValue) => {
-        const newFrequencyInputs = [...frequencyInputs];
-        const selectedFreqObject = AVAILABLE_FREQUENCIES.find(f => f.value.toString() === selectedValue);
-        newFrequencyInputs[index] = selectedFreqObject || { text: '', value: '' };
-        setFrequencyInputs(newFrequencyInputs);
-    };
-
-    const handleAddFrequency = () => {
-        setFrequencyInputs([...frequencyInputs, { text: '', value: '' }]);
-    };
-
-    const handleRemoveFrequency = (indexToRemove) => {
-        setFrequencyInputs(frequencyInputs.filter((_, index) => index !== indexToRemove));
-    };
-
-    const handleSaveAll = async () => {
-        if (!selectedSessionId) return;
-
-        const currentVal = parseFloat(inputCurrent);
-        if (isNaN(currentVal)) {
-            showNotification('Input Current must be a valid number.', 'error');
-            return;
-        }
         
-        const shuntRangeValue = parseFloat(acShuntRange);
-        if (isNaN(shuntRangeValue)) {
-            showNotification('AC Shunt Range must be a valid number.', 'error');
-            return;
-        }
-
-        if (currentVal > shuntRangeValue) {
-            showNotification(`Save failed: The Input Current (${currentVal}A) exceeds the AC Shunt Range (${shuntRangeValue}A).`, 'error');
-            return;
-        }
+        const updatedTestPoints = [...testPoints, ...newTestPoints];
+        const pointsToSave = updatedTestPoints.map(({ current, frequency }) => ({ current, frequency }));
 
         try {
-            await axios.put(`${API_BASE_URL}/calibration_sessions/${selectedSessionId}/information/`, {
-                settings: {
-                    input_current: currentVal,
-                    ac_shunt_range: shuntRangeValue,
-                    tvc_upper_limit: parseFloat(tvcUpperLimit) || null
-                }
-            });
+            await Promise.all([
+                axios.put(`${API_BASE_URL}/calibration_sessions/${selectedSessionId}/test_points/`, { points: pointsToSave }),
+                axios.put(`${API_BASE_URL}/calibration_sessions/${selectedSessionId}/information/`, {
+                    settings: {
+                        input_current: currentInputValue,
+                        ac_shunt_range: parseFloat(amplifierRange),
+                        tvc_upper_limit: parseFloat(tvcUpperLimit) || null
+                    }
+                })
+            ]);
 
-            const pointsToSave = testPoints.map(({ current, frequency }) => ({ current, frequency }));
-            await axios.put(`${API_BASE_URL}/calibration_sessions/${selectedSessionId}/test_points/`, {
-                points: pointsToSave,
-            });
-
-            showNotification('Settings and test points saved successfully!', 'success');
+            showNotification(`${newFrequenciesToAdd.length} new test point(s) generated and saved!`, 'success');
+            
             fetchTestPointSetAndSettings();
+            setStagedFrequencies([]);
         } catch (error) {
             console.error("Failed to save the configuration:", error);
-            showNotification('An error occurred while saving the configuration.', 'error');
+            showNotification('An error occurred while saving the new test points.', 'error');
+        }
+    };
+
+    const handleDeleteTestPoint = async (idToDelete) => {
+        const updatedPoints = testPoints.filter(point => point.id !== idToDelete);
+        const pointsToSave = updatedPoints.map(({ current, frequency }) => ({ current, frequency }));
+
+        try {
+            await axios.put(`${API_BASE_URL}/calibration_sessions/${selectedSessionId}/test_points/`, { points: pointsToSave });
+
+            showNotification('Test point deleted successfully!', 'success');
+            if (updatedPoints.length === 0) {
+                setInputCurrent('');
+            }
+            fetchTestPointSetAndSettings();
+        } catch (error) {
+            console.error("Failed to delete the test point:", error);
+            showNotification('An error occurred while deleting the test point.', 'error');
+        }
+    };
+
+    const handleClearAllTestPoints = async () => {
+        try {
+            await axios.put(`${API_BASE_URL}/calibration_sessions/${selectedSessionId}/test_points/`, { points: [] });
+            showNotification('All test points cleared.', 'success');
+            setInputCurrent('');
+            fetchTestPointSetAndSettings();
+        } catch (error) {
+            console.error("Failed to clear test points:", error);
+            showNotification('An error occurred while clearing test points.', 'error');
         }
     };
     
@@ -216,12 +258,22 @@ function TestPointEditor({ showNotification }) {
     };
 
     const formatCurrent = (value) => {
-        const currentObject = AVAILABLE_CURRENENTS.find(c => c.value === value);
+        const currentObject = AVAILABLE_CURRENTS.find(c => c.value === value);
         return currentObject ? currentObject.text : `${value}A`;
     };
 
     return (
         <React.Fragment>
+            {isModalOpen && (
+                <FrequencySelectionModal 
+                    onCancel={() => setIsModalOpen(false)}
+                    onConfirm={(selected) => {
+                        setStagedFrequencies(selected);
+                        setIsModalOpen(false);
+                    }}
+                    preselectedFrequencies={stagedFrequencies}
+                />
+            )}
             <div className="content-area calibration-setup">
                 <h2>Test Point Configuration</h2>
                 {selectedSessionId ? (
@@ -235,14 +287,13 @@ function TestPointEditor({ showNotification }) {
                 )}
 
                 <div className="config-grid">
-                    {/* Left Column for general settings */}
                     <div className="config-column">
                         <div className="form-section">
-                            <label htmlFor="ac-shunt-range">AC Shunt Range (A)</label>
-                            <input type="number" id="ac-shunt-range" value={acShuntRange} onChange={(e) => setAcShuntRange(e.target.value)} disabled={!selectedSessionId} placeholder="e.g., 20" />
+                            <label htmlFor="amplifier-range">8100 Amplifier Range</label>
+                            <input type="text" id="amplifier-range" value={amplifierRange ? `${amplifierRange}A` : ''} disabled readOnly />
                         </div>
-                        <div className="form-section">
-                            <label htmlFor="tvc-upper-limit">TVC Upper Limit</label>
+                         <div className="form-section">
+                            <label htmlFor="tvc-upper-limit">TVC Upper Limit (A)</label>
                             <input type="number" id="tvc-upper-limit" value={tvcUpperLimit} onChange={(e) => setTvcUpperLimit(e.target.value)} disabled={!selectedSessionId} placeholder="e.g., 100.5" />
                         </div>
                         <div className="form-section-action">
@@ -250,7 +301,6 @@ function TestPointEditor({ showNotification }) {
                         </div>
                     </div>
 
-                     {/* Right Column for generating points */}
                     <div className="config-column">
                         <div className="form-section">
                             <label htmlFor="input-current">Input Current (A)</label>
@@ -261,24 +311,22 @@ function TestPointEditor({ showNotification }) {
                                 disabled={!selectedSessionId || testPoints.length > 0}
                             >
                                 <option value="">-- Select Current --</option>
-                                {AVAILABLE_CURRENENTS.map(current => (<option key={current.value} value={current.value}>{current.text}</option>))}
+                                {AVAILABLE_CURRENTS.map(current => (<option key={current.value} value={current.value}>{current.text}</option>))}
                             </select>
                         </div>
                         <div className="form-section">
                             <label>Frequencies to Add</label>
-                            <div className="frequency-list-container">
-                                {frequencyInputs.map((freq, index) => (
-                                    <div key={index} className="frequency-input-row">
-                                        <select value={freq.value} onChange={(e) => handleFrequencyChange(index, e.target.value)} disabled={!selectedSessionId}>
-                                            <option value="">-- Select Frequency --</option>
-                                            {AVAILABLE_FREQUENCIES.map(f => <option key={f.value} value={f.value}>{f.text}</option>)}
-                                        </select>
-                                        <button type="button" onClick={() => handleRemoveFrequency(index)} className="button button-danger button-small" disabled={!selectedSessionId || frequencyInputs.length <= 1}>Remove</button>
-                                    </div>
-                                ))}
+                            <div className="staged-frequencies" style={{ display: 'flex', flexWrap: 'wrap', gap: '8px', minHeight: '40px', padding: '5px', borderRadius: '4px' }}>
+                                {stagedFrequencies.length > 0 ? stagedFrequencies.map(f => (
+                                    <span key={f.value} className="frequency-tag" style={{ padding: '5px 10px', backgroundColor: 'var(--background-color-offset)', color: 'var(--primary-text-color)', borderRadius: '4px' }}>
+                                        {f.text}
+                                    </span>
+                                )) : <span style={{color: 'var(--secondary-text-color)', fontStyle: 'italic', padding: '5px' }}>Click "Select Frequencies..." below to choose frequencies.</span>}
                             </div>
-                             <button type="button" onClick={handleAddFrequency} className="button button-secondary" style={{marginRight: '10px'}} disabled={!selectedSessionId}>Add Frequency</button>
-                            <button type="button" onClick={handleGenerateTestPoints} className="button button-success" disabled={!selectedSessionId}>Generate Test Points</button>
+                        </div>
+                         <div className="form-section-action">
+                             <button type="button" onClick={() => setIsModalOpen(true)} className="button" style={{marginRight: '10px'}} disabled={!selectedSessionId}>Select Frequencies...</button>
+                            <button type="button" onClick={handleGenerateAndSavePoints} className="button" disabled={!selectedSessionId || stagedFrequencies.length === 0}>Generate & Save Points</button>
                         </div>
                     </div>
                 </div>
@@ -286,22 +334,11 @@ function TestPointEditor({ showNotification }) {
 
             <div className="content-area">
                 <div className="test-points-header">
-                    <h2>Total Test Points: {testPoints.length}</h2>
+                    <h2>Generated Test Points ({testPoints.length})</h2>
                     <div>
-                        {testPoints.length > 0 && (<button onClick={handleClearAllTestPoints} className="button button-danger" style={{marginRight: '10px'}}>Clear List</button>)}
-                        <button onClick={handleSaveAll} className="button button-success" disabled={!selectedSessionId}>Save All Test Points</button>
+                        {testPoints.length > 0 && (<button onClick={handleClearAllTestPoints} className="button button-danger">Clear All Points</button>)}
                     </div>
                 </div>
-
-                {selectedSessionId && (
-                    <div className="test-set-details">
-                        {/* Use the live state variables for an accurate real-time display */}
-                        <div><strong>Input Current:</strong> {inputCurrent ? `${inputCurrent} A` : 'Not Set'}</div>
-                        <div><strong>AC Shunt Range:</strong> {acShuntRange ? `${acShuntRange} A` : 'Not Set'}</div>
-                        <div><strong>TVC Upper Limit:</strong> {tvcUpperLimit || 'Not Set'}</div>
-                    </div>
-                )}
-
                 <table className="test-points-table">
                     <thead>
                         <tr>

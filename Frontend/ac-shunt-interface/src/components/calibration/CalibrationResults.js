@@ -20,8 +20,16 @@ function CalibrationResults({ showNotification }) {
     const [stdMetric, setStdMetric] = useState('average');
     const [tiMetric, setTiMetric] = useState('average');
 
+    const [showCalcDetails, setShowCalcDetails] = useState(false);
+
     const calInfoHeaders = ['TI Model', 'TI Serial', 'STD Model', 'STD Serial', 'Calibration Date', 'Temperature', 'Humidity'];
-    const readingHeadersHeaders = ['#', 'AC Open', 'Diff vs Avg', 'Deviation', 'DCV+', 'Diff vs Avg', 'Deviation', 'DCV-', 'Diff vs Avg', 'Deviation', 'AC Close', 'Diff vs Avg', 'Deviation'];
+    const readingHeadersHeaders = ['#', 'AC Open', 'DC+', 'DC-', 'AC Close'];
+
+    useEffect(() => {
+        if (window.MathJax) {
+            window.MathJax.typeset();
+        }
+    });
 
     const fetchCalibrationData = useCallback(async () => {
         if (!selectedSessionId) {
@@ -49,30 +57,30 @@ function CalibrationResults({ showNotification }) {
     }, [fetchCalibrationData]);
 
     const exportTableToXLSX = (sheetName, fileName, stats, readingsData) => {
-
         const tableRows = Array.from({
             length: Math.max(
                 (readingsData.acOpenReadings || []).length, (readingsData.dcPosReadings || []).length,
                 (readingsData.dcNegReadings || []).length, (readingsData.acCloseReadings || []).length
             )
         }).map((_, index) => {
-            const readingAcOpen = readingsData.acOpenReadings[index] !== undefined ? readingsData.acOpenReadings[index] : '';
-            const readingDcPos = readingsData.dcPosReadings[index] !== undefined ? readingsData.dcPosReadings[index] : '';
-            const readingDcNeg = readingsData.dcNegReadings[index] !== undefined ? readingsData.dcNegReadings[index] : '';
-            const readingAcClose = readingsData.acCloseReadings[index] !== undefined ? readingsData.acCloseReadings[index] : '';
-            const { acOpenAvg, acOpenStd, dcPosAvg, dcPosStd, dcNegAvg, dcNegStd, acCloseAvg, acCloseStd } = stats;
-            const diff_acOpen = readingAcOpen !== '' ? (readingAcOpen - acOpenAvg).toFixed(2) : '';
-            const deviation_acOpen = (acOpenStd !== 0 && readingAcOpen !== '') ? (diff_acOpen / acOpenStd).toFixed(2) : (readingAcOpen !== '' ? '0.00' : '');
-            const diff_dcPos = readingDcPos !== '' ? (readingDcPos - dcPosAvg).toFixed(2) : '';
-            const deviation_dcPos = (dcPosStd !== 0 && readingDcPos !== '') ? (diff_dcPos / dcPosStd).toFixed(2) : (readingDcPos !== '' ? '0.00' : '');
-            const diff_dcNeg = readingDcNeg !== '' ? (readingDcNeg - dcNegAvg).toFixed(2) : '';
-            const deviation_dcNeg = (dcNegStd !== 0 && readingDcNeg !== '') ? (diff_dcNeg / dcNegStd).toFixed(2) : (readingDcNeg !== '' ? '0.00' : '');
-            const diff_acClose = readingAcClose !== '' ? (readingAcClose - acCloseAvg).toFixed(2) : '';
-            const deviation_acClose = (acCloseStd !== 0 && readingAcClose !== '') ? (diff_acClose / acCloseStd).toFixed(2) : (readingAcClose !== '' ? '0.00' : '');
-            return [index + 1, readingAcOpen, diff_acOpen, deviation_acOpen, readingDcPos, diff_dcPos, deviation_dcPos, readingDcNeg, diff_dcNeg, deviation_dcNeg, readingAcClose, diff_acClose, deviation_acClose];
+            return [
+                index + 1,
+                readingsData.acOpenReadings[index] ?? '',
+                readingsData.dcPosReadings[index] ?? '',
+                readingsData.dcNegReadings[index] ?? '',
+                readingsData.acCloseReadings[index] ?? ''
+            ];
         });
+
         const headerRow = readingHeadersHeaders;
-        const statRows = [[], ["Metric", "AC Open", "DC+", "DC−", "AC Close"], ["Average", stats.acOpenAvg, stats.dcPosAvg, stats.dcNegAvg, stats.acCloseAvg], ["Stddev", stats.acOpenStd, stats.dcPosStd, stats.dcNegStd, stats.acCloseStd], []];
+        const statRows = [
+            [],
+            ["Metric", "AC Open", "DC+", "DC−", "AC Close"],
+            ["Average", stats.acOpenAvg, stats.dcPosAvg, stats.dcNegAvg, stats.acCloseAvg],
+            ["Stddev", stats.acOpenStd, stats.dcPosStd, stats.dcNegStd, stats.acCloseStd],
+            []
+        ];
+        
         const dataForSheet = [...statRows, headerRow, ...tableRows];
         const fullSheet = XLSX.utils.aoa_to_sheet(dataForSheet);
         const workbook = XLSX.utils.book_new();
@@ -104,23 +112,17 @@ function CalibrationResults({ showNotification }) {
                 borderColor: borderColors,
                 borderWidth: 1,
             }];
-        } else { // For 'readings', 'diff', and 'deviation'
+        } else {
             const readingLengths = keys.map(key => (calReadings[`${prefix}${key}_readings`] || []).length);
             const maxLen = Math.max(0, ...readingLengths);
             x_labels = Array.from({ length: maxLen }, (_, i) => i + 1);
 
             datasets = keys.map((key, i) => {
                 const readings = calReadings[`${prefix}${key}_readings`] || [];
-                const avg = calResults[`${prefix}${key}_avg`] || 0;
-                const stddev = calResults[`${prefix}${key}_stddev`] || 0;
+                // const avg = calResults[`${prefix}${key}_avg`] || 0;
+                // const stddev = calResults[`${prefix}${key}_stddev`] || 0;
                 let data;
-                if (metricType === 'diff') {
-                    data = readings.map(r => (r - avg));
-                } else if (metricType === 'deviation') {
-                    data = stddev === 0 ? readings.map(() => 0) : readings.map(r => (r - avg) / stddev);
-                } else { // 'readings'
-                    data = readings;
-                }
+                data = readings;
                 return { label: `${labels[i]}`, data: data, borderColor: borderColors[i], tension: 0.1, fill: false };
             });
         }
@@ -131,85 +133,246 @@ function CalibrationResults({ showNotification }) {
         const instrument = type === 'std' ? 'Standard' : 'Test';
         let metricName;
         if (metric === 'readings') metricName = 'Raw Readings';
-        else if (metric === 'diff') metricName = 'Difference from Average';
-        else if (metric === 'deviation') metricName = 'Statistical Deviation';
         else if (metric === 'average') metricName = 'Averages';
         else if (metric === 'stddev') metricName = 'Standard Deviations';
         return `${instrument} Instrument - ${metricName}`;
     }
 
+    const SummaryTable = ({ results, prefix }) => (
+        <table className="summary-table" style={{ width: '100%', borderCollapse: 'collapse', marginBottom: '-1px' }}>
+            <tbody>
+                <tr>
+                    <td style={{ width: '25%', verticalAlign: 'top', border: '1px solid var(--border-color)', padding: '10px' }}>
+                        <h3>AC Open</h3>
+                        <p>Average: {results?.[`${prefix}ac_open_avg`]?.toPrecision(8) ?? '...'}</p>
+                        <p>Standard Deviation: {results?.[`${prefix}ac_open_stddev`]?.toPrecision(8) ?? '...'}</p>
+                    </td>
+                    <td style={{ width: '25%', verticalAlign: 'top', border: '1px solid var(--border-color)', padding: '10px' }}>
+                        <h3>DC+</h3>
+                        <p>Average: {results?.[`${prefix}dc_pos_avg`]?.toPrecision(8) ?? '...'}</p>
+                        <p>Standard Deviation: {results?.[`${prefix}dc_pos_stddev`]?.toPrecision(8) ?? '...'}</p>
+                    </td>
+                    <td style={{ width: '25%', verticalAlign: 'top', border: '1px solid var(--border-color)', padding: '10px' }}>
+                        <h3>DC−</h3>
+                        <p>Average: {results?.[`${prefix}dc_neg_avg`]?.toPrecision(8) ?? '...'}</p>
+                        <p>Standard Deviation: {results?.[`${prefix}dc_neg_stddev`]?.toPrecision(8) ?? '...'}</p>
+                    </td>
+                    <td style={{ width: '25%', verticalAlign: 'top', border: '1px solid var(--border-color)', padding: '10px' }}>
+                        <h3>AC Close</h3>
+                        <p>Average: {results?.[`${prefix}ac_close_avg`]?.toPrecision(8) ?? '...'}</p>
+                        <p>Standard Deviation: {results?.[`${prefix}ac_close_stddev`]?.toPrecision(8) ?? '...'}</p>
+                    </td>
+                </tr>
+            </tbody>
+        </table>
+    );
+
+    const CalculationBreakdown = ({ results }) => {
+        if (!results || !results.delta_std_known || !results.eta_std || !results.eta_ti) {
+            return <p style={{textAlign: 'center', padding: '10px'}}>Calculation cannot be shown until all readings are taken and correction factors are entered.</p>;
+        }
+
+        const V_DCSTD = (results.std_dc_pos_avg + Math.abs(results.std_dc_neg_avg)) / 2;
+        const V_ACSTD = (results.std_ac_open_avg + results.std_ac_close_avg) / 2;
+        const V_DCUUT = (results.ti_dc_pos_avg + Math.abs(results.ti_dc_neg_avg)) / 2;
+        const V_ACUUT = (results.ti_ac_open_avg + results.ti_ac_close_avg) / 2;
+
+        const term_STD = ((V_ACSTD - V_DCSTD) * 1000000) / (results.eta_std * V_DCSTD);
+        const term_UUT = ((V_ACUUT - V_DCUUT) * 1000000) / (results.eta_ti * V_DCUUT);
+
+        const mainBreakdown = `
+            \\begin{align*}
+            \\delta_{\\text{UUT}} &\\approx \\delta_{\\text{STD}} + \\text{Term}_{\\text{STD}} - \\text{Term}_{\\text{UUT}} \\\\
+            ${results.delta_uut_ppm} &\\approx ${results.delta_std_known} + (${term_STD.toFixed(3)}) - (${term_UUT.toFixed(3)})
+            \\end{align*}
+        `;
+
+        const termStdBreakdown = `
+            \\begin{align*}
+            \\text{Term}_{\\text{STD}} &= \\frac{(V_{\\text{AC,STD}} - V_{\\text{DC,STD}}) \\times 10^6}{\\eta_{\\text{STD}} \\times V_{\\text{DC,STD}}} \\\\
+            &= \\frac{(${V_ACSTD.toPrecision(8)} - ${V_DCSTD.toPrecision(8)}) \\times 10^6}{${results.eta_std} \\times ${V_DCSTD.toPrecision(8)}} \\\\
+            &= ${term_STD.toFixed(5)}
+            \\end{align*}
+        `;
+        
+        const termUutBreakdown = `
+            \\begin{align*}
+            \\text{Term}_{\\text{UUT}} &= \\frac{(V_{\\text{AC,UUT}} - V_{\\text{DC,UUT}}) \\times 10^6}{\\eta_{\\text{UUT}} \\times V_{\\text{DC,UUT}}} \\\\
+            &= \\frac{(${V_ACUUT.toPrecision(8)} - ${V_DCUUT.toPrecision(8)}) \\times 10^6}{${results.eta_ti} \\times ${V_DCUUT.toPrecision(8)}} \\\\
+            &= ${term_UUT.toFixed(5)}
+            \\end{align*}
+        `;
+        
+        return (
+            <div className="calculation-breakdown" style={{
+                backgroundColor: 'var(--background-color-offset)',
+                border: '1px solid var(--border-color)',
+                borderRadius: '8px',
+                padding: '15px',
+                marginTop: '15px',
+                fontSize: '1.1em',
+            }}>
+                <p style={{textAlign: 'center', fontWeight: 'bold'}}>Final Calculation Breakdown</p>
+                {`$$ ${mainBreakdown} $$`}
+                <hr style={{ margin: '15px 0', borderColor: 'var(--border-color-light)' }}/>
+                {`$$ ${termStdBreakdown} $$`}
+                <hr style={{ margin: '15px 0', borderColor: 'var(--border-color-light)' }}/>
+                {`$$ ${termUutBreakdown} $$`}
+            </div>
+        );
+    };
+
     return (
         <React.Fragment>
             <div className="content-area">
                 {!selectedSessionId && <div className="form-section-warning"><p>Please select a session from the "Session Setup" tab to view data output.</p></div>}
-                <div className="table-header-container"><h2>Calibration Session Information</h2></div>
-                <div className="table-container">
-                    <table id="cal-info-table" className="cal-results-table">
-                        <thead><tr>{calInfoHeaders.map((h, i) => <th key={i}>{h}</th>)}</tr></thead>
-                        <tbody><tr><td>{sessionInfo?.test_instrument_model || ''}</td><td>{sessionInfo?.test_instrument_serial || ''}</td><td>{sessionInfo?.standard_instrument_model || ''}</td><td>{sessionInfo?.standard_instrument_serial || ''}</td><td>{sessionInfo?.created_at ? new Date(sessionInfo.created_at).toLocaleDateString() : ''}</td><td>{sessionInfo?.temperature || ''}</td><td>{sessionInfo?.humidity || ''}</td></tr></tbody>
-                    </table>
-                </div>
-
-                <div className="table-header-container">
-                    <div className="header-row">
-                        <h2>Standard Readings</h2>
-                        <FaDownload className="download-icon" title="Export to XLSX" onClick={() => exportTableToXLSX('STD Readings', 'std_readings_data.xlsx', { acOpenAvg: calResults?.std_ac_open_avg, acOpenStd: calResults?.std_ac_open_stddev, dcPosAvg: calResults?.std_dc_pos_avg, dcPosStd: calResults?.std_dc_pos_stddev, dcNegAvg: calResults?.std_dc_neg_avg, dcNegStd: calResults?.std_dc_neg_stddev, acCloseAvg: calResults?.std_ac_close_avg, acCloseStd: calResults?.std_ac_close_stddev }, { acOpenReadings: calReadings?.std_ac_open_readings, dcPosReadings: calReadings?.std_dc_pos_readings, dcNegReadings: calReadings?.std_dc_neg_readings, acCloseReadings: calReadings?.std_ac_close_readings })} />
-                        <div className="view-toggle"><button className={stdView === 'table' ? 'active' : ''} onClick={() => setStdView('table')}>Table</button><button className={stdView === 'chart' ? 'active' : ''} onClick={() => setStdView('chart')}>Chart</button></div>
-                    </div>
-                    {stdView === 'table' && <div className="reading-group"><div className="reading"><h3>AC Open</h3><p>Average: {calResults?.std_ac_open_avg ?? '...'}</p><p>Standard Deviation: {calResults?.std_ac_open_stddev ?? '...'}</p></div><div className="reading"><h3>DC+</h3><p>Average: {calResults?.std_dc_pos_avg ?? '...'}</p><p>Standard Deviation: {calResults?.std_dc_pos_stddev ?? '...'}</p></div><div className="reading"><h3>DC−</h3><p>Average: {calResults?.std_dc_neg_avg ?? '...'}</p><p>Standard Deviation: {calResults?.std_dc_neg_stddev ?? '...'}</p></div><div className="reading"><h3>AC Close</h3><p>Average: {calResults?.std_ac_close_avg ?? '...'}</p><p>Standard Deviation: {calResults?.std_ac_close_stddev ?? '...'}</p></div></div>}
-                </div>
-                {stdView === 'table' ? (
-                    <div className="table-container"><table id="std-readings-table" className="cal-results-table"><thead><tr>{readingHeadersHeaders.map((h, i) => <th key={`std-h-${i}`}>{h}</th>)}</tr></thead><tbody>{Array.from({ length: Math.max(getReadingsArray(calReadings, 'std_ac_open_readings').length, getReadingsArray(calReadings, 'std_dc_pos_readings').length) }).map((_, index) => { const r1 = getReadingsArray(calReadings, 'std_ac_open_readings')[index], r2 = getReadingsArray(calReadings, 'std_dc_pos_readings')[index], r3 = getReadingsArray(calReadings, 'std_dc_neg_readings')[index], r4 = getReadingsArray(calReadings, 'std_ac_close_readings')[index]; const a1 = calResults?.std_ac_open_avg ?? 0, s1 = calResults?.std_ac_open_stddev ?? 0, a2 = calResults?.std_dc_pos_avg ?? 0, s2 = calResults?.std_dc_pos_stddev ?? 0, a3 = calResults?.std_dc_neg_avg ?? 0, s3 = calResults?.std_dc_neg_stddev ?? 0, a4 = calResults?.std_ac_close_avg ?? 0, s4 = calResults?.std_ac_close_stddev ?? 0; const d1 = (r1 !== undefined ? (r1 - a1).toFixed(2) : ''), v1 = (s1 !== 0 && r1 !== undefined ? (d1 / s1).toFixed(2) : (r1 !== undefined ? '0.00' : '')); const d2 = (r2 !== undefined ? (r2 - a2).toFixed(2) : ''), v2 = (s2 !== 0 && r2 !== undefined ? (d2 / s2).toFixed(2) : (r2 !== undefined ? '0.00' : '')); const d3 = (r3 !== undefined ? (r3 - a3).toFixed(2) : ''), v3 = (s3 !== 0 && r3 !== undefined ? (d3 / s3).toFixed(2) : (r3 !== undefined ? '0.00' : '')); const d4 = (r4 !== undefined ? (r4 - a4).toFixed(2) : ''), v4 = (s4 !== 0 && r4 !== undefined ? (d4 / s4).toFixed(2) : (r4 !== undefined ? '0.00' : '')); return (<tr key={`std-r-${index}`}><td>{index + 1}</td><td>{r1}</td><td>{d1}</td><td>{v1}</td><td>{r2}</td><td>{d2}</td><td>{v2}</td><td>{r3}</td><td>{d3}</td><td>{v3}</td><td>{r4}</td><td>{d4}</td><td>{v4}</td></tr>); })}</tbody></table></div>
-                ) : (
-                    <div className="chart-container" style={{ margin: '20px 0 40px' }}>
-                        <div className="chart-controls" style={{ marginBottom: '10px' }}>
-                            <label htmlFor="std-metric-type" style={{ marginRight: '10px' }}>Metric to Plot: </label>
-                            <select id="std-metric-type" value={stdMetric} onChange={(e) => setStdMetric(e.target.value)}>
-                                <option value="average">Average</option>
-                                <option value="stddev">Standard Deviation</option>
-                                <option value="readings">Readings</option>
-                                <option value="diff">Difference vs. Avg</option>
-                                <option value="deviation">Deviation</option>
-                            </select>
+                
+                {selectedSessionId && (
+                    <>
+                        <div className="table-header-container"><h2>Calibration Session Information</h2></div>
+                        <div className="table-container">
+                            <table id="cal-info-table" className="cal-results-table">
+                                <thead><tr>{calInfoHeaders.map((h, i) => <th key={i}>{h}</th>)}</tr></thead>
+                                <tbody><tr><td>{sessionInfo?.test_instrument_model || ''}</td><td>{sessionInfo?.test_instrument_serial || ''}</td><td>{sessionInfo?.standard_instrument_model || ''}</td><td>{sessionInfo?.standard_instrument_serial || ''}</td><td>{sessionInfo?.created_at ? new Date(sessionInfo.created_at).toLocaleDateString() : ''}</td><td>{sessionInfo?.temperature || ''}</td><td>{sessionInfo?.humidity || ''}</td></tr></tbody>
+                            </table>
                         </div>
-                        <CalibrationChart
-                            title={getChartTitle('std', stdMetric)}
-                            chartData={prepareChartData('std', stdMetric)}
-                            theme={theme}
-                            chartType={(stdMetric === 'average' || stdMetric === 'stddev') ? 'bar' : 'line'}
-                        />
-                    </div>
-                )}
 
-                <div className="table-header-container">
-                    <div className="header-row">
-                        <h2>Test Instrument Readings</h2>
-                        <FaDownload className="download-icon" title="Export to XLSX" onClick={() => exportTableToXLSX('TI Readings', 'ti_readings_data.xlsx', { acOpenAvg: calResults?.ti_ac_open_avg, acOpenStd: calResults?.ti_ac_open_stddev, dcPosAvg: calResults?.ti_dc_pos_avg, dcPosStd: calResults?.ti_dc_pos_stddev, dcNegAvg: calResults?.ti_dc_neg_avg, dcNegStd: calResults?.ti_dc_neg_stddev, acCloseAvg: calResults?.ti_ac_close_avg, acCloseStd: calResults?.ti_ac_close_stddev, }, { acOpenReadings: calReadings?.ti_ac_open_readings, dcPosReadings: calReadings?.ti_dc_pos_readings, dcNegReadings: calReadings?.ti_dc_neg_readings, acCloseReadings: calReadings?.ti_ac_close_readings, })} />
-                        <div className="view-toggle"><button className={tiView === 'table' ? 'active' : ''} onClick={() => setTiView('table')}>Table</button><button className={tiView === 'chart' ? 'active' : ''} onClick={() => setTiView('chart')}>Chart</button></div>
-                    </div>
-                    {tiView === 'table' && <div className="reading-group"><div className="reading"><h3>AC Open</h3><p>Average: {calResults?.ti_ac_open_avg ?? '...'}</p><p>Standard Deviation: {calResults?.ti_ac_open_stddev ?? '...'}</p></div><div className="reading"><h3>DC+</h3><p>Average: {calResults?.ti_dc_pos_avg ?? '...'}</p><p>Standard Deviation: {calResults?.ti_dc_pos_stddev ?? '...'}</p></div><div className="reading"><h3>DC−</h3><p>Average: {calResults?.ti_dc_neg_avg ?? '...'}</p><p>Standard Deviation: {calResults?.ti_dc_neg_stddev ?? '...'}</p></div><div className="reading"><h3>AC Close</h3><p>Average: {calResults?.ti_ac_close_avg ?? '...'}</p><p>Standard Deviation: {calResults?.ti_ac_close_stddev ?? '...'}</p></div></div>}
-                </div>
-                {tiView === 'table' ? (
-                    <div className="table-container"><table id="ti-readings-table" className="cal-results-table"><thead><tr>{readingHeadersHeaders.map((h, i) => <th key={`ti-h-${i}`}>{h}</th>)}</tr></thead><tbody>{Array.from({ length: Math.max(getReadingsArray(calReadings, 'ti_ac_open_readings').length, getReadingsArray(calReadings, 'ti_dc_pos_readings').length) }).map((_, index) => { const r1 = getReadingsArray(calReadings, 'ti_ac_open_readings')[index], r2 = getReadingsArray(calReadings, 'ti_dc_pos_readings')[index], r3 = getReadingsArray(calReadings, 'ti_dc_neg_readings')[index], r4 = getReadingsArray(calReadings, 'ti_ac_close_readings')[index]; const a1 = calResults?.ti_ac_open_avg ?? 0, s1 = calResults?.ti_ac_open_stddev ?? 0, a2 = calResults?.ti_dc_pos_avg ?? 0, s2 = calResults?.ti_dc_pos_stddev ?? 0, a3 = calResults?.ti_dc_neg_avg ?? 0, s3 = calResults?.ti_dc_neg_stddev ?? 0, a4 = calResults?.ti_ac_close_avg ?? 0, s4 = calResults?.ti_ac_close_stddev ?? 0; const d1 = (r1 !== undefined ? (r1 - a1).toFixed(2) : ''), v1 = (s1 !== 0 && r1 !== undefined ? (d1 / s1).toFixed(2) : (r1 !== undefined ? '0.00' : '')); const d2 = (r2 !== undefined ? (r2 - a2).toFixed(2) : ''), v2 = (s2 !== 0 && r2 !== undefined ? (d2 / s2).toFixed(2) : (r2 !== undefined ? '0.00' : '')); const d3 = (r3 !== undefined ? (r3 - a3).toFixed(2) : ''), v3 = (s3 !== 0 && r3 !== undefined ? (d3 / s3).toFixed(2) : (r3 !== undefined ? '0.00' : '')); const d4 = (r4 !== undefined ? (r4 - a4).toFixed(2) : ''), v4 = (s4 !== 0 && r4 !== undefined ? (d4 / s4).toFixed(2) : (r4 !== undefined ? '0.00' : '')); return (<tr key={`ti-r-${index}`}><td>{index + 1}</td><td>{r1}</td><td>{d1}</td><td>{v1}</td><td>{r2}</td><td>{d2}</td><td>{v2}</td><td>{r3}</td><td>{d3}</td><td>{v3}</td><td>{r4}</td><td>{d4}</td><td>{v4}</td></tr>); })}</tbody></table></div>
-                ) : (
-                    <div className="chart-container" style={{ margin: '20px 0 40px' }}>
-                        <div className="chart-controls" style={{ marginBottom: '10px' }}>
-                            <label htmlFor="ti-metric-type" style={{ marginRight: '10px' }}>Metric to Plot: </label>
-                            <select id="ti-metric-type" value={tiMetric} onChange={(e) => setTiMetric(e.target.value)}>
-                                <option value="average">Average</option>
-                                <option value="stddev">Standard Deviation</option>
-                                <option value="readings">Readings</option>
-                                <option value="diff">Difference vs. Avg</option>
-                                <option value="deviation">Deviation</option>
-                            </select>
+                        <div className="table-header-container">
+                            <h2>Correction Factor Inputs</h2>
                         </div>
-                        <CalibrationChart
-                            title={getChartTitle('ti', tiMetric)}
-                            chartData={prepareChartData('ti', tiMetric)}
-                            theme={theme}
-                            chartType={(tiMetric === 'average' || tiMetric === 'stddev') ? 'bar' : 'line'}
-                        />
-                    </div>
+                        <div className="reading-group">
+                            <div className="reading">
+                                <h3>δ Standard (PPM)</h3>
+                                <p>{calResults?.delta_std_known ? calResults.delta_std_known.toFixed(3) : 'Not Entered'}</p>
+                            </div>
+                            <div className="reading">
+                                <h3>η Standard</h3>
+                                <p>{calResults?.eta_std ? parseFloat(calResults.eta_std).toPrecision(8) : 'Not Entered'}</p>
+                            </div>
+                            <div className="reading">
+                                <h3>η Test Instrument</h3>
+                                <p>{calResults?.eta_ti ? parseFloat(calResults.eta_ti).toPrecision(8) : 'Not Entered'}</p>
+                            </div>
+                        </div>
+
+                        <div className="table-header-container">
+                            <h2>UUT AC-DC Difference Measurement (δ)</h2>
+                            <p>
+                                {'This is the final result in Parts-Per-Million (PPM), based on the formula:'}
+                            </p>
+                            {`$$
+                            \\delta_{\\text{UUT}} \\approx \\delta_{\\text{STD}} + \\left( \\frac{V_{AC} - V_{DC}}{\\eta \\times V_{DC}} \\right)_{\\text{STD}} \\times 10^6 - \\left( \\frac{V_{AC} - V_{DC}}{\\eta \\times V_{DC}} \\right)_{\\text{UUT}} \\times 10^6
+                            $$`}
+                        </div>
+                        <div className="reading-group">
+                            <div className="reading">
+                                <h3 style={{fontWeight: 'bold'}}>δ UUT (PPM)</h3>
+                                <p style={{fontSize: '1.2em', fontWeight: 'bold', color: 'var(--primary-color)'}}>
+                                    {calResults?.delta_uut_ppm ? parseFloat(calResults.delta_uut_ppm).toFixed(3) : 'Not Calculated'}
+                                </p>
+                            </div>
+                        </div>
+                        
+                        <div style={{ textAlign: 'center', margin: '10px 0 20px' }}>
+                            <button className="button button-secondary button-small" onClick={() => setShowCalcDetails(!showCalcDetails)}>
+                                {showCalcDetails ? 'Hide Calculation Details' : 'Show Calculation Details'}
+                            </button>
+                        </div>
+
+                        {showCalcDetails && <CalculationBreakdown results={calResults} />}
+
+                        <div className="table-header-container">
+                            <div className="header-row">
+                                <h2>Standard Readings</h2>
+                                <FaDownload className="download-icon" title="Export to XLSX" onClick={() => exportTableToXLSX('STD Readings', 'std_readings_data.xlsx', { acOpenAvg: calResults?.std_ac_open_avg, acOpenStd: calResults?.std_ac_open_stddev, dcPosAvg: calResults?.std_dc_pos_avg, dcPosStd: calResults?.std_dc_pos_stddev, dcNegAvg: calResults?.std_dc_neg_avg, dcNegStd: calResults?.std_dc_neg_stddev, acCloseAvg: calResults?.std_ac_close_avg, acCloseStd: calResults?.std_ac_close_stddev }, { acOpenReadings: calReadings?.std_ac_open_readings, dcPosReadings: calReadings?.std_dc_pos_readings, dcNegReadings: calReadings?.std_dc_neg_readings, acCloseReadings: calReadings?.std_ac_close_readings })} />
+                                <div className="view-toggle"><button className={stdView === 'table' ? 'active' : ''} onClick={() => setStdView('table')}>Table</button><button className={stdView === 'chart' ? 'active' : ''} onClick={() => setStdView('chart')}>Chart</button></div>
+                            </div>
+                            {stdView === 'table' && <SummaryTable results={calResults} prefix="std_" />}
+                        </div>
+                        {stdView === 'table' ? (
+                            <div className="table-container">
+                                <table id="std-readings-table" className="cal-results-table">
+                                    <thead>
+                                        <tr>{readingHeadersHeaders.map((h, i) => <th key={`std-h-${i}`}>{h}</th>)}</tr>
+                                    </thead>
+                                    <tbody>
+                                        {Array.from({ length: Math.max( getReadingsArray(calReadings, 'std_ac_open_readings').length, getReadingsArray(calReadings, 'std_dc_pos_readings').length ) }).map((_, index) => (
+                                            <tr key={`std-r-${index}`}>
+                                                <td>{index + 1}</td>
+                                                <td>{getReadingsArray(calReadings, 'std_ac_open_readings')[index]?.toPrecision(8)}</td>
+                                                <td>{getReadingsArray(calReadings, 'std_dc_pos_readings')[index]?.toPrecision(8)}</td>
+                                                <td>{getReadingsArray(calReadings, 'std_dc_neg_readings')[index]?.toPrecision(8)}</td>
+                                                <td>{getReadingsArray(calReadings, 'std_ac_close_readings')[index]?.toPrecision(8)}</td>
+                                            </tr>
+                                        ))}
+                                    </tbody>
+                                </table>
+                            </div>
+                        ) : (
+                            <div className="chart-container" style={{ margin: '20px 0 40px' }}>
+                                <div className="chart-controls" style={{ marginBottom: '10px' }}>
+                                    <label htmlFor="std-metric-type" style={{ marginRight: '10px' }}>Metric to Plot: </label>
+                                    <select id="std-metric-type" value={stdMetric} onChange={(e) => setStdMetric(e.target.value)}>
+                                        <option value="average">Average</option>
+                                        <option value="stddev">Standard Deviation</option>
+                                        <option value="readings">Readings</option>
+                                    </select>
+                                </div>
+                                <CalibrationChart
+                                    title={getChartTitle('std', stdMetric)}
+                                    chartData={prepareChartData('std', stdMetric)}
+                                    theme={theme}
+                                    chartType={(stdMetric === 'average' || stdMetric === 'stddev') ? 'bar' : 'line'}
+                                />
+                            </div>
+                        )}
+
+                        <div className="table-header-container">
+                            <div className="header-row">
+                                <h2>Test Instrument Readings</h2>
+                                <FaDownload className="download-icon" title="Export to XLSX" onClick={() => exportTableToXLSX('TI Readings', 'ti_readings_data.xlsx', { acOpenAvg: calResults?.ti_ac_open_avg, acOpenStd: calResults?.ti_ac_open_stddev, dcPosAvg: calResults?.ti_dc_pos_avg, dcPosStd: calResults?.ti_dc_pos_stddev, dcNegAvg: calResults?.ti_dc_neg_avg, dcNegStd: calResults?.ti_dc_neg_stddev, acCloseAvg: calResults?.ti_ac_close_avg, acCloseStd: calResults?.ti_ac_close_stddev, }, { acOpenReadings: calReadings?.ti_ac_open_readings, dcPosReadings: calReadings?.ti_dc_pos_readings, dcNegReadings: calReadings?.ti_dc_neg_readings, acCloseReadings: calReadings?.ti_ac_close_readings, })} />
+                                <div className="view-toggle"><button className={tiView === 'table' ? 'active' : ''} onClick={() => setTiView('table')}>Table</button><button className={tiView === 'chart' ? 'active' : ''} onClick={() => setTiView('chart')}>Chart</button></div>
+                            </div>
+                            {tiView === 'table' && <SummaryTable results={calResults} prefix="ti_" />}
+                        </div>
+                        {tiView === 'table' ? (
+                            <div className="table-container">
+                                <table id="ti-readings-table" className="cal-results-table">
+                                    <thead>
+                                        <tr>{readingHeadersHeaders.map((h, i) => <th key={`ti-h-${i}`}>{h}</th>)}</tr>
+                                    </thead>
+                                    <tbody>
+                                        {Array.from({ length: Math.max( getReadingsArray(calReadings, 'ti_ac_open_readings').length, getReadingsArray(calReadings, 'ti_dc_pos_readings').length ) }).map((_, index) => (
+                                            <tr key={`ti-r-${index}`}>
+                                                <td>{index + 1}</td>
+                                                <td>{getReadingsArray(calReadings, 'ti_ac_open_readings')[index]?.toPrecision(8)}</td>
+                                                <td>{getReadingsArray(calReadings, 'ti_dc_pos_readings')[index]?.toPrecision(8)}</td>
+                                                <td>{getReadingsArray(calReadings, 'ti_dc_neg_readings')[index]?.toPrecision(8)}</td>
+                                                <td>{getReadingsArray(calReadings, 'ti_ac_close_readings')[index]?.toPrecision(8)}</td>
+                                            </tr>
+                                        ))}
+                                    </tbody>
+                                </table>
+                            </div>
+                        ) : (
+                            <div className="chart-container" style={{ margin: '20px 0 40px' }}>
+                                <div className="chart-controls" style={{ marginBottom: '10px' }}>
+                                    <label htmlFor="ti-metric-type" style={{ marginRight: '10px' }}>Metric to Plot: </label>
+                                    <select id="ti-metric-type" value={tiMetric} onChange={(e) => setTiMetric(e.target.value)}>
+                                        <option value="average">Average</option>
+                                        <option value="stddev">Standard Deviation</option>
+                                        <option value="readings">Readings</option>
+                                    </select>
+                                </div>
+                                <CalibrationChart
+                                    title={getChartTitle('ti', tiMetric)}
+                                    chartData={prepareChartData('ti', tiMetric)}
+                                    theme={theme}
+                                    chartType={(tiMetric === 'average' || tiMetric === 'stddev') ? 'bar' : 'line'}
+                                />
+                            </div>
+                        )}
+                    </>
                 )}
             </div>
         </React.Fragment>
