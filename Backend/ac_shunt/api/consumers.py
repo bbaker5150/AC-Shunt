@@ -6,13 +6,15 @@ from asgiref.sync import sync_to_async
 from channels.db import database_sync_to_async
 
 # Corrected import based on your file path:
-from .NPSL_Tools.instruments import Instrument3458A, Instrument5730A, Instrument5790B, Instrument53132A
+from .NPSL_Tools.instruments import Instrument3458A, Instrument5730A, Instrument5790B, Instrument34420A
+from .models import Calibration, CalibrationReadings, CalibrationSession
 
 # A mapping from the model name string (sent from frontend) to the Python class
 INSTRUMENT_CLASS_MAP = {
     '5730A': Instrument5730A,
     '5790B': Instrument5790B,
-    '3458A': Instrument3458A, 
+    '3458A': Instrument3458A,
+    '34420': Instrument34420A
 }
 
 class InstrumentStatusConsumer(AsyncWebsocketConsumer):
@@ -106,3 +108,83 @@ class InstrumentStatusConsumer(AsyncWebsocketConsumer):
         except Exception as e:
             print(f"StatusConsumer: Error fetching status: {e}")
             return {'status_report': 'error', 'error_message': str(e)}
+        
+class CalibrationConsumer(AsyncWebsocketConsumer):
+    async def connect(self):
+        self.session_id = self.scope['url_route']['kwargs']['session_id']
+        self.session_group_name = f'session_{self.session_id}'
+
+        await self.channel_layer.group_add(
+            self.session_group_name,
+            self.channel_name
+        )
+        await self.accept()
+
+    async def disconnect(self, close_code):
+        await self.channel_layer.group_discard(
+            self.session_group_name,
+            self.channel_name
+        )
+
+    async def receive(self, text_data):
+        data = json.loads(text_data)
+        command = data.get('command')
+
+        if command == 'start_collection':
+            await self.collect_and_send_readings(data)
+
+    @sync_to_async(thread_sensitive=True)
+    def _take_one_reading(self, instrument):
+        """Synchronous wrapper for a single instrument read."""
+        return instrument.read_instrument()
+
+    async def collect_and_send_readings(self, data):
+        reading_type = data.get('reading_type')
+        num_samples = data.get('num_samples')
+        instrument_address = 'GPIB0::22::INSTR' # As requested
+
+        try:
+            # We must instantiate the instrument inside this async context using a sync_to_async wrapper
+            instrument = await sync_to_async(Instrument34420A, thread_sensitive=True)(channel=instrument_address)
+        except Exception as e:
+            await self.send(text_data=json.dumps({'type': 'error', 'message': f"Failed to connect to instrument: {e}"}))
+            return
+
+        all_readings = []
+        for i in range(num_samples):
+            try:
+                # Take one reading
+                reading = await self._take_one_reading(instrument)
+                all_readings.append(reading)
+                # Send this single reading to the frontend immediately
+                await self.send(text_data=json.dumps({
+                    'type': 'reading_update',
+                    'reading': reading,
+                    'count': i + 1,
+                    'total': num_samples
+                }))
+                await asyncio.sleep(0.05) # Small delay to allow UI to update smoothly
+            except Exception as e:
+                await self.send(text_data=json.dumps({'type': 'error', 'message': f"Error during reading {i+1}: {e}"}))
+                return
+
+        # After the loop, save the full list to the database
+        await self.save_readings_to_db(reading_type, all_readings)
+
+        # Send a final confirmation message
+        await self.send(text_data=json.dumps({'type': 'collection_finished', 'message': 'All readings complete.'}))
+
+    @database_sync_to_async
+    def save_readings_to_db(self, reading_type, readings_list):
+        """Saves the collected readings to the database."""
+        try:
+            session = CalibrationSession.objects.get(pk=self.session_id)
+            calibration, _ = Calibration.objects.get_or_create(session=session)
+            readings, _ = CalibrationReadings.objects.get_or_create(calibration=calibration)
+            
+            field_name = f"{reading_type}_readings"
+            if hasattr(readings, field_name):
+                setattr(readings, field_name, readings_list)
+                readings.save()
+        except CalibrationSession.DoesNotExist:
+            print(f"Error: Session with id {self.session_id} not found.")

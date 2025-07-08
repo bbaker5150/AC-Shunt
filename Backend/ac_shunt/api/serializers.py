@@ -12,8 +12,9 @@ class CalibrationSessionSerializer(serializers.ModelSerializer):
         model = CalibrationSession
         fields = [
             'id', 'session_name',
-            'test_instrument_model', 'test_instrument_serial',
-            'standard_instrument_model', 'standard_instrument_serial',
+            'test_instrument_model', 'test_instrument_serial', 'test_instrument_address',
+            'standard_instrument_model', 'standard_instrument_serial', 'standard_instrument_address',
+            'ac_source_address', 'dc_source_address',
             'temperature', 'humidity', 'created_at', 'notes',
         ]
 
@@ -36,13 +37,21 @@ class CalibrationResultsSerializer(serializers.ModelSerializer):
     class Meta:
         model = CalibrationResults
         fields = '__all__'
-        read_only_fields = ['id', 'created_at', 'updated_at', 'calibration']
+        # Note: eta_std, eta_ti, and delta_std_known are NOT read_only, so they can be updated.
+        read_only_fields = [
+            'id', 'created_at', 'updated_at', 'calibration', 
+            'std_ac_open_avg', 'std_ac_open_stddev', 'std_dc_pos_avg', 'std_dc_pos_stddev', 
+            'std_dc_neg_avg', 'std_dc_neg_stddev', 'std_ac_close_avg', 'std_ac_close_stddev', 
+            'ti_ac_open_avg', 'ti_ac_open_stddev', 'ti_dc_pos_avg', 'ti_dc_pos_stddev', 
+            'ti_dc_neg_avg', 'ti_dc_neg_stddev', 'ti_ac_close_avg', 'ti_ac_close_stddev'
+        ]
+
 
 class CalibrationSerializer(serializers.ModelSerializer):
     
     settings = CalibrationSettingsSerializer()
     readings = CalibrationReadingsSerializer()
-    results = CalibrationResultsSerializer(required=False) # Make it optional for PUT operations if not always sent
+    results = CalibrationResultsSerializer(required=False)
 
     class Meta:
         model = Calibration
@@ -62,6 +71,7 @@ class CalibrationSerializer(serializers.ModelSerializer):
             setattr(settings_instance, attr, value)
         settings_instance.save()
 
+        # Update or create CalibrationReadings
         readings_instance, _ = CalibrationReadings.objects.get_or_create(calibration=instance)
         for attr, value in readings_data.items():
             setattr(readings_instance, attr, value)
@@ -74,4 +84,3 @@ class CalibrationSerializer(serializers.ModelSerializer):
         results_instance.save()
 
         return instance
-

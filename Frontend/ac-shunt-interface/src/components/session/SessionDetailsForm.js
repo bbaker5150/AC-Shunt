@@ -125,7 +125,7 @@ function SessionDetailsForm({ sessionsList, fetchSessionsList, showNotification 
                     </div>
                 </div>
             </div>
-            <button type="submit" className="button button-success" disabled={isLoading}>
+            <button type="submit" className="button" disabled={isLoading}>
                 {isLoading ? 'Saving...' : (selectedSessionId ? 'Update Session' : 'Save as New Session')}
             </button>
         </form>

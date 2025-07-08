@@ -1,28 +1,67 @@
-/**
- * @file InstrumentContext.js
- * @brief Provides shared state and functionality related to the calibration process.
- * * This context is a central hub for application-wide state. It manages the
- * currently selected calibration session (ID and name) and handles real-time
- * status updates for connected instruments. The status is fetched via WebSocket
- * connections, which are initiated and managed here. This allows various
- * components throughout the application to access session data and instrument
- * statuses without prop drilling.
- */
 import React, { createContext, useState, useEffect, useRef, useCallback, useContext } from 'react';
+import axios from 'axios';
 
-const WS_BASE_URL = 'ws://10.206.104.144:8000/ws';
+const API_BASE_URL = 'http://127.0.0.1:8000/api';
+const WS_BASE_URL = 'ws://127.0.0.1:8000/ws';
+
+const initialLiveReadings = {
+    ac_open: [],
+    dc_pos: [],
+    dc_neg: [],
+    ac_close: []
+};
 
 export const InstrumentContext = createContext();
 
 export const InstrumentContextProvider = ({ children }) => {
-  // --- Shared State for Active Session ---
   const [selectedSessionId, setSelectedSessionId] = useState(null);
   const [selectedSessionName, setSelectedSessionName] = useState('');
+  
+  const [stdInstrumentAddress, setStdInstrumentAddress] = useState(null);
+  const [tiInstrumentAddress, setTiInstrumentAddress] = useState(null);
+  const [acSourceAddress, setAcSourceAddress] = useState(null);
+  const [dcSourceAddress, setDcSourceAddress] = useState(null);
 
-  // --- Generic Instrument Status State & WebSocket Logic ---
   const [instrumentStatuses, setInstrumentStatuses] = useState({});
   const [isFetchingStatuses, setIsFetchingStatuses] = useState({});
   const statusWs = useRef({});
+
+  // State for both Standard and (simulated) TI live charts
+  const [liveReadings, setLiveReadings] = useState(initialLiveReadings);
+  const [tiLiveReadings, setTiLiveReadings] = useState(initialLiveReadings);
+
+
+  useEffect(() => {
+    const fetchSessionDetails = async () => {
+      if (selectedSessionId) {
+        try {
+          const response = await axios.get(`${API_BASE_URL}/calibration_sessions/${selectedSessionId}/`);
+          const session = response.data;
+          setStdInstrumentAddress(session.standard_instrument_address || null);
+          setTiInstrumentAddress(session.test_instrument_address || null);
+          setAcSourceAddress(session.ac_source_address || null);
+          setDcSourceAddress(session.dc_source_address || null);
+          setSelectedSessionName(session.session_name || '');
+        } catch (error) {
+          console.error("Failed to fetch session details", error);
+          setStdInstrumentAddress(null);
+          setTiInstrumentAddress(null);
+          setAcSourceAddress(null);
+          setDcSourceAddress(null);
+        }
+      } else {
+        setStdInstrumentAddress(null);
+        setTiInstrumentAddress(null);
+        setAcSourceAddress(null);
+        setDcSourceAddress(null);
+        setSelectedSessionName('');
+        // Also clear live readings when the session is deselected
+        setLiveReadings(initialLiveReadings);
+        setTiLiveReadings(initialLiveReadings);
+      }
+    };
+    fetchSessionDetails();
+  }, [selectedSessionId]);
 
   const getInstrumentStatus = useCallback(async (instrumentModel, gpibAddress) => {
     if (!instrumentModel || !gpibAddress) return;
@@ -93,20 +132,35 @@ export const InstrumentContextProvider = ({ children }) => {
   };
 
   useEffect(() => {
-    // eslint-disable-next-line
-    return () => Object.values(statusWs.current).forEach(ws => ws?.close());
+    return () => Object.values(statusWs.current).forEach(ws => {
+      if (ws && ws.readyState === WebSocket.OPEN) {
+        ws.close();
+      }
+    });
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
   const contextValue = {
-    // Session State
     selectedSessionId,
     setSelectedSessionId,
     selectedSessionName,
     setSelectedSessionName,
-    // Generic Status values
+    stdInstrumentAddress,
+    setStdInstrumentAddress,
+    tiInstrumentAddress,
+    setTiInstrumentAddress,
+    acSourceAddress,
+    setAcSourceAddress,
+    dcSourceAddress,
+    setDcSourceAddress,
     instrumentStatuses,
     isFetchingStatuses,
     getInstrumentStatus,
+    liveReadings,
+    setLiveReadings,
+    tiLiveReadings,
+    setTiLiveReadings,
+    initialLiveReadings
   };
 
   return (
