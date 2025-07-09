@@ -8,8 +8,10 @@
  * active in the InstrumentContext. On submission, it communicates with the
  * backend API to save the data.
  */
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect} from 'react';
 import axios from 'axios';
+import * as XLSX from 'xlsx';
+
 import { useInstruments } from '../../contexts/InstrumentContext';
 
 const API_BASE_URL = 'http://127.0.0.1:8000/api';
@@ -84,7 +86,7 @@ function SessionDetailsForm({ sessionsList, fetchSessionsList, showNotification 
             setIsLoading(false);
         }
     };
-    
+
     return (
         <form onSubmit={handleSubmit} style={{ marginTop: '20px' }}>
             <div style={{ display: 'flex', gap: '20px', flexWrap: 'wrap' }}>
@@ -97,7 +99,7 @@ function SessionDetailsForm({ sessionsList, fetchSessionsList, showNotification 
                         <label htmlFor="testInstrument">Test Instrument</label>
                         <input type="text" id="testInstrument" name="testInstrument" value={formData.testInstrument} onChange={handleChange} required />
                     </div>
-                     <div className="form-section">
+                    <div className="form-section">
                         <label htmlFor="testInstrumentSerial">Test Instrument Serial</label>
                         <input type="text" id="testInstrumentSerial" name="testInstrumentSerial" value={formData.testInstrumentSerial} onChange={handleChange} required />
                     </div>
@@ -111,18 +113,19 @@ function SessionDetailsForm({ sessionsList, fetchSessionsList, showNotification 
                     </div>
                 </div>
                 <div style={{ flex: 1, display: 'flex', flexDirection: 'column', gap: '15px', minWidth: '300px' }}>
-                     <div className="form-section">
+                    <div className="form-section">
                         <label htmlFor="temperature">Temperature (°C)</label>
                         <input type="number" id="temperature" name="temperature" value={formData.temperature} onChange={handleChange} step="0.1" required />
                     </div>
-                     <div className="form-section">
+                    <div className="form-section">
                         <label htmlFor="humidity">Humidity (%RH)</label>
                         <input type="number" id="humidity" name="humidity" value={formData.humidity} onChange={handleChange} step="0.1" required />
                     </div>
-                     <div className="form-section">
+                    <div className="form-section">
                         <label htmlFor="notes">Notes</label>
                         <textarea id="notes" name="notes" value={formData.notes} onChange={handleChange} rows="4" />
                     </div>
+
                 </div>
             </div>
             <button type="submit" className="button" disabled={isLoading}>

@@ -7,7 +7,7 @@ from channels.db import database_sync_to_async
 
 # Corrected import based on your file path:
 from .NPSL_Tools.instruments import Instrument3458A, Instrument5730A, Instrument5790B, Instrument34420A
-from .models import Calibration, CalibrationReadings, CalibrationSession
+from .models import Calibration, CalibrationReadings, CalibrationSession, TestPoint, TestPointSet
 
 # A mapping from the model name string (sent from frontend) to the Python class
 INSTRUMENT_CLASS_MAP = {
@@ -141,6 +141,7 @@ class CalibrationConsumer(AsyncWebsocketConsumer):
     async def collect_and_send_readings(self, data):
         reading_type = data.get('reading_type')
         num_samples = data.get('num_samples')
+        test_point = data.get('test_point')
         instrument_address = 'GPIB0::22::INSTR' # As requested
 
         try:
@@ -169,22 +170,44 @@ class CalibrationConsumer(AsyncWebsocketConsumer):
                 return
 
         # After the loop, save the full list to the database
-        await self.save_readings_to_db(reading_type, all_readings)
+        await self.save_readings_to_db(reading_type, all_readings, test_point)
 
         # Send a final confirmation message
         await self.send(text_data=json.dumps({'type': 'collection_finished', 'message': 'All readings complete.'}))
 
     @database_sync_to_async
-    def save_readings_to_db(self, reading_type, readings_list):
+    def save_readings_to_db(self, reading_type, readings_list, test_point):
         """Saves the collected readings to the database."""
+        current = test_point.get('current')
+        frequency = test_point.get('frequency')
+
         try:
             session = CalibrationSession.objects.get(pk=self.session_id)
-            calibration, _ = Calibration.objects.get_or_create(session=session)
-            readings, _ = CalibrationReadings.objects.get_or_create(calibration=calibration)
-            
+            test_point_set, _ = TestPointSet.objects.get_or_create(session=session)
+
+            test_point, _ = TestPoint.objects.get_or_create(
+                test_point_set=test_point_set,
+                current=current,
+                frequency=frequency
+            )
+
+            readings, _ = CalibrationReadings.objects.get_or_create(test_point=test_point)
+
             field_name = f"{reading_type}_readings"
             if hasattr(readings, field_name):
                 setattr(readings, field_name, readings_list)
                 readings.save()
         except CalibrationSession.DoesNotExist:
             print(f"Error: Session with id {self.session_id} not found.")
+
+            # calibration, _ = Calibration.objects.get_or_create(session=session)
+            # readings, _ = CalibrationReadings.objects.get_or_create(calibration=calibration)
+
+
+            
+        #     field_name = f"{reading_type}_readings"
+        #     if hasattr(readings, field_name):
+        #         setattr(readings, field_name, readings_list)
+        #         readings.save()
+        # except CalibrationSession.DoesNotExist:
+        #     print(f"Error: Session with id {self.session_id} not found.")

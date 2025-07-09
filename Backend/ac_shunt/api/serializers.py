@@ -1,6 +1,6 @@
 # api/serializers.py
 from rest_framework import serializers
-from .models import Message, CalibrationSession, TestPointSet, CalibrationSettings, CalibrationResults, CalibrationReadings, Calibration
+from .models import Message, CalibrationSession, TestPointSet, TestPoint, CalibrationConfigurations, CalibrationSettings, CalibrationResults, CalibrationReadings, Calibration
 
 class MessageSerializer(serializers.ModelSerializer):
     class Meta:
@@ -18,22 +18,26 @@ class CalibrationSessionSerializer(serializers.ModelSerializer):
             'temperature', 'humidity', 'created_at', 'notes',
         ]
 
-class TestPointSetSerializer(serializers.ModelSerializer):
+class CalibrationConfigurationsSerializer(serializers.ModelSerializer):
+    test_point = serializers.PrimaryKeyRelatedField(read_only=True)
     class Meta:
-        model = TestPointSet
-        fields = ('id', 'session', 'points')
+        model = CalibrationConfigurations
+        fields = '__all__'
 
 class CalibrationSettingsSerializer(serializers.ModelSerializer):
+    test_point = serializers.PrimaryKeyRelatedField(read_only=True)
     class Meta:
         model = CalibrationSettings
-        fields = ['initial_warm_up_time', 'num_samples', 'ac_shunt_range', 'tvc_upper_limit']
+        fields = ['test_point', 'initial_warm_up_time', 'num_samples']
 
 class CalibrationReadingsSerializer(serializers.ModelSerializer):
+    test_point = serializers.PrimaryKeyRelatedField(read_only=True)
     class Meta:
         model = CalibrationReadings
         fields = '__all__'
 
 class CalibrationResultsSerializer(serializers.ModelSerializer):
+    test_point = serializers.PrimaryKeyRelatedField(read_only=True)
     class Meta:
         model = CalibrationResults
         fields = '__all__'
@@ -46,41 +50,135 @@ class CalibrationResultsSerializer(serializers.ModelSerializer):
             'ti_dc_neg_avg', 'ti_dc_neg_stddev', 'ti_ac_close_avg', 'ti_ac_close_stddev'
         ]
 
+class TestPointSerializer(serializers.ModelSerializer):
+    settings = CalibrationSettingsSerializer(required=False)
+    readings = CalibrationReadingsSerializer(required=False)
+    results = CalibrationResultsSerializer(required=False)
+    class Meta:
+        model = TestPoint
+        fields = ['id', 'current', 'frequency', 'settings', 'readings', 'results']
+    
+    def update(self, instance, validated_data):
+        settings_data = validated_data.pop('settings', None)
+
+        if settings_data:
+            CalibrationSettings.objects.update_or_create(
+                test_point=instance,
+                defaults=settings_data
+            )
+
+        readings_data = validated_data.pop('readings', None)
+
+        if readings_data:
+            CalibrationReadings.objects.update_or_create(
+                test_point=instance,
+                defaults=readings_data
+            )
+
+        results_data = validated_data.pop('results', None)
+
+        if results_data:
+            CalibrationResults.objects.update_or_create(
+                test_point=instance,
+                defaults=results_data
+            )
+
+        return super().update(instance, validated_data)
+
+class TestPointSetSerializer(serializers.ModelSerializer):
+    points = TestPointSerializer(many=True) 
+
+    class Meta:
+        model = TestPointSet
+        fields = '__all__'
+        
+    def _handle_nested_one_to_one(self, parent_instance, field_name, nested_data, nested_serializer_class, nested_model_class):
+        if nested_data is not None:
+            nested_instance = getattr(parent_instance, field_name, None) 
+
+            if nested_instance:
+                nested_serializer = nested_serializer_class(nested_instance, data=nested_data, partial=True)
+            else:
+                nested_serializer = nested_serializer_class(data=nested_data)
+            
+            nested_serializer.is_valid(raise_exception=True)
+            nested_serializer.save(**{parent_instance._meta.model_name: parent_instance})
+
+    def update(self, instance, validated_data):
+        points_data = validated_data.pop('points', [])
+        
+        existing_test_points = {tp.id: tp for tp in instance.points.all()}
+        
+        for point_data in points_data:
+            point_id = point_data.get('id')
+            
+            settings_data = point_data.pop('settings', None)
+            readings_data = point_data.pop('readings', None)
+            results_data = point_data.pop('results', None)
+
+            if point_id and point_id in existing_test_points:
+                test_point_instance = existing_test_points[point_id]
+                test_point_serializer = TestPointSerializer(test_point_instance, data=point_data, partial=True)
+                test_point_serializer.is_valid(raise_exception=True)
+                test_point_instance = test_point_serializer.save()
+                self._handle_nested_one_to_one(
+                    test_point_instance, 'settings', settings_data,
+                    CalibrationSettingsSerializer, CalibrationSettings
+                )
+                self._handle_nested_one_to_one(
+                    test_point_instance, 'readings', readings_data,
+                    CalibrationReadingsSerializer, CalibrationReadings
+                )
+                self._handle_nested_one_to_one(
+                    test_point_instance, 'results', results_data,
+                    CalibrationResultsSerializer, CalibrationResults
+                )
+            else:
+                test_point_serializer = TestPointSerializer(data=point_data, partial=True)
+                test_point_serializer.is_valid(raise_exception=True)
+                test_point_instance = test_point_serializer.save(test_point_set=instance) 
+                if settings_data:
+                    CalibrationSettings.objects.create(test_point=test_point_instance, **settings_data)
+                if readings_data:
+                    CalibrationReadings.objects.create(test_point=test_point_instance, **readings_data)
+                if results_data:
+                    CalibrationResults.objects.create(test_point=test_point_instance, **results_data)
+
+        for attr, value in validated_data.items():
+            setattr(instance, attr, value)
+        instance.save() 
+
+        return instance 
 
 class CalibrationSerializer(serializers.ModelSerializer):
     
-    settings = CalibrationSettingsSerializer()
-    readings = CalibrationReadingsSerializer()
-    results = CalibrationResultsSerializer(required=False)
+    configurations = CalibrationConfigurationsSerializer(required=False, allow_null=True)
+    test_points = serializers.SerializerMethodField()
 
     class Meta:
         model = Calibration
-        fields = ['session', 'settings', 'readings', 'results']
-
+        fields = ['id', 'session', 'configurations', 'test_points']
+    
+    def get_test_points(self, obj):
+        try:
+            session = obj.session
+            test_point_set = TestPointSet.objects.get(session=session)
+            return TestPointSetSerializer(test_point_set).data
+        except TestPointSet.DoesNotExist:
+            return None
+        except Exception:
+            return None
+    
     def update(self, instance, validated_data):
-        settings_data = validated_data.pop('settings', {})
-        results_data = validated_data.pop('results', {})
-        readings_data = validated_data.pop('readings', {})
-
+        configurations_data = validated_data.pop('configurations', {})
+        # test_points = validated_data.pop('test_points', {})
         instance.session = validated_data.get('session', instance.session)
         instance.save()
 
-        # Update or create CalibrationSettings
-        settings_instance, _ = CalibrationSettings.objects.get_or_create(calibration=instance)
-        for attr, value in settings_data.items():
-            setattr(settings_instance, attr, value)
-        settings_instance.save()
-
-        # Update or create CalibrationReadings
-        readings_instance, _ = CalibrationReadings.objects.get_or_create(calibration=instance)
-        for attr, value in readings_data.items():
-            setattr(readings_instance, attr, value)
-        readings_instance.save()
-
-        # Update or create CalibrationResults
-        results_instance, _ = CalibrationResults.objects.get_or_create(calibration=instance)
-        for attr, value in results_data.items():
-            setattr(results_instance, attr, value)
-        results_instance.save()
+        configurations_instance, _ = CalibrationConfigurations.objects.get_or_create(calibration=instance)
+        for attr, value in configurations_data.items():
+            setattr(configurations_instance, attr, value)
+        configurations_instance.save()
 
         return instance
+    

@@ -10,6 +10,7 @@ import Calibration from './components/calibration/Calibration';
 import TestPointEditor from './components/calibration/TestPointEditor';
 import CalibrationResults from './components/calibration/CalibrationResults';
 import { ThemeProvider, useTheme } from './contexts/ThemeContext'; // Import provider and hook
+import 'bootstrap/dist/css/bootstrap.min.css';
 import './App.css';
 
 const Notification = ({ message, type, onDismiss }) => {

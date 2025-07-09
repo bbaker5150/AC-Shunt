@@ -22,6 +22,9 @@ function CalibrationResults({ showNotification }) {
 
     const [showCalcDetails, setShowCalcDetails] = useState(false);
 
+    const [tpData, setTPData] = useState({ points: [] });
+    const [selectedTP, setSelectedTP] = useState(null);
+
     const calInfoHeaders = ['TI Model', 'TI Serial', 'STD Model', 'STD Serial', 'Calibration Date', 'Temperature', 'Humidity'];
     const readingHeadersHeaders = ['#', 'AC Open', 'DC+', 'DC-', 'AC Close'];
 
@@ -37,14 +40,12 @@ function CalibrationResults({ showNotification }) {
             return;
         }
         try {
-            const [sessionResponse, resultsResponse, readingsResponse] = await Promise.all([
+            const [sessionResponse, tpResponse] = await Promise.all([
                 axios.get(`${API_BASE_URL}/calibration_sessions/${selectedSessionId}/`),
-                axios.get(`${API_BASE_URL}/calibration_sessions/${selectedSessionId}/results/`),
-                axios.get(`${API_BASE_URL}/calibration_sessions/${selectedSessionId}/readings/`)
+                axios.get(`${API_BASE_URL}/calibration_sessions/${selectedSessionId}/test_points/`),
             ]);
             setSessionInfo(sessionResponse.data);
-            setCalResults(resultsResponse.data);
-            setCalReadings(readingsResponse.data);
+            setTPData(tpResponse.data || { points: [] });
         } catch (error) {
             console.error("Failed to fetch calibration data:", error);
             showNotification('Failed to load calibration data.', 'error');
@@ -55,6 +56,22 @@ function CalibrationResults({ showNotification }) {
     useEffect(() => {
         fetchCalibrationData();
     }, [fetchCalibrationData]);
+
+    useEffect(() => {
+        const fetchSelectedTP = async () => {
+            if (!selectedTP || !selectedSessionId) return;
+
+            try {
+                const response = await axios.get(`${API_BASE_URL}/calibration_sessions/${selectedSessionId}/test_points/${selectedTP.id}/`);
+                setCalResults(response.data.results);
+                setCalReadings(response.data.readings);
+            } catch (error) {
+                console.error("Error fetching selected test point:", error);
+            }
+        };
+
+        fetchSelectedTP();
+    }, [selectedTP, selectedSessionId]);
 
     const exportTableToXLSX = (sheetName, fileName, stats, readingsData) => {
         const tableRows = Array.from({
@@ -80,7 +97,7 @@ function CalibrationResults({ showNotification }) {
             ["Stddev", stats.acOpenStd, stats.dcPosStd, stats.dcNegStd, stats.acCloseStd],
             []
         ];
-        
+
         const dataForSheet = [...statRows, headerRow, ...tableRows];
         const fullSheet = XLSX.utils.aoa_to_sheet(dataForSheet);
         const workbook = XLSX.utils.book_new();
@@ -169,7 +186,7 @@ function CalibrationResults({ showNotification }) {
 
     const CalculationBreakdown = ({ results }) => {
         if (!results || !results.delta_std_known || !results.eta_std || !results.eta_ti) {
-            return <p style={{textAlign: 'center', padding: '10px'}}>Calculation cannot be shown until all readings are taken and correction factors are entered.</p>;
+            return <p style={{ textAlign: 'center', padding: '10px' }}>Calculation cannot be shown until all readings are taken and correction factors are entered.</p>;
         }
 
         const V_DCSTD = (results.std_dc_pos_avg + Math.abs(results.std_dc_neg_avg)) / 2;
@@ -194,7 +211,7 @@ function CalibrationResults({ showNotification }) {
             &= ${term_STD.toFixed(5)}
             \\end{align*}
         `;
-        
+
         const termUutBreakdown = `
             \\begin{align*}
             \\text{Term}_{\\text{UUT}} &= \\frac{(V_{\\text{AC,UUT}} - V_{\\text{DC,UUT}}) \\times 10^6}{\\eta_{\\text{UUT}} \\times V_{\\text{DC,UUT}}} \\\\
@@ -202,7 +219,7 @@ function CalibrationResults({ showNotification }) {
             &= ${term_UUT.toFixed(5)}
             \\end{align*}
         `;
-        
+
         return (
             <div className="calculation-breakdown" style={{
                 backgroundColor: 'var(--background-color-offset)',
@@ -212,11 +229,11 @@ function CalibrationResults({ showNotification }) {
                 marginTop: '15px',
                 fontSize: '1.1em',
             }}>
-                <p style={{textAlign: 'center', fontWeight: 'bold'}}>Final Calculation Breakdown</p>
+                <p style={{ textAlign: 'center', fontWeight: 'bold' }}>Final Calculation Breakdown</p>
                 {`$$ ${mainBreakdown} $$`}
-                <hr style={{ margin: '15px 0', borderColor: 'var(--border-color-light)' }}/>
+                <hr style={{ margin: '15px 0', borderColor: 'var(--border-color-light)' }} />
                 {`$$ ${termStdBreakdown} $$`}
-                <hr style={{ margin: '15px 0', borderColor: 'var(--border-color-light)' }}/>
+                <hr style={{ margin: '15px 0', borderColor: 'var(--border-color-light)' }} />
                 {`$$ ${termUutBreakdown} $$`}
             </div>
         );
@@ -226,7 +243,7 @@ function CalibrationResults({ showNotification }) {
         <React.Fragment>
             <div className="content-area">
                 {!selectedSessionId && <div className="form-section-warning"><p>Please select a session from the "Session Setup" tab to view data output.</p></div>}
-                
+
                 {selectedSessionId && (
                     <>
                         <div className="table-header-container"><h2>Calibration Session Information</h2></div>
@@ -235,6 +252,44 @@ function CalibrationResults({ showNotification }) {
                                 <thead><tr>{calInfoHeaders.map((h, i) => <th key={i}>{h}</th>)}</tr></thead>
                                 <tbody><tr><td>{sessionInfo?.test_instrument_model || ''}</td><td>{sessionInfo?.test_instrument_serial || ''}</td><td>{sessionInfo?.standard_instrument_model || ''}</td><td>{sessionInfo?.standard_instrument_serial || ''}</td><td>{sessionInfo?.created_at ? new Date(sessionInfo.created_at).toLocaleDateString() : ''}</td><td>{sessionInfo?.temperature || ''}</td><td>{sessionInfo?.humidity || ''}</td></tr></tbody>
                             </table>
+                        </div>
+
+                        <div className="form-section">
+                            <h4>Test Points</h4>
+                            <div style={{ display: 'flex', flexWrap: 'wrap', gap: '10px', padding: '10px 0' }}>
+                                {tpData?.test_points?.length > 0 ? (
+                                    tpData.test_points.map((point, index) => {
+                                        const isSelected = selectedTP && point.id === selectedTP.id;
+                                        return (
+                                            <button
+                                                key={index}
+                                                data-index={index}
+                                                data-current={point.current}
+                                                data-frequency={point.frequency}
+                                                onClick={() => setSelectedTP(point)}
+                                                style={{
+                                                    padding: '8px 16px',
+                                                    borderRadius: '20px',
+                                                    backgroundColor: isSelected
+                                                        ? 'var(--button-selected-bg, #F4A261)'
+                                                        : 'var(--button-bg, #E0E0E0)',
+                                                    color: isSelected
+                                                        ? 'var(--button-selected-color, #fff)'
+                                                        : 'var(--button-text-color, #333)',
+                                                    fontWeight: '500',
+                                                    boxShadow: '0 2px 4px rgba(0,0,0,0.1)',
+                                                    border: 'none',
+                                                    cursor: 'pointer',
+                                                    transition: 'background-color 0.3s, color 0.3s'
+                                                }}>
+                                                {point.current}A @ {point.frequency}Hz
+                                            </button>
+                                        );
+                                    })
+                                ) : (
+                                    <p style={{ margin: 0, fontStyle: 'italic' }}>No test points generated. Go to the "Test Point Setup" tab to configure.</p>
+                                )}
+                            </div>
                         </div>
 
                         <div className="table-header-container">
@@ -266,13 +321,13 @@ function CalibrationResults({ showNotification }) {
                         </div>
                         <div className="reading-group">
                             <div className="reading">
-                                <h3 style={{fontWeight: 'bold'}}>δ UUT (PPM)</h3>
-                                <p style={{fontSize: '1.2em', fontWeight: 'bold', color: 'var(--primary-color)'}}>
+                                <h3 style={{ fontWeight: 'bold' }}>δ UUT (PPM)</h3>
+                                <p style={{ fontSize: '1.2em', fontWeight: 'bold', color: 'var(--primary-color)' }}>
                                     {calResults?.delta_uut_ppm ? parseFloat(calResults.delta_uut_ppm).toFixed(3) : 'Not Calculated'}
                                 </p>
                             </div>
                         </div>
-                        
+
                         <div style={{ textAlign: 'center', margin: '10px 0 20px' }}>
                             <button className="button button-secondary button-small" onClick={() => setShowCalcDetails(!showCalcDetails)}>
                                 {showCalcDetails ? 'Hide Calculation Details' : 'Show Calculation Details'}
@@ -296,7 +351,7 @@ function CalibrationResults({ showNotification }) {
                                         <tr>{readingHeadersHeaders.map((h, i) => <th key={`std-h-${i}`}>{h}</th>)}</tr>
                                     </thead>
                                     <tbody>
-                                        {Array.from({ length: Math.max( getReadingsArray(calReadings, 'std_ac_open_readings').length, getReadingsArray(calReadings, 'std_dc_pos_readings').length ) }).map((_, index) => (
+                                        {Array.from({ length: Math.max(getReadingsArray(calReadings, 'std_ac_open_readings').length, getReadingsArray(calReadings, 'std_dc_pos_readings').length) }).map((_, index) => (
                                             <tr key={`std-r-${index}`}>
                                                 <td>{index + 1}</td>
                                                 <td>{getReadingsArray(calReadings, 'std_ac_open_readings')[index]?.toPrecision(8)}</td>
@@ -342,7 +397,7 @@ function CalibrationResults({ showNotification }) {
                                         <tr>{readingHeadersHeaders.map((h, i) => <th key={`ti-h-${i}`}>{h}</th>)}</tr>
                                     </thead>
                                     <tbody>
-                                        {Array.from({ length: Math.max( getReadingsArray(calReadings, 'ti_ac_open_readings').length, getReadingsArray(calReadings, 'ti_dc_pos_readings').length ) }).map((_, index) => (
+                                        {Array.from({ length: Math.max(getReadingsArray(calReadings, 'ti_ac_open_readings').length, getReadingsArray(calReadings, 'ti_dc_pos_readings').length) }).map((_, index) => (
                                             <tr key={`ti-r-${index}`}>
                                                 <td>{index + 1}</td>
                                                 <td>{getReadingsArray(calReadings, 'ti_ac_open_readings')[index]?.toPrecision(8)}</td>

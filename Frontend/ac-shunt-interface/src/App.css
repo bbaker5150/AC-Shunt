@@ -11,6 +11,11 @@
   --input-background: #ffffff;
   --button-primary-bg: #007bff;
   --button-primary-hover: #0056b3;
+
+  --button-bg: #E0E0E0;
+  --button-selected-bg: #F4A261;
+  --button-text-color: #333;
+  --button-selected-color: #fff;
 }
 
 body.dark-mode {
@@ -22,6 +27,11 @@ body.dark-mode {
   --input-background: #1a202c;
   --button-primary-bg: #4299e1;
   --button-primary-hover: #2b6cb0;
+
+  --button-bg: #3A3A3A;
+    --button-selected-bg: #D97706;
+    --button-text-color: #f5f5f5;
+    --button-selected-color: #fff;
 }
 
 
