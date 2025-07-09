@@ -51,8 +51,9 @@ function Calibration({ showNotification }) {
     const [activeTab, setActiveTab] = useState('settings');
 
     const [tpData, setTPData] = useState({ points: [] });
+    const [calibrationConfigurations, setCalibrationConfigurations] = useState({});
     const [calibrationSettings, setCalibrationSettings] = useState({
-        initial_warm_up_time: '', num_samples: 8, ac_shunt_range: '', tvc_upper_limit: ''
+        initial_warm_up_time: 0, num_samples: 8
     });
     const [fetchedResults, setFetchedResults] = useState(null);
 
@@ -67,6 +68,8 @@ function Calibration({ showNotification }) {
     const [collectionProgress, setCollectionProgress] = useState({ count: 0, total: 0 });
     const [currentReadingKey, setCurrentReadingKey] = useState('');
 
+    const [selectedTP, setSelectedTP] = useState(null);
+
     const ws = useRef(null);
 
     useEffect(() => {
@@ -78,7 +81,7 @@ function Calibration({ showNotification }) {
     const fetchAllCalibrationData = useCallback(async () => {
         if (!selectedSessionId) {
             setTPData({ points: [] });
-            setCalibrationSettings({ initial_warm_up_time: '', num_samples: 8, ac_shunt_range: '', tvc_upper_limit: '' });
+            setCalibrationSettings({ initial_warm_up_time: 0, num_samples: 8});
             setCorrectionInputs({ eta_std: '', eta_ti: '', delta_std_known: '' });
             setFinalPpmDifference(null);
             setFetchedResults(null);
@@ -86,27 +89,37 @@ function Calibration({ showNotification }) {
         }
         try {
             const [tpResponse, infoResponse] = await Promise.all([
-                axios.get(`${API_BASE_URL}/calibration_sessions/${selectedSessionId}/test_points`),
-                axios.get(`${API_BASE_URL}/calibration_sessions/${selectedSessionId}/information/`)
+                axios.get(`${API_BASE_URL}/calibration_sessions/${selectedSessionId}/test_points/`),
+                axios.get(`${API_BASE_URL}/calibration_sessions/${selectedSessionId}/information/`),
             ]);
 
             setTPData(tpResponse.data || { points: [] });
-            setCalibrationSettings(infoResponse.data.settings || { num_samples: 8 });
+            setCalibrationConfigurations(infoResponse.data.configurations);
 
-            const results = infoResponse.data.results || {};
-            setFetchedResults(results);
-            setCorrectionInputs({
-                eta_std: results.eta_std || '',
-                eta_ti: results.eta_ti || '',
-                delta_std_known: results.delta_std_known || ''
-            });
-            setFinalPpmDifference(results.delta_uut_ppm);
+            if (selectedTP) {
+                const tp = await axios.get(`${API_BASE_URL}/calibration_sessions/${selectedSessionId}/test_points/${selectedTP.id}/`);
+
+                setCalibrationSettings(tp.data.settings || { initial_warm_up_time: 0, num_samples: 8 });
+
+                const results = tp.data.results;
+                if (results != null) {
+                    setFetchedResults(results);
+                    setCorrectionInputs({
+                        eta_std: results.eta_std || '',
+                        eta_ti: results.eta_ti || '',
+                        delta_std_known: results.delta_std_known || ''
+                    });
+                    setFinalPpmDifference(results.delta_uut_ppm);
+                }
+            } else {
+                showNotification("Please select a test point.");
+            }
 
         } catch (error) {
             console.error("Failed to fetch calibration data:", error);
             showNotification('Failed to load calibration data for the selected session.', 'error');
         }
-    }, [selectedSessionId, showNotification]);
+    }, [selectedSessionId, selectedTP, showNotification]);
 
     const performAutomaticCalculations = useCallback(async (readings, results) => {
         const openReadings = readings.std_ac_open_readings || [];
@@ -134,53 +147,88 @@ function Calibration({ showNotification }) {
         showNotification(`Auto-calculated δ UUT: ${finalPpmFormatted} PPM`, 'success');
 
         try {
-            await axios.put(`${API_BASE_URL}/calibration_sessions/${selectedSessionId}/information/`, {
-                results: {
-                    eta_std: eta_std_placeholder.toFixed(5),
-                    eta_ti: eta_ti_placeholder.toFixed(5),
-                    delta_uut_ppm: finalPpmFormatted
-                }
-            });
-            showNotification("Final results saved successfully!", 'success');
-            fetchAllCalibrationData();
+            if (selectedTP) {
+                await axios.put(`${API_BASE_URL}/calibration_sessions/${selectedSessionId}/test_points/${selectedTP.id}/update-results/`,
+                    {
+                        eta_std: eta_std_placeholder.toFixed(5),
+                        eta_ti: eta_ti_placeholder.toFixed(5),
+                        delta_uut_ppm: finalPpmFormatted
+                    }
+                );
+                showNotification("Final results saved successfully!", 'success');
+                fetchAllCalibrationData();
+            }
+
         } catch (error) {
             showNotification("Error saving final calculations.", 'error');
             console.error("Failed to save final results:", error);
         }
-    }, [selectedSessionId, showNotification, fetchAllCalibrationData]);
+    }, [selectedSessionId, selectedTP, showNotification, fetchAllCalibrationData]);
 
-    const handleSaveTiReadings = useCallback(async (stdReadings) => {
-        const generateTiData = (readings, isAc) => {
-            if (!readings || readings.length === 0) return [];
-            const factor = isAc ? 1.000008 : 1.000005;
-            return readings.map(r => r * factor);
+    const handleSaveTiReadings = useCallback(async (testPoint) => {
+        if (!testPoint?.readings) {
+            console.error("TestPoint or its readings data is missing.");
+            showNotification("Error: Missing TestPoint data for TI readings.", 'error');
+            return;
+        }
+
+        const factorFor = (isAc) => (isAc ? 1.000008 : 1.000005);
+        const scaleReadings = (readings, isAc) => readings?.map(r => r * factorFor(isAc)) || [];
+
+        const {
+            std_ac_open_readings,
+            std_dc_pos_readings,
+            std_dc_neg_readings,
+            std_ac_close_readings
+        } = testPoint.readings;
+
+        const tiReadings = {
+            ti_ac_open_readings: scaleReadings(std_ac_open_readings, true),
+            ti_dc_pos_readings: scaleReadings(std_dc_pos_readings, false),
+            ti_dc_neg_readings: scaleReadings(std_dc_neg_readings, false),
+            ti_ac_close_readings: scaleReadings(std_ac_close_readings, true),
         };
 
-        const tiReadingsForChart = {
-            ac_open: generateTiData(stdReadings.std_ac_open_readings, true),
-            dc_pos: generateTiData(stdReadings.std_dc_pos_readings, false),
-            dc_neg: generateTiData(stdReadings.std_dc_neg_readings, false),
-            ac_close: generateTiData(stdReadings.std_ac_close_readings, true),
-        };
-        setTiLiveReadings(tiReadingsForChart);
+        setTiLiveReadings({
+            ac_open: tiReadings.ti_ac_open_readings,
+            dc_pos: tiReadings.ti_dc_pos_readings,
+            dc_neg: tiReadings.ti_dc_neg_readings,
+            ac_close: tiReadings.ti_ac_close_readings,
+        });
 
-        const tiPayload = {
+        const stripMeta = ({ created_at, updated_at, test_point, id, ...rest }) => rest;
+
+        const updatedPayload = {
+            current: testPoint.current,
+            frequency: testPoint.frequency,
             readings: {
-                ti_ac_open_readings: tiReadingsForChart.ac_open,
-                ti_dc_pos_readings: tiReadingsForChart.dc_pos,
-                ti_dc_neg_readings: tiReadingsForChart.dc_neg,
-                ti_ac_close_readings: tiReadingsForChart.ac_close,
-            }
+                ...stripMeta(testPoint.readings),
+                ...tiReadings,
+                std_ac_open_readings,
+                std_dc_pos_readings,
+                std_dc_neg_readings,
+                std_ac_close_readings
+            },
+            results: stripMeta(testPoint.results || {})
         };
+
         try {
-            const response = await axios.put(`${API_BASE_URL}/calibration_sessions/${selectedSessionId}/information/`, tiPayload);
-            showNotification('Hardcoded TI readings saved. Now auto-calculating results.', 'info');
-            performAutomaticCalculations(response.data.readings, response.data.results);
+            const response = await axios.put(
+                `${API_BASE_URL}/calibration_sessions/${selectedSessionId}/test_points/${testPoint.id}/`,
+                updatedPayload
+            );
+            showNotification('TI readings saved and updated for TestPoint.', 'success');
+
+            const updated = response.data;
+            performAutomaticCalculations(updated.readings, updated.results, updated);
+
         } catch (error) {
-            console.error("Failed to save TI readings:", error);
-            showNotification("Error saving hardcoded TI readings.", 'error');
+            console.error("Failed to save TI readings:", error.response?.data || error.message);
+            showNotification("Error saving TI readings.", 'error');
         }
     }, [selectedSessionId, showNotification, setTiLiveReadings, performAutomaticCalculations]);
+
+
 
     useEffect(() => {
         if (selectedSessionId) {
@@ -200,8 +248,18 @@ function Calibration({ showNotification }) {
                     showNotification(data.message, 'success');
                     setIsCollecting(false);
                     setCurrentReadingKey('');
-                    axios.get(`${API_BASE_URL}/calibration_sessions/${selectedSessionId}/information/`).then(response => {
-                        handleSaveTiReadings(response.data.readings);
+                    axios.get(`${API_BASE_URL}/calibration_sessions/${selectedSessionId}/test_points/`).then(response => {
+                        const testPoints = response.data.test_points;
+
+                        const pointToSave = testPoints.find(p =>
+                            p.id === selectedTP.id
+                        );
+
+                        if (pointToSave) {
+                            handleSaveTiReadings(pointToSave);
+                        } else {
+                            console.warn("Could not find test point with current:", selectedTP.current, "and frequency:", selectedTP.frequency);
+                        }
                     });
                 } else if (data.type === 'error') {
                     showNotification(data.message, 'error');
@@ -211,7 +269,7 @@ function Calibration({ showNotification }) {
             };
             return () => { if (ws.current) ws.current.close(); };
         }
-    }, [selectedSessionId, showNotification, setLiveReadings, handleSaveTiReadings]);
+    }, [selectedSessionId, selectedTP, showNotification, setLiveReadings, handleSaveTiReadings]);
 
     useEffect(() => { fetchAllCalibrationData(); }, [fetchAllCalibrationData]);
 
@@ -245,15 +303,18 @@ function Calibration({ showNotification }) {
         showNotification(`Calculated δ UUT: ${finalPpmFormatted} PPM`, 'success');
 
         try {
-            await axios.put(`${API_BASE_URL}/calibration_sessions/${selectedSessionId}/information/`, {
-                results: {
-                    eta_std: eta_std,
-                    eta_ti: eta_ti,
-                    delta_std_known: delta_STD_known,
-                    delta_uut_ppm: finalPpmFormatted
-                }
-            });
-            showNotification("Inputs and final result saved successfully!", 'success');
+            if (selectedTP) {
+                await axios.put(`${API_BASE_URL}/calibration_sessions/${selectedSessionId}/test_points/${selectedTP.id}/update-results/`,
+                    {
+                        eta_std: eta_std,
+                        eta_ti: eta_ti,
+                        delta_std_known: delta_STD_known,
+                        delta_uut_ppm: finalPpmFormatted
+                    }
+                );
+                showNotification("Inputs and final result saved successfully!", 'success');
+            }
+
         } catch (error) {
             showNotification("Error saving calculations.", 'error');
             console.error("Failed to save final results:", error);
@@ -271,7 +332,11 @@ function Calibration({ showNotification }) {
             ws.current.send(JSON.stringify({
                 command: 'start_collection',
                 reading_type: `std_${readingKey}`,
-                num_samples: numSamples
+                num_samples: numSamples,
+                test_point: {
+                    current: selectedTP.current,
+                    frequency: selectedTP.frequency,
+                },
             }));
         } else {
             showNotification('WebSocket is not connected. Please refresh the page.', 'error');
@@ -306,14 +371,19 @@ function Calibration({ showNotification }) {
             return;
         }
         try {
-            await axios.put(`${API_BASE_URL}/calibration_sessions/${selectedSessionId}/information/`, {
-                settings: {
-                    initial_warm_up_time: parseFloat(calibrationSettings.initial_warm_up_time) || null,
-                    num_samples: parseInt(calibrationSettings.num_samples, 10) || 8
-                }
-            });
-            showNotification("Settings saved successfully!", 'success');
-            setActiveTab('readings'); // Move to next tab
+            if (selectedTP) {
+                await axios.patch(`${API_BASE_URL}/calibration_sessions/${selectedSessionId}/test_points/${selectedTP.id}/`, {
+                    settings: {
+                        initial_warm_up_time: parseFloat(calibrationSettings.initial_warm_up_time) || 0,
+                        num_samples: parseInt(calibrationSettings.num_samples, 10) || 8
+                    }
+                });
+                showNotification("Settings saved successfully!", 'success');
+                setActiveTab('readings'); // Move to next tab
+            } else {
+                showNotification("Please select a test point.");
+            }
+
         } catch (error) {
             console.error("Failed to save settings", error);
             showNotification("Error saving settings.", 'error');
@@ -341,50 +411,70 @@ function Calibration({ showNotification }) {
                         }}>
                             <div className="summary-item" style={{ textAlign: 'center' }}>
                                 <strong>AC Shunt Range:</strong>
-                                <span style={{ marginLeft: '8px' }}>{calibrationSettings.ac_shunt_range || 'N/A'} A</span>
+                                <span style={{ marginLeft: '8px' }}>{calibrationConfigurations.ac_shunt_range || 'N/A'} A</span>
+                            </div>
+                            <div className="summary-item" style={{ textAlign: 'center' }}>
+                                <strong>8100 Amplifier Range:</strong>
+                                <span style={{ marginLeft: '8px' }}>{calibrationConfigurations.amplifier_range || 'N/A'} A</span>
                             </div>
                             <div className="summary-item" style={{ textAlign: 'center' }}>
                                 <strong>Input Current:</strong>
-                                <span style={{ marginLeft: '8px' }}>{tpData?.points?.[0]?.current ? `${tpData.points[0].current} A` : 'N/A'}</span>
+                                <span style={{ marginLeft: '8px' }}>{tpData?.test_points?.[0]?.current ? `${tpData.test_points[0].current} A` : 'N/A'}</span>
+                            </div>
+                        </div>
+                        <div className="form-section">
+                            <h4>Test Points</h4>
+                            <div style={{ display: 'flex', flexWrap: 'wrap', gap: '10px', padding: '10px 0' }}>
+                                {tpData?.test_points?.length > 0 ? (
+                                    tpData.test_points.map((point, index) => {
+                                        const isSelected = selectedTP && point.id === selectedTP.id;
+                                        return (
+                                            <button
+                                                key={index}
+                                                data-index={index}
+                                                data-current={point.current}
+                                                data-frequency={point.frequency}
+                                                onClick={() => setSelectedTP(point)}
+                                                style={{
+                                                    padding: '8px 16px',
+                                                    borderRadius: '20px',
+                                                    backgroundColor: isSelected
+                                                        ? 'var(--button-selected-bg, #F4A261)'
+                                                        : 'var(--button-bg, #E0E0E0)',
+                                                    color: isSelected
+                                                        ? 'var(--button-selected-color, #fff)'
+                                                        : 'var(--button-text-color, #333)',
+                                                    fontWeight: '500',
+                                                    boxShadow: '0 2px 4px rgba(0,0,0,0.1)',
+                                                    border: 'none',
+                                                    cursor: 'pointer',
+                                                    transition: 'background-color 0.3s, color 0.3s'
+                                                }}>
+                                                {point.current}A @ {formatFrequency(point.frequency)}
+                                            </button>
+                                        );
+                                    })
+                                ) : (
+                                    <p style={{ margin: 0, fontStyle: 'italic' }}>No test points generated. Go to the "Test Point Setup" tab to configure.</p>
+                                )}
                             </div>
                         </div>
 
                         {activeTab === 'settings' && (
                             <>
-                                <div className="form-section">
-                                    <h4>Test Points</h4>
-                                    <div style={{ display: 'flex', flexWrap: 'wrap', gap: '10px', padding: '10px 0' }}>
-                                        {tpData?.points?.length > 0 ? (
-                                            tpData.points.map((point, index) => (
-                                                <div key={index} style={{
-                                                    padding: '8px 16px',
-                                                    borderRadius: '20px',
-                                                    backgroundColor: 'var(--button-primary-bg)',
-                                                    color: 'white',
-                                                    fontWeight: '500',
-                                                    boxShadow: '0 2px 4px rgba(0,0,0,0.1)'
-                                                }}>
-                                                    {formatFrequency(point.frequency)}
-                                                </div>
-                                            ))
-                                        ) : (
-                                            <p style={{ margin: 0, fontStyle: 'italic' }}>No test points generated. Go to the "Test Point Setup" tab to configure.</p>
-                                        )}
-                                    </div>
-                                </div>
                                 <form onSubmit={handleSettingsSubmit}>
                                     <h4>Calibration Settings</h4>
                                     <div className="config-grid">
                                         <div className="config-column">
                                             <div className="form-section">
                                                 <label htmlFor="initial_warm_up_time">Initial Warm-up Wait (sec)</label>
-                                                <input type="number" id="initial_warm_up_time" name="initial_warm_up_time" value={calibrationSettings.initial_warm_up_time || ''} onChange={(e) => setCalibrationSettings(prev => ({ ...prev, initial_warm_up_time: e.target.value }))} />
+                                                <input type="number" id="initial_warm_up_time" name="initial_warm_up_time" value={calibrationSettings.initial_warm_up_time || 0} onChange={(e) => setCalibrationSettings(prev => ({ ...prev, initial_warm_up_time: e.target.value }))} />
                                             </div>
                                         </div>
                                         <div className="config-column">
                                             <div className="form-section">
                                                 <label htmlFor="num_samples"># of Samples</label>
-                                                <input type="number" id="num_samples" name="num_samples" required value={calibrationSettings.num_samples || ''} onChange={(e) => setCalibrationSettings(prev => ({ ...prev, num_samples: e.target.value }))} />
+                                                <input type="number" id="num_samples" name="num_samples" required value={calibrationSettings.num_samples || 8} onChange={(e) => setCalibrationSettings(prev => ({ ...prev, num_samples: e.target.value }))} />
                                             </div>
                                         </div>
                                     </div>
@@ -487,8 +577,9 @@ function Calibration({ showNotification }) {
                         )}
                     </div>
                 </>
-            )}
-        </div>
+            )
+            }
+        </div >
     );
 }
 

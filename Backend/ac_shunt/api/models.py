@@ -41,22 +41,6 @@ class CalibrationSession(models.Model):
     class Meta:
         ordering = ['-created_at']
 
-class TestPointSet(models.Model):
-    """Represents a single set of calibration test points for a session."""
-    session = models.OneToOneField(
-        CalibrationSession,
-        related_name='test_points',
-        on_delete=models.CASCADE
-    )
-    points = models.JSONField(default=list)
-    created_at = models.DateTimeField(auto_now_add=True)
-    updated_at = models.DateTimeField(auto_now=True)
-
-    def __str__(self):
-        return f"Test Point Set for Session: {self.session.session_name}"
-
-    class Meta:
-        ordering = ['created_at']
 
 class Calibration(models.Model):
     session = models.OneToOneField(
@@ -65,23 +49,59 @@ class Calibration(models.Model):
         on_delete=models.CASCADE
     )
 
-class CalibrationSettings(models.Model):
+class TestPointSet(models.Model):
+    session = models.OneToOneField(
+        CalibrationSession,
+        on_delete=models.CASCADE,
+        related_name='test_point_set'
+    )
+
+    def __str__(self):
+        return f"TestPointSet for Session: {self.session.name}"
+
+class TestPoint(models.Model):
+    test_point_set = models.ForeignKey(
+        TestPointSet,
+        on_delete=models.CASCADE,
+        related_name='points'
+    )
+    current = models.DecimalField(max_digits=10, decimal_places=5)
+    frequency = models.IntegerField()
+
+    def __str__(self):
+        return f"ID: {self.id} | Current: {self.current}, Frequency: {self.frequency}"
+    
+class CalibrationConfigurations(models.Model):
     calibration = models.OneToOneField(
         Calibration, 
+        related_name='configurations',
+        on_delete=models.CASCADE,
+        null=True,
+        blank=True
+    )
+    ac_shunt_range = models.FloatField(null=True, blank=True)
+    amplifier_range = models.FloatField(null=True, blank=True)
+    tvc_upper_limit = models.FloatField(null=True, blank=True)
+    
+class CalibrationSettings(models.Model):
+    test_point = models.OneToOneField(
+        TestPoint, 
         related_name='settings', # This makes it accessible as calibration.settings
-        on_delete=models.CASCADE
+        on_delete=models.CASCADE,
+        null=True,
+        blank=True
     )
     initial_warm_up_time = models.IntegerField(null=True, blank=True)
     num_samples = models.IntegerField(default=8, null=True, blank=True)
-    ac_shunt_range = models.FloatField(null=True, blank=True)
-    tvc_upper_limit = models.FloatField(null=True, blank=True)
 
 class CalibrationReadings(models.Model):
 
-    calibration = models.OneToOneField(
-        Calibration,
+    test_point = models.OneToOneField(
+        TestPoint,
         related_name='readings', # This makes it accessible as calibration.readings
-        on_delete=models.CASCADE
+        on_delete=models.CASCADE,
+        null=True,
+        blank=True
     )
     # Standard Instrument Readings
     std_ac_open_readings = models.JSONField(default=list, blank=True, null=True)
@@ -99,14 +119,14 @@ class CalibrationReadings(models.Model):
     updated_at = models.DateTimeField(auto_now=True)
 
     def __str__(self):
-        return f"Calibration Readings for {self.calibration.session.session_name}"
+        return f"Calibration Readings for TestPoint ID: {self.test_point.id} | Session: {self.test_point.test_point_set.session.name}"
     
     def save(self, *args, **kwargs):
         super().save(*args, **kwargs)
         self.update_related_results()
 
     def update_related_results(self):
-        results, _ = CalibrationResults.objects.get_or_create(calibration=self.calibration)
+        results, _ = CalibrationResults.objects.get_or_create(test_point=self.test_point)
         
         def calculate_stats(readings):
             if readings and len(readings) > 0:
@@ -125,12 +145,13 @@ class CalibrationReadings(models.Model):
 
         results.save()
 
-
 class CalibrationResults(models.Model):
-    calibration = models.OneToOneField(
-        Calibration,
+    test_point = models.OneToOneField(
+        TestPoint,
         related_name='results',
-        on_delete=models.CASCADE
+        on_delete=models.CASCADE,
+        null=True,
+        blank=True
     )
     
     # Standard Readings Stats
