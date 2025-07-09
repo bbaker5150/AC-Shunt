@@ -60,15 +60,14 @@ const FrequencySelectionModal = ({ onConfirm, onCancel, preselectedFrequencies }
                 <h3>Select Frequencies</h3>
                 <div className="frequency-list-container" style={{ maxHeight: '400px', overflowY: 'auto', paddingRight: '15px' }}>
                     {AVAILABLE_FREQUENCIES.map(freq => (
-                        <div key={freq.value} style={{ display: 'flex', alignItems: 'center', marginBottom: '10px' }}>
+                        <div key={freq.value} className="frequency-selection-row">
                             <input
                                 type="checkbox"
                                 id={`freq-${freq.value}`}
                                 checked={selected.has(freq.value)}
                                 onChange={() => handleCheckboxChange(freq.value)}
-                                style={{ width: 'auto', marginRight: '10px' }}
                             />
-                            <label htmlFor={`freq-${freq.value}`} style={{ marginBottom: '0', fontWeight: 'normal' }}>
+                            <label htmlFor={`freq-${freq.value}`}>
                                 {freq.text}
                             </label>
                         </div>
@@ -83,27 +82,51 @@ const FrequencySelectionModal = ({ onConfirm, onCancel, preselectedFrequencies }
     );
 };
 
-function TestPointEditor({ showNotification }) {
-    const { selectedSessionId, selectedSessionName } = useInstruments();
+// --- Helper Functions for Unit Conversion ---
+const getValueInAmps = (value, unit) => {
+    const numericValue = parseFloat(value);
+    if (isNaN(numericValue)) return null;
+    return unit === 'mA' ? numericValue / 1000 : numericValue;
+};
 
-    const [stagedFrequencies, setStagedFrequencies] = useState([]);
+const getDisplayValueAndUnit = (valueInAmps) => {
+    if (valueInAmps === null || valueInAmps === undefined || isNaN(valueInAmps)) {
+        return { value: '', unit: 'A' };
+    }
+    if (valueInAmps > 0 && valueInAmps < 1) {
+        return { value: valueInAmps * 1000, unit: 'mA' };
+    }
+    return { value: valueInAmps, unit: 'A' };
+};
+
+
+function TestPointEditor({ showNotification }) {
+    const { selectedSessionId } = useInstruments();
+
     const [testPoints, setTestPoints] = useState([]);
     const [isModalOpen, setIsModalOpen] = useState(false);
 
     // Settings state
     const [inputCurrent, setInputCurrent] = useState('');
     const [shuntRange, setShuntRange] = useState('');
+    const [shuntRangeUnit, setShuntRangeUnit] = useState('A');
     const [amplifierRange, setAmplifierRange] = useState('');
     const [tvcUpperLimit, setTvcUpperLimit] = useState('');
+    const [tvcUpperLimitUnit, setTvcUpperLimitUnit] = useState('A');
     const [filteredCurrents, setFilteredCurrents] = useState([]);
 
+    const formatFrequency = (value) => {
+        const freqObject = AVAILABLE_FREQUENCIES.find(f => f.value === value);
+        return freqObject ? freqObject.text : `${value}Hz`;
+    };
+    
     const fetchTestPointSetAndSettings = useCallback(async () => {
         if (!selectedSessionId) {
             setTestPoints([]);
             setInputCurrent('');
-            setShuntRange('');
+            setShuntRange(''); setShuntRangeUnit('A');
             setAmplifierRange('');
-            setTvcUpperLimit('');
+            setTvcUpperLimit(''); setTvcUpperLimitUnit('A');
             setFilteredCurrents([]);
             return;
         }
@@ -118,23 +141,26 @@ function TestPointEditor({ showNotification }) {
 
             if (fetchedTestPoints.length > 0) {
                 setInputCurrent(fetchedTestPoints[0].current);
-            } else {
-                setInputCurrent('');
             }
 
             const { configurations } = infoResponse.data;
-            setShuntRange(configurations?.ac_shunt_range || '');
+            const shuntDisplay = getDisplayValueAndUnit(configurations?.ac_shunt_range);
+            const tvcDisplay = getDisplayValueAndUnit(configurations?.tvc_upper_limit);
+
+            setShuntRange(shuntDisplay.value);
+            setShuntRangeUnit(shuntDisplay.unit);
+            setTvcUpperLimit(tvcDisplay.value);
+            setTvcUpperLimitUnit(tvcDisplay.unit);
             setAmplifierRange(configurations?.amplifier_range || '');
-            setTvcUpperLimit(configurations?.tvc_upper_limit || '');
 
         } catch (error) {
             console.error("Failed to fetch data:", error);
             showNotification('Could not load test points or configurations for the selected session.', 'error');
             setTestPoints([]);
             setInputCurrent('');
-            setShuntRange('');
+            setShuntRange(''); setShuntRangeUnit('A');
             setAmplifierRange('');
-            setTvcUpperLimit('');
+            setTvcUpperLimit(''); setTvcUpperLimitUnit('A');
             setFilteredCurrents([]);
         }
     }, [selectedSessionId, showNotification]);
@@ -144,28 +170,27 @@ function TestPointEditor({ showNotification }) {
     }, [fetchTestPointSetAndSettings]);
 
     useEffect(() => {
-        const range = parseFloat(shuntRange);
-        if (!isNaN(range) && range > 0) {
-            setFilteredCurrents(AVAILABLE_CURRENTS.filter(current => current.value <= range));
+        const shuntRangeInAmps = getValueInAmps(shuntRange, shuntRangeUnit);
+
+        if (shuntRangeInAmps && shuntRangeInAmps > 0) {
+            setFilteredCurrents(AVAILABLE_CURRENTS.filter(current => current.value <= shuntRangeInAmps));
         } else {
             setFilteredCurrents([]);
-            if(inputCurrent){
+            if (inputCurrent) {
                 setInputCurrent('');
             }
         }
-    }, [shuntRange, inputCurrent]);
-
+    }, [shuntRange, shuntRangeUnit, inputCurrent]);
+    
     useEffect(() => {
         const current = parseFloat(inputCurrent);
-        if (!current || isNaN(current)) {
-            setAmplifierRange('');
-            return;
-        }
-        const suitableRange = AMPLIFIER_RANGES_A.find(range => current <= range);
-        if (suitableRange !== undefined) {
-            setAmplifierRange(suitableRange);
-        } else {
-            setAmplifierRange('Out of Range');
+        if (current && !isNaN(current)) {
+            const suitableRange = AMPLIFIER_RANGES_A.find(range => current <= range);
+            if (suitableRange !== undefined) {
+                setAmplifierRange(suitableRange);
+            } else {
+                setAmplifierRange('Out of Range');
+            }
         }
     }, [inputCurrent]);
 
@@ -174,17 +199,21 @@ function TestPointEditor({ showNotification }) {
             showNotification('No active session to save to.', 'error');
             return;
         }
-        const shuntValue = parseFloat(shuntRange);
-        if (isNaN(shuntValue)) {
+        
+        const shuntValueInAmps = getValueInAmps(shuntRange, shuntRangeUnit);
+        if (shuntValueInAmps === null) {
             showNotification('AC Shunt Range must be a valid number.', 'error');
             return;
         }
+
+        const tvcValueInAmps = getValueInAmps(tvcUpperLimit, tvcUpperLimitUnit);
+
         try {
             await axios.put(`${API_BASE_URL}/calibration_sessions/${selectedSessionId}/information/`, {
                 configurations: {
-                    ac_shunt_range: shuntValue,
+                    ac_shunt_range: shuntValueInAmps,
                     amplifier_range: parseFloat(amplifierRange) || null,
-                    tvc_upper_limit: parseFloat(tvcUpperLimit) || null
+                    tvc_upper_limit: tvcValueInAmps,
                 }
             });
             showNotification('Settings saved successfully!', 'success');
@@ -194,8 +223,8 @@ function TestPointEditor({ showNotification }) {
             showNotification('An error occurred while saving configurations.', 'error');
         }
     };
-
-    const handleGenerateAndSavePoints = async () => {
+    
+    const handleConfirmAndSaveFrequencies = async (selectedFrequencies) => {
         const currentInputValue = parseFloat(inputCurrent);
         if (!currentInputValue) {
             showNotification('Please set a valid Input Current before generating points.', 'error');
@@ -205,15 +234,15 @@ function TestPointEditor({ showNotification }) {
             showNotification(`Input Current of ${currentInputValue}A is out of the amplifier's range.`, 'error');
             return;
         }
-        if (stagedFrequencies.length === 0) {
+        if (selectedFrequencies.length === 0) {
             showNotification('Please select at least one frequency to add.', 'error');
             return;
         }
 
         const existingFrequencies = new Set(testPoints.map(p => p.frequency));
-        const newFrequenciesToAdd = stagedFrequencies.filter(f => !existingFrequencies.has(f.value));
+        const newFrequenciesToAdd = selectedFrequencies.filter(f => !existingFrequencies.has(f.value));
 
-        if (newFrequenciesToAdd.length !== stagedFrequencies.length) {
+        if (newFrequenciesToAdd.length !== selectedFrequencies.length) {
             showNotification('One or more selected frequencies already exist and were ignored.', 'warning');
         }
 
@@ -226,6 +255,9 @@ function TestPointEditor({ showNotification }) {
             current: currentInputValue,
             frequency: freq.value
         }));
+        
+        const shuntValueInAmps = getValueInAmps(shuntRange, shuntRangeUnit);
+        const tvcValueInAmps = getValueInAmps(tvcUpperLimit, tvcUpperLimitUnit);
 
         try {
             await Promise.all([
@@ -234,16 +266,15 @@ function TestPointEditor({ showNotification }) {
                 }),
                 axios.put(`${API_BASE_URL}/calibration_sessions/${selectedSessionId}/information/`, {
                     configurations: {
-                        ac_shunt_range: parseFloat(shuntRange) || null,
+                        ac_shunt_range: shuntValueInAmps,
                         amplifier_range: parseFloat(amplifierRange),
-                        tvc_upper_limit: parseFloat(tvcUpperLimit) || null
+                        tvc_upper_limit: tvcValueInAmps,
                     }
                 })
             ]);
 
             showNotification(`${newFrequenciesToAdd.length} new test point(s) generated and saved!`, 'success');
             fetchTestPointSetAndSettings();
-            setStagedFrequencies([]);
         } catch (error) {
             console.error("Failed to save the configuration:", error);
             showNotification('An error occurred while saving the new test points.', 'error');
@@ -272,11 +303,6 @@ function TestPointEditor({ showNotification }) {
         }
     };
 
-    const formatFrequency = (value) => {
-        const freqObject = AVAILABLE_FREQUENCIES.find(f => f.value === value);
-        return freqObject ? freqObject.text : `${value}Hz`;
-    };
-
     const formatCurrent = (value) => {
         const currentObject = AVAILABLE_CURRENTS.find(c => c.value === value);
         return currentObject ? currentObject.text : `${value}A`;
@@ -288,19 +314,15 @@ function TestPointEditor({ showNotification }) {
                 <FrequencySelectionModal
                     onCancel={() => setIsModalOpen(false)}
                     onConfirm={(selected) => {
-                        setStagedFrequencies(selected);
+                        handleConfirmAndSaveFrequencies(selected);
                         setIsModalOpen(false);
                     }}
-                    preselectedFrequencies={stagedFrequencies}
+                    preselectedFrequencies={testPoints.map(p => ({ value: p.frequency, text: formatFrequency(p.frequency) }))}
                 />
             )}
             <div className="content-area calibration-setup">
                 <h2>Test Point Configuration</h2>
-                {selectedSessionId ? (
-                    <h3 className="session-title-header">
-                        For Session: <span>{selectedSessionName || `ID: ${selectedSessionId}`}</span>
-                    </h3>
-                ) : (
+                {!selectedSessionId && (
                     <div className="form-section-warning">
                         <p>Please select a session from the "Session Setup" tab to add or view test points.</p>
                     </div>
@@ -309,33 +331,53 @@ function TestPointEditor({ showNotification }) {
                 <div className="config-grid">
                     <div className="config-column">
                         <div className="form-section">
-                            <label htmlFor="shunt-range">AC Shunt Range (A)</label>
-                            <input
-                                type="number"
-                                id="shunt-range"
-                                value={shuntRange || ''}
-                                onChange={(e) => setShuntRange(e.target.value)}
-                                disabled={!selectedSessionId || testPoints.length > 0}
-                                placeholder="e.g., 20"
-                            />
+                            <label htmlFor="shunt-range">AC Shunt Range</label>
+                            <div className="input-with-unit">
+                                <input
+                                    type="number"
+                                    id="shunt-range"
+                                    value={shuntRange}
+                                    onChange={(e) => setShuntRange(e.target.value)}
+                                    disabled={!selectedSessionId || testPoints.length > 0}
+                                    placeholder="e.g., 20"
+                                />
+                                <select 
+                                    value={shuntRangeUnit} 
+                                    onChange={(e) => setShuntRangeUnit(e.target.value)}
+                                    disabled={!selectedSessionId || testPoints.length > 0}
+                                >
+                                    <option value="A">A</option>
+                                    <option value="mA">mA</option>
+                                </select>
+                            </div>
                         </div>
                         <div className="form-section">
                             <label htmlFor="amplifier-range">8100 Amplifier Range</label>
                             <input type="text" id="amplifier-range" value={amplifierRange ? `${amplifierRange} A` : ''} disabled readOnly />
                         </div>
                         <div className="form-section">
-                            <label htmlFor="tvc-upper-limit">TVC Upper Limit (A)</label>
-                            <input
-                                type="number"
-                                id="tvc-upper-limit"
-                                value={tvcUpperLimit || ''}
-                                onChange={(e) => setTvcUpperLimit(e.target.value)}
-                                disabled={!selectedSessionId}
-                                placeholder="e.g., 100.5"
-                            />
+                            <label htmlFor="tvc-upper-limit">TVC Upper Limit</label>
+                            <div className="input-with-unit">
+                                <input
+                                    type="number"
+                                    id="tvc-upper-limit"
+                                    value={tvcUpperLimit}
+                                    onChange={(e) => setTvcUpperLimit(e.target.value)}
+                                    disabled={!selectedSessionId}
+                                    placeholder="e.g., 100.5"
+                                />
+                                <select 
+                                    value={tvcUpperLimitUnit} 
+                                    onChange={(e) => setTvcUpperLimitUnit(e.target.value)}
+                                    disabled={!selectedSessionId}
+                                >
+                                    <option value="A">A</option>
+                                    <option value="mA">mA</option>
+                                </select>
+                            </div>
                         </div>
                         <div className="form-section-action">
-                            <button onClick={handleSaveSettings} className="button" disabled={!selectedSessionId}>Update Settings</button>
+                            <button onClick={handleSaveSettings} className="button" disabled={!selectedSessionId}>Update Configuration</button>
                         </div>
                     </div>
 
@@ -358,19 +400,15 @@ function TestPointEditor({ showNotification }) {
                                 {filteredCurrents.map(current => (<option key={current.value} value={current.value}>{current.text}</option>))}
                             </select>
                         </div>
-                        <div className="form-section">
-                            <label>Frequencies to Add</label>
-                            <div className="staged-frequencies" style={{ display: 'flex', flexWrap: 'wrap', gap: '8px', minHeight: '40px', padding: '5px', borderRadius: '4px' }}>
-                                {stagedFrequencies.length > 0 ? stagedFrequencies.map(f => (
-                                    <span key={f.value} className="frequency-tag" style={{ padding: '5px 10px', backgroundColor: 'var(--background-color-offset)', color: 'var(--primary-text-color)', borderRadius: '4px' }}>
-                                        {f.text}
-                                    </span>
-                                )) : <span style={{ color: 'var(--secondary-text-color)', fontStyle: 'italic', padding: '5px' }}>Click "Select Frequencies..." below.</span>}
-                            </div>
-                        </div>
                         <div className="form-section-action">
-                            <button type="button" onClick={() => setIsModalOpen(true)} className="button" style={{ marginRight: '10px' }} disabled={!selectedSessionId}>Select Frequencies...</button>
-                            <button type="button" onClick={handleGenerateAndSavePoints} className="button" disabled={!selectedSessionId || stagedFrequencies.length === 0 || !inputCurrent}>Generate & Save Points</button>
+                             <button 
+                                type="button" 
+                                onClick={() => setIsModalOpen(true)} 
+                                className="button" 
+                                disabled={!selectedSessionId || !inputCurrent}
+                            >
+                                Add Test Points...
+                            </button>
                         </div>
                     </div>
                 </div>
@@ -383,30 +421,48 @@ function TestPointEditor({ showNotification }) {
                         {testPoints.length > 0 && (<button onClick={handleClearAllTestPoints} className="button button-danger">Clear All Points</button>)}
                     </div>
                 </div>
-                <table className="test-points-table">
-                    <thead>
-                        <tr>
-                            <th>Current</th>
-                            <th>Frequency</th>
-                            <th>Actions</th>
-                        </tr>
-                    </thead>
-                    <tbody>
-                        {testPoints.length > 0 ? testPoints.map((point) => (
-                            <tr key={point.id}>
-                                <td>{formatCurrent(point.current)}</td>
-                                <td>{formatFrequency(point.frequency)}</td>
-                                <td><button onClick={() => handleDeleteTestPoint(point.id)} className="button button-danger button-small">Delete</button></td>
-                            </tr>
-                        )) : (
-                            <tr>
-                                <td colSpan="3" style={{ textAlign: 'center', fontStyle: 'italic', color: '#6c757d' }}>
-                                    {selectedSessionId ? "No test points generated for this session." : "Select a session to view its test points."}
-                                </td>
-                            </tr>
-                        )}
-                    </tbody>
-                </table>
+                <div style={{ display: 'flex', flexWrap: 'wrap', gap: '10px', padding: '10px 0' }}>
+                    {testPoints.length > 0 ? (
+                        testPoints.map((point) => (
+                            <div
+                                key={point.id}
+                                style={{
+                                    display: 'flex',
+                                    alignItems: 'center',
+                                    padding: '8px 12px',
+                                    borderRadius: '20px',
+                                    backgroundColor: 'var(--button-bg, #E0E0E0)',
+                                    color: 'var(--button-text-color, #333)',
+                                    fontWeight: '500',
+                                    boxShadow: '0 2px 4px rgba(0,0,0,0.1)',
+                                }}
+                            >
+                                <span>{formatCurrent(point.current)} @ {formatFrequency(point.frequency)}</span>
+                                <button
+                                    onClick={() => handleDeleteTestPoint(point.id)}
+                                    style={{
+                                        marginLeft: '8px',
+                                        border: 'none',
+                                        background: 'transparent',
+                                        color: 'var(--button-danger-text-color)',
+                                        cursor: 'pointer',
+                                        fontSize: '1em',
+                                        fontWeight: 'bold',
+                                        padding: '0 4px',
+                                        lineHeight: '1',
+                                    }}
+                                    title="Delete test point"
+                                >
+                                    &times;
+                                </button>
+                            </div>
+                        ))
+                    ) : (
+                        <p style={{ margin: 0, fontStyle: 'italic', color: '#6c757d' }}>
+                            {selectedSessionId ? "No test points generated for this session." : "Select a session to view its test points."}
+                        </p>
+                    )}
+                </div>
             </div>
         </React.Fragment>
     );
