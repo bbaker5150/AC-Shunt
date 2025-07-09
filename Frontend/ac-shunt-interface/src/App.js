@@ -1,7 +1,7 @@
 /**
  * @file App.js
  * This is the root component of the application. It sets up the main layout,
- * context provider, and routing between the primary tabs (Session Setup, 
+ * context providers, and routing between the primary tabs (Session Setup, 
  * Test Point Editor, etc.).
  */
 import React, { useState, useCallback } from 'react';
@@ -9,7 +9,9 @@ import SessionSetup from './components/session/SessionSetup';
 import Calibration from './components/calibration/Calibration';
 import TestPointEditor from './components/calibration/TestPointEditor';
 import CalibrationResults from './components/calibration/CalibrationResults';
-import { ThemeProvider, useTheme } from './contexts/ThemeContext'; // Import provider and hook
+// Import the correct Instrument provider and hook
+import { InstrumentContextProvider, useInstruments } from './contexts/InstrumentContext'; 
+import { ThemeProvider, useTheme } from './contexts/ThemeContext';
 import 'bootstrap/dist/css/bootstrap.min.css';
 import './App.css';
 
@@ -24,11 +26,13 @@ const Notification = ({ message, type, onDismiss }) => {
 };
 
 // We create a new component for the content. This is necessary so it can
-// access the theme context provided by ThemeProvider in the main App component.
+// access the contexts provided by its parents.
 function AppContent() {
     const [activeTab, setActiveTab] = useState('sessionSetup');
     const [notification, setNotification] = useState({ message: '', type: 'info', key: 0 });
-    const { theme, toggleTheme } = useTheme(); // Now we get theme from context
+    const { theme, toggleTheme } = useTheme();
+    // Get the selected session name from the InstrumentContext
+    const { selectedSessionName } = useInstruments();
 
     const showNotification = useCallback((message, type = 'info', duration = 4000) => {
         const newKey = Date.now();
@@ -56,18 +60,35 @@ function AppContent() {
             )}
             
             <header className="App-header">
-                <h1>AC Shunt Calibration</h1>
+                <div className="header-top-bar">
+                    {/* Left Column: Session Name */}
+                    <div className="header-left">
+                        {selectedSessionName && (
+                            <span className="global-session-name">
+                                Session: {selectedSessionName}
+                            </span>
+                        )}
+                    </div>
 
-                <div className="theme-switcher">
-                    <span>{theme === 'light' ? 'Light' : 'Dark'} Mode</span>
-                    <label className="switch">
-                        <input
-                            type="checkbox"
-                            onChange={toggleTheme}
-                            checked={theme === 'dark'}
-                        />
-                        <span className="slider round" />
-                    </label>
+                    {/* Center Column: Main Title */}
+                    <div className="header-center">
+                        <h1>AC Shunt Calibration</h1>
+                    </div>
+
+                    {/* Right Column: Theme Switcher */}
+                    <div className="header-right">
+                        <div className="theme-switcher">
+                            <span>{theme === 'light' ? 'Light' : 'Dark'} Mode</span>
+                            <label className="switch">
+                                <input
+                                    type="checkbox"
+                                    onChange={toggleTheme}
+                                    checked={theme === 'dark'}
+                                />
+                                <span className="slider round" />
+                            </label>
+                        </div>
+                    </div>
                 </div>
                 
                 <nav className="tab-navigation">
@@ -104,12 +125,14 @@ function AppContent() {
     );
 }
 
-// The main App component now only needs to provide the theme context.
+// The main App component now provides both the Instrument and Theme contexts.
 function App() {
     return (
-        <ThemeProvider>
-            <AppContent />
-        </ThemeProvider>
+        <InstrumentContextProvider>
+            <ThemeProvider>
+                <AppContent />
+            </ThemeProvider>
+        </InstrumentContextProvider>
     );
 }
 
