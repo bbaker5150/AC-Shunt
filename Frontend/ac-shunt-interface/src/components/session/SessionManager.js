@@ -1,72 +1,188 @@
 /**
  * @file SessionManager.js
  * @brief Component for selecting, viewing, and resetting calibration sessions.
- * * This component fetches a list of existing calibration sessions from the API
- * and displays them in a dropdown menu. It allows a user to select a session
- * to view or edit its details. It also provides a "Reset" button to clear the
- * current selection and start a new session. It uses and updates the shared
- * session state (ID and name) from the InstrumentContext.
+ * * This component displays a list of existing calibration sessions and allows
+ * a user to select one or reset to a new session state. It directly updates
+ * the shared InstrumentContext with the selected session's ID, name, and
+ * associated instrument addresses.
  */
-import React, { useEffect, useCallback } from 'react';
+import React, { useState } from 'react';
 import axios from 'axios';
 import { useInstruments } from '../../contexts/InstrumentContext';
 
-const API_BASE_URL = 'http://127.0.0.1:8000/api';
+const API_BASE_URL = process.env.REACT_APP_API_BASE_URL;
 
-function SessionManager({ sessionsList, setSessionsList, isLoadingSessions, setIsLoadingSessions, showNotification }) {
-    const { selectedSessionId, setSelectedSessionId, setSelectedSessionName } = useInstruments();
+/**
+ * @brief A reusable modal dialog for confirmation prompts.
+ */
+const ConfirmationModal = ({ isOpen, title, children, onConfirm, onCancel }) => {
+    if (!isOpen) {
+        return null;
+    }
 
-    const fetchSessionsList = useCallback(async () => {
-        setIsLoadingSessions(true);
-        try {
-            const response = await axios.get(`${API_BASE_URL}/calibration_sessions/`);
-            setSessionsList(response.data || []);
-        } catch (error) {
-            showNotification('Failed to fetch sessions list.', 'error');
-        } finally {
-            setIsLoadingSessions(false);
-        }
-    }, [setIsLoadingSessions, setSessionsList, showNotification]);
+    return (
+        <div className="modal-overlay">
+            <div className="modal-content warning-modal">
+                <div className="modal-header">
+                    <h3>{title}</h3>
+                    {/* --- REVERTED TO USE CSS CLASS --- */}
+                    <button
+                        onClick={onCancel}
+                        title="Close"
+                        className="modal-close-button"
+                    >
+                        &times;
+                    </button>
+                </div>
+                <div className="modal-body">
+                    {children}
+                </div>
+                <div className="modal-footer">
+                    <button onClick={onCancel} className="button button-secondary">Cancel</button>
+                    <button onClick={onConfirm} className="button button-danger">Confirm Delete</button>
+                </div>
+            </div>
+        </div>
+    );
+};
 
-    useEffect(() => {
-        fetchSessionsList();
-    }, [fetchSessionsList]);
+
+function SessionManager({ sessionsList, isLoadingSessions, showNotification, fetchSessionsList }) {
+    const {
+        selectedSessionId,
+        setSelectedSessionId,
+        setSelectedSessionName,
+        setStdInstrumentAddress,
+        setStdReaderModel,
+        setTiInstrumentAddress,
+        setTiReaderModel,
+        setAcSourceAddress,
+        setDcSourceAddress,
+    } = useInstruments();
+
+    // State to manage the confirmation modal
+    const [isModalOpen, setIsModalOpen] = useState(false);
+    const [sessionToDelete, setSessionToDelete] = useState(null);
+
+
+    /**
+     * @brief Clears all session-related state from the context.
+     */
+    const clearSessionState = () => {
+        setSelectedSessionId(null);
+        setSelectedSessionName('');
+        setStdInstrumentAddress(null);
+        setStdReaderModel(null);
+        setTiInstrumentAddress(null);
+        setTiReaderModel(null);
+        setAcSourceAddress(null);
+        setDcSourceAddress(null);
+    };
 
     const handleSessionSelectChange = (e) => {
         const sessionId = e.target.value;
         const session = sessionsList.find(s => s.id.toString() === sessionId);
 
         setSelectedSessionId(sessionId || null);
-        setSelectedSessionName(session ? session.session_name : '');
+        setSelectedSessionName(session ? session.name : '');
+
+        if (session) {
+            // Populate all reader and source info from the selected session
+            setStdInstrumentAddress(session.standard_reader_address || null);
+            setStdReaderModel(session.standard_reader_model || null);
+            setTiInstrumentAddress(session.test_reader_address || null);
+            setTiReaderModel(session.test_reader_model || null);
+            setAcSourceAddress(session.ac_source_address || null);
+            setDcSourceAddress(session.dc_source_address || null);
+        } else {
+            // Clear everything if "-- Start New Session --" is selected
+            clearSessionState();
+        }
     };
 
-    const handleReset = () => {
-        setSelectedSessionId(null);
-        setSelectedSessionName('');
-        showNotification('Form cleared.', 'info');
+    /**
+     * @brief Handles the action to start a new session, clearing the form.
+     */
+    const handleNewSession = () => {
+        clearSessionState();
+        showNotification('Form cleared for a new session.', 'info');
     };
+
+    /**
+     * @brief Initiates the deletion process by opening the confirmation modal.
+     */
+    const handleDeleteSession = () => {
+        if (!selectedSessionId) {
+            showNotification('No session selected to delete.', 'warning');
+            return;
+        }
+        const session = sessionsList.find(s => s.id.toString() === selectedSessionId.toString());
+        setSessionToDelete(session);
+        setIsModalOpen(true); // Open the modal
+    };
+
+    /**
+     * @brief Executes the actual deletion after confirmation.
+     */
+    const confirmDelete = async () => {
+        if (!sessionToDelete) return;
+
+        try {
+            await axios.delete(`${API_BASE_URL}/calibration_sessions/${sessionToDelete.id}/`);
+            showNotification('Session deleted successfully.', 'success');
+            clearSessionState();
+            await fetchSessionsList(); // Refresh the list
+        } catch (error) {
+            console.error("Failed to delete session", error);
+            showNotification('Failed to delete session.', 'error');
+        } finally {
+            setIsModalOpen(false); // Close modal regardless of outcome
+            setSessionToDelete(null);
+        }
+    };
+
+    const cancelDelete = () => {
+        setIsModalOpen(false);
+        setSessionToDelete(null);
+    };
+
 
     return (
-        <div className="form-section">
-            <label htmlFor="session-select">Calibration Session</label>
-            <div style={{ display: 'flex', gap: '10px', alignItems: 'center', flexWrap: 'wrap' }}>
-                <select
-                    id="session-select"
-                    value={selectedSessionId || ''}
-                    onChange={handleSessionSelectChange}
-                    disabled={isLoadingSessions}
-                    style={{ flexGrow: 1 }}
-                >
-                    <option value="">-- Start New Session --</option>
-                    {isLoadingSessions ? <option disabled>Loading...</option> : sessionsList.map(s => (
-                        <option key={s.id} value={s.id}>{s.session_name} (ID: {s.id})</option>
-                    ))}
-                </select>
-                <button type="button" onClick={handleReset} className="button button-danger">
-                    Reset
-                </button>
+        <>
+            <ConfirmationModal
+                isOpen={isModalOpen}
+                title="Confirm Deletion"
+                onConfirm={confirmDelete}
+                onCancel={cancelDelete}
+            >
+                <p>Are you sure you want to delete the session: <strong>"{sessionToDelete?.session_name}"</strong>?</p>
+                <p>This action cannot be undone.</p>
+            </ConfirmationModal>
+
+            <div className="form-section">
+                <label htmlFor="session-select">Manage Calibration Session</label>
+                <div className="session-manager-controls">
+                    <select
+                        id="session-select"
+                        value={selectedSessionId || ''}
+                        onChange={handleSessionSelectChange}
+                        disabled={isLoadingSessions}
+                        className="session-select-dropdown"
+                    >
+                        <option value="">-- Start New Session --</option>
+                        {isLoadingSessions ? <option disabled>Loading...</option> : sessionsList.map(s => (
+                            <option key={s.id} value={s.id}>{s.session_name} (ID: {s.id})</option>
+                        ))}
+                    </select>
+                    <button type="button" onClick={handleNewSession} className="button button-icon button-secondary" title="Start New Session">
+                        &#43; New
+                    </button>
+                    <button type="button" onClick={handleDeleteSession} className="button button-icon button-danger" title="Delete Selected Session" disabled={!selectedSessionId}>
+                        &#128465; Delete
+                    </button>
+                </div>
             </div>
-        </div>
+        </>
     );
 }
 

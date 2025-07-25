@@ -10,6 +10,7 @@ Supports the following model numbers:
 
 import time
 import pyvisa
+import re
 
 from .instrument import Instrument
 
@@ -31,14 +32,16 @@ class FlukeInstrument(Instrument):
         
         Raises:
             RuntimeError : An error occured when connecting to the GPIB address
-            RuntimeError : The model did not respond to the "*IDN?" query
+            RuntimeError : The model does not match the instrument's identity
         """
         try:
             super().__init__(model=model, gpib=gpib, timeout=timeout)
-            if self.check_identity():
+            is_match, idn_response = self.check_identity()
+            if is_match:
                 self.resource.timeout = self.timeout
             else:
-                raise RuntimeError(f"Model number {self.model} does not match identity obtained from {self.gpib}")
+                # Include the mismatched identity in the error for easier debugging
+                raise RuntimeError(f"Model number '{self.model}' does not match identity '{idn_response}' obtained from {self.gpib}")
 
         except RuntimeError as e:
             raise e
@@ -53,24 +56,34 @@ class FlukeInstrument(Instrument):
         return identity_list[2]
 
 
-    def check_identity(self) -> bool:
-        """Query the instrument's identity and check it matches
+    def check_identity(self) -> tuple[bool, str]:
+        """
+        Query the instrument's identity and check if it matches the model.
 
         Returns: 
-            A bool that is `True` when the model matches the queryied identity, 
-            `False` when it doesn't.
-
-        Raises:
-            RuntimeError : The model did not respond to the "*IDN?" query
+            A tuple containing (match_bool, identity_string).
+            match_bool: `True` if the model matches, `False` otherwise.
+            identity_string: The raw identity string from the instrument.
         """
         try:
-            super().check_identity()  # just sets timeout to 1 second
+            self.resource.timeout = 2000
             self.resource.read_termination = "\n"
-            return self.model in self.resource.query('*IDN?')
-        
-        except pyvisa.errors.VisaIOError as e:
-            print(e)
-            raise RuntimeError(f"{self} timed out when querying '*IDN?'. Make sure the model and GPIB correct")
+            idn_string = self.resource.query('*IDN?').strip()
+            
+            model_number_match = re.search(r'\d{4}', self.model)
+            
+            if not model_number_match:
+                is_match = self.model.lower() in idn_string.lower()
+                return is_match, idn_string
+
+            model_number = model_number_match.group(0)
+            is_match = model_number in idn_string
+            return is_match, idn_string
+
+        except pyvisa.errors.VisaIOError:
+            raise RuntimeError(f"{self} timed out when querying '*IDN?'. Make sure the model and GPIB are correct")
+        finally:
+            self.resource.timeout = self.timeout
     
 
     def cal_zero(self, verbose: bool=False) -> None:

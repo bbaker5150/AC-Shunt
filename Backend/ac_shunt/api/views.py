@@ -2,16 +2,18 @@
 import pyvisa
 import re
 import statistics
+from collections import defaultdict
 from django.http import JsonResponse
 from rest_framework.decorators import api_view
 from rest_framework import viewsets, status
 from rest_framework.decorators import action
 from rest_framework.response import Response
-from .models import Message, CalibrationSession, TestPoint, TestPointSet, Calibration, CalibrationConfigurations, CalibrationSettings, CalibrationReadings, CalibrationResults
-from .serializers import MessageSerializer, CalibrationSerializer, CalibrationSessionSerializer, TestPointSerializer, TestPointSetSerializer, CalibrationConfigurationsSerializer, CalibrationSettingsSerializer, CalibrationReadingsSerializer, CalibrationResultsSerializer
+from .models import Message, Correction, Uncertainty, CalibrationSession, TestPoint, TestPointSet, Calibration, CalibrationConfigurations, CalibrationSettings, CalibrationReadings, CalibrationResults
+from .serializers import MessageSerializer, CorrectionSerializer, CorrectionGroupedSerializer, FlatCorrectionSerializer, UncertaintySerializer, UncertaintyGroupedSerializer, FlatUncertaintySerializer, CalibrationSerializer, CalibrationSessionSerializer, TestPointSerializer, TestPointSetSerializer, CalibrationConfigurationsSerializer, CalibrationSettingsSerializer, CalibrationReadingsSerializer, CalibrationResultsSerializer
 from .NPSL_Tools.instruments.instrument_34420A import Instrument34420A
 from django.core.exceptions import ObjectDoesNotExist
-# --- Hardcoded Readings Dev Testing ---
+import json
+import os
 
 def get_instrument_identity(rm, address):
     """
@@ -22,7 +24,8 @@ def get_instrument_identity(rm, address):
     try:
         instrument = rm.open_resource(address, open_timeout=500)
         instrument.timeout = 500
-        
+        instrument.clear() # Clear buffer before sending commands
+
         for command in identity_commands:
             try:
                 if command == 'ID?':
@@ -31,9 +34,16 @@ def get_instrument_identity(rm, address):
                     instrument.read_termination = "\n"
 
                 identity = instrument.query(command).strip()
+
+                try:
+                    float(identity)
+                    continue
+                except ValueError:
+                    pass
+                
                 if identity:
                     if command == 'ID?' and '3458A' in identity:
-                         return f"HP/Agilent 3458A - {identity}"
+                         return f"{identity}"
                     return identity
             except pyvisa.errors.VisaIOError:
                 continue
@@ -52,11 +62,9 @@ def get_instrument_identity(rm, address):
 @api_view(['GET'])
 def discover_instruments(request):
     """
-    Scans for connected VISA resources and returns them with their identities.
+    Scans for connected VISA resources, de-duplicates them robustly, and returns
+    them with their identities and the local IP.
     """
-    instrument_list = []
-    unique_addresses = set()
-    
     try:
         rm = pyvisa.ResourceManager()
         resources = rm.list_resources()
@@ -65,28 +73,205 @@ def discover_instruments(request):
         print(f"Error initializing VISA resource manager: {e}")
         return JsonResponse({'error': 'Could not initialize VISA resource manager.', 'details': str(e)}, status=500)
 
+    # --- Robust De-duplication Logic ---
+    instrument_map = {}
     for address in resources:
-        if 'ASRL' in address.upper():
-            print(f"Ignoring serial port: {address}")
+        if 'visa://' not in address.lower():
             continue
 
-        base_address = address.split('::INSTR')[0].split('/')[-1] + "::INSTR"
-        
-        if base_address not in unique_addresses:
-            unique_addresses.add(base_address)
-            identity = get_instrument_identity(rm, address)
-            
-            instrument_list.append({
-                'address': address,
-                'identity': identity
-            })
+        # FIX: Updated regex to handle optional port numbers
+        ip_match = re.search(r'visa:\/\/([0-9.]+)(:[0-9]+)?', address)
+        core_match = re.search(r'GPIB\d*::\d+::INSTR', address)
 
-    print(f"Returning unique, identified instruments: {instrument_list}")
-    return JsonResponse(instrument_list, safe=False)
+        if ip_match and core_match:
+            ip = ip_match.group(1)
+            core_address = core_match.group(0)
+            unique_key = f"{ip}-{core_address}"
+            instrument_map[unique_key] = address
+
+    final_addresses = sorted(list(instrument_map.values()))
+    print(f"De-duplicated, prioritized instrument addresses: {final_addresses}")
+
+    instrument_list = []
+    for address in final_addresses:
+        identity = get_instrument_identity(rm, address)
+        instrument_list.append({
+            'address': address,
+            'identity': identity
+        })
+
+    local_ip = request.META.get('REMOTE_ADDR')
+    response_data = {
+        "instruments": instrument_list,
+        "local_ip": local_ip
+    }
+
+    print(f"Returning identified instruments: {instrument_list}")
+    return JsonResponse(response_data)
+
 
 class MessageViewSet(viewsets.ModelViewSet):
     queryset = Message.objects.all().order_by('-created_at')
     serializer_class = MessageSerializer
+
+class BaseDataViewSet(viewsets.ViewSet):
+    model_class = None
+    list_serializer_class = None
+    flat_serializer_class = None
+    value_key = None
+
+    def list(self, request):
+        if not self.list_serializer_class or not self.model_class:
+            return Response({"error": "Configuration missing"}, status=500)
+        
+        queryset = self.model_class.objects.all()
+        serializer = self.list_serializer_class(queryset)
+        return Response(serializer.data)
+
+    def create(self, request):
+        data_list = request.data
+
+        if not isinstance(data_list, list):
+            return Response({"detail": f"Expected a list of {self.value_key}s."}, status=400)
+
+        saved = []
+        errors = []
+
+        for data in data_list:
+            try:
+                range_val = float(data["range"])
+                current_val = float(data["current"])
+                frequency_val = float(data["frequency"])
+                value_raw = data.get(self.value_key)
+
+                value = None
+                if value_raw is not None and value_raw != "":
+                    value = float(value_raw)
+
+                if value is not None:
+                    obj, created = self.model_class.objects.update_or_create(
+                        range=range_val,
+                        current=current_val,
+                        frequency=frequency_val,
+                        defaults={self.value_key: value}
+                    )
+                    saved.append(self.flat_serializer_class(obj).data)
+                else:
+                    deleted_count, _ = self.model_class.objects.filter(
+                        range=range_val,
+                        current=current_val,
+                        frequency=frequency_val,
+                    ).delete()
+                    if deleted_count > 0:
+                        print(f"Deleted {deleted_count} record(s) for {self.value_key}: {range_val}A, {current_val}A, {frequency_val}Hz")
+
+            except Exception as e:
+                errors.append({"input": data, "error": str(e)})
+
+        return Response(
+            {"saved": saved, "errors": errors},
+            status=status.HTTP_200_OK if not errors else status.HTTP_207_MULTI_STATUS
+        )
+    
+    @action(detail=False, methods=['post'])
+    def reset(self, request):
+        try:
+            file_name = f"{self.value_key}_data.json"
+            base_dir = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+            file_path = os.path.join(base_dir, file_name)
+            
+            with open(file_path, 'r') as f:
+                revert_data_list = json.load(f)
+
+            json_keys = set()
+            for data in revert_data_list:
+                json_keys.add((
+                    float(data.get('range')),
+                    float(data.get('current')),
+                    int(data.get('frequency'))
+                ))
+
+            updated_count = 0
+            created_count = 0
+            for data in revert_data_list:
+                range_val = str(data.get('range'))
+                current_val = str(data.get('current'))
+                frequency_val = int(data.get('frequency'))
+                value = float(data.get('value'))
+                
+                _, created = self.model_class.objects.update_or_create(
+                    range=range_val,
+                    current=current_val,
+                    frequency=frequency_val,
+                    defaults={self.value_key: value}
+                )
+                
+                if created:
+                    created_count += 1
+                else:
+                    updated_count += 1
+
+            all_db_records = self.model_class.objects.all()
+            
+            db_keys = set((
+                float(obj.range),
+                float(obj.current),
+                int(obj.frequency)
+            ) for obj in all_db_records)
+
+            records_to_delete_keys = db_keys - json_keys
+            deleted_count = 0
+            
+            if records_to_delete_keys:
+                for key in records_to_delete_keys:
+                    deleted_count += self.model_class.objects.filter(
+                        range=key[0],
+                        current=key[1],
+                        frequency=key[2]
+                    ).delete()[0]
+                
+            return Response(
+                {"status": f"Data synchronized successfully. Updated: {updated_count}, Created: {created_count}, Deleted: {deleted_count}"},
+                status=status.HTTP_200_OK
+            )
+
+        except FileNotFoundError:
+            return Response({"error": f"Reset data file '{file_name}' not found."}, status=status.HTTP_500_INTERNAL_SERVER_ERROR)
+        except Exception as e:
+            return Response({"error": f"Failed to reset data: {str(e)}"}, status=status.HTTP_500_INTERNAL_SERVER_ERROR)
+
+
+class BaseDataGroupedViewSet(viewsets.ViewSet):
+    model_class = None
+    grouped_serializer_class = None
+
+    def list(self, request):
+        if not self.grouped_serializer_class or not self.model_class:
+            return Response({"error": "Configuration missing"}, status=500)
+            
+        queryset = self.model_class.objects.all().order_by('range', 'current', 'frequency')
+        serializer = self.grouped_serializer_class(queryset)
+        return Response(serializer.data)
+    
+class CorrectionViewSet(BaseDataViewSet):
+    model_class = Correction
+    list_serializer_class = CorrectionSerializer
+    flat_serializer_class = FlatCorrectionSerializer
+    value_key = 'correction'
+
+class UncertaintyViewSet(BaseDataViewSet):
+    model_class = Uncertainty
+    list_serializer_class = UncertaintySerializer
+    flat_serializer_class = FlatUncertaintySerializer
+    value_key = 'uncertainty'
+
+class CorrectionGroupedViewSet(BaseDataGroupedViewSet):
+    model_class = Correction
+    grouped_serializer_class = CorrectionGroupedSerializer
+
+class UncertaintyGroupedViewSet(BaseDataGroupedViewSet):
+    model_class = Uncertainty
+    grouped_serializer_class = UncertaintyGroupedSerializer
 
 class CalibrationSessionViewSet(viewsets.ModelViewSet):
     """
@@ -94,100 +279,6 @@ class CalibrationSessionViewSet(viewsets.ModelViewSet):
     """
     queryset = CalibrationSession.objects.all().order_by('-created_at')
     serializer_class = CalibrationSessionSerializer
-
-    # --- NEW: Action to collect a specified number of samples from an instrument ---
-    # @action(detail=True, methods=['post'], url_path='collect-readings')
-    # def collect_readings(self, request, pk=None):
-    #     session = self.get_object()
-        
-    #     # Extract data from the frontend request
-    #     reading_type = request.data.get('reading_type') # e.g., 'std_ac_open'
-    #     num_samples = request.data.get('num_samples')
-
-    #     if not all([reading_type, num_samples]):
-    #         return Response(
-    #             {'error': 'reading_type and num_samples are required.'},
-    #             status=status.HTTP_400_BAD_REQUEST
-    #         )
-        
-    #     # For now, we use the hardcoded address for the 34420A as requested
-    #     instrument_address = 'GPIB0::22::INSTR'
-
-    #     try:
-    #         instrument = Instrument34420A(channel=instrument_address)
-            
-    #         collected_readings = []
-    #         for _ in range(int(num_samples)):
-    #             # Call the read_instrument method for each sample
-    #             reading = instrument.read_instrument()
-    #             collected_readings.append(reading)
-
-    #         # Get the related readings model
-    #         calibration, _ = Calibration.objects.get_or_create(session=session)
-    #         readings, _ = CalibrationReadings.objects.get_or_create(calibration=calibration)
-
-    #         # Update the correct field on the model with the new list of readings
-    #         field_name = f"{reading_type}_readings"  # e.g., 'std_ac_open_readings'
-    #         if hasattr(readings, field_name):
-    #             setattr(readings, field_name, collected_readings)
-    #             readings.save()
-    #         else:
-    #             return Response({'error': f'Invalid reading_type: {reading_type}'}, status=status.HTTP_400_BAD_REQUEST)
-
-    #         return Response({
-    #             'message': f'Successfully collected {num_samples} samples.',
-    #             'readings': collected_readings
-    #         }, status=status.HTTP_200_OK)
-
-    #     except Exception as e:
-    #         return Response({'error': f'Instrument communication failed: {str(e)}'}, status=status.HTTP_500_INTERNAL_SERVER_ERROR)
-
-    # --- NEW: Action to collect a specified number of samples from an instrument ---
-    # @action(detail=True, methods=['post'], url_path='collect-readings')
-    # def collect_readings(self, request, pk=None):
-    #     session = self.get_object()
-        
-    #     # Extract data from the frontend request
-    #     reading_type = request.data.get('reading_type') # e.g., 'std_ac_open'
-    #     num_samples = request.data.get('num_samples')
-
-    #     if not all([reading_type, num_samples]):
-    #         return Response(
-    #             {'error': 'reading_type and num_samples are required.'},
-    #             status=status.HTTP_400_BAD_REQUEST
-    #         )
-        
-    #     # For now, we use the hardcoded address for the 34420A as requested
-    #     instrument_address = 'GPIB0::22::INSTR'
-
-    #     try:
-    #         instrument = Instrument34420A(channel=instrument_address)
-            
-    #         collected_readings = []
-    #         for _ in range(int(num_samples)):
-    #             # Call the read_instrument method for each sample
-    #             reading = instrument.read_instrument()
-    #             collected_readings.append(reading)
-
-    #         # Get the related readings model
-    #         calibration, _ = Calibration.objects.get_or_create(session=session)
-    #         readings, _ = CalibrationReadings.objects.get_or_create(calibration=calibration)
-
-    #         # Update the correct field on the model with the new list of readings
-    #         field_name = f"{reading_type}_readings"  # e.g., 'std_ac_open_readings'
-    #         if hasattr(readings, field_name):
-    #             setattr(readings, field_name, collected_readings)
-    #             readings.save()
-    #         else:
-    #             return Response({'error': f'Invalid reading_type: {reading_type}'}, status=status.HTTP_400_BAD_REQUEST)
-
-    #         return Response({
-    #             'message': f'Successfully collected {num_samples} samples.',
-    #             'readings': collected_readings
-    #         }, status=status.HTTP_200_OK)
-
-    #     except Exception as e:
-    #         return Response({'error': f'Instrument communication failed: {str(e)}'}, status=status.HTTP_500_INTERNAL_SERVER_ERROR)
 
     @action(detail=True, methods=['get', 'put'], url_path='information')
     def calibration_handler(self, request, pk=None):
@@ -626,4 +717,3 @@ class TestPointViewSet(viewsets.ModelViewSet):
             "calibration_session_id": int(self.kwargs['session_pk']),
             "test_points": serializer.data
         })
-    

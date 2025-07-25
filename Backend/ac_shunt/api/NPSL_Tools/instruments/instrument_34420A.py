@@ -4,12 +4,16 @@ from .instrument import Instrument
 from .utils import BoolSetting, FilterType, DigitalFilterResponse, TriggerSource
 
 class Instrument34420A():
-    def __init__(self, channel: str, timeout: int = 5000):
+    def __init__(self, gpib: str, timeout: int = 5000):
         self.rm = pyvisa.ResourceManager()
-        self.device = self.rm.open_resource(channel)
+        self.device = self.rm.open_resource(gpib)
         self.timeout = timeout
-
         self.device.read_termination = '\n'
+
+        # Initialize instrument to a known state
+        self.reset()
+        self.device.write('CONF:VOLT:DC DEF') # Configure for DCV with default range/resolution
+
         self.max_range = float(self.device.query('SENS:VOLT:DC:RANG? MAX'))
         self.min_range = float(self.device.query('SENS:VOLT:DC:RANG? MIN'))
         self.max_integration = float(self.device.query('SENS:VOLT:DC:NPLC? MAX'))

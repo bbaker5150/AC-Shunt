@@ -1,19 +1,110 @@
 # api/serializers.py
 from rest_framework import serializers
-from .models import Message, CalibrationSession, TestPointSet, TestPoint, CalibrationConfigurations, CalibrationSettings, CalibrationResults, CalibrationReadings, Calibration
+from .models import Message, Correction, Uncertainty, CalibrationSession, TestPoint, TestPointSet, Calibration, CalibrationConfigurations, CalibrationSettings, CalibrationReadings, CalibrationResults
+from datetime import datetime
 
 class MessageSerializer(serializers.ModelSerializer):
     class Meta:
         model = Message
         fields = ['id', 'text', 'created_at']
 
+class BaseDataSerializer(serializers.BaseSerializer):
+    """
+    Base serializer to group a queryset into a nested dictionary.
+    Output: { range: { current: { frequency: value } } }
+    """
+    value_key = None
+
+    def to_representation(self, instance):
+        if self.value_key is None:
+            raise ValueError("value_key must be set for this serializer.")
+            
+        data = {}
+        for obj in instance:
+            range_str = str(obj.range)
+            current_str = str(obj.current)
+            frequency_str = str(obj.frequency)
+            
+            data.setdefault(range_str, {}).setdefault(current_str, {})[frequency_str] = getattr(obj, self.value_key)
+
+        for range_key, range_value in data.items():
+            for current_key, current_value in range_value.items():
+                sorted_freqs = sorted(current_value.keys(), key=float)
+                ordered_freqs_dict = {freq_key: current_value[freq_key] for freq_key in sorted_freqs}
+                data[range_key][current_key] = ordered_freqs_dict
+                
+        return data
+
+class BaseDataGroupedSerializer(serializers.BaseSerializer):
+    """
+    Base serializer to group a queryset into a nested list of dictionaries.
+    Output: [ { range: ..., currents: [ { current: ..., frequencies: [...] } ] } ]
+    """
+    value_key = None
+
+    def to_representation(self, instance):
+        if not hasattr(instance, '__iter__'):
+            instance = [instance]
+        if self.value_key is None:
+            raise ValueError("value_key must be set for this serializer.")
+
+        structured = {}
+        for obj in instance:
+            r = float(obj.range)
+            c = float(obj.current)
+            f = float(obj.frequency)
+            
+            structured.setdefault(r, {}).setdefault(c, []).append({
+                'frequency': f,
+                self.value_key: getattr(obj, self.value_key)
+            })
+
+        output = []
+        for range_val, currents in structured.items():
+            current_entries = []
+            for current_val, freqs in currents.items():
+                current_entries.append({
+                    'current': current_val,
+                    'frequencies': freqs
+                })
+            output.append({
+                'range': range_val,
+                'currents': current_entries
+            })
+        
+        return output
+    
+class CorrectionSerializer(BaseDataSerializer):
+    value_key = 'correction'
+
+class CorrectionGroupedSerializer(BaseDataGroupedSerializer):
+    value_key = 'correction'
+
+class FlatCorrectionSerializer(serializers.ModelSerializer):
+    class Meta:
+        model = Correction
+        fields = ['range', 'current', 'frequency', 'correction']
+
+class UncertaintySerializer(BaseDataSerializer):
+    value_key = 'uncertainty'
+
+class UncertaintyGroupedSerializer(BaseDataGroupedSerializer):
+    value_key = 'uncertainty'
+
+class FlatUncertaintySerializer(serializers.ModelSerializer):
+    class Meta:
+        model = Uncertainty
+        fields = ['range', 'current', 'frequency', 'uncertainty']
+
 class CalibrationSessionSerializer(serializers.ModelSerializer):
     class Meta:
         model = CalibrationSession
         fields = [
             'id', 'session_name',
-            'test_instrument_model', 'test_instrument_serial', 'test_instrument_address',
-            'standard_instrument_model', 'standard_instrument_serial', 'standard_instrument_address',
+            'test_instrument_model', 'test_instrument_serial',
+            'test_reader_model', 'test_reader_address',
+            'standard_instrument_model', 'standard_instrument_serial',
+            'standard_reader_model', 'standard_reader_address',
             'ac_source_address', 'dc_source_address',
             'temperature', 'humidity', 'created_at', 'notes',
         ]
@@ -28,20 +119,49 @@ class CalibrationSettingsSerializer(serializers.ModelSerializer):
     test_point = serializers.PrimaryKeyRelatedField(read_only=True)
     class Meta:
         model = CalibrationSettings
-        fields = ['test_point', 'initial_warm_up_time', 'num_samples']
+        fields = ['test_point', 'initial_warm_up_time', 'num_samples', 'settling_time']
+
+# --- New Custom Field for Formatting Timestamps ---
+class FormattedReadingsField(serializers.Field):
+    """
+    Custom serializer field to add a human-readable timestamp.
+    """
+    def to_representation(self, value):
+        if not isinstance(value, list):
+            return value
+        
+        formatted_readings = []
+        for point in value:
+            # Check if the point is a dictionary with the required keys
+            if isinstance(point, dict) and 'timestamp' in point:
+                # Add a new key with the formatted string, leaving the original unchanged
+                point['timestamp_formatted'] = datetime.fromtimestamp(point['timestamp']).strftime('%Y-%m-%d %H:%M:%S')
+            formatted_readings.append(point)
+        return formatted_readings
 
 class CalibrationReadingsSerializer(serializers.ModelSerializer):
     test_point = serializers.PrimaryKeyRelatedField(read_only=True)
+    
+    # Use the custom field for each readings array
+    std_ac_open_readings = FormattedReadingsField()
+    std_dc_pos_readings = FormattedReadingsField()
+    std_dc_neg_readings = FormattedReadingsField()
+    std_ac_close_readings = FormattedReadingsField()
+    ti_ac_open_readings = FormattedReadingsField()
+    ti_dc_pos_readings = FormattedReadingsField()
+    ti_dc_neg_readings = FormattedReadingsField()
+    ti_ac_close_readings = FormattedReadingsField()
+
     class Meta:
         model = CalibrationReadings
         fields = '__all__'
+
 
 class CalibrationResultsSerializer(serializers.ModelSerializer):
     test_point = serializers.PrimaryKeyRelatedField(read_only=True)
     class Meta:
         model = CalibrationResults
         fields = '__all__'
-        # Note: eta_std, eta_ti, and delta_std_known are NOT read_only, so they can be updated.
         read_only_fields = [
             'id', 'created_at', 'updated_at', 'calibration', 
             'std_ac_open_avg', 'std_ac_open_stddev', 'std_dc_pos_avg', 'std_dc_pos_stddev', 
@@ -56,7 +176,7 @@ class TestPointSerializer(serializers.ModelSerializer):
     results = CalibrationResultsSerializer(required=False)
     class Meta:
         model = TestPoint
-        fields = ['id', 'current', 'frequency', 'settings', 'readings', 'results']
+        fields = ['id', 'current', 'frequency', 'direction', 'settings', 'readings', 'results']
     
     def update(self, instance, validated_data):
         settings_data = validated_data.pop('settings', None)
@@ -171,7 +291,6 @@ class CalibrationSerializer(serializers.ModelSerializer):
     
     def update(self, instance, validated_data):
         configurations_data = validated_data.pop('configurations', {})
-        # test_points = validated_data.pop('test_points', {})
         instance.session = validated_data.get('session', instance.session)
         instance.save()
 
@@ -181,4 +300,3 @@ class CalibrationSerializer(serializers.ModelSerializer):
         configurations_instance.save()
 
         return instance
-    

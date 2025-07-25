@@ -10,11 +10,10 @@
  */
 import React, { useState, useEffect} from 'react';
 import axios from 'axios';
-import * as XLSX from 'xlsx';
 
 import { useInstruments } from '../../contexts/InstrumentContext';
 
-const API_BASE_URL = 'http://127.0.0.1:8000/api';
+const API_BASE_URL = process.env.REACT_APP_API_BASE_URL;
 
 const initialFormData = {
     sessionName: `Calibration Session - ${new Date().toLocaleString()}`,
@@ -24,14 +23,32 @@ const initialFormData = {
 };
 
 function SessionDetailsForm({ sessionsList, fetchSessionsList, showNotification }) {
-    const { selectedSessionId, setSelectedSessionId, setSelectedSessionName } = useInstruments();
+    const {
+        selectedSessionId,
+        setSelectedSessionId,
+        setSelectedSessionName,
+        setStdInstrumentAddress,
+        setTiInstrumentAddress,
+        setAcSourceAddress,
+        setDcSourceAddress
+    } = useInstruments();
     const [formData, setFormData] = useState(initialFormData);
     const [isLoading, setIsLoading] = useState(false);
 
     useEffect(() => {
+        // If a session is selected...
         if (selectedSessionId) {
-            const session = sessionsList.find(s => s.id.toString() === selectedSessionId);
+            // ...but the list of sessions hasn't loaded yet, do nothing.
+            // This prevents the form from clearing while data is in transit.
+            if (sessionsList.length === 0) {
+                return;
+            }
+
+            // Once the list is loaded, find the session.
+            const session = sessionsList.find(s => s.id.toString() === selectedSessionId.toString());
+
             if (session) {
+                // If found, populate the form with its data.
                 setFormData({
                     sessionName: session.session_name || '',
                     testInstrument: session.test_instrument_model || '',
@@ -42,11 +59,16 @@ function SessionDetailsForm({ sessionsList, fetchSessionsList, showNotification 
                     humidity: session.humidity !== null ? session.humidity.toString() : '',
                     notes: session.notes || '',
                 });
+            } else {
+                // If the ID is not in the loaded list, the state is stale. Reset everything.
+                showNotification("Could not find the selected session. Resetting.", "warning");
+                setSelectedSessionId(null);
             }
         } else {
+            // If no session is selected, reset the form to its initial state.
             setFormData(initialFormData);
         }
-    }, [selectedSessionId, sessionsList]);
+    }, [selectedSessionId, sessionsList, setSelectedSessionId, showNotification]);
 
     const handleChange = (e) => {
         setFormData(prev => ({ ...prev, [e.target.name]: e.target.value }));
@@ -76,9 +98,19 @@ function SessionDetailsForm({ sessionsList, fetchSessionsList, showNotification 
                 response = await axios.post(`${API_BASE_URL}/calibration_sessions/`, payload);
                 showNotification('New session saved successfully!', 'success');
             }
-            fetchSessionsList(); // Refresh the session list
-            setSelectedSessionId(response.data.id);
-            setSelectedSessionName(response.data.session_name);
+
+            const savedSession = response.data;
+            // Ensure the session list is refreshed BEFORE updating the context.
+            await fetchSessionsList();
+
+            // Now, update the application's context with the fresh data.
+            setSelectedSessionId(savedSession.id);
+            setSelectedSessionName(savedSession.session_name);
+            setStdInstrumentAddress(savedSession.standard_instrument_address || null);
+            setTiInstrumentAddress(savedSession.test_instrument_address || null);
+            setAcSourceAddress(savedSession.ac_source_address || null);
+            setDcSourceAddress(savedSession.dc_source_address || null);
+
         } catch (error) {
             console.error("Failed to save session", error);
             showNotification('Failed to save session.', 'error');
