@@ -6,6 +6,7 @@
  */
 import React, { useState, useCallback } from 'react';
 import SessionSetup from './components/session/SessionSetup';
+import InstrumentStatusTab from './components/session/InstrumentStatusTab'; // Import new component
 import Calibration from './components/calibration/Calibration';
 import TestPointEditor from './components/calibration/TestPointEditor';
 import CalibrationResults from './components/calibration/CalibrationResults';
@@ -28,7 +29,7 @@ const Notification = ({ message, type, onDismiss }) => {
 // We create a new component for the content. This is necessary so it can
 // access the contexts provided by its parents.
 function AppContent() {
-    const [activeTab, setActiveTab] = useState('sessionSetup');
+    const [activeTab, setActiveTab] = useState('sessionSetup'); // Default tab
     const [notification, setNotification] = useState({ message: '', type: 'info', key: 0 });
     const { theme, toggleTheme } = useTheme();
     // Get the selected session name from the InstrumentContext
@@ -95,6 +96,10 @@ function AppContent() {
                     <button onClick={() => setActiveTab('sessionSetup')} className={activeTab === 'sessionSetup' ? 'tab-button active' : 'tab-button'}>
                         Session Setup
                     </button>
+                    {/* New Tab Button */}
+                    <button onClick={() => setActiveTab('instrumentStatus')} className={activeTab === 'instrumentStatus' ? 'tab-button active' : 'tab-button'}>
+                        Instrument Status
+                    </button>
                     <button onClick={() => setActiveTab('testPoints')} className={activeTab === 'testPoints' ? 'tab-button active' : 'tab-button'}>
                         Test Point Editor
                     </button>
@@ -110,6 +115,10 @@ function AppContent() {
             <main className="tab-content-container">
                 {activeTab === 'sessionSetup' && (
                     <SessionSetup showNotification={showNotification} />
+                )}
+                {/* New Tab Content */}
+                {activeTab === 'instrumentStatus' && (
+                    <InstrumentStatusTab showNotification={showNotification} />
                 )}
                 {activeTab === 'testPoints' && (
                     <TestPointEditor showNotification={showNotification} />

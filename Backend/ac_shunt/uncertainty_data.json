@@ -1,0 +1,476 @@
+[
+    {
+        "range": 0.01,
+        "current": 0.002,
+        "frequency": 10,
+        "value": 40.0
+    },
+    {
+        "range": 0.01,
+        "current": 0.002,
+        "frequency": 20,
+        "value": 30.0
+    },
+    {
+        "range": 0.01,
+        "current": 0.002,
+        "frequency": 40,
+        "value": 25.0
+    },
+    {
+        "range": 0.01,
+        "current": 0.002,
+        "frequency": 1000,
+        "value": 25.0
+    },
+    {
+        "range": 0.01,
+        "current": 0.002,
+        "frequency": 5000,
+        "value": 30.0
+    },
+    {
+        "range": 0.01,
+        "current": 0.002,
+        "frequency": 10000,
+        "value": 35.0
+    },
+    {
+        "range": 0.01,
+        "current": 0.002,
+        "frequency": 30000,
+        "value": 45.0
+    },
+    {
+        "range": 0.01,
+        "current": 0.0033,
+        "frequency": 10,
+        "value": 40.0
+    },
+    {
+        "range": 0.01,
+        "current": 0.0033,
+        "frequency": 45,
+        "value": 25.0
+    },
+    {
+        "range": 0.01,
+        "current": 0.0033,
+        "frequency": 1000,
+        "value": 25.0
+    },
+    {
+        "range": 0.01,
+        "current": 0.0033,
+        "frequency": 5000,
+        "value": 30.0
+    },
+    {
+        "range": 0.01,
+        "current": 0.0033,
+        "frequency": 10000,
+        "value": 35.0
+    },
+    {
+        "range": 0.01,
+        "current": 0.0033,
+        "frequency": 30000,
+        "value": 45.0
+    },
+    {
+        "range": 0.02,
+        "current": 0.02,
+        "frequency": 10,
+        "value": 22.0
+    },
+    {
+        "range": 0.02,
+        "current": 0.02,
+        "frequency": 20,
+        "value": 18.0
+    },
+    {
+        "range": 0.02,
+        "current": 0.02,
+        "frequency": 40,
+        "value": 11.0
+    },
+    {
+        "range": 0.02,
+        "current": 0.02,
+        "frequency": 1000,
+        "value": 6.0
+    },
+    {
+        "range": 0.02,
+        "current": 0.02,
+        "frequency": 5000,
+        "value": 6.0
+    },
+    {
+        "range": 0.02,
+        "current": 0.02,
+        "frequency": 10000,
+        "value": 7.0
+    },
+    {
+        "range": 0.02,
+        "current": 0.02,
+        "frequency": 30000,
+        "value": 9.0
+    },
+    {
+        "range": 0.1,
+        "current": 0.033,
+        "frequency": 10,
+        "value": 22.0
+    },
+    {
+        "range": 0.1,
+        "current": 0.033,
+        "frequency": 1000,
+        "value": 18.0
+    },
+    {
+        "range": 0.1,
+        "current": 0.033,
+        "frequency": 5000,
+        "value": 11.0
+    },
+    {
+        "range": 0.1,
+        "current": 0.033,
+        "frequency": 10000,
+        "value": 6.0
+    },
+    {
+        "range": 0.1,
+        "current": 0.033,
+        "frequency": 30000,
+        "value": 6.0
+    },
+    {
+        "range": 0.2,
+        "current": 0.2,
+        "frequency": 10,
+        "value": 28.0
+    },
+    {
+        "range": 0.2,
+        "current": 0.2,
+        "frequency": 20,
+        "value": 23.0
+    },
+    {
+        "range": 0.2,
+        "current": 0.2,
+        "frequency": 40,
+        "value": 14.0
+    },
+    {
+        "range": 0.2,
+        "current": 0.2,
+        "frequency": 1000,
+        "value": 9.0
+    },
+    {
+        "range": 0.2,
+        "current": 0.2,
+        "frequency": 5000,
+        "value": 9.0
+    },
+    {
+        "range": 0.2,
+        "current": 0.2,
+        "frequency": 10000,
+        "value": 9.0
+    },
+    {
+        "range": 0.2,
+        "current": 0.2,
+        "frequency": 30000,
+        "value": 17.0
+    },
+    {
+        "range": 0.5,
+        "current": 0.33,
+        "frequency": 10,
+        "value": 30.0
+    },
+    {
+        "range": 0.5,
+        "current": 0.33,
+        "frequency": 45,
+        "value": 15.0
+    },
+    {
+        "range": 0.5,
+        "current": 0.33,
+        "frequency": 1000,
+        "value": 10.0
+    },
+    {
+        "range": 0.5,
+        "current": 0.33,
+        "frequency": 5000,
+        "value": 10.0
+    },
+    {
+        "range": 0.5,
+        "current": 0.33,
+        "frequency": 10000,
+        "value": 10.0
+    },
+    {
+        "range": 0.5,
+        "current": 0.33,
+        "frequency": 30000,
+        "value": 20.0
+    },
+    {
+        "range": 1.0,
+        "current": 1.09,
+        "frequency": 10,
+        "value": 34.0
+    },
+    {
+        "range": 1.0,
+        "current": 1.09,
+        "frequency": 45,
+        "value": 17.0
+    },
+    {
+        "range": 1.0,
+        "current": 1.09,
+        "frequency": 1000,
+        "value": 12.0
+    },
+    {
+        "range": 1.0,
+        "current": 1.09,
+        "frequency": 5000,
+        "value": 12.0
+    },
+    {
+        "range": 1.0,
+        "current": 1.09,
+        "frequency": 10000,
+        "value": 12.0
+    },
+    {
+        "range": 2.0,
+        "current": 2.0,
+        "frequency": 20,
+        "value": 33.0
+    },
+    {
+        "range": 2.0,
+        "current": 2.0,
+        "frequency": 1000,
+        "value": 16.0
+    },
+    {
+        "range": 2.0,
+        "current": 2.0,
+        "frequency": 5000,
+        "value": 16.0
+    },
+    {
+        "range": 2.0,
+        "current": 2.0,
+        "frequency": 10000,
+        "value": 16.0
+    },
+    {
+        "range": 5.0,
+        "current": 3.0,
+        "frequency": 10,
+        "value": 58.0
+    },
+    {
+        "range": 5.0,
+        "current": 3.0,
+        "frequency": 40,
+        "value": 29.0
+    },
+    {
+        "range": 5.0,
+        "current": 3.0,
+        "frequency": 45,
+        "value": 29.0
+    },
+    {
+        "range": 5.0,
+        "current": 3.0,
+        "frequency": 500,
+        "value": 22.0
+    },
+    {
+        "range": 5.0,
+        "current": 3.0,
+        "frequency": 1000,
+        "value": 22.0
+    },
+    {
+        "range": 5.0,
+        "current": 3.0,
+        "frequency": 5000,
+        "value": 22.0
+    },
+    {
+        "range": 5.0,
+        "current": 3.0,
+        "frequency": 10000,
+        "value": 22.0
+    },
+    {
+        "range": 10.0,
+        "current": 6.9,
+        "frequency": 400,
+        "value": 30.0
+    },
+    {
+        "range": 10.0,
+        "current": 10.0,
+        "frequency": 40,
+        "value": 37.0
+    },
+    {
+        "range": 10.0,
+        "current": 10.0,
+        "frequency": 1000,
+        "value": 30.0
+    },
+    {
+        "range": 10.0,
+        "current": 10.0,
+        "frequency": 5000,
+        "value": 30.0
+    },
+    {
+        "range": 10.0,
+        "current": 10.0,
+        "frequency": 10000,
+        "value": 30.0
+    },
+    {
+        "range": 20.0,
+        "current": 10.0,
+        "frequency": 45,
+        "value": 20.0
+    },
+    {
+        "range": 20.0,
+        "current": 10.0,
+        "frequency": 60,
+        "value": 20.0
+    },
+    {
+        "range": 20.0,
+        "current": 10.0,
+        "frequency": 65,
+        "value": 20.0
+    },
+    {
+        "range": 20.0,
+        "current": 10.0,
+        "frequency": 300,
+        "value": 14.0
+    },
+    {
+        "range": 20.0,
+        "current": 10.0,
+        "frequency": 400,
+        "value": 14.0
+    },
+    {
+        "range": 20.0,
+        "current": 10.0,
+        "frequency": 500,
+        "value": 14.0
+    },
+    {
+        "range": 20.0,
+        "current": 10.0,
+        "frequency": 1000,
+        "value": 14.0
+    },
+    {
+        "range": 20.0,
+        "current": 10.0,
+        "frequency": 3000,
+        "value": 14.0
+    },
+    {
+        "range": 20.0,
+        "current": 10.0,
+        "frequency": 5000,
+        "value": 14.0
+    },
+    {
+        "range": 20.0,
+        "current": 10.0,
+        "frequency": 10000,
+        "value": 14.0
+    },
+    {
+        "range": 20.0,
+        "current": 20.0,
+        "frequency": 45,
+        "value": 27.0
+    },
+    {
+        "range": 20.0,
+        "current": 20.0,
+        "frequency": 60,
+        "value": 27.0
+    },
+    {
+        "range": 20.0,
+        "current": 20.0,
+        "frequency": 65,
+        "value": 27.0
+    },
+    {
+        "range": 20.0,
+        "current": 20.0,
+        "frequency": 300,
+        "value": 20.0
+    },
+    {
+        "range": 20.0,
+        "current": 20.0,
+        "frequency": 400,
+        "value": 20.0
+    },
+    {
+        "range": 20.0,
+        "current": 20.0,
+        "frequency": 500,
+        "value": 20.0
+    },
+    {
+        "range": 20.0,
+        "current": 20.0,
+        "frequency": 1000,
+        "value": 20.0
+    },
+    {
+        "range": 20.0,
+        "current": 20.0,
+        "frequency": 3000,
+        "value": 20.0
+    },
+    {
+        "range": 20.0,
+        "current": 20.0,
+        "frequency": 5000,
+        "value": 20.0
+    },
+    {
+        "range": 20.0,
+        "current": 20.0,
+        "frequency": 10000,
+        "value": 20.0
+    }
+]

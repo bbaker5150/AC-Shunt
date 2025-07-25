@@ -1,50 +1,45 @@
 /**
  * @file SessionSetup.js
- * @brief A view component for session management and instrument status.
- * * This component acts as a container for the main "Initialization" or "Setup"
- * tab of the application. It orchestrates the rendering of the SessionManager,
- * SessionDetailsForm, and InstrumentStatusPanel components, allowing users to
- * manage session data and view the status of connected instruments from a
- * single screen.
+ * @brief A view component for session management.
+ * * This component orchestrates the rendering of the SessionManager and
+ * SessionDetailsForm components, allowing users to manage session data
+ * from a single screen.
  */
-
-import React, { useState } from 'react';
+import React, { useState, useEffect, useCallback } from 'react';
 import SessionManager from './SessionManager';
 import SessionDetailsForm from './SessionDetailsForm';
-import InstrumentStatusPanel from '../instruments/InstrumentStatusPanel';
 import axios from 'axios';
 
-const API_BASE_URL = 'http://127.0.0.1:8000/api';
+const API_BASE_URL = process.env.REACT_APP_API_BASE_URL;
 
 function SessionSetup({ showNotification }) {
     const [sessionsList, setSessionsList] = useState([]);
     const [isLoadingSessions, setIsLoadingSessions] = useState(false);
 
-    // This function will be passed to SessionManager to fetch sessions
-    // and to SessionDetailsForm to refresh the list after a save.
-    const fetchSessionsList = async () => {
+    const fetchSessionsList = useCallback(async () => {
         setIsLoadingSessions(true);
         try {
             const response = await axios.get(`${API_BASE_URL}/calibration_sessions/`);
             setSessionsList(response.data || []);
         } catch (error) {
-            // Use the notification function here
             showNotification('Failed to fetch sessions list.', 'error');
         } finally {
             setIsLoadingSessions(false);
         }
-    };
+    }, [showNotification]);
+
+    useEffect(() => {
+        fetchSessionsList();
+    }, [fetchSessionsList]);
 
     return (
         <React.Fragment>
             <div className="content-area">
                 <SessionManager
                     sessionsList={sessionsList}
-                    setSessionsList={setSessionsList}
                     isLoadingSessions={isLoadingSessions}
-                    setIsLoadingSessions={setIsLoadingSessions}
                     showNotification={showNotification}
-                    fetchSessionsList={fetchSessionsList} 
+                    fetchSessionsList={fetchSessionsList}
                 />
                 <SessionDetailsForm
                     sessionsList={sessionsList}
@@ -52,7 +47,6 @@ function SessionSetup({ showNotification }) {
                     showNotification={showNotification}
                 />
             </div>
-            <InstrumentStatusPanel showNotification={showNotification} />
         </React.Fragment>
     );
 }

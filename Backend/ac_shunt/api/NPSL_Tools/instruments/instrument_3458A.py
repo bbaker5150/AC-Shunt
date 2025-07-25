@@ -12,49 +12,6 @@ from .instrument import Instrument
 from enum import Enum
 
 
-class Range_5790B(Enum):
-    V2mV = 1
-    V7mV = 2
-    V22mV = 3
-    V70mV = 4
-    V220mV = 5
-    V2V = 6
-    V7V = 7
-    V22V = 8
-    V70V = 9
-    V220V = 10
-    V700V = 11
-    V1000V = 12
-
-
-def Threshold_792A3458A():
-    x = 0.9
-    if Range_5790B == 12:
-        Threshold_792A = 1.79 * x
-    elif Range_5790B == 11:
-        Threshold_792A = 1.08 * x
-    elif Range_5790B == 10:
-        Threshold_792A = 1.80 * x
-    elif Range_5790B == 9:
-        Threshold_792A = 1.80 * x  
-    elif Range_5790B == 8:
-        Threshold_792A = 1.80 * x
-    elif Range_5790B == 7:
-        Threshold_792A = 1.78 * x
-    elif Range_5790B == 6:
-        Threshold_792A = 1.70 * x
-    elif Range_5790B == 5:
-        Threshold_792A = 1.69 * x
-    elif Range_5790B == 4:
-        Threshold_792A = 1.79 * x
-    elif Range_5790B == 3:
-        Threshold_792A = 1.80 * x
-    elif Range_5790B == 2:
-        Threshold_792A = 0.54 * x
-    elif Range_5790B == 1:
-        Threshold_792A = 0.18 * x
-
-
 class Instrument3458A(Instrument):
     """3458A Instrument class
     
@@ -68,22 +25,19 @@ class Instrument3458A(Instrument):
         resource : pyvisa.resources.Resource
             PyVisa Resource that connects to the instrument
     """
-    def __init__(self, gpib: str, timeout: float=60000):
+    def __init__(self, model: str, gpib: str, timeout: float=60000):
         """Inits the Instrument object and connects to GPIB resource
         
         Raises:
             RuntimeError : An error occured when connecting to the GPIB address
-            RuntimeError : The model did not respond to the "*IDN?" query
         """
         try:
-            super().__init__(model="3458A", gpib=gpib, timeout=timeout)
-            if self.check_identity():
-                self.resource.timeout = self.timeout
-            else:
-                raise RuntimeError(f"Model number {self.model} does not match identity obtained from {self.gpib}")
-
-        except RuntimeError as e:
-            raise e
+            super().__init__(model=model, gpib=gpib, timeout=timeout)
+            self.resource.timeout = self.timeout
+            # Initialize the instrument to a known state on creation
+            self.init()
+        except Exception as e:
+            raise RuntimeError(f"Failed to connect to {model} at {gpib}: {e}")
 
     @property
     def identity(self) -> str:
@@ -113,74 +67,80 @@ class Instrument3458A(Instrument):
             print(e)
             raise RuntimeError(f"{self} timed out when querying 'ID?'. Make sure the model and GPIB are correct")
     
-
     def take_measurement(self):
-        return float(self.resource.query('TRIG SGL').strip())
-
-
-    def AC_5790B_AllSettings(self):
-        """3458A setting attributes for the entire 5790B Cal.
         """
-
-        self.resource.write('END ALWAYS; DCV AUTO; NDIG 8; NDIG 9; NRDGS 1; TARM AUTO')
-
-
-    def AC_792A_3458A_RangeSettings(self, mode: Range_5790B):
-        """3458A settings depending on range and cal point of 5790B.
+        Takes a single measurement using the TRIG SGL command.
+        This is more robust as it uses the currently active configuration
+        without overriding it.
         """
+        # The TRIG SGL command initiates a single measurement using the current
+        # configuration, places the result in the output buffer, and then enters a HOLD state.
+        self.resource.write("TRIG SGL")
+        
+        # After the trigger, the instrument completes the measurement and places the
+        # reading in its output buffer. The subsequent read operation retrieves it.
+        reading = self.resource.read()
+        print(f"[DEBUG 3458A @ {self.gpib}] Reading returned: {reading.strip()}")
+        return float(reading)
 
-        if Range_5790B > 0.006:
-            message = 'Range 10'
-        else:
-            message = 'Range 1'
-        self.resource.write(message)
-    
+    def read_instrument(self):
+        """Unified method to take a reading, consistent with other readers."""
+        return self.take_measurement()
+
+    # --- THIS IS THE CORRECTED METHOD NAME ---
+    def configure_measurement(self, function: str, expected_value: float, frequency: float = None):
+        """Configures the 3458A for a measurement with a specific range and resolution.
+
+        Args:
+            function (str): The measurement function, e.g., "DCV" or "ACV".
+            expected_value (float): The expected voltage. Used to set the appropriate range.
+            frequency (float, optional): The frequency for AC measurements. Defaults to None.
+        """
+        if function == 'DCV':
+            # For best speed, disable autozero. This is recommended for stable environments.
+            self.resource.write("AZERO OFF")
+            # Set the DCV function, range, and a default high resolution in a single command.
+            command = f"DCV {abs(expected_value)},0.001"
+            self.resource.write(command)
+            print(f"[DEBUG 3458A @ {self.gpib}] Configured with command: '{command}'")
+        
+        elif function == 'ACV':
+            # SETACV ANA is the power-on default and a good general-purpose choice for signals up to 2MHz.
+            self.resource.write("SETACV ANA")
+            
+            if frequency:
+                # Set a bandwidth around the test frequency for better accuracy and speed.
+                low_freq = frequency * 0.9
+                high_freq = frequency * 1.1
+                self.resource.write(f"ACBAND {low_freq},{high_freq}")
+            
+            # Set the ACV function and range.
+            command = f"ACV {abs(expected_value)}"
+            self.resource.write(command)
+            print(f"[DEBUG 3458A @ {self.gpib}] Configured with command: '{command}'")
+
     def init(self):
-        """Send initialize sequence command to 3458A
-
-        Returns: 
-            None
-
-        """
+        """Send initialize sequence command to 3458A."""
         self.resource.write("RESET")
         self.resource.write("END ALWAYS")
         self.resource.write("DCV AUTO")
         self.resource.write("NDIG 8")
-        self.resource.write("NDIG 9")
         self.resource.write("NPLC 100")
         self.resource.write("NRDGS 1")
         self.resource.write("TARM AUTO")
         self.resource.write("TRIG AUTO")
 
     def zero_3458A(self):
-        """Send zero sequence command to 3458A
-
-        Returns: 
-            None
-
-        """
+        """Send zero sequence command to 3458A."""
         self.resource.write("RANGE 0")
         self.resource.timeout = 600000
         self.resource.write("CAL 0, 3458")
 
     def tenv_3458A(self, voltage: float):
-        """Send zero sequence command to 3458A
-
-        Returns: 
-            None
-
-        """
-
+        """Send tenv sequence command to 3458A."""
         if not (9 <= float(voltage) <= 10):
             voltage = 0
 
         self.resource.write("RANGE 0")
         self.resource.timeout = 600000
         self.resource.write(f"CAL {voltage}, 3458")
-
-
-
-
-
-    
-

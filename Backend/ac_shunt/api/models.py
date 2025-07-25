@@ -17,14 +17,21 @@ class CalibrationSession(models.Model):
         unique=True,
         default=get_default_cal_session_name
     )
-    # Standard Instrument
+    # Standard Instrument (The actual device being used as a reference, e.g., A40B Shunt)
     standard_instrument_model = models.CharField(max_length=100, blank=True, null=True)
     standard_instrument_serial = models.CharField(max_length=100, blank=True, null=True)
-    standard_instrument_address = models.CharField(max_length=100, blank=True, null=True)
-    # Test Instrument
+    
+    # Standard Reader (The instrument reading the standard, e.g., 3458A)
+    standard_reader_model = models.CharField(max_length=100, blank=True, null=True)
+    standard_reader_address = models.CharField(max_length=100, blank=True, null=True)
+
+    # Test Instrument (The Unit Under Test, e.g., another A40B Shunt)
     test_instrument_model = models.CharField(max_length=100, blank=True, null=True)
     test_instrument_serial = models.CharField(max_length=100, blank=True, null=True)
-    test_instrument_address = models.CharField(max_length=100, blank=True, null=True)
+
+    # Test Instrument Reader (The instrument reading the UUT, e.g., 5790B)
+    test_reader_model = models.CharField(max_length=100, blank=True, null=True)
+    test_reader_address = models.CharField(max_length=100, blank=True, null=True)
     
     # AC/DC Source Addresses
     ac_source_address = models.CharField(max_length=100, blank=True, null=True)
@@ -57,9 +64,13 @@ class TestPointSet(models.Model):
     )
 
     def __str__(self):
-        return f"TestPointSet for Session: {self.session.name}"
+        return f"TestPointSet for Session: {self.session.session_name}"
 
 class TestPoint(models.Model):
+    DIRECTION_CHOICES = [
+        ('Forward', 'Forward'),
+        ('Reverse', 'Reverse'),
+    ]
     test_point_set = models.ForeignKey(
         TestPointSet,
         on_delete=models.CASCADE,
@@ -67,10 +78,16 @@ class TestPoint(models.Model):
     )
     current = models.DecimalField(max_digits=10, decimal_places=5)
     frequency = models.IntegerField()
+    direction = models.CharField(max_length=10, choices=DIRECTION_CHOICES, default='Forward')
 
     def __str__(self):
-        return f"ID: {self.id} | Current: {self.current}, Frequency: {self.frequency}"
+        return f"ID: {self.id} | {self.direction} | Current: {self.current}, Frequency: {self.frequency}"
     
+    class Meta:
+        # Ensure a test point is unique for a given current, frequency, and direction within a set
+        unique_together = ('test_point_set', 'current', 'frequency', 'direction')
+        ordering = ['frequency', 'current', 'direction']
+
 class CalibrationConfigurations(models.Model):
     calibration = models.OneToOneField(
         Calibration, 
@@ -86,19 +103,20 @@ class CalibrationConfigurations(models.Model):
 class CalibrationSettings(models.Model):
     test_point = models.OneToOneField(
         TestPoint, 
-        related_name='settings', # This makes it accessible as calibration.settings
+        related_name='settings',
         on_delete=models.CASCADE,
         null=True,
         blank=True
     )
     initial_warm_up_time = models.IntegerField(null=True, blank=True)
     num_samples = models.IntegerField(default=8, null=True, blank=True)
+    settling_time = models.IntegerField(default=5, null=True, blank=True)
 
 class CalibrationReadings(models.Model):
 
     test_point = models.OneToOneField(
         TestPoint,
-        related_name='readings', # This makes it accessible as calibration.readings
+        related_name='readings',
         on_delete=models.CASCADE,
         null=True,
         blank=True
@@ -119,7 +137,7 @@ class CalibrationReadings(models.Model):
     updated_at = models.DateTimeField(auto_now=True)
 
     def __str__(self):
-        return f"Calibration Readings for TestPoint ID: {self.test_point.id} | Session: {self.test_point.test_point_set.session.name}"
+        return f"Calibration Readings for TestPoint ID: {self.test_point.id} | Session: {self.test_point.test_point_set.session.session_name}"
     
     def save(self, *args, **kwargs):
         super().save(*args, **kwargs)
@@ -129,9 +147,17 @@ class CalibrationReadings(models.Model):
         results, _ = CalibrationResults.objects.get_or_create(test_point=self.test_point)
         
         def calculate_stats(readings):
-            if readings and len(readings) > 0:
+            if not readings or len(readings) == 0:
+                return None, None
+            
+            # Check if the first item is a dictionary (new format) or a number (old format)
+            if isinstance(readings[0], dict) and 'value' in readings[0]:
+                # Extract just the 'value' from each dictionary
+                numeric_values = [r.get('value') for r in readings]
+                return np.mean(numeric_values), np.std(numeric_values)
+            else:
+                # Handle the old format (list of numbers) for backward compatibility
                 return np.mean(readings), np.std(readings)
-            return None, None
 
         results.std_ac_open_avg, results.std_ac_open_stddev = calculate_stats(self.std_ac_open_readings)
         results.std_dc_pos_avg, results.std_dc_pos_stddev = calculate_stats(self.std_dc_pos_readings)
@@ -186,4 +212,26 @@ class CalibrationResults(models.Model):
     updated_at = models.DateTimeField(auto_now=True)
 
     def __str__(self):
-        return f"Calibration Results for {self.calibration.session.session_name}"
+        return f"Calibration Results for {self.test_point.test_point_set.session.session_name} at Test Point {self.test_point.id}" if self.test_point else "Calibration Results (no test point)"
+
+class Correction(models.Model):
+    range = models.FloatField()
+    current = models.FloatField()
+    frequency = models.IntegerField()
+    correction = models.FloatField(null=True, blank=True)
+    class Meta:
+        unique_together = ('range', 'current', 'frequency')
+
+    def __str__(self):
+        return f"ID: {self.id} | Range: {self.range}, Current: {self.current}, Frequency: {self.frequency}, Correction: {self.correction}"
+    
+class Uncertainty(models.Model):
+    range = models.FloatField()
+    current = models.FloatField()
+    frequency = models.IntegerField()
+    uncertainty = models.FloatField(null=True, blank=True)
+    class Meta:
+        unique_together = ('range', 'current', 'frequency')
+
+    def __str__(self):
+        return f"ID: {self.id} | Range: {self.range}, Current: {self.current}, Frequency: {self.frequency}, Uncertainty: {self.uncertainty}"
