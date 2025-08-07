@@ -2419,29 +2419,47 @@ body.dark-mode .data-table-open-button {
   box-shadow: 0 4px 10px rgba(66, 153, 225, 0.2);
 }
 
-body.dark-mode .reset-modal-overlay {
-  background-color: rgba(18, 25, 33, 0.85);
+
+/* =================================================================== */
+/* 9. MEDIA QUERIES (RESPONSIVENESS)                                   */
+/* =================================================================== */
+@media (max-width: 992px) {
+  .results-workflow-container {
+    flex-direction: column;
+  }
+
+  .results-sidebar {
+    border-right: none;
+    padding-right: 0;
+    border-bottom: 1px solid var(--border-color);
+    padding-bottom: 25px;
+  }
+
+  .analysis-dashboard {
+    grid-template-columns: 1fr;
+  }
+
+  .result-display-panel {
+    position: static;
+  }
 }
 
-body.dark-mode .reset-modal-content {
-  background-color: #2d3748;
-  color: #e2e8f0;
-  box-shadow: 0 10px 25px rgba(0, 0, 0, 0.4);
-}
+@media (max-width: 768px) {
+  .header-top-bar {
+    flex-direction: column;
+    gap: 15px;
+    margin-bottom: 20px;
+  }
 
-body.dark-mode .data-table-header {
-  background-color: #1a202c;
-  border-bottom: 2px solid #4a5568;
-  color: #a0aec0;
-}
+  .config-grid {
+    grid-template-columns: 1fr;
+    gap: 20px;
+  }
 
-body.dark-mode .button-danger {
-  background-color: #c53030;
-  color: #fff;
-}
-
-body.dark-mode .button-danger:hover {
-  background-color: #a02a2a;
+  .details-action-bar {
+    flex-direction: column;
+    align-items: stretch;
+  }
 }
 
 /** TVC Corrections **/

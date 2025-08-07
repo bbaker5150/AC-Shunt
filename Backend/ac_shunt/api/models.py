@@ -36,6 +36,10 @@ class CalibrationSession(models.Model):
     # AC/DC Source Addresses
     ac_source_address = models.CharField(max_length=100, blank=True, null=True)
     dc_source_address = models.CharField(max_length=100, blank=True, null=True)
+
+    # Switch Driver Addresses
+    switch_driver_address = models.CharField(max_length=100, blank=True, null=True)
+    switch_driver_model = models.CharField(max_length=100, blank=True, null=True)
     
     temperature = models.FloatField(null=True, blank=True, help_text="Temperature in °C")
     humidity = models.FloatField(null=True, blank=True, help_text="Relative Humidity in %RH")

@@ -1,6 +1,6 @@
 import React, { createContext, useState, useEffect, useRef, useCallback, useContext } from 'react';
 
-const WS_BASE_URL = process.env.REACT_APP_WS_BASE_URL;
+const WS_BASE_URL = process.env.REACT_APP_WS_BASE_URL || `ws://${window.location.hostname}:8000/ws`;
 
 const initialLiveReadings = {
     ac_open: [],
@@ -14,20 +14,18 @@ export const InstrumentContext = createContext();
 export const InstrumentContextProvider = ({ children }) => {
   const [selectedSessionId, setSelectedSessionId] = useState(null);
   const [selectedSessionName, setSelectedSessionName] = useState('');
-
   const [discoveredInstruments, setDiscoveredInstruments] = useState([]);
-
   const [stdInstrumentAddress, setStdInstrumentAddress] = useState(null);
   const [stdReaderModel, setStdReaderModel] = useState(null);
   const [tiInstrumentAddress, setTiInstrumentAddress] = useState(null);
   const [tiReaderModel, setTiReaderModel] = useState(null);
   const [acSourceAddress, setAcSourceAddress] = useState(null);
   const [dcSourceAddress, setDcSourceAddress] = useState(null);
-
+  const [switchDriverAddress, setSwitchDriverAddress] = useState(null);
+  const [switchDriverModel, setSwitchDriverModel] = useState(null);
   const [instrumentStatuses, setInstrumentStatuses] = useState({});
   const [isFetchingStatuses, setIsFetchingStatuses] = useState({});
   const statusWs = useRef({});
-
   const [isCollecting, setIsCollecting] = useState(false);
   const [collectionProgress, setCollectionProgress] = useState({ count: 0, total: 0 });
   const [liveReadings, setLiveReadings] = useState(initialLiveReadings);
@@ -43,7 +41,9 @@ export const InstrumentContextProvider = ({ children }) => {
     if (!selectedSessionId || (readingWs.current && readingWs.current.readyState < 2)) return;
     if (reconnectTimeout.current) clearTimeout(reconnectTimeout.current);
   
-    const socketUrl = `${WS_BASE_URL}/${selectedSessionId}/`;
+    // CORRECTED URL: Adds the specific path to the generic base URL
+    const socketUrl = `${WS_BASE_URL}/collect-readings/${selectedSessionId}/`;
+    
     readingWs.current = new WebSocket(socketUrl);
     setReadingWsState(readingWs.current.readyState);
   
@@ -58,15 +58,11 @@ export const InstrumentContextProvider = ({ children }) => {
   
     readingWs.current.onmessage = (event) => {
       const data = JSON.parse(event.data);
-      
       if (data.type === 'calibration_stage_update') {
           setActiveCollectionDetails(prev => ({ ...prev, stage: data.stage }));
-          if (data.total !== undefined) {
-            setCollectionProgress({ count: 0, total: data.total });
-          }
+          if (data.total !== undefined) setCollectionProgress({ count: 0, total: data.total });
           setLiveReadings(prev => ({...prev, [data.stage]: []}));
           setTiLiveReadings(prev => ({...prev, [data.stage]: []}));
-
       } else if (data.type === 'dual_reading_update') {
           const key = data.stage;
           if (key) {
@@ -77,7 +73,6 @@ export const InstrumentContextProvider = ({ children }) => {
           }
           setCollectionProgress({ count: data.count, total: data.total });
           setActiveCollectionDetails(prev => ({ ...prev, stage: data.stage }));
-
       } else if (['collection_finished', 'collection_stopped', 'error'].includes(data.type)) {
           setCollectionStatus(data.type);
           setIsCollecting(false);
@@ -94,7 +89,6 @@ export const InstrumentContextProvider = ({ children }) => {
         if (readingWs.current) {
             readingWs.current.onclose = null;
             readingWs.current.close();
-            readingWs.current = null;
         }
     };
   }, [selectedSessionId, connectWebSocket]);
@@ -102,7 +96,10 @@ export const InstrumentContextProvider = ({ children }) => {
   const getInstrumentStatus = useCallback(async (instrumentModel, gpibAddress) => {
     if (!instrumentModel || !gpibAddress || isFetchingStatuses[gpibAddress] || (statusWs.current[gpibAddress] && statusWs.current[gpibAddress].readyState === WebSocket.CONNECTING)) return;
     setIsFetchingStatuses(prev => ({ ...prev, [gpibAddress]: true }));
-    const socketUrl = `ws://${window.location.hostname}:8000/ws/status/${instrumentModel}/${encodeURIComponent(gpibAddress)}/`;
+
+    // CORRECTED URL: Adds the specific path to the generic base URL
+    const socketUrl = `${WS_BASE_URL}/status/${instrumentModel}/${encodeURIComponent(gpibAddress)}/`;
+
     if (statusWs.current[gpibAddress]) statusWs.current[gpibAddress].close();
     setInstrumentStatuses(prev => ({ ...prev, [gpibAddress]: { error: null, wsConnectionState: 'Connecting...' } }));
     const ws = new WebSocket(socketUrl);
@@ -110,15 +107,11 @@ export const InstrumentContextProvider = ({ children }) => {
     ws.onopen = () => ws.send(JSON.stringify({ command: 'get_instrument_status' }));
     ws.onmessage = (event) => {
       setIsFetchingStatuses(prev => ({ ...prev, [gpibAddress]: false }));
-      try {
-        const message = JSON.parse(event.data);
-        if (message.status_report === 'ok') {
-          setInstrumentStatuses(prev => ({...prev, [gpibAddress]: { raw: message.raw_isr, decoded: decodeInstrumentStatus(instrumentModel, message.raw_isr), error: null, lastCheck: new Date(message.timestamp * 1000).toLocaleTimeString(), wsConnectionState: 'Status Received' }}));
-        } else {
-          setInstrumentStatuses(prev => ({ ...prev, [gpibAddress]: { ...prev[gpibAddress], error: message.error_message || "Error fetching status.", wsConnectionState: 'Error (Fetching)' } }));
-        }
-      } catch (e) {
-        setInstrumentStatuses(prev => ({ ...prev, [gpibAddress]: { ...prev[gpibAddress], error: 'Failed to parse server message.', wsConnectionState: 'Error (Parsing)' } }));
+      const message = JSON.parse(event.data);
+      if (message.status_report === 'ok') {
+        setInstrumentStatuses(prev => ({...prev, [gpibAddress]: { raw: message.raw_isr, decoded: decodeInstrumentStatus(instrumentModel, message.raw_isr), error: null, lastCheck: new Date(message.timestamp * 1000).toLocaleTimeString(), wsConnectionState: 'Status Received' }}));
+      } else {
+        setInstrumentStatuses(prev => ({ ...prev, [gpibAddress]: { ...prev[gpibAddress], error: message.error_message || "Error fetching status.", wsConnectionState: 'Error (Fetching)' } }));
       }
     };
     ws.onerror = () => setIsFetchingStatuses(prev => ({ ...prev, [gpibAddress]: false }));
@@ -138,14 +131,8 @@ export const InstrumentContextProvider = ({ children }) => {
         readingKeyRef.current = params.reading_type || '';
         setIsCollecting(true);
         setCollectionProgress({ count: 0, total: params.num_samples });
-        
-        const initialDetails = {
-          tpId: params.test_point_id,
-          readingKey: params.reading_type,
-          stage: isFullCalibration ? 'Initializing...' : params.reading_type
-        };
+        const initialDetails = { tpId: params.test_point_id, readingKey: params.reading_type, stage: isFullCalibration ? 'Initializing...' : params.reading_type };
         setActiveCollectionDetails(initialDetails);
-
         setLiveReadings(initialLiveReadings);
         setTiLiveReadings(initialLiveReadings);
         readingWs.current.send(JSON.stringify(params));
@@ -167,6 +154,7 @@ export const InstrumentContextProvider = ({ children }) => {
     discoveredInstruments, setDiscoveredInstruments,
     stdInstrumentAddress, setStdInstrumentAddress, stdReaderModel, setStdReaderModel, tiInstrumentAddress, setTiInstrumentAddress,
     tiReaderModel, setTiReaderModel, acSourceAddress, setAcSourceAddress, dcSourceAddress, setDcSourceAddress, instrumentStatuses,
+    switchDriverAddress, setSwitchDriverAddress, switchDriverModel, setSwitchDriverModel,
     isFetchingStatuses, getInstrumentStatus, liveReadings, setLiveReadings, tiLiveReadings, setTiLiveReadings, initialLiveReadings,
     isCollecting, collectionProgress, startReadingCollection, stopReadingCollection, activeCollectionDetails, readingWsState, collectionStatus,
   };
