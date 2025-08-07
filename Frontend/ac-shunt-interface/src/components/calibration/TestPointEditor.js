@@ -2,7 +2,7 @@ import React, { useState, useEffect, useCallback, useMemo } from 'react';
 import axios from 'axios';
 import { useInstruments } from '../../contexts/InstrumentContext';
 import { AMPLIFIER_RANGES_A, AVAILABLE_CURRENTS, AVAILABLE_FREQUENCIES } from '../../constants/constants';
-import DataEditor from '../tables/DataEditor';
+import ShuntCorrections from '../tables/ShuntCorrections';
 
 const API_BASE_URL = process.env.REACT_APP_API_BASE_URL;
 
@@ -162,7 +162,7 @@ function TestPointEditor({ showNotification }) {
             if (inputCurrent) setInputCurrent('');
         }
     }, [shuntRange, shuntRangeUnit, inputCurrent]);
-    
+
     useEffect(() => {
         const current = parseFloat(inputCurrent);
         if (current && !isNaN(current)) {
@@ -185,7 +185,7 @@ function TestPointEditor({ showNotification }) {
             fetchTestPointSetAndSettings();
         } catch (error) { showNotification('An error occurred while saving configurations.', 'error'); }
     };
-    
+
     const handleConfirmAndSaveFrequencies = async (selectedFrequencies) => {
         const currentInputValue = parseFloat(inputCurrent);
         if (!currentInputValue) return showNotification('Please set a valid Input Current before generating points.', 'error');
@@ -318,11 +318,12 @@ function TestPointEditor({ showNotification }) {
                     <h2>Generated Test Points ({uniqueTestPoints.length})</h2>
                     <div>
                         <div style={{ display: 'flex', gap: '30px', alignContent: 'center' }}>
-                            <DataEditor dataType="correction" showNotification={showNotification} />
-                            <DataEditor dataType="uncertainty" showNotification={showNotification} />
+                            <ShuntCorrections dataType="correction" showNotification={showNotification} />
+                            <ShuntCorrections dataType="uncertainty" showNotification={showNotification} />
                             {uniqueTestPoints.length > 0 && (<button onClick={handleClearAllTestPoints} className="button button-danger">Clear All Points</button>)}
                         </div>
                     </div>
+                    
                 </div>
                 {uniqueTestPoints.length > 0 && (
                     <div className="test-points-legend">
