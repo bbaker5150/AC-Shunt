@@ -15,12 +15,12 @@ function bivariateNormalCDF(x, y, rho) {
         const t = (y - rho * x) / Math.sqrt(1 - rho2);
         const biv_g = (1 / (2 * Math.PI * Math.sqrt(1 - rho2))) * Math.exp(-(x * x - 2 * rho * x * y + y * y) / (2 * (1 - rho2)));
         if (x * y * rho > 0) {
-             const L = (1 + erf(x / Math.sqrt(2))) / 2 * (1 + erf(t / Math.sqrt(2))) / 2;
-             let sum = 0;
-             for (let i = 0; i < 5; i++) {
-                 sum += Math.pow(rho, i + 1) / ((i + 1) * Math.pow(2, (i / 2) + 1) * Math.exp(Math.log(i + 1) * 2) * Math.PI);
-             }
-             result = L - biv_g * sum;
+            const L = (1 + erf(x / Math.sqrt(2))) / 2 * (1 + erf(t / Math.sqrt(2))) / 2;
+            let sum = 0;
+            for (let i = 0; i < 5; i++) {
+                sum += Math.pow(rho, i + 1) / ((i + 1) * Math.pow(2, (i / 2) + 1) * Math.exp(Math.log(i + 1) * 2) * Math.PI);
+            }
+            result = L - biv_g * sum;
         } else {
             const L = (1 + erf(x / Math.sqrt(2))) / 2 * (1 + erf(t / Math.sqrt(2))) / 2;
             result = L - bivariateNormalCDF(x, t, 0);
@@ -30,11 +30,11 @@ function bivariateNormalCDF(x, y, rho) {
 }
 
 const API_BASE_URL = process.env.REACT_APP_API_BASE_URL;
-const AVAILABLE_FREQUENCIES = [ { text: '10Hz', value: 10 }, { text: '20Hz', value: 20 }, { text: '50Hz', value: 50 }, { text: '60Hz', value: 60 }, { text: '100Hz', value: 100 }, { text: '200Hz', value: 200 }, { text: '500Hz', value: 500 }, { text: '1kHz', value: 1000 }, { text: '2kHz', value: 2000 }, { text: '5kHz', value: 5000 }, { text: '10kHz', value: 10000 }, { text: '20kHz', value: 20000 }, { text: '50kHz', value: 50000 }, { text: '100kHz', value: 100000 }];
-const READING_KEYS = [ { key: 'std_ac_open', name: 'AC Open Readings', category: 'Standard Instrument' }, { key: 'std_dc_pos', name: 'DC+ Readings', category: 'Standard Instrument' }, { key: 'std_dc_neg', name: 'DC- Readings', category: 'Standard Instrument' }, { key: 'std_ac_close', name: 'AC Close Readings', category: 'Standard Instrument' }, { key: 'ti_ac_open', name: 'AC Open Readings', category: 'Unit Under Test (UUT)' }, { key: 'ti_dc_pos', name: 'DC+ Readings', category: 'Unit Under Test (UUT)' }, { key: 'ti_dc_neg', name: 'DC- Readings', category: 'Unit Under Test (UUT)' }, { key: 'ti_ac_close', name: 'AC Close Readings', category: 'Unit Under Test (UUT)' },];
-const BASIC_SPECIFICATIONS = { '1 mA': { DC: 20, '1000': 55, '10000': 75, '30000': 75, '100000': 150 }, '10 mA': { DC: 20, '1000': 26, '10000': 26, '30000': 26, '100000': 26 }, '20 mA': { DC: 20, '1000': 26, '10000': 26, '30000': 26, '100000': 26 }, '50 mA': { DC: 20, '1000': 23, '10000': 23, '30000': 23, '100000': 23 }, '100 mA': { DC: 20, '1000': 24, '10000': 24, '30000': 24, '100000': 24 }, '200 mA': { DC: 20, '1000': 26, '10000': 26, '30000': 26, '100000': 26 }, '500 mA': { DC: 21, '1000': 27, '10000': 27, '30000': 27, '100000': 28 }, '1 A': { DC: 21, '1000': 27, '10000': 28, '30000': 28, '100000': 31 }, '2 A': { DC: 21, '1000': 27, '10000': 30, '30000': 30, '100000': 48 }, '5 A': { DC: 21, '1000': 31, '10000': 32, '30000': 40, '100000': 71 }, '10 A': { DC: 26, '1000': 37, '10000': 60, '30000': 61, '100000': 92 }, '20 A': { DC: 26, '1000': 43, '10000': 52, '30000': 70, '100000': 113 }, '50 A': { DC: 32, '1000': 55, '10000': 80, '30000': 81, '100000': 144 }, '100 A': { DC: 35, '1000': 65, '10000': 90, '30000': 98, '100000': 174 },};
-const READING_KEY_NAMES = [ 'std_ac_open_readings', 'std_dc_pos_readings', 'std_dc_neg_readings', 'std_ac_close_readings', 'ti_ac_open_readings', 'ti_dc_pos_readings', 'ti_dc_neg_readings', 'ti_ac_close_readings'];
-const T_DISTRIBUTION_95 = { 1: 12.71, 2: 4.30, 3: 3.18, 4: 2.78, 5: 2.57, 6: 2.45, 7: 2.36, 8: 2.31, 9: 2.26, 10: 2.23, 15: 2.13, 20: 2.09, 25: 2.06, 30: 2.04, 40: 2.02, 50: 2.01, 60: 2.00, 100: 1.98, 120: 1.98};
+const AVAILABLE_FREQUENCIES = [{ text: '10Hz', value: 10 }, { text: '20Hz', value: 20 }, { text: '50Hz', value: 50 }, { text: '60Hz', value: 60 }, { text: '100Hz', value: 100 }, { text: '200Hz', value: 200 }, { text: '500Hz', value: 500 }, { text: '1kHz', value: 1000 }, { text: '2kHz', value: 2000 }, { text: '5kHz', value: 5000 }, { text: '10kHz', value: 10000 }, { text: '20kHz', value: 20000 }, { text: '50kHz', value: 50000 }, { text: '100kHz', value: 100000 }];
+const READING_KEYS = [{ key: 'std_ac_open', name: 'AC Open Readings', category: 'Standard Instrument' }, { key: 'std_dc_pos', name: 'DC+ Readings', category: 'Standard Instrument' }, { key: 'std_dc_neg', name: 'DC- Readings', category: 'Standard Instrument' }, { key: 'std_ac_close', name: 'AC Close Readings', category: 'Standard Instrument' }, { key: 'ti_ac_open', name: 'AC Open Readings', category: 'Unit Under Test (UUT)' }, { key: 'ti_dc_pos', name: 'DC+ Readings', category: 'Unit Under Test (UUT)' }, { key: 'ti_dc_neg', name: 'DC- Readings', category: 'Unit Under Test (UUT)' }, { key: 'ti_ac_close', name: 'AC Close Readings', category: 'Unit Under Test (UUT)' },];
+const BASIC_SPECIFICATIONS = { '1 mA': { DC: 20, '1000': 55, '10000': 75, '30000': 75, '100000': 150 }, '10 mA': { DC: 20, '1000': 26, '10000': 26, '30000': 26, '100000': 26 }, '20 mA': { DC: 20, '1000': 26, '10000': 26, '30000': 26, '100000': 26 }, '50 mA': { DC: 20, '1000': 23, '10000': 23, '30000': 23, '100000': 23 }, '100 mA': { DC: 20, '1000': 24, '10000': 24, '30000': 24, '100000': 24 }, '200 mA': { DC: 20, '1000': 26, '10000': 26, '30000': 26, '100000': 26 }, '500 mA': { DC: 21, '1000': 27, '10000': 27, '30000': 27, '100000': 28 }, '1 A': { DC: 21, '1000': 27, '10000': 28, '30000': 28, '100000': 31 }, '2 A': { DC: 21, '1000': 27, '10000': 30, '30000': 30, '100000': 48 }, '5 A': { DC: 21, '1000': 31, '10000': 32, '30000': 40, '100000': 71 }, '10 A': { DC: 26, '1000': 37, '10000': 60, '30000': 61, '100000': 92 }, '20 A': { DC: 26, '1000': 43, '10000': 52, '30000': 70, '100000': 113 }, '50 A': { DC: 32, '1000': 55, '10000': 80, '30000': 81, '100000': 144 }, '100 A': { DC: 35, '1000': 65, '10000': 90, '30000': 98, '100000': 174 }, };
+const READING_KEY_NAMES = ['std_ac_open_readings', 'std_dc_pos_readings', 'std_dc_neg_readings', 'std_ac_close_readings', 'ti_ac_open_readings', 'ti_dc_pos_readings', 'ti_dc_neg_readings', 'ti_ac_close_readings'];
+const T_DISTRIBUTION_95 = { 1: 12.71, 2: 4.30, 3: 3.18, 4: 2.78, 5: 2.57, 6: 2.45, 7: 2.36, 8: 2.31, 9: 2.26, 10: 2.23, 15: 2.13, 20: 2.09, 25: 2.06, 30: 2.04, 40: 2.02, 50: 2.01, 60: 2.00, 100: 1.98, 120: 1.98 };
 
 function getKValueFromTDistribution(dof) {
     if (dof === Infinity || dof > 120) return 1.96;
@@ -151,7 +151,7 @@ const UncertaintyBudgetTable = ({ components, onRemove, calcResults }) => {
                     <th>Type</th>
                     <th>uᵢ (ppm)</th>
                     <th>vᵢ (dof)</th>
-                    <th style={{width: '50px'}}></th>
+                    <th style={{ width: '50px' }}></th>
                 </tr>
             </thead>
             <tbody>
@@ -192,21 +192,21 @@ const FinalResultCard = ({ result, calcResults, testPointInfo }) => {
 
     return (
         <>
-            <p style={{fontSize: '0.9rem', color: '#6c757d', marginTop: '10px', textAlign: 'center'}}>
+            <p style={{ fontSize: '0.9rem', color: '#6c757d', marginTop: '10px', textAlign: 'center' }}>
                 {testPointInfo.current}A @ {testPointInfo.frequency} ({testPointInfo.direction})
             </p>
-            
+
             {!calcResults ? (
-                <div style={{textAlign: 'center'}}>
+                <div style={{ textAlign: 'center' }}>
                     <div className="final-result-value">
-                       <span>{measuredValue.toFixed(3)}</span> ppm
+                        <span>{measuredValue.toFixed(3)}</span> ppm
                     </div>
                     <p className="placeholder-text">
                         The calculated AC-DC difference is shown above. Complete the uncertainty budget and calculate to determine the final measurement result with its associated uncertainty.
                     </p>
                 </div>
             ) : (
-                <div style={{textAlign: 'center'}}>
+                <div style={{ textAlign: 'center' }}>
                     <div className="final-result-value">
                         δ = (<span>{measuredValue.toFixed(3)}</span> ± <span>{calcResults.expandedUncertainty.toFixed(3)}</span>) ppm
                     </div>
@@ -239,8 +239,8 @@ const InputsBreakdownModal = ({ results, inputs, onClose }) => {
                 <h3>Key Inputs Breakdown</h3>
                 <div className="breakdown-step">
                     <h5>Std. Unc. of Cal (uₑₐₗ)</h5>
-                    <p>This value is the **Combined Standard Uncertainty** from the detailed uncertainty budget calculation, which includes the TMDE specification uncertainty.</p>
-                    {`$$ u_{cal} = \\mathbf{${results.uCal.toFixed(4)}} \\text{ ppm} $$`}
+                    <p>This value is the **Combined Standard Uncertainty**, calculated using the root sum of squares (RSS) of all individual components (uᵢ) from the detailed budget.</p>
+                    {`$$ u_{cal} = \\sqrt{\\sum_{i=1}^{N} u_i^2} = \\mathbf{${results.uCal.toFixed(4)}} \\text{ ppm} $$`}
                 </div>
                 <div className="breakdown-step">
                     <h5>UUT Uncertainty (uᵤᵤₜ)</h5>
@@ -262,7 +262,7 @@ const InputsBreakdownModal = ({ results, inputs, onClose }) => {
             </div>
         </div>
     );
-};
+};;
 
 const TurBreakdownModal = ({ results, inputs, onClose }) => {
     useEffect(() => { window.MathJax && window.MathJax.typesetPromise() }, [results, inputs]);
@@ -296,7 +296,7 @@ const TurBreakdownModal = ({ results, inputs, onClose }) => {
 const TarBreakdownModal = ({ results, inputs, onClose }) => {
     useEffect(() => { window.MathJax && window.MathJax.typesetPromise() }, [results, inputs]);
     if (!results || !inputs) return null;
-    
+
     const uutToleranceSpan = inputs.LUp - inputs.LLow;
     const tmdeToleranceSpan = results.tmdeToleranceSpan;
 
@@ -330,7 +330,7 @@ const TarBreakdownModal = ({ results, inputs, onClose }) => {
 const PfaBreakdownModal = ({ results, inputs, onClose }) => {
     useEffect(() => { window.MathJax && window.MathJax.typesetPromise() }, [results, inputs]);
     if (!results || !inputs) return null;
-    
+
     const mid = (inputs.LUp + inputs.LLow) / 2;
     const LLow_norm = inputs.LLow - mid;
     const LUp_norm = inputs.LUp - mid;
@@ -343,7 +343,7 @@ const PfaBreakdownModal = ({ results, inputs, onClose }) => {
     const z4 = -LUp_norm / results.uUUT;
     const z5 = -ALow_norm / results.uDev;
     const z6 = -AUp_norm / results.uDev;
-    
+
     return (
         <div className="modal-overlay">
             <div className="modal-content breakdown-modal-content">
@@ -457,7 +457,7 @@ const RiskAnalysisDashboard = ({ results, onShowBreakdown }) => {
                     <div className="risk-explanation">A ratio of the UUT's tolerance to the measurement uncertainty.</div>
                     <button className="button button-small breakdown-button" onClick={() => onShowBreakdown('tur')}>Show Breakdown</button>
                 </div>
-                
+
                 <div className="risk-card tur-card">
                     <div className="risk-value">{results.tar.toFixed(2)} : 1</div>
                     <div className="risk-label">Test Acceptance Ratio (TAR)</div>
@@ -479,7 +479,7 @@ const RiskAnalysisDashboard = ({ results, onShowBreakdown }) => {
                 <div className="risk-card pfr-card">
                     <div className="risk-value">{results.pfr.toFixed(4)} %</div>
                     <div className="risk-label">Probability of False Reject (PFR)</div>
-                     <ul className="result-breakdown" style={{ fontSize: '0.85rem' }}>
+                    <ul className="result-breakdown" style={{ fontSize: '0.85rem' }}>
                         <li><span className="label">Lower Side Risk</span><span className="value">{results.pfr_term1.toFixed(4)} %</span></li>
                         <li><span className="label">Upper Side Risk</span><span className="value">{results.pfr_term2.toFixed(4)} %</span></li>
                     </ul>
@@ -555,7 +555,7 @@ function Analysis({ testPointData, showNotification, selectedSessionId, onDataSa
             window.MathJax.typesetPromise().catch((err) => console.error('MathJax typeset failed:', err));
         }
     }, [calcResults]);
-    
+
     const formatShuntKey = (current) => {
         const numCurrent = parseFloat(current);
         if (isNaN(numCurrent)) return null;
@@ -571,9 +571,9 @@ function Analysis({ testPointData, showNotification, selectedSessionId, onDataSa
             const stddev = results[`${item.key}_stddev`];
             const n = readingsArray.length;
             if (!stddev || !avg || avg === 0 || n < 2) return null;
-            
+
             const stdUncertaintyOfMean = stddev / Math.sqrt(n);
-            
+
             return {
                 id: `type-a-${item.key}`,
                 name: item.name,
@@ -619,7 +619,7 @@ function Analysis({ testPointData, showNotification, selectedSessionId, onDataSa
     const handleAddComponent = () => {
         let value = null;
         let toleranceLimit = null; // To store for TAR calculation if needed
-        
+
         switch (newComponent.distribution) {
             case 'uniform':
             case 'triangular':
@@ -682,11 +682,11 @@ function Analysis({ testPointData, showNotification, selectedSessionId, onDataSa
 
     const handleCalculateUncertainty = async () => {
         let componentsToCalculate = allUncertaintyComponents;
-        if (componentsToCalculate.length === 0 || componentsToCalculate.some(c => c.value === null || isNaN(c.value))) { 
-            showNotification('Uncertainty budget is empty or invalid.', 'warning'); 
-            return; 
+        if (componentsToCalculate.length === 0 || componentsToCalculate.some(c => c.value === null || isNaN(c.value))) {
+            showNotification('Uncertainty budget is empty or invalid.', 'warning');
+            return;
         }
-        
+
         const combinedVariance = componentsToCalculate.reduce((sum, comp) => sum + Math.pow(comp.value, 2), 0);
         const combinedUncertaintyRaw = Math.sqrt(combinedVariance);
         const combinedUncertainty = parseFloat(combinedUncertaintyRaw.toFixed(4));
@@ -694,7 +694,7 @@ function Analysis({ testPointData, showNotification, selectedSessionId, onDataSa
         const numerator = Math.pow(combinedUncertainty, 4);
         const denominator = componentsToCalculate.reduce((sum, comp) => (comp.dof === Infinity ? sum : sum + (Math.pow(comp.value, 4) / comp.dof)), 0);
         const effectiveDof = denominator > 0 ? numerator / denominator : Infinity;
-        
+
         const kValue = useTDistribution ? getKValueFromTDistribution(effectiveDof) : 2;
         const expandedUncertainty = kValue * combinedUncertainty;
         const newResults = { combinedUncertainty, effectiveDof, kValue, expandedUncertainty };
@@ -719,7 +719,7 @@ function Analysis({ testPointData, showNotification, selectedSessionId, onDataSa
             showNotification('Failed to save uncertainty results.', 'error');
         }
     };
-    
+
     const handleRiskInputChange = (e) => {
         const { name, value } = e.target;
         setRiskInputs(prev => ({ ...prev, [name]: value }));
@@ -750,9 +750,10 @@ function Analysis({ testPointData, showNotification, selectedSessionId, onDataSa
             showNotification('A detailed uncertainty budget must be calculated first.', 'warning');
             return;
         }
-        
-        // Find the TMDE/Standard Instrument component from the budget for TAR calculation
-        const tmdeComponent = allUncertaintyComponents.find(c => c.category === 'Standard Instrument');
+
+        // THE FIX: Find a component that is BOTH "Standard Instrument" AND "Type B"
+        const tmdeComponent = allUncertaintyComponents.find(c => c.category === 'Standard Instrument' && c.type === 'B');
+
         if (!tmdeComponent || !tmdeComponent.toleranceLimit) {
             showNotification("Could not find a 'Standard Instrument' component with a tolerance limit in the budget. Please add one to calculate TAR.", 'warning');
             return;
@@ -782,7 +783,7 @@ function Analysis({ testPointData, showNotification, selectedSessionId, onDataSa
         const LUp_norm = (LUp - mid);
         const ALow_norm = (ALow - mid);
         const AUp_norm = (AUp - mid);
-        
+
         const pfa_term1 = bivariateNormalCDF(LLow_norm / uUUT, AUp_norm / uDev_risk, correlation) - bivariateNormalCDF(LLow_norm / uUUT, ALow_norm / uDev_risk, correlation);
         const pfa_term2 = bivariateNormalCDF(-LUp_norm / uUUT, -ALow_norm / uDev_risk, correlation) - bivariateNormalCDF(-LUp_norm / uUUT, -AUp_norm / uDev_risk, correlation);
         const pfaResult = isNaN(pfa_term1) || isNaN(pfa_term2) ? 0 : pfa_term1 + pfa_term2;
@@ -817,8 +818,8 @@ function Analysis({ testPointData, showNotification, selectedSessionId, onDataSa
         if (!calcResults) {
             return (
                 <div className="form-section-warning">
-                    <p style={{fontWeight: 'bold'}}>A detailed uncertainty budget must be calculated first.</p>
-                    <p style={{marginTop: '10px'}}>Please go to the "Detailed Budget" tab, complete your budget, and click "Calculate & Save Uncertainty" to enable this comparison.</p>
+                    <p style={{ fontWeight: 'bold' }}>A detailed uncertainty budget must be calculated first.</p>
+                    <p style={{ marginTop: '10px' }}>Please go to the "Detailed Budget" tab, complete your budget, and click "Calculate & Save Uncertainty" to enable this comparison.</p>
                 </div>
             );
         }
@@ -877,14 +878,14 @@ function Analysis({ testPointData, showNotification, selectedSessionId, onDataSa
             </div>
         );
     };
-    
+
     return (
         <div>
-            {breakdownModal === 'tar' && <TarBreakdownModal results={riskResults} inputs={{...riskInputs, LLow: parseFloat(riskInputs.LLow), LUp: parseFloat(riskInputs.LUp)}} onClose={() => setBreakdownModal(null)} />}
-            {breakdownModal === 'inputs' && <InputsBreakdownModal results={riskResults} inputs={{...riskInputs, LLow: parseFloat(riskInputs.LLow), LUp: parseFloat(riskInputs.LUp)}} onClose={() => setBreakdownModal(null)} />}
-            {breakdownModal === 'tur' && <TurBreakdownModal results={riskResults} inputs={{...riskInputs, LLow: parseFloat(riskInputs.LLow), LUp: parseFloat(riskInputs.LUp)}} onClose={() => setBreakdownModal(null)} />}
-            {breakdownModal === 'pfa' && <PfaBreakdownModal results={riskResults} inputs={{...riskInputs, LLow: parseFloat(riskInputs.LLow), LUp: parseFloat(riskInputs.LUp)}} onClose={() => setBreakdownModal(null)} />}
-            {breakdownModal === 'pfr' && <PfrBreakdownModal results={riskResults} inputs={{...riskInputs, LLow: parseFloat(riskInputs.LLow), LUp: parseFloat(riskInputs.LUp)}} onClose={() => setBreakdownModal(null)} />}
+            {breakdownModal === 'tar' && <TarBreakdownModal results={riskResults} inputs={{ ...riskInputs, LLow: parseFloat(riskInputs.LLow), LUp: parseFloat(riskInputs.LUp) }} onClose={() => setBreakdownModal(null)} />}
+            {breakdownModal === 'inputs' && <InputsBreakdownModal results={riskResults} inputs={{ ...riskInputs, LLow: parseFloat(riskInputs.LLow), LUp: parseFloat(riskInputs.LUp) }} onClose={() => setBreakdownModal(null)} />}
+            {breakdownModal === 'tur' && <TurBreakdownModal results={riskResults} inputs={{ ...riskInputs, LLow: parseFloat(riskInputs.LLow), LUp: parseFloat(riskInputs.LUp) }} onClose={() => setBreakdownModal(null)} />}
+            {breakdownModal === 'pfa' && <PfaBreakdownModal results={riskResults} inputs={{ ...riskInputs, LLow: parseFloat(riskInputs.LLow), LUp: parseFloat(riskInputs.LUp) }} onClose={() => setBreakdownModal(null)} />}
+            {breakdownModal === 'pfr' && <PfrBreakdownModal results={riskResults} inputs={{ ...riskInputs, LLow: parseFloat(riskInputs.LLow), LUp: parseFloat(riskInputs.LUp) }} onClose={() => setBreakdownModal(null)} />}
 
             <div className="view-toggle" style={{ justifyContent: 'center', marginBottom: '30px' }}>
                 <button className={analysisMode === 'detailed' ? 'active' : ''} onClick={() => setAnalysisMode('detailed')}>Detailed Budget</button>
@@ -893,11 +894,11 @@ function Analysis({ testPointData, showNotification, selectedSessionId, onDataSa
             </div>
 
             <Accordion title="Final Measurement Result" startOpen={true}>
-                 <FinalResultCard result={results.delta_uut_ppm} calcResults={calcResults} testPointInfo={testPointInfo} />
+                <FinalResultCard result={results.delta_uut_ppm} calcResults={calcResults} testPointInfo={testPointInfo} />
             </Accordion>
-            
+
             {analysisMode === 'detailed' && (
-              <div className="analysis-dashboard">
+                <div className="analysis-dashboard">
                     <div className="configuration-panel">
                         {/* =================================================================== */}
                         {/* =========== NEW, REFACTORED "ADD TYPE B" COMPONENT UI ============= */}
@@ -907,7 +908,7 @@ function Analysis({ testPointData, showNotification, selectedSessionId, onDataSa
                                 <div className="config-column"><label>Component Name</label><input type="text" name="name" value={newComponent.name} onChange={handleInputChange} placeholder="e.g., UUT Stability Spec" /></div>
                                 <div className="config-column"><label>Category</label><select name="category" value={newComponent.category} onChange={handleInputChange}><option value="System & Environmental">System & Environmental</option><option value="Standard Instrument">Standard Instrument (TMDE)</option><option value="Unit Under Test (UUT)">Unit Under Test (UUT)</option></select></div>
                                 <div className="config-column" style={{ gridColumn: '1 / -1' }}><label>Distribution</label><select name="distribution" value={newComponent.distribution} onChange={handleInputChange}><option value="uniform">Uniform (Rectangular)</option><option value="triangular">Triangular</option><option value="normal">Normal</option></select></div>
-                                
+
                                 {(newComponent.distribution === 'uniform' || newComponent.distribution === 'triangular') && (
                                     <div className="config-column"><label>Tolerance Limits (± ppm)</label><input type="number" step="any" name="toleranceLimit" value={newComponent.toleranceLimit} onChange={handleInputChange} placeholder="e.g., 100" /></div>
                                 )}
@@ -923,7 +924,7 @@ function Analysis({ testPointData, showNotification, selectedSessionId, onDataSa
                             <button onClick={handleAddComponent} className="button" style={{ marginTop: '15px' }}>Add Component</button>
                         </Accordion>
                     </div>
-                    
+
                     <div className="configuration-panel">
                         <Accordion title="Uncertainty Budget (AC-DC Difference, ppm)" startOpen={true}>
                             <div className="uncertainty-legend">
@@ -941,7 +942,7 @@ function Analysis({ testPointData, showNotification, selectedSessionId, onDataSa
                             <UncertaintyBudgetTable components={allUncertaintyComponents} onRemove={handleRemoveComponent} calcResults={calcResults} />
                         </Accordion>
                     </div>
-                    <div className="calculation-options" style={{gridColumn: '1 / -1'}}>
+                    <div className="calculation-options" style={{ gridColumn: '1 / -1' }}>
                         <div className="checkbox-container">
                             <input type="checkbox" id="use-t-dist" checked={useTDistribution} onChange={e => setUseTDistribution(e.target.checked)} />
                             <label htmlFor="use-t-dist">Use Student's t-distribution for k-factor (more precise)</label>
@@ -952,13 +953,13 @@ function Analysis({ testPointData, showNotification, selectedSessionId, onDataSa
             )}
 
             {analysisMode === 'risk' && (
-                 <Accordion title="Risk & Conformance Analysis" startOpen={true}>
-                     {!calcResults ? (
+                <Accordion title="Risk & Conformance Analysis" startOpen={true}>
+                    {!calcResults ? (
                         <div className="form-section-warning">
-                            <p style={{fontWeight: 'bold'}}>A detailed uncertainty budget must be calculated first.</p>
-                            <p style={{marginTop: '10px'}}>Please go to the "Detailed Budget" tab, complete your budget, and click "Calculate & Save Uncertainty" to enable risk analysis.</p>
+                            <p style={{ fontWeight: 'bold' }}>A detailed uncertainty budget must be calculated first.</p>
+                            <p style={{ marginTop: '10px' }}>Please go to the "Detailed Budget" tab, complete your budget, and click "Calculate & Save Uncertainty" to enable risk analysis.</p>
                         </div>
-                     ) : (
+                    ) : (
                         <>
                             {/* =================================================================== */}
                             {/* =========== REMOVED TMDE INPUTS FROM RISK ANALYSIS UI =========== */}
@@ -979,8 +980,8 @@ function Analysis({ testPointData, showNotification, selectedSessionId, onDataSa
                                 <div className="config-column">
                                     <label>
                                         Guard Band Multiplier
-                                        <span className="tooltip-container" style={{marginLeft: '5px'}}>&#9432;
-                                            <span className="tooltip-text" style={{width: '250px', marginLeft: '-125px'}}>
+                                        <span className="tooltip-container" style={{ marginLeft: '5px' }}>&#9432;
+                                            <span className="tooltip-text" style={{ width: '250px', marginLeft: '-125px' }}>
                                                 Reduces acceptance limits to lower false accept risk. Default is 1 (no guard band). A value of 0.95 sets acceptance limits to 95% of tolerance limits.
                                             </span>
                                         </span>
@@ -988,15 +989,15 @@ function Analysis({ testPointData, showNotification, selectedSessionId, onDataSa
                                     <input type="number" step="0.01" max="1" min="0" name="guardBandMultiplier" value={riskInputs.guardBandMultiplier} onChange={handleRiskInputChange} />
                                 </div>
                             </div>
-                             <button onClick={calculateRiskMetrics} className="button" style={{marginTop: '10px'}}>Calculate Risk Metrics</button>
-                             {riskResults && <RiskAnalysisDashboard results={riskResults} onShowBreakdown={(modalType) => setBreakdownModal(modalType)} />}
+                            <button onClick={calculateRiskMetrics} className="button" style={{ marginTop: '10px' }}>Calculate Risk Metrics</button>
+                            {riskResults && <RiskAnalysisDashboard results={riskResults} onShowBreakdown={(modalType) => setBreakdownModal(modalType)} />}
                         </>
-                     )}
+                    )}
                 </Accordion>
             )}
 
             {analysisMode === 'basic' && (
-                 <Accordion title="Specification Comparison Analysis" startOpen={true}>
+                <Accordion title="Specification Comparison Analysis" startOpen={true}>
                     {renderSpecComparison()}
                 </Accordion>
             )}
@@ -1039,7 +1040,7 @@ function UncertaintyAnalysis({ showNotification }) {
 
             const averagedPoints = Array.from(pointGroups.values()).filter(g =>
                 g.forward?.results?.delta_uut_ppm_avg && g.reverse?.results?.delta_uut_ppm_avg
-            ).sort((a,b) => a.frequency - b.frequency || a.current - b.current);
+            ).sort((a, b) => a.frequency - b.frequency || a.current - b.current);
 
             setTestPoints(averagedPoints);
 
@@ -1053,11 +1054,11 @@ function UncertaintyAnalysis({ showNotification }) {
     useEffect(() => {
         fetchTestPoints();
     }, [fetchTestPoints]);
-    
+
     useEffect(() => {
         if (testPoints.length > 0) {
             const currentPointExists = testPoints.some(p => `${p.current}-${p.frequency}` === selectedTestPointId);
-            
+
             if (!currentPointExists) {
                 setSelectedTestPointId(`${testPoints[0].current}-${testPoints[0].frequency}`);
             }
@@ -1065,46 +1066,46 @@ function UncertaintyAnalysis({ showNotification }) {
             setSelectedTestPointId('');
         }
     }, [testPoints, selectedTestPointId]);
-    
+
     useEffect(() => {
         if (!selectedTestPointId || testPoints.length === 0) {
             setTestPointData(null);
             return;
         }
-    
+
         const pointGroup = testPoints.find(p => `${p.current}-${p.frequency}` === selectedTestPointId);
-    
+
         if (pointGroup) {
             const { forward, reverse } = pointGroup;
-            
+
             const combinedReadings = {};
             READING_KEY_NAMES.forEach(key => {
                 const forwardReadings = forward.readings?.[key] || [];
                 const reverseReadings = reverse.readings?.[key] || [];
                 combinedReadings[key] = [...forwardReadings, ...reverseReadings];
             });
-    
+
             const combinedResults = {
                 ...forward.results
             };
-    
+
             READING_KEY_NAMES.forEach(key => {
                 const readings = combinedReadings[key].map(r => (typeof r === 'object' ? r.value : r));
                 if (readings.length > 0) {
                     const sum = readings.reduce((a, b) => a + b, 0);
                     const avg = sum / readings.length;
-                    const stddev = readings.length > 1 
+                    const stddev = readings.length > 1
                         ? Math.sqrt(readings.map(x => Math.pow(x - avg, 2)).reduce((a, b) => a + b, 0) / (readings.length - 1))
                         : 0;
-                    
+
                     const avgKey = key.replace('_readings', '_avg');
                     const stddevKey = key.replace('_readings', 'stddev');
-                    
+
                     combinedResults[avgKey] = avg;
                     combinedResults[stddevKey] = stddev;
                 }
             });
-            
+
             setTestPointData({
                 readings: combinedReadings,
                 results: combinedResults,
@@ -1118,7 +1119,7 @@ function UncertaintyAnalysis({ showNotification }) {
             });
         }
     }, [selectedTestPointId, testPoints]);
-    
+
     return (
         <div className="content-area uncertainty-analysis-page">
             <h2>Uncertainty Analysis</h2>
@@ -1154,10 +1155,10 @@ function UncertaintyAnalysis({ showNotification }) {
                     </aside>
                     <main className="results-content">
                         {testPointData ? (
-                            <Analysis 
-                                testPointData={testPointData} 
+                            <Analysis
+                                testPointData={testPointData}
                                 showNotification={showNotification}
-                                selectedSessionId={selectedSessionId} 
+                                selectedSessionId={selectedSessionId}
                                 onDataSave={fetchTestPoints}
                             />
                         ) : (

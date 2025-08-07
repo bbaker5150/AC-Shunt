@@ -1,3 +1,5 @@
+# api/consumers.py
+
 import json
 import asyncio
 import time
@@ -6,15 +8,17 @@ from channels.generic.websocket import AsyncWebsocketConsumer
 from asgiref.sync import sync_to_async
 from channels.db import database_sync_to_async
 
-from .NPSL_Tools.instruments import Instrument3458A, Instrument5730A, Instrument5790B, Instrument34420A
+from .NPSL_Tools.instruments import Instrument11713C, Instrument3458A, Instrument5730A, Instrument5790B, Instrument34420A
 from .models import CalibrationReadings, CalibrationSession, TestPoint, TestPointSet
 
 INSTRUMENT_CLASS_MAP = {
     '5730A': Instrument5730A,
     '5790B': Instrument5790B,
     '3458A': Instrument3458A,
-    '34420A': Instrument34420A
+    '34420A': Instrument34420A,
+    '11713C': Instrument11713C
 }
+
 
 class InstrumentStatusConsumer(AsyncWebsocketConsumer):
     instrument_instance = None
@@ -56,7 +60,12 @@ class InstrumentStatusConsumer(AsyncWebsocketConsumer):
     @sync_to_async(thread_sensitive=True)
     def connect_instrument_sync(self):
         try:
-            instance = self.instrument_class(gpib=self.gpib_address) if self.instrument_class == Instrument34420A else self.instrument_class(model=self.instrument_model, gpib=self.gpib_address)
+            # --- CHANGE 1: Update conditional to include the 11713C ---
+            # Classes that don't take a 'model' argument in their constructor
+            if self.instrument_class in [Instrument34420A, Instrument11713C]:
+                instance = self.instrument_class(gpib=self.gpib_address)
+            else: # Classes that do take a 'model' argument
+                instance = self.instrument_class(model=self.instrument_model, gpib=self.gpib_address)
             return instance
         except Exception as e:
             print(f"StatusConsumer: Error instantiating/connecting to {self.gpib_address}: {e}")
@@ -64,20 +73,31 @@ class InstrumentStatusConsumer(AsyncWebsocketConsumer):
 
     @sync_to_async(thread_sensitive=True)
     def close_instrument_sync(self):
-        if self.instrument_instance and hasattr(self.instrument_instance.resource, 'close'):
-            self.instrument_instance.resource.close()
+        # Use self.instrument_instance.resource for 11713C and self.instrument_instance.device for 34420A
+        # A more robust check is to see if the close method exists.
+        if self.instrument_instance:
+             # Duck typing: Check if a closeable attribute exists (e.g., resource or device)
+            connection = getattr(self.instrument_instance, 'resource', None) or getattr(self.instrument_instance, 'device', None)
+            if connection and hasattr(connection, 'close'):
+                connection.close()
 
     @sync_to_async(thread_sensitive=True)
     def get_status_sync(self):
         if not self.instrument_instance:
             return {'status_report': 'error', 'error_message': 'Instrument not connected.'}
         try:
-            raw_status = self.instrument_instance.get_instrument_status()
-            return {'status_report': 'ok', 'raw_isr': raw_status}
+            # get_instrument_status is not on the 11713C, so check for its existence
+            if hasattr(self.instrument_instance, 'get_instrument_status'):
+                raw_status = self.instrument_instance.get_instrument_status()
+                return {'status_report': 'ok', 'raw_isr': raw_status}
+            else:
+                return {'status_report': 'ok', 'raw_isr': 'N/A'} # Or another appropriate status
         except Exception as e:
             return {'status_report': 'error', 'error_message': str(e)}
 
+
 class CalibrationConsumer(AsyncWebsocketConsumer):
+    # ... (This class remains unchanged) ...
     def __init__(self, *args, **kwargs):
         super().__init__(*args, **kwargs)
         self.collection_task = None
@@ -238,3 +258,73 @@ class CalibrationConsumer(AsyncWebsocketConsumer):
             readings.save()
         except Exception as e:
             print(f"Error saving readings to DB: {e}")
+
+
+class SwitchDriverConsumer(AsyncWebsocketConsumer):
+    instrument_instance = None
+    instrument_class = None
+
+    async def connect(self):
+        self.instrument_model = self.scope['url_route']['kwargs']['instrument_model']
+        self.gpib_address = self.scope['url_route']['kwargs']['gpib_address']
+        self.instrument_class = INSTRUMENT_CLASS_MAP.get(self.instrument_model)
+
+        if not self.instrument_class:
+            await self.close(code=4001)
+            return
+            
+        self.instrument_instance = await self.connect_instrument_sync()
+        if self.instrument_instance:
+            await self.accept()
+            initial_state = await self.get_status_sync()
+            await self.send(text_data=json.dumps({
+                'type': 'connection_established',
+                'active_source': initial_state,
+            }))
+        else:
+            await self.close(code=4004)
+
+    async def disconnect(self, close_code):
+        if self.instrument_instance:
+            await self.close_instrument_sync()
+
+    async def receive(self, text_data):
+        data = json.loads(text_data)
+        command = data.get('command')
+        
+        if command == 'select_source':
+            source = data.get('source')
+            if source == 'AC':
+                await sync_to_async(self.instrument_instance.select_ac_source, thread_sensitive=True)()
+            elif source == 'DC':
+                await sync_to_async(self.instrument_instance.select_dc_source, thread_sensitive=True)()
+            elif source == 'Standby':
+                await sync_to_async(self.instrument_instance.deactivate_all, thread_sensitive=True)()
+            
+            new_state = await self.get_status_sync()
+            await self.send(text_data=json.dumps({'type': 'source_changed', 'active_source': new_state}))
+        
+        elif command == 'get_status':
+            current_state = await self.get_status_sync()
+            await self.send(text_data=json.dumps({'type': 'status_update', 'active_source': current_state}))
+
+    @sync_to_async(thread_sensitive=True)
+    def connect_instrument_sync(self):
+        try:
+            # --- CHANGE 2: Simplified instantiation for this specific consumer ---
+            instance = self.instrument_class(gpib=self.gpib_address)
+            return instance
+        except Exception as e:
+            print(f"SwitchDriverConsumer: Error connecting to {self.gpib_address}: {e}")
+            return None
+
+    @sync_to_async(thread_sensitive=True)
+    def close_instrument_sync(self):
+        if self.instrument_instance:
+            connection = getattr(self.instrument_instance, 'resource', None)
+            if connection and hasattr(connection, 'close'):
+                connection.close()
+
+    @sync_to_async(thread_sensitive=True)
+    def get_status_sync(self):
+        return self.instrument_instance.get_active_source()

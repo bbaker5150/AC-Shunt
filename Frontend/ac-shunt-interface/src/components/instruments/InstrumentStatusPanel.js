@@ -10,6 +10,7 @@ const API_BASE_URL = process.env.REACT_APP_API_BASE_URL;
 const ASSIGNABLE_MODELS = ['34420A', '3458A', '5790B'];
 const ACDC_ASSIGNABLE_MODELS = ['5730A'];
 const SUPPORTED_STATUS_MODELS = ['5730', '5790'];
+const SWITCH_DRIVER_MODELS = ['11713C'];
 
 const statusBitDescriptions = {
     OPER: "Operating", EXTGARD: "External Guard", EXTSENS: "External Sensing", BOOST: "Boost Active",
@@ -24,7 +25,8 @@ function InstrumentStatusPanel({ showNotification }) {
         discoveredInstruments, setDiscoveredInstruments,
         stdInstrumentAddress, setStdInstrumentAddress, stdReaderModel, setStdReaderModel,
         tiInstrumentAddress, setTiInstrumentAddress, tiReaderModel, setTiReaderModel,
-        acSourceAddress, setAcSourceAddress, dcSourceAddress, setDcSourceAddress
+        acSourceAddress, setAcSourceAddress, dcSourceAddress, setDcSourceAddress,
+        switchDriverAddress, setSwitchDriverAddress, switchDriverModel, setSwitchDriverModel,
     } = useInstruments();
 
     const [isScanning, setIsScanning] = useState(false);
@@ -226,6 +228,14 @@ function InstrumentStatusPanel({ showNotification }) {
         }
     };
 
+    const handleSwitchDriverRoleChange = (instrument, isChecked) => {
+        const newAddress = isChecked ? instrument.address : null;
+        const newModel = isChecked ? getModelFromIdentity(instrument.identity) : null;
+        setSwitchDriverAddress(newAddress);
+        setSwitchDriverModel(newModel);
+        handleRoleAssignment({ switch_driver_address: newAddress, switch_driver_model: newModel });
+    };
+
     const activeInstruments = workstations.find(ws => ws.ip === activeWorkstationIp)?.instruments || [];
 
     return (
@@ -241,6 +251,7 @@ function InstrumentStatusPanel({ showNotification }) {
                 <div><strong>Test Reader:</strong> {tiInstrumentAddress ? `${tiReaderModel || ''} (${tiInstrumentAddress})` : 'Not Assigned'}</div>
                 <div><strong>AC Source:</strong> {acSourceAddress || 'Not Assigned'}</div>
                 <div><strong>DC Source:</strong> {dcSourceAddress || 'Not Assigned'}</div>
+                <div><strong>Switch Driver:</strong> {switchDriverAddress ? `${switchDriverModel || ''} (${switchDriverAddress})` : 'Not Assigned'}</div>
             </div>
 
             {workstations.length > 0 && (
@@ -282,6 +293,7 @@ function InstrumentStatusPanel({ showNotification }) {
                         const isAssignable = ASSIGNABLE_MODELS.some(m => inst.identity.includes(m));
                         const isAcDcAssignable = ACDC_ASSIGNABLE_MODELS.some(m => inst.identity.includes(m));
                         const isStatusSupported = SUPPORTED_STATUS_MODELS.some(m => inst.identity.includes(m));
+                        const isSwitchDriverAssignable = SWITCH_DRIVER_MODELS.some(m => inst.identity.includes(m));
                         return (
                             <div key={inst.address} className="status-card">
                                 <div className="status-card-header">
@@ -314,6 +326,15 @@ function InstrumentStatusPanel({ showNotification }) {
                                         <div className="checkbox-group" style={{ display: 'flex', alignItems: 'center', gap: '5px' }}>
                                             <input type="checkbox" id={`dc-role-${inst.address}`} checked={dcSourceAddress === inst.address} onChange={(e) => handleAcDcCheckboxChange(inst, 'dc', e.target.checked)} disabled={!selectedSessionId || (dcSourceAddress && dcSourceAddress !== inst.address)} />
                                             <label htmlFor={`dc-role-${inst.address}`} style={{ marginBottom: 0 }}>DC Source</label>
+                                        </div>
+                                    </div>
+                                )}
+                                {isSwitchDriverAssignable && (
+                                     <div className="role-assignment" style={{marginTop: '10px', paddingTop: '10px', borderTop: '1px solid var(--border-color)', display: 'flex', alignItems: 'center', gap: '20px'}}>
+                                        <label style={{fontWeight: '500'}}>Assign Utility Role:</label>
+                                        <div className="checkbox-group" style={{ display: 'flex', alignItems: 'center', gap: '5px' }}>
+                                            <input type="checkbox" id={`switch-driver-role-${inst.address}`} checked={switchDriverAddress === inst.address} onChange={(e) => handleSwitchDriverRoleChange(inst, e.target.checked)} disabled={!selectedSessionId || (switchDriverAddress && switchDriverAddress !== inst.address)}/>
+                                            <label htmlFor={`switch-driver-role-${inst.address}`} style={{marginBottom: 0}}>Switch Driver</label>
                                         </div>
                                     </div>
                                 )}
