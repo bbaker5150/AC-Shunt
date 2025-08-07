@@ -87,19 +87,20 @@ function Calibration({ showNotification }) {
     const [calibrationConfigurations, setCalibrationConfigurations] = useState({});
     const [calibrationSettings, setCalibrationSettings] = useState({ initial_warm_up_time: 0, num_samples: 8, settling_time: 5 });
     const [fetchedResults, setFetchedResults] = useState(null);
-    const [correctionInputs, setCorrectionInputs] = useState({ eta_std: '', eta_ti: '', delta_std_known: '' });
+    const [correctionInputs, setCorrectionInputs] = useState({ eta_std: '', eta_ti: '', delta_std: '', delta_ti: '', delta_std_known: '' });
     const [finalPpmDifference, setFinalPpmDifference] = useState(null);
     const [averagedPpmDifference, setAveragedPpmDifference] = useState(null);
     const [selectedTP, setSelectedTP] = useState(null);
     const [activeDirection, setActiveDirection] = useState('Forward');
     const [lastCollectionDirection, setLastCollectionDirection] = useState(null);
-    const [hardwareModal, setHardwareModal] = useState({ isOpen: false, onConfirm: () => {} });
-    const [amplifierModal, setAmplifierModal] = useState({ isOpen: false, range: null, onConfirm: () => {} });
+    const [hardwareModal, setHardwareModal] = useState({ isOpen: false, onConfirm: () => { } });
+    const [amplifierModal, setAmplifierModal] = useState({ isOpen: false, range: null, onConfirm: () => { } });
     const [bypassTvc, setBypassTvc] = useState(false);
     const [historicalReadings, setHistoricalReadings] = useState(initialLiveReadings);
     const [tiHistoricalReadings, setTiHistoricalReadings] = useState(initialLiveReadings);
     const [hoveredIndex, setHoveredIndex] = useState(null);
     const [normalizeData, setNormalizeData] = useState({});
+    const [tvcCorrections, setTVCCorrections] = useState({});
 
     const fetchCorrections = useCallback(async () => {
         try {
@@ -136,6 +137,7 @@ function Calibration({ showNotification }) {
             ]);
             setTPData(tpResponse.data || { test_points: [] });
             setCalibrationConfigurations(infoResponse.data.configurations || {});
+            setTVCCorrections(infoResponse.data.tvc_corrections || {});
         } catch (error) { showNotification('Could not refresh test point list.', 'error'); }
     }, [selectedSessionId, showNotification]);
 
@@ -169,7 +171,7 @@ function Calibration({ showNotification }) {
             const updatedSelectedTP = uniqueTestPoints.find(p => p.key === selectedTP.key);
             if (updatedSelectedTP) setSelectedTP(updatedSelectedTP);
         }
-    // eslint-disable-next-line react-hooks/exhaustive-deps
+        // eslint-disable-next-line react-hooks/exhaustive-deps
     }, [uniqueTestPoints]);
 
     useEffect(() => {
@@ -183,8 +185,8 @@ function Calibration({ showNotification }) {
             setIsLoading(false);
         }
     }, [selectedSessionId, refreshTestPointList]);
-    
-    const getCorrection = useCallback(() => {
+
+    const getShuntCorrection = useCallback(() => {
         if (selectedTP && calibrationConfigurations.ac_shunt_range) {
             const range = normalizeKey(calibrationConfigurations.ac_shunt_range);
             const current = normalizeKey(selectedTP.current);
@@ -197,6 +199,30 @@ function Calibration({ showNotification }) {
         }
         return null;
     }, [selectedTP, calibrationConfigurations, normalizeData]);
+
+    const getTVCCorrection = useCallback(() => {
+        const corrections = [];
+        const types = ['Standard', 'Test'];
+
+        for (const typeKey of types) {
+            if (tvcCorrections && tvcCorrections[typeKey] && Array.isArray(tvcCorrections[typeKey].measurements)) {
+                const foundMeasurement = tvcCorrections[typeKey].measurements.find(
+                    (measurement) => measurement.frequency === selectedTP.frequency
+                );
+
+                if (foundMeasurement) {
+                    corrections.push(foundMeasurement.ac_dc_difference);
+                } else {
+                    console.warn(`Frequency ${selectedTP.frequency} not found in measurements for type ${typeKey}.`);
+                    corrections.push(null); 
+                }
+            } else {
+                console.error(`Invalid or missing measurements data for type: ${typeKey}.`);
+                corrections.push(null);
+            }
+        }
+        return corrections;
+    }, [selectedTP, tvcCorrections]);
 
     useEffect(() => {
         const formatReadingsForChart = (readingsArray) => {
@@ -215,12 +241,13 @@ function Calibration({ showNotification }) {
                 const results = pointForDirection.results;
                 setFetchedResults(results);
                 if (results) {
-                    setCorrectionInputs({ eta_std: results.eta_std || '', eta_ti: results.eta_ti || '', delta_std_known: results.delta_std_known || '' });
+                    setCorrectionInputs({ eta_std: results.eta_std || '', eta_ti: results.eta_ti || '', delta_std: results.delta_std || '', delta_ti: results.delta_ti || '', delta_std_known: results.delta_std_known || '' });
                     setFinalPpmDifference(results.delta_uut_ppm);
                 } else {
-                     const correction = getCorrection();
-                     setCorrectionInputs({ eta_std: '', eta_ti: '', delta_std_known: correction !== null ? correction : '' });
-                     setFinalPpmDifference(null);
+                    const tvcCorrection = getTVCCorrection();
+                    const shuntCorrection = getShuntCorrection();
+                    setCorrectionInputs({ eta_std: '', eta_ti: '', delta_std: tvcCorrection[0] !== null ? tvcCorrection[0] : '', delta_ti: tvcCorrection[1] !== null ? tvcCorrection[1] : '', delta_std_known: shuntCorrection !== null ? shuntCorrection : '' });
+                    setFinalPpmDifference(null);
                 }
                 if (pointForDirection.readings) {
                     setHistoricalReadings({ ac_open: formatReadingsForChart(pointForDirection.readings.std_ac_open_readings), dc_pos: formatReadingsForChart(pointForDirection.readings.std_dc_pos_readings), dc_neg: formatReadingsForChart(pointForDirection.readings.std_dc_neg_readings), ac_close: formatReadingsForChart(pointForDirection.readings.std_ac_close_readings) });
@@ -230,7 +257,7 @@ function Calibration({ showNotification }) {
         } else {
             setAveragedPpmDifference(null);
         }
-    }, [selectedTP, activeDirection, initialLiveReadings, getCorrection]);
+    }, [selectedTP, activeDirection, initialLiveReadings, getTVCCorrection, getShuntCorrection]);
 
     useEffect(() => {
         if (!selectedTP) {
@@ -252,21 +279,21 @@ function Calibration({ showNotification }) {
     const handleFinalCalculation = async () => {
         const pointForDirection = activeDirection === 'Forward' ? selectedTP.forward : selectedTP.reverse;
         if (!pointForDirection || !fetchedResults) return showNotification("Readings for this direction are not complete.", "error");
-        if (!['std_dc_pos_avg', 'std_dc_neg_avg', 'std_ac_open_avg', 'std_ac_close_avg', 'ti_dc_pos_avg', 'ti_dc_neg_avg', 'ti_ac_open_avg', 'ti_ac_close_avg'].every(key => fetchedResults[key] !== null && fetchedResults[key] !== undefined) || !['eta_std', 'eta_ti', 'delta_std_known'].every(key => correctionInputs[key])) {
+        if (!['std_dc_pos_avg', 'std_dc_neg_avg', 'std_ac_open_avg', 'std_ac_close_avg', 'ti_dc_pos_avg', 'ti_dc_neg_avg', 'ti_ac_open_avg', 'ti_ac_close_avg'].every(key => fetchedResults[key] !== null && fetchedResults[key] !== undefined) || !['eta_std', 'eta_ti', 'delta_std', 'delta_ti', 'delta_std_known'].every(key => correctionInputs[key])) {
             return showNotification("Not all readings or correction factors are available for this direction.", "error");
         }
         const V_DCSTD = (fetchedResults.std_dc_pos_avg + Math.abs(fetchedResults.std_dc_neg_avg)) / 2;
         const V_ACSTD = (fetchedResults.std_ac_open_avg + fetchedResults.std_ac_close_avg) / 2;
         const V_DCUUT = (fetchedResults.ti_dc_pos_avg + Math.abs(fetchedResults.ti_dc_neg_avg)) / 2;
         const V_ACUUT = (fetchedResults.ti_ac_open_avg + fetchedResults.ti_ac_close_avg) / 2;
-        const { eta_std, eta_ti, delta_std_known } = Object.fromEntries(Object.entries(correctionInputs).map(([k, v]) => [k, parseFloat(v)]));
+        const { eta_std, eta_ti, delta_std, delta_ti, delta_std_known } = Object.fromEntries(Object.entries(correctionInputs).map(([k, v]) => [k, parseFloat(v)]));
         const term_STD = ((V_ACSTD - V_DCSTD) * 1000000) / (eta_std * V_DCSTD);
         const term_UUT = ((V_ACUUT - V_DCUUT) * 1000000) / (eta_ti * V_DCUUT);
-        const finalPpmFormatted = (delta_std_known + term_STD - term_UUT).toFixed(3);
+        const finalPpmFormatted = (delta_std_known + term_STD - term_UUT + delta_std - delta_ti).toFixed(3);
         setFinalPpmDifference(finalPpmFormatted);
         try {
             const { forward: forwardPoint, reverse: reversePoint } = selectedTP;
-            const sharedPayload = { eta_std, eta_ti, delta_std_known };
+            const sharedPayload = { eta_std, eta_ti, delta_std, delta_ti, delta_std_known };
             if (forwardPoint) {
                 await axios.put(`${API_BASE_URL}/calibration_sessions/${selectedSessionId}/test_points/${forwardPoint.id}/update-results/`, {
                     ...sharedPayload, delta_uut_ppm: activeDirection === 'Forward' ? finalPpmFormatted : forwardPoint.results?.delta_uut_ppm
@@ -282,22 +309,69 @@ function Calibration({ showNotification }) {
         } catch (error) { showNotification("Error saving results.", 'error'); }
     };
 
-    const handleAverageCalculation = () => {
+    const handleAverageCalculation = async () => {
         if (!selectedTP) return;
         const { forward, reverse } = selectedTP;
-        if (!forward?.results?.delta_uut_ppm || !reverse?.results?.delta_uut_ppm) return showNotification("Calculations for both Forward and Reverse directions must be completed first.", "error");
-        const averagePpm = (parseFloat(forward.results.delta_uut_ppm) + parseFloat(reverse.results.delta_uut_ppm)) / 2;
-        setAveragedPpmDifference(averagePpm.toFixed(3));
-        showNotification(`Calculated Average δ UUT: ${averagePpm.toFixed(3)} PPM`, 'success');
-    };
     
+        if (!forward?.results?.delta_uut_ppm || !reverse?.results?.delta_uut_ppm) {
+            return showNotification("Calculations for both Forward and Reverse directions must be completed first.", "error");
+        }
+    
+        const averagePpm = (parseFloat(forward.results.delta_uut_ppm) + parseFloat(reverse.results.delta_uut_ppm)) / 2;
+        const averagePpmFormatted = averagePpm.toFixed(3);
+        setAveragedPpmDifference(averagePpmFormatted);
+    
+        try {
+            // The payload should contain all existing results plus the new average value.
+            const forwardPayload = { ...forward.results, delta_uut_ppm_avg: averagePpmFormatted };
+            const reversePayload = { ...reverse.results, delta_uut_ppm_avg: averagePpmFormatted };
+    
+            // Make concurrent API calls to save the averaged result to both test points
+            await Promise.all([
+                axios.put(`${API_BASE_URL}/calibration_sessions/${selectedSessionId}/test_points/${forward.id}/update-results/`, forwardPayload),
+                axios.put(`${API_BASE_URL}/calibration_sessions/${selectedSessionId}/test_points/${reverse.id}/update-results/`, reversePayload)
+            ]);
+    
+            showNotification(`Saved Averaged δ UUT: ${averagePpmFormatted} PPM`, 'success');
+            refreshTestPointList(); // Refresh data to pull the latest results
+        } catch (error) {
+            showNotification("Error saving the averaged result.", 'error');
+            console.error("Error saving average PPM:", error);
+        }
+    };
+
     const handleGetCorrection = () => {
-        const correction = getCorrection();
-        if (correction === null) {
+        const tvcCorrection = getTVCCorrection();
+        const stdTVC = tvcCorrection[0];
+        const tiTVC = tvcCorrection[1];
+        const shuntCorrection = getShuntCorrection();
+
+        const updates = {};
+        let hasAnyCorrection = false;
+        const updatedFieldDetails = [];
+
+        if (stdTVC !== null) {
+            updates.delta_std = stdTVC;
+            hasAnyCorrection = true;
+            updatedFieldDetails.push(`Standard TVC (${stdTVC})`);
+        }
+        if (tiTVC !== null) {
+            updates.delta_ti = tiTVC;
+            hasAnyCorrection = true;
+            updatedFieldDetails.push(`Test TVC (${tiTVC})`);
+        }
+        if (shuntCorrection !== null) {
+            updates.delta_std_known = shuntCorrection;
+            hasAnyCorrection = true;
+            updatedFieldDetails.push(`Shunt correction (${shuntCorrection})`);
+        }
+
+        if (!hasAnyCorrection) {
             showNotification("No correction found for the selected test point parameters.", "info");
         } else {
-            setCorrectionInputs(prev => ({ ...prev, delta_std_known: correction }));
-            showNotification(`Applied correction: ${correction}`, "success");
+            setCorrectionInputs(prev => ({ ...prev, ...updates }));
+            const successMessage = `Successfully updated: ${updatedFieldDetails.join(', ')}.`;
+            showNotification(successMessage, "success");
         }
     };
 
@@ -356,19 +430,23 @@ function Calibration({ showNotification }) {
         }
 
         const confirmAndRun = () => {
-            setAmplifierModal({ isOpen: true, range: ampRange, onConfirm: () => {
-                setAmplifierModal({ isOpen: false });
-                collectionFunction();
-            }});
+            setAmplifierModal({
+                isOpen: true, range: ampRange, onConfirm: () => {
+                    setAmplifierModal({ isOpen: false });
+                    collectionFunction();
+                }
+            });
         };
 
         if (!lastCollectionDirection || activeDirection === lastCollectionDirection) {
             confirmAndRun();
         } else {
-            setHardwareModal({ isOpen: true, onConfirm: () => {
-                setHardwareModal({ isOpen: false });
-                confirmAndRun();
-            }});
+            setHardwareModal({
+                isOpen: true, onConfirm: () => {
+                    setHardwareModal({ isOpen: false });
+                    confirmAndRun();
+                }
+            });
         }
     };
 
@@ -412,7 +490,7 @@ function Calibration({ showNotification }) {
 
     const stdChartDataSource = isCurrentTPActive ? { ...historicalReadings, ...liveReadings } : historicalReadings;
     const tiChartDataSource = isCurrentTPActive ? { ...tiHistoricalReadings, ...tiLiveReadings } : tiHistoricalReadings;
-    
+
     const stdChartData = buildChartData(stdChartDataSource);
     const tiChartData = buildChartData(tiChartDataSource);
     const showStdChart = isCurrentTPActive || Object.values(historicalReadings).some(arr => arr && arr.length > 0);
@@ -423,101 +501,103 @@ function Calibration({ showNotification }) {
         if (!stage) return 'Initializing...';
         return stage.replace(/_/g, ' ').replace(/(^\w{1})|(\s+\w{1})/g, letter => letter.toUpperCase());
     };
-    
+
     return (
         <>
-            <ConfirmationModal isOpen={hardwareModal.isOpen} title="Confirm Hardware Change" message={`Please ensure you have physically configured the hardware for the '${activeDirection}' direction before proceeding.`} onConfirm={hardwareModal.onConfirm} onCancel={() => setHardwareModal({ isOpen: false })} confirmText="Ready"/>
-            <ConfirmationModal isOpen={amplifierModal.isOpen} title="Confirm Amplifier Range" message={`Please ensure the 8100 Amplifier range is set to ${amplifierModal.range} A.\n\nIncorrect range may damage the equipment.`} onConfirm={amplifierModal.onConfirm} onCancel={() => setAmplifierModal({ isOpen: false })} confirmText="Range is Set"/>
+            <ConfirmationModal isOpen={hardwareModal.isOpen} title="Confirm Hardware Change" message={`Please ensure you have physically configured the hardware for the '${activeDirection}' direction before proceeding.`} onConfirm={hardwareModal.onConfirm} onCancel={() => setHardwareModal({ isOpen: false })} confirmText="Ready" />
+            <ConfirmationModal isOpen={amplifierModal.isOpen} title="Confirm Amplifier Range" message={`Please ensure the 8100 Amplifier range is set to ${amplifierModal.range} A.\n\nIncorrect range may damage the equipment.`} onConfirm={amplifierModal.onConfirm} onCancel={() => setAmplifierModal({ isOpen: false })} confirmText="Range is Set" />
             {!selectedSessionId ? <div className="content-area form-section-warning"><p>Please select a session to run a calibration.</p></div>
-            : isLoading ? <div className="content-area"><p>Loading session data...</p></div>
-            : uniqueTestPoints.length === 0 ? <div className="content-area form-section-warning"><p>This session has no test points. Please go to the "Test Point Editor" to generate them.</p></div>
-            : (
-                <>
-                    <div className="content-area"><h2>Configuration Summary</h2><div className="calibration-summary-bar">
-                        <div className="summary-item"><strong>AC Shunt Range:</strong><span>{calibrationConfigurations.ac_shunt_range || 'N/A'} A</span></div>
-                        <div className="summary-item"><strong>Amplifier Range:</strong><span>{calibrationConfigurations.amplifier_range || 'N/A'} A</span></div>
-                        <div className="summary-item"><strong>Input Current:</strong><span>{uniqueTestPoints?.[0]?.current ? `${uniqueTestPoints[0].current} A` : 'N/A'}</span></div>
-                    </div></div>
-                    <div className="content-area"><h2>Sources & Readers</h2><div className="calibration-summary-bar" style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '20px' }}>
-                        <div className="summary-item" style={{ textAlign: 'left' }}><strong>Standard Instrument Reader:</strong><span style={{ marginLeft: '8px' }}>{getInstrumentIdentityByAddress(stdInstrumentAddress, stdReaderModel)}</span></div>
-                        <div className="summary-item" style={{ textAlign: 'left' }}><strong>Test Instrument Reader:</strong><span style={{ marginLeft: '8px' }}>{getInstrumentIdentityByAddress(tiInstrumentAddress, tiReaderModel)}</span></div>
-                        <div className="summary-item" style={{ textAlign: 'left' }}><strong>AC Source:</strong><span style={{ marginLeft: '8px' }}>{getInstrumentIdentityByAddress(acSourceAddress)}</span></div>
-                        <div className="summary-item" style={{ textAlign: 'left' }}><strong>DC Source:</strong><span style={{ marginLeft: '8px' }}>{getInstrumentIdentityByAddress(dcSourceAddress)}</span></div>
-                    </div></div>
-                    <div className="content-area"><div className="calibration-workflow-container">
-                        <div className="test-point-sidebar"><h4>Test Points</h4><div className="test-point-list">
-                            {uniqueTestPoints.map((point) => {
-                                const isSelected = selectedTP?.key === point.key;
-                                const isComplete = hasAllReadings(point.forward) && hasAllReadings(point.reverse);
-                                const isCollectingNow = isCollecting && (activeCollectionDetails?.tpId === point.forward?.id || activeCollectionDetails?.tpId === point.reverse?.id);
-                                return (
-                                    <button key={point.key} onClick={() => setSelectedTP(point)} className={`test-point-item ${isSelected ? 'active' : ''} ${isComplete ? 'completed' : ''}`}>
-                                        <span className="test-point-name">{point.current}A @ {formatFrequency(point.frequency)}</span>
-                                        {isCollectingNow && <span className="status-indicator"></span>}
-                                        {isComplete && !isCollectingNow && <span className="status-icon">✓</span>}
-                                    </button>
-                                );
-                            })}
-                        </div></div>
-                        <div className="test-point-content">{!selectedTP ? <div className="placeholder-content"><h3>Select a Test Point</h3><p>Please select a test point from the list on the left to begin.</p></div> : (
-                            <><SubNav activeTab={activeTab} setActiveTab={setActiveTab} /><div className="sub-tab-content">
-                                {activeTab === 'settings' && (<form onSubmit={handleSettingsSubmit}>
-                                    <h4>Calibration Settings for {selectedTP.current}A @ {formatFrequency(selectedTP.frequency)}</h4>
-                                    <div className="config-grid">
-                                        <div className="form-section"><label htmlFor="initial_warm_up_time">Initial Warm-up Wait (sec)</label><input type="number" id="initial_warm_up_time" name="initial_warm_up_time" value={calibrationSettings.initial_warm_up_time || 0} onChange={(e) => setCalibrationSettings(prev => ({ ...prev, initial_warm_up_time: e.target.value }))} /></div>
-                                        <div className="form-section"><label htmlFor="num_samples"># of Samples</label><input type="number" id="num_samples" name="num_samples" required value={calibrationSettings.num_samples || 8} onChange={(e) => setCalibrationSettings(prev => ({ ...prev, num_samples: e.target.value }))} /></div>
-                                        <div className="form-section"><label htmlFor="settling_time">Settling Time (sec)</label><input type="number" id="settling_time" name="settling_time" required value={calibrationSettings.settling_time || 5} onChange={(e) => setCalibrationSettings(prev => ({ ...prev, settling_time: e.target.value }))} /></div>
-                                    </div><button type="submit" className="button button-primary">Save and Continue</button>
-                                </form>)}
-                                {activeTab === 'readings' && (<>
-                                    <DirectionToggle activeDirection={activeDirection} setActiveDirection={setActiveDirection} />
-                                    <div className="form-section">
-                                        <h4>Reading Options</h4>
-                                        <div className="checkbox-container">
-                                            <input type="checkbox" id="bypass-tvc" checked={bypassTvc} onChange={(e) => setBypassTvc(e.target.checked)}/>
-                                            <label htmlFor="bypass-tvc">Bypass TVC (Set Output based on Input Current)</label>
-                                        </div>
-                                    </div>
-                                    <div className="form-section"><h4>Take Readings ({activeDirection})</h4>
-                                    <div className="readings-grid">
-                                        {isCollecting ? (<div style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', width: '100%', gap: '20px', padding: '10px', border: '1px solid var(--border-color)', borderRadius: '8px', gridColumn: '1 / -1' }}>
-                                            <div style={{ flexGrow: 1, textAlign: 'left' }}>
-                                            <p style={{ margin: 0, fontWeight: 500 }}>Collecting: {getStageName()}</p>
-                                                <p style={{ margin: 0, fontSize: '0.9em', color: 'var(--text-muted)' }}>{collectionProgress.count} / {collectionProgress.total}</p>
-                                            </div>
-                                            <FaStop onClick={stopReadingCollection} title="Stop Collection" style={{ fontSize: '24px', color: '#dc3545', cursor: 'pointer', transition: 'transform 0.2s' }} onMouseOver={e => e.currentTarget.style.transform = 'scale(1.1)'} onMouseOut={e => e.currentTarget.style.transform = 'scale(1)'}/>
-                                        </div>) : (<>
-                                            <button onClick={handleRunAllRequest} disabled={!selectedTP || readingWsState !== WebSocket.OPEN} className="button button-success" style={{ gridColumn: '1 / -1' }}>Run All Measurements</button>
-                                            {READING_TYPES.map(({ key, label }) => {
-                                                const isDisabled = !selectedTP || !stdInstrumentAddress || !tiInstrumentAddress || readingWsState !== WebSocket.OPEN;
-                                                return <button key={key} onClick={() => handleCollectReadingsRequest(key)} disabled={isDisabled} className="button">Take {label} Readings</button>;
-                                            })}
-                                        </>)}
+                : isLoading ? <div className="content-area"><p>Loading session data...</p></div>
+                    : uniqueTestPoints.length === 0 ? <div className="content-area form-section-warning"><p>This session has no test points. Please go to the "Test Point Editor" to generate them.</p></div>
+                        : (
+                            <>
+                                <div className="content-area"><h2>Configuration Summary</h2><div className="calibration-summary-bar">
+                                    <div className="summary-item"><strong>AC Shunt Range:</strong><span>{calibrationConfigurations.ac_shunt_range || 'N/A'} A</span></div>
+                                    <div className="summary-item"><strong>Amplifier Range:</strong><span>{calibrationConfigurations.amplifier_range || 'N/A'} A</span></div>
+                                    <div className="summary-item"><strong>Input Current:</strong><span>{uniqueTestPoints?.[0]?.current ? `${uniqueTestPoints[0].current} A` : 'N/A'}</span></div>
+                                </div></div>
+                                <div className="content-area"><h2>Sources & Readers</h2><div className="calibration-summary-bar" style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '20px' }}>
+                                    <div className="summary-item" style={{ textAlign: 'left' }}><strong>Standard Instrument Reader:</strong><span style={{ marginLeft: '8px' }}>{getInstrumentIdentityByAddress(stdInstrumentAddress, stdReaderModel)}</span></div>
+                                    <div className="summary-item" style={{ textAlign: 'left' }}><strong>Test Instrument Reader:</strong><span style={{ marginLeft: '8px' }}>{getInstrumentIdentityByAddress(tiInstrumentAddress, tiReaderModel)}</span></div>
+                                    <div className="summary-item" style={{ textAlign: 'left' }}><strong>AC Source:</strong><span style={{ marginLeft: '8px' }}>{getInstrumentIdentityByAddress(acSourceAddress)}</span></div>
+                                    <div className="summary-item" style={{ textAlign: 'left' }}><strong>DC Source:</strong><span style={{ marginLeft: '8px' }}>{getInstrumentIdentityByAddress(dcSourceAddress)}</span></div>
+                                </div></div>
+                                <div className="content-area"><div className="calibration-workflow-container">
+                                    <div className="test-point-sidebar"><h4>Test Points</h4><div className="test-point-list">
+                                        {uniqueTestPoints.map((point) => {
+                                            const isSelected = selectedTP?.key === point.key;
+                                            const isComplete = hasAllReadings(point.forward) && hasAllReadings(point.reverse);
+                                            const isCollectingNow = isCollecting && (activeCollectionDetails?.tpId === point.forward?.id || activeCollectionDetails?.tpId === point.reverse?.id);
+                                            return (
+                                                <button key={point.key} onClick={() => setSelectedTP(point)} className={`test-point-item ${isSelected ? 'active' : ''} ${isComplete ? 'completed' : ''}`}>
+                                                    <span className="test-point-name">{point.current}A @ {formatFrequency(point.frequency)}</span>
+                                                    {isCollectingNow && <span className="status-indicator"></span>}
+                                                    {isComplete && !isCollectingNow && <span className="status-icon">✓</span>}
+                                                </button>
+                                            );
+                                        })}
                                     </div></div>
-                                    {showStdChart && <div className="chart-container"><CalibrationChart title="Standard Instrument Readings" chartData={stdChartData} chartType="line" theme={theme} onHover={setHoveredIndex} syncedHoverIndex={hoveredIndex} comparisonData={tiChartData.datasets} /></div>}
-                                    {showTiChart && <div className="chart-container"><CalibrationChart title="Test Instrument Readings" chartData={tiChartData} chartType="line" theme={theme} onHover={setHoveredIndex} syncedHoverIndex={hoveredIndex} comparisonData={stdChartData.datasets} /></div>}
-                                </>)}
-                                {activeTab === 'calculate' && (<>
-                                    <div className="form-section"><h4>Correction Factor Inputs</h4><p>Enter known correction factors from your equipment's calibration certificates.</p><div className="config-grid">
-                                        <div className="config-column"><label htmlFor="eta_std">η Standard (Gain Factor)</label><input type="number" step="any" id="eta_std" name="eta_std" value={correctionInputs.eta_std} onChange={handleCorrectionInputChange} placeholder="e.g., 1.00012" /></div>
-                                        <div className="config-column"><label htmlFor="eta_ti">η Test Instrument (Gain Factor)</label><input type="number" step="any" id="eta_ti" name="eta_ti" value={correctionInputs.eta_ti} onChange={handleCorrectionInputChange} placeholder="e.g., 0.99987" /></div>
-                                        <div className="config-column">
-                                            <label htmlFor="delta_std_known">δ Standard (PPM)</label>
-                                            <input type="number" step="any" id="delta_std_known" name="delta_std_known" value={correctionInputs.delta_std_known} onChange={handleCorrectionInputChange} placeholder="e.g., 5.5" />
-                                            <button type="button" onClick={handleGetCorrection} className="button" style={{marginTop: '10px'}}>
-                                                Get Known Correction
-                                            </button>
-                                        </div>
-                                    </div></div>
-                                    <DirectionToggle activeDirection={activeDirection} setActiveDirection={setActiveDirection} />
-                                    <div className="form-section"><h4>UUT AC-DC Difference for {activeDirection} Direction (δ)</h4><div className="calculation-area"><button onClick={handleFinalCalculation} disabled={isCollecting} className="button button-primary">Calculate & Save Result (δ)</button><div className="reading-group"><div className="reading"><h3>δ UUT (PPM):</h3><p style={{ fontSize: '1.2em', fontWeight: 'bold', color: 'var(--primary-color)' }}>{finalPpmDifference ? parseFloat(finalPpmDifference).toFixed(3) : 'Not Calculated'}</p></div></div></div></div>
-                                    <div className="form-section" style={{ borderTop: '2px solid var(--border-color)', paddingTop: '20px', marginTop: '20px' }}><h4>Final Averaged AC-DC Difference</h4><p>This result is the average of the Forward and Reverse direction calculations.</p><div className="calculation-area"><button onClick={handleAverageCalculation} disabled={isCollecting} className="button button-success">Calculate Averaged Result</button><div className="reading-group"><div className="reading"><h3>Avg. δ UUT (PPM):</h3><p style={{ fontSize: '1.2em', fontWeight: 'bold', color: 'var(--success-color)' }}>{averagedPpmDifference ? averagedPpmDifference : 'Not Calculated'}</p></div></div></div></div>
-                                </>)}
-                            </div></>
-                        )}</div>
-                    </div></div>
-                </>
-            )}
+                                    <div className="test-point-content">{!selectedTP ? <div className="placeholder-content"><h3>Select a Test Point</h3><p>Please select a test point from the list on the left to begin.</p></div> : (
+                                        <><SubNav activeTab={activeTab} setActiveTab={setActiveTab} /><div className="sub-tab-content">
+                                            {activeTab === 'settings' && (<form onSubmit={handleSettingsSubmit}>
+                                                <h4>Calibration Settings for {selectedTP.current}A @ {formatFrequency(selectedTP.frequency)}</h4>
+                                                <div className="config-grid">
+                                                    <div className="form-section"><label htmlFor="initial_warm_up_time">Initial Warm-up Wait (sec)</label><input type="number" id="initial_warm_up_time" name="initial_warm_up_time" value={calibrationSettings.initial_warm_up_time || 0} onChange={(e) => setCalibrationSettings(prev => ({ ...prev, initial_warm_up_time: e.target.value }))} /></div>
+                                                    <div className="form-section"><label htmlFor="num_samples"># of Samples</label><input type="number" id="num_samples" name="num_samples" required value={calibrationSettings.num_samples || 8} onChange={(e) => setCalibrationSettings(prev => ({ ...prev, num_samples: e.target.value }))} /></div>
+                                                    <div className="form-section"><label htmlFor="settling_time">Settling Time (sec)</label><input type="number" id="settling_time" name="settling_time" required value={calibrationSettings.settling_time || 5} onChange={(e) => setCalibrationSettings(prev => ({ ...prev, settling_time: e.target.value }))} /></div>
+                                                </div><button type="submit" className="button button-primary">Save and Continue</button>
+                                            </form>)}
+                                            {activeTab === 'readings' && (<>
+                                                <DirectionToggle activeDirection={activeDirection} setActiveDirection={setActiveDirection} />
+                                                <div className="form-section">
+                                                    <h4>Reading Options</h4>
+                                                    <div className="checkbox-container">
+                                                        <input type="checkbox" id="bypass-tvc" checked={bypassTvc} onChange={(e) => setBypassTvc(e.target.checked)} />
+                                                        <label htmlFor="bypass-tvc">Bypass TVC (Set Output based on Input Current)</label>
+                                                    </div>
+                                                </div>
+                                                <div className="form-section"><h4>Take Readings ({activeDirection})</h4>
+                                                    <div className="readings-grid">
+                                                        {isCollecting ? (<div style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', width: '100%', gap: '20px', padding: '10px', border: '1px solid var(--border-color)', borderRadius: '8px', gridColumn: '1 / -1' }}>
+                                                            <div style={{ flexGrow: 1, textAlign: 'left' }}>
+                                                                <p style={{ margin: 0, fontWeight: 500 }}>Collecting: {getStageName()}</p>
+                                                                <p style={{ margin: 0, fontSize: '0.9em', color: 'var(--text-muted)' }}>{collectionProgress.count} / {collectionProgress.total}</p>
+                                                            </div>
+                                                            <FaStop onClick={stopReadingCollection} title="Stop Collection" style={{ fontSize: '24px', color: '#dc3545', cursor: 'pointer', transition: 'transform 0.2s' }} onMouseOver={e => e.currentTarget.style.transform = 'scale(1.1)'} onMouseOut={e => e.currentTarget.style.transform = 'scale(1)'} />
+                                                        </div>) : (<>
+                                                            <button onClick={handleRunAllRequest} disabled={!selectedTP || readingWsState !== WebSocket.OPEN} className="button button-success" style={{ gridColumn: '1 / -1' }}>Run All Measurements</button>
+                                                            {READING_TYPES.map(({ key, label }) => {
+                                                                const isDisabled = !selectedTP || !stdInstrumentAddress || !tiInstrumentAddress || readingWsState !== WebSocket.OPEN;
+                                                                return <button key={key} onClick={() => handleCollectReadingsRequest(key)} disabled={isDisabled} className="button">Take {label} Readings</button>;
+                                                            })}
+                                                        </>)}
+                                                    </div></div>
+                                                {showStdChart && <div className="chart-container"><CalibrationChart title="Standard Instrument Readings" chartData={stdChartData} chartType="line" theme={theme} onHover={setHoveredIndex} syncedHoverIndex={hoveredIndex} comparisonData={tiChartData.datasets} /></div>}
+                                                {showTiChart && <div className="chart-container"><CalibrationChart title="Test Instrument Readings" chartData={tiChartData} chartType="line" theme={theme} onHover={setHoveredIndex} syncedHoverIndex={hoveredIndex} comparisonData={stdChartData.datasets} /></div>}
+                                            </>)}
+                                            {activeTab === 'calculate' && (<>
+                                                <div className="form-section"><h4>Correction Factor Inputs</h4><p>Enter known correction factors from your equipment's calibration certificates.</p><div className="config-grid">
+                                                    <div className="config-column"><label htmlFor="eta_std">η Standard (Gain Factor)</label><input type="number" step="any" id="eta_std" name="eta_std" value={correctionInputs.eta_std} onChange={handleCorrectionInputChange} placeholder="e.g., 1.00012" /></div>
+                                                    <div className="config-column"><label htmlFor="eta_ti">η Test Instrument (Gain Factor)</label><input type="number" step="any" id="eta_ti" name="eta_ti" value={correctionInputs.eta_ti} onChange={handleCorrectionInputChange} placeholder="e.g., 0.99987" /></div>
+                                                    <div className="config-column"><label htmlFor="delta_std">δ Standard (TVC AC-DC Difference)</label><input type="number" step="any" id="delta_std" name="delta_std" value={correctionInputs.delta_std} onChange={handleCorrectionInputChange} placeholder="e.g., -1" /></div>
+                                                    <div className="config-column"><label htmlFor="delta_ti">δ Test Instrument (TVC AC-DC Difference)</label><input type="number" step="any" id="delta_ti" name="delta_ti" value={correctionInputs.delta_ti} onChange={handleCorrectionInputChange} placeholder="e.g., -2" /></div>
+                                                    <div className="config-column">
+                                                        <label htmlFor="delta_std_known">δ Standard (PPM)</label>
+                                                        <input type="number" step="any" id="delta_std_known" name="delta_std_known" value={correctionInputs.delta_std_known} onChange={handleCorrectionInputChange} placeholder="e.g., 5.5" />
+                                                        <button type="button" onClick={handleGetCorrection} className="button" style={{ marginTop: '10px' }}>
+                                                            Get Known Correction
+                                                        </button>
+                                                    </div>
+                                                </div></div>
+                                                <DirectionToggle activeDirection={activeDirection} setActiveDirection={setActiveDirection} />
+                                                <div className="form-section"><h4>UUT AC-DC Difference for {activeDirection} Direction (δ)</h4><div className="calculation-area"><button onClick={handleFinalCalculation} disabled={isCollecting} className="button button-primary">Calculate & Save Result (δ)</button><div className="reading-group"><div className="reading"><h3>δ UUT (PPM):</h3><p style={{ fontSize: '1.2em', fontWeight: 'bold', color: 'var(--primary-color)' }}>{finalPpmDifference ? parseFloat(finalPpmDifference).toFixed(3) : 'Not Calculated'}</p></div></div></div></div>
+                                                <div className="form-section" style={{ borderTop: '2px solid var(--border-color)', paddingTop: '20px', marginTop: '20px' }}><h4>Final Averaged AC-DC Difference</h4><p>This result is the average of the Forward and Reverse direction calculations.</p><div className="calculation-area"><button onClick={handleAverageCalculation} disabled={isCollecting} className="button button-success">Calculate Averaged Result</button><div className="reading-group"><div className="reading"><h3>Avg. δ UUT (PPM):</h3><p style={{ fontSize: '1.2em', fontWeight: 'bold', color: 'var(--success-color)' }}>{averagedPpmDifference ? averagedPpmDifference : 'Not Calculated'}</p></div></div></div></div>
+                                            </>)}
+                                        </div></>
+                                    )}</div>
+                                </div></div>
+                            </>
+                        )}
         </>
     );
 }

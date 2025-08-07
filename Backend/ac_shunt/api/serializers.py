@@ -1,6 +1,6 @@
 # api/serializers.py
 from rest_framework import serializers
-from .models import Message, Correction, Uncertainty, CalibrationSession, TestPoint, TestPointSet, Calibration, CalibrationConfigurations, CalibrationSettings, CalibrationReadings, CalibrationResults
+from .models import Message, Correction, Uncertainty, CalibrationSession, TestPoint, TestPointSet, Calibration, CalibrationTVCCorrections, CalibrationConfigurations, CalibrationSettings, CalibrationReadings, CalibrationResults
 from datetime import datetime
 
 class MessageSerializer(serializers.ModelSerializer):
@@ -109,6 +109,30 @@ class CalibrationSessionSerializer(serializers.ModelSerializer):
             'temperature', 'humidity', 'created_at', 'notes',
         ]
 
+class CalibrationTVCCorrectionsSerializer(serializers.ModelSerializer):
+    Standard = serializers.DictField(required=False)
+    Test = serializers.DictField(required=False)
+
+    class Meta:
+        model = CalibrationTVCCorrections
+        fields = ['Standard', 'Test']
+
+    def to_representation(self, instance):
+        corrections = instance.corrections_data or {}
+        return {
+            "Standard": corrections.get("Standard", {}),
+            "Test": corrections.get("Test", {}),
+        }
+
+    def update(self, instance, validated_data):
+        corrections = {
+            "Standard": validated_data.get("Standard", {}),
+            "Test": validated_data.get("Test", {}),
+        }
+        instance.corrections_data = corrections
+        instance.save()
+        return instance
+
 class CalibrationConfigurationsSerializer(serializers.ModelSerializer):
     test_point = serializers.PrimaryKeyRelatedField(read_only=True)
     class Meta:
@@ -162,13 +186,9 @@ class CalibrationResultsSerializer(serializers.ModelSerializer):
     class Meta:
         model = CalibrationResults
         fields = '__all__'
-        read_only_fields = [
-            'id', 'created_at', 'updated_at', 'calibration', 
-            'std_ac_open_avg', 'std_ac_open_stddev', 'std_dc_pos_avg', 'std_dc_pos_stddev', 
-            'std_dc_neg_avg', 'std_dc_neg_stddev', 'std_ac_close_avg', 'std_ac_close_stddev', 
-            'ti_ac_open_avg', 'ti_ac_open_stddev', 'ti_dc_pos_avg', 'ti_dc_pos_stddev', 
-            'ti_dc_neg_avg', 'ti_dc_neg_stddev', 'ti_ac_close_avg', 'ti_ac_close_stddev'
-        ]
+        # The read_only_fields attribute has been removed to allow writing
+        # uncertainty results from the frontend. The avg/stddev fields are
+        # protected by the model's save logic, which recalculates them.
 
 class TestPointSerializer(serializers.ModelSerializer):
     settings = CalibrationSettingsSerializer(required=False)
@@ -271,14 +291,14 @@ class TestPointSetSerializer(serializers.ModelSerializer):
         return instance 
 
 class CalibrationSerializer(serializers.ModelSerializer):
-    
+    tvc_corrections = CalibrationTVCCorrectionsSerializer(source='tvccorrections', required=False, allow_null=True)
     configurations = CalibrationConfigurationsSerializer(required=False, allow_null=True)
     test_points = serializers.SerializerMethodField()
 
     class Meta:
         model = Calibration
-        fields = ['id', 'session', 'configurations', 'test_points']
-    
+        fields = ['id', 'session', 'tvc_corrections', 'configurations', 'test_points']
+
     def get_test_points(self, obj):
         try:
             session = obj.session
@@ -288,15 +308,31 @@ class CalibrationSerializer(serializers.ModelSerializer):
             return None
         except Exception:
             return None
-    
+
     def update(self, instance, validated_data):
-        configurations_data = validated_data.pop('configurations', {})
+        tvc_corrections_data = validated_data.pop('tvccorrections', None)
+        configurations_data = validated_data.pop('configurations', None)
         instance.session = validated_data.get('session', instance.session)
         instance.save()
 
-        configurations_instance, _ = CalibrationConfigurations.objects.get_or_create(calibration=instance)
-        for attr, value in configurations_data.items():
-            setattr(configurations_instance, attr, value)
-        configurations_instance.save()
+        if tvc_corrections_data is not None:
+            tvc_corrections_instance, _ = CalibrationTVCCorrections.objects.get_or_create(calibration=instance)
+            tvc_corrections_serializer = CalibrationTVCCorrectionsSerializer(
+                tvc_corrections_instance,
+                data=tvc_corrections_data,
+                partial=True
+            )
+            if tvc_corrections_serializer.is_valid(raise_exception=True):
+                tvc_corrections_serializer.save()
+
+        if configurations_data is not None:
+            configurations_instance, _ = CalibrationConfigurations.objects.get_or_create(calibration=instance)
+            configurations_serializer = CalibrationConfigurationsSerializer(
+                configurations_instance,
+                data=configurations_data,
+                partial=True
+            )
+            if configurations_serializer.is_valid(raise_exception=True):
+                configurations_serializer.save()
 
         return instance

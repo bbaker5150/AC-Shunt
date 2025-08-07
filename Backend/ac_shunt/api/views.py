@@ -8,8 +8,8 @@ from rest_framework.decorators import api_view
 from rest_framework import viewsets, status
 from rest_framework.decorators import action
 from rest_framework.response import Response
-from .models import Message, Correction, Uncertainty, CalibrationSession, TestPoint, TestPointSet, Calibration, CalibrationConfigurations, CalibrationSettings, CalibrationReadings, CalibrationResults
-from .serializers import MessageSerializer, CorrectionSerializer, CorrectionGroupedSerializer, FlatCorrectionSerializer, UncertaintySerializer, UncertaintyGroupedSerializer, FlatUncertaintySerializer, CalibrationSerializer, CalibrationSessionSerializer, TestPointSerializer, TestPointSetSerializer, CalibrationConfigurationsSerializer, CalibrationSettingsSerializer, CalibrationReadingsSerializer, CalibrationResultsSerializer
+from .models import Message, Correction, Uncertainty, CalibrationSession, TestPoint, TestPointSet, Calibration, CalibrationConfigurations, CalibrationTVCCorrections
+from .serializers import MessageSerializer, CorrectionSerializer, CorrectionGroupedSerializer, FlatCorrectionSerializer, UncertaintySerializer, UncertaintyGroupedSerializer, FlatUncertaintySerializer, CalibrationSerializer, CalibrationSessionSerializer, TestPointSerializer, TestPointSetSerializer, CalibrationTVCCorrectionsSerializer, CalibrationConfigurationsSerializer, CalibrationSettingsSerializer, CalibrationReadingsSerializer, CalibrationResultsSerializer
 from .NPSL_Tools.instruments.instrument_34420A import Instrument34420A
 from django.core.exceptions import ObjectDoesNotExist
 import json
@@ -74,22 +74,39 @@ def discover_instruments(request):
         return JsonResponse({'error': 'Could not initialize VISA resource manager.', 'details': str(e)}, status=500)
 
     # --- Robust De-duplication Logic ---
-    instrument_map = {}
+    visa_network_resources = []
+    local_resources = []
+
     for address in resources:
-        if 'visa://' not in address.lower():
-            continue
+        if 'visa://' in address.lower():
+            visa_network_resources.append(address)
+        else:
+            local_resources.append(address)
 
-        # FIX: Updated regex to handle optional port numbers
-        ip_match = re.search(r'visa:\/\/([0-9.]+)(:[0-9]+)?', address)
-        core_match = re.search(r'GPIB\d*::\d+::INSTR', address)
+    final_addresses = []
+    instrument_map = {}
 
-        if ip_match and core_match:
-            ip = ip_match.group(1)
-            core_address = core_match.group(0)
-            unique_key = f"{ip}-{core_address}"
-            instrument_map[unique_key] = address
+    if visa_network_resources:
+        print("Network instruments found. Prioritizing VISA network addresses.")
+        for address in visa_network_resources:
+            ip_match = re.search(r'visa:\/\/([0-9.]+)(:[0-9]+)?', address)
+            core_match = re.search(r'GPIB\d*::\d+::INSTR', address)
+            
+            if ip_match and core_match:
+                ip = ip_match.group(1)
+                core_address = core_match.group(0)
+                unique_key = f"{ip}-{core_address}"
+                instrument_map[unique_key] = address
 
-    final_addresses = sorted(list(instrument_map.values()))
+        final_addresses = sorted(list(instrument_map.values()))
+    else:
+        print("No network instruments found. Falling back to local addresses.")
+        local_map = {}
+        for address in local_resources:
+            core_match = re.search(r'GPIB\d*::\d+::INSTR', address)
+            local_map[core_match] = address
+        final_addresses = sorted(list(local_map.values()))
+
     print(f"De-duplicated, prioritized instrument addresses: {final_addresses}")
 
     instrument_list = []
@@ -286,6 +303,7 @@ class CalibrationSessionViewSet(viewsets.ModelViewSet):
         calibration, _ = Calibration.objects.get_or_create(session=session)
 
         CalibrationConfigurations.objects.get_or_create(calibration=calibration)
+        CalibrationTVCCorrections.objects.get_or_create(calibration=calibration)
 
         if request.method == 'GET':
             serializer = CalibrationSerializer(calibration)
@@ -293,6 +311,23 @@ class CalibrationSessionViewSet(viewsets.ModelViewSet):
 
         elif request.method == 'PUT':
             serializer = CalibrationSerializer(calibration, data=request.data, partial=True)
+            if serializer.is_valid():
+                serializer.save()
+                return Response(serializer.data)
+            return Response(serializer.errors, status=status.HTTP_400_BAD_REQUEST)
+
+    @action(detail=True, methods=['get', 'put'], url_path='tvc-corrections')
+    def calibration_tvc_corrections_handler(self, request, pk=None):
+        session = self.get_object()
+        calibration, _ = Calibration.objects.get_or_create(session=session)
+        tvc_corrections, _ = CalibrationTVCCorrections.objects.get_or_create(calibration=calibration)
+
+        if request.method == 'GET':
+            serializer = CalibrationTVCCorrectionsSerializer(tvc_corrections)
+            return Response(serializer.data)
+
+        elif request.method == 'PUT':
+            serializer = CalibrationTVCCorrectionsSerializer(tvc_corrections, data=request.data, partial=True)
             if serializer.is_valid():
                 serializer.save()
                 return Response(serializer.data)

@@ -56,6 +56,28 @@ class Calibration(models.Model):
         on_delete=models.CASCADE
     )
 
+class Correction(models.Model):
+    range = models.FloatField()
+    current = models.FloatField()
+    frequency = models.IntegerField()
+    correction = models.FloatField(null=True, blank=True)
+    class Meta:
+        unique_together = ('range', 'current', 'frequency')
+
+    def __str__(self):
+        return f"ID: {self.id} | Range: {self.range}, Current: {self.current}, Frequency: {self.frequency}, Correction: {self.correction}"
+    
+class Uncertainty(models.Model):
+    range = models.FloatField()
+    current = models.FloatField()
+    frequency = models.IntegerField()
+    uncertainty = models.FloatField(null=True, blank=True)
+    class Meta:
+        unique_together = ('range', 'current', 'frequency')
+
+    def __str__(self):
+        return f"ID: {self.id} | Range: {self.range}, Current: {self.current}, Frequency: {self.frequency}, Uncertainty: {self.uncertainty}"
+    
 class TestPointSet(models.Model):
     session = models.OneToOneField(
         CalibrationSession,
@@ -87,6 +109,20 @@ class TestPoint(models.Model):
         # Ensure a test point is unique for a given current, frequency, and direction within a set
         unique_together = ('test_point_set', 'current', 'frequency', 'direction')
         ordering = ['frequency', 'current', 'direction']
+
+class CalibrationTVCCorrections(models.Model):
+    calibration = models.OneToOneField(
+        Calibration,
+        related_name='tvccorrections',
+        on_delete=models.CASCADE,
+        null=True,
+        blank=True
+    )
+    corrections_data = models.JSONField(default=dict, blank=True)
+
+    def __str__(self):
+        return f"TVC Corrections for {self.calibration.session.name if self.calibration and self.calibration.session else 'N/A'}"
+    
 
 class CalibrationConfigurations(models.Model):
     calibration = models.OneToOneField(
@@ -180,7 +216,7 @@ class CalibrationResults(models.Model):
         blank=True
     )
     
-    # Standard Readings Stats
+    # ... (existing fields for stats and corrections) ...
     std_ac_open_avg = models.FloatField(null=True, blank=True)
     std_ac_open_stddev = models.FloatField(null=True, blank=True)
     std_dc_pos_avg = models.FloatField(null=True, blank=True)
@@ -190,7 +226,6 @@ class CalibrationResults(models.Model):
     std_ac_close_avg = models.FloatField(null=True, blank=True)
     std_ac_close_stddev = models.FloatField(null=True, blank=True)
     
-    # Test Instrument Readings Stats
     ti_ac_open_avg = models.FloatField(null=True, blank=True)
     ti_ac_open_stddev = models.FloatField(null=True, blank=True)
     ti_dc_pos_avg = models.FloatField(null=True, blank=True)
@@ -200,13 +235,24 @@ class CalibrationResults(models.Model):
     ti_ac_close_avg = models.FloatField(null=True, blank=True)
     ti_ac_close_stddev = models.FloatField(null=True, blank=True)
 
-    # User-provided correction factors
     eta_std = models.FloatField(null=True, blank=True, help_text="Gain factor for Standard instrument system")
     eta_ti = models.FloatField(null=True, blank=True, help_text="Gain factor for Test Instrument system")
+    delta_std = models.FloatField(null=True, blank=True, help_text="Known AC-DC difference of the Standard TVC in PPM")
+    delta_ti = models.FloatField(null=True, blank=True, help_text="Known AC-DC difference of the TI TVC in PPM")
     delta_std_known = models.FloatField(null=True, blank=True, help_text="Known AC-DC difference of the Standard Shunt in PPM")
 
-    # Final Result
-    delta_uut_ppm = models.FloatField(null=True, blank=True, help_text="Final calculated UUT AC-DC difference in PPM")
+    delta_uut_ppm = models.FloatField(null=True, blank=True, help_text="Final calculated UUT AC-DC difference in PPM -> Forward or Revers")
+    delta_uut_ppm_avg = models.FloatField(null=True, blank=True, help_text="Final averaged UUT AC-DC difference in PPM")
+
+    # Calculated Uncertainty Budget
+    combined_uncertainty = models.FloatField(null=True, blank=True, help_text="Calculated combined standard uncertainty (uc) in PPM")
+    effective_dof = models.FloatField(null=True, blank=True, help_text="Calculated effective degrees of freedom (veff)")
+    k_value = models.FloatField(null=True, blank=True, help_text="Calculated coverage factor (k)")
+    expanded_uncertainty = models.FloatField(null=True, blank=True, help_text="Calculated expanded uncertainty (U) in PPM")
+    is_detailed_uncertainty_calculated = models.BooleanField(default=False)
+    
+    # NEW FIELD to store the manual uncertainty components
+    manual_uncertainty_components = models.JSONField(default=list, blank=True, null=True)
 
     created_at = models.DateTimeField(auto_now_add=True)
     updated_at = models.DateTimeField(auto_now=True)

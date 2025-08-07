@@ -8,10 +8,10 @@
  * active in the InstrumentContext. On submission, it communicates with the
  * backend API to save the data.
  */
-import React, { useState, useEffect} from 'react';
+import React, { useState, useEffect } from 'react';
 import axios from 'axios';
-
 import { useInstruments } from '../../contexts/InstrumentContext';
+import TVCCorrections from '../tables/TVCCorrections';
 
 const API_BASE_URL = process.env.REACT_APP_API_BASE_URL;
 
@@ -119,6 +119,14 @@ function SessionDetailsForm({ sessionsList, fetchSessionsList, showNotification 
         }
     };
 
+
+    const [showModal, setShowModal] = useState(false);
+
+    const handleClose = () => {
+        setShowModal(false);
+    };
+
+
     return (
         <form onSubmit={handleSubmit} style={{ marginTop: '20px' }}>
             <div style={{ display: 'flex', gap: '20px', flexWrap: 'wrap' }}>
@@ -157,6 +165,17 @@ function SessionDetailsForm({ sessionsList, fetchSessionsList, showNotification 
                         <label htmlFor="notes">Notes</label>
                         <textarea id="notes" name="notes" value={formData.notes} onChange={handleChange} rows="4" />
                     </div>
+
+                    <div>
+                        <button type="button" onClick={() => setShowModal(true)}>Import TVC Corrections</button>
+
+                        {showModal && (
+                            <div className='modal-overlay'>
+                                <TVCCorrections handleClose={handleClose} showNotification={showNotification}></TVCCorrections>
+                            </div>
+                        )}
+                    </div>
+
 
                 </div>
             </div>

@@ -36,11 +36,11 @@ function InstrumentStatusPanel({ showNotification }) {
     const workstations = useMemo(() => {
         const wsMap = new Map();
         discoveredInstruments.forEach(inst => {
-            // FIX: Updated regex to handle optional port numbers (e.g., :3636)
-            const match = inst.address.match(/visa:\/\/([0-9.]+)(:[0-9]+)?/i);
-            
-            if (match && match[1]) {
-                const ip = match[1];
+            const visaMatch = inst.address.match(/visa:\/\/([0-9.]+)(:[0-9]+)?/i);
+            const gpibMatch = inst.address.match(/GPIB\d*::\d+::INSTR/i);
+
+            if (visaMatch && visaMatch[1]) {
+                const ip = visaMatch[1];
                 if (!wsMap.has(ip)) {
                     const customName = localStorage.getItem(`workstationName_${ip}`);
                     const isLocal = ip === localIp;
@@ -52,6 +52,15 @@ function InstrumentStatusPanel({ showNotification }) {
                     });
                 }
                 wsMap.get(ip).instruments.push(inst);
+            } else if (gpibMatch) {
+                const localWorkstationKey = 'local';
+                if (!wsMap.has(localWorkstationKey)) {
+                    wsMap.set(localWorkstationKey, {
+                        name: 'Local Workstation',
+                        instruments: []
+                    });
+                }
+                wsMap.get(localWorkstationKey).instruments.push(inst);
             }
         });
         return Array.from(wsMap.entries()).map(([ip, data]) => ({ ip, ...data }));
@@ -65,17 +74,72 @@ function InstrumentStatusPanel({ showNotification }) {
         }
     }, [workstations, activeWorkstationIp]);
 
+    const resetInstrumentAddress = async () => {
+        setStdInstrumentAddress(null);
+        setStdReaderModel(null);
+        setTiInstrumentAddress(null);
+        setTiReaderModel(null);
+        setAcSourceAddress(null);
+        setDcSourceAddress(null);
+
+        const payload = {
+            test_reader_model: null,
+            test_reader_address: null,
+            standard_reader_model: null,
+            standard_reader_address: null,
+            ac_source_address: null,
+            dc_source_address: null
+        };
+
+        try {
+            await axios.patch(`${API_BASE_URL}/calibration_sessions/${selectedSessionId}/`, payload);
+        } catch (error) {
+            console.error('Failed to reset instrument addresses:', error);
+        }
+    };
+
     const handleScanInstruments = async () => {
         setIsScanning(true);
         setDiscoveredInstruments([]);
+
         try {
             const response = await axios.get(`${API_BASE_URL}/instruments/discover/`);
             const instruments = Array.isArray(response.data.instruments) ? response.data.instruments : [];
+
+            const info = await axios.get(`${API_BASE_URL}/calibration_sessions/${selectedSessionId}/`);
+
+            const testReaderAddress = info.data.test_reader_address;
+            const standardReaderAddress = info.data.standard_reader_address;
+            const acSourceAddress = info.data.ac_source_address;
+            const dcSourceAddress = info.data.dc_source_address;
+
+            const infoContainsVisa =
+                (testReaderAddress && testReaderAddress.startsWith("visa://")) ||
+                (standardReaderAddress && standardReaderAddress.startsWith("visa://")) ||
+                (acSourceAddress && acSourceAddress.startsWith("visa://")) ||
+                (dcSourceAddress && dcSourceAddress.startsWith("visa://"));
+
+            const instrumentsContainNonVisa = instruments.some(instrument => instrument.address && !instrument.address.startsWith("visa://"));
+
+            const infoContainsNonVisa = (testReaderAddress && !testReaderAddress.startsWith("visa://")) ||
+                (standardReaderAddress && !standardReaderAddress.startsWith("visa://")) ||
+                (acSourceAddress && !acSourceAddress.startsWith("visa://")) ||
+                (dcSourceAddress && !dcSourceAddress.startsWith("visa://"));
+
+            const instrumentsContainVisa = instruments.some(instrument => instrument.address && instrument.address.startsWith("visa://"));
+
+            if (
+                (infoContainsVisa && instrumentsContainNonVisa) ||
+                (infoContainsNonVisa && instrumentsContainVisa)
+            ) {
+                resetInstrumentAddress();
+            }
+
             const serverIp = response.data.local_ip || '';
 
             setLocalIp(serverIp);
             setDiscoveredInstruments(instruments);
-            
+
             instruments.forEach(inst => {
                 const modelMatch = inst.identity.match(/(\d{4}[A-Z]?)/);
                 const model = modelMatch ? modelMatch[0] : null;
@@ -83,6 +147,7 @@ function InstrumentStatusPanel({ showNotification }) {
                     getInstrumentStatus(model, inst.address);
                 }
             });
+
             showNotification(`Scan complete. Found ${instruments.length} instrument(s).`, 'success');
         } catch (error) {
             showNotification('Failed to scan for instruments.', 'error');
@@ -104,7 +169,7 @@ function InstrumentStatusPanel({ showNotification }) {
         localStorage.setItem(`workstationName_${editingIp}`, editingName.trim());
         showNotification(`Workstation name for ${editingIp} saved.`, 'success');
         setEditingIp(null);
-        setDiscoveredInstruments([...discoveredInstruments]); 
+        setDiscoveredInstruments([...discoveredInstruments]);
     };
 
     const handleResetName = () => {
@@ -113,7 +178,7 @@ function InstrumentStatusPanel({ showNotification }) {
         setEditingIp(null);
         setDiscoveredInstruments([...discoveredInstruments]);
     };
-    
+
     const getModelFromIdentity = (identity) => {
         if (!identity) return null;
         const parts = identity.split(',');
@@ -171,7 +236,7 @@ function InstrumentStatusPanel({ showNotification }) {
                     &#128269; {isScanning ? 'Scanning...' : 'Scan for Instruments'}
                 </button>
             </div>
-            <div className="test-set-details" style={{flexWrap: 'wrap'}}>
+            <div className="test-set-details" style={{ flexWrap: 'wrap' }}>
                 <div><strong>Standard Reader:</strong> {stdInstrumentAddress ? `${stdReaderModel || ''} (${stdInstrumentAddress})` : 'Not Assigned'}</div>
                 <div><strong>Test Reader:</strong> {tiInstrumentAddress ? `${tiReaderModel || ''} (${tiInstrumentAddress})` : 'Not Assigned'}</div>
                 <div><strong>AC Source:</strong> {acSourceAddress || 'Not Assigned'}</div>
@@ -195,7 +260,7 @@ function InstrumentStatusPanel({ showNotification }) {
                     <div className="workstation-editor">
                         {editingIp === activeWorkstationIp ? (
                             <>
-                                <input type="text" value={editingName} onChange={e => setEditingName(e.target.value)} placeholder="Enter new name..."/>
+                                <input type="text" value={editingName} onChange={e => setEditingName(e.target.value)} placeholder="Enter new name..." />
                                 <button className="button button-small" onClick={handleSaveName}>Save</button>
                                 <button className="button button-secondary button-small" onClick={handleResetName}>Reset</button>
                                 <button className="button button-secondary button-small" onClick={() => setEditingIp(null)}>Cancel</button>
@@ -208,7 +273,7 @@ function InstrumentStatusPanel({ showNotification }) {
                     </div>
                 </div>
             )}
-            
+
             <div className="status-list">
                 {activeInstruments.length > 0 ? (
                     activeInstruments.map(inst => {
@@ -227,28 +292,28 @@ function InstrumentStatusPanel({ showNotification }) {
                                     <div className="status-badge"><span className="status-badge-icon">●</span>Connected</div>
                                 </div>
                                 {isAssignable && (
-                                     <div className="role-assignment" style={{marginTop: '10px', paddingTop: '10px', borderTop: '1px solid var(--border-color)', display: 'flex', alignItems: 'center', gap: '20px'}}>
-                                        <label style={{fontWeight: '500'}}>Assign Reader Role:</label>
+                                    <div className="role-assignment" style={{ marginTop: '10px', paddingTop: '10px', borderTop: '1px solid var(--border-color)', display: 'flex', alignItems: 'center', gap: '20px' }}>
+                                        <label style={{ fontWeight: '500' }}>Assign Reader Role:</label>
                                         <div className="checkbox-group" style={{ display: 'flex', alignItems: 'center', gap: '5px' }}>
-                                            <input type="checkbox" id={`std-role-${inst.address}`} checked={stdInstrumentAddress === inst.address} onChange={(e) => handleStdTiRoleChange(inst, 'standard', e.target.checked)} disabled={!selectedSessionId || (stdInstrumentAddress && stdInstrumentAddress !== inst.address)}/>
-                                            <label htmlFor={`std-role-${inst.address}`} style={{marginBottom: 0}}>Standard</label>
+                                            <input type="checkbox" id={`std-role-${inst.address}`} checked={stdInstrumentAddress === inst.address} onChange={(e) => handleStdTiRoleChange(inst, 'standard', e.target.checked)} disabled={!selectedSessionId || (stdInstrumentAddress && stdInstrumentAddress !== inst.address)} />
+                                            <label htmlFor={`std-role-${inst.address}`} style={{ marginBottom: 0 }}>Standard</label>
                                         </div>
                                         <div className="checkbox-group" style={{ display: 'flex', alignItems: 'center', gap: '5px' }}>
-                                            <input type="checkbox" id={`test-role-${inst.address}`} checked={tiInstrumentAddress === inst.address} onChange={(e) => handleStdTiRoleChange(inst, 'test', e.target.checked)} disabled={!selectedSessionId || (tiInstrumentAddress && tiInstrumentAddress !== inst.address)}/>
-                                            <label htmlFor={`test-role-${inst.address}`} style={{marginBottom: 0}}>Test Instrument</label>
+                                            <input type="checkbox" id={`test-role-${inst.address}`} checked={tiInstrumentAddress === inst.address} onChange={(e) => handleStdTiRoleChange(inst, 'test', e.target.checked)} disabled={!selectedSessionId || (tiInstrumentAddress && tiInstrumentAddress !== inst.address)} />
+                                            <label htmlFor={`test-role-${inst.address}`} style={{ marginBottom: 0 }}>Test Instrument</label>
                                         </div>
                                     </div>
                                 )}
                                 {isAcDcAssignable && (
-                                     <div className="role-assignment" style={{marginTop: '10px', paddingTop: '10px', borderTop: '1px solid var(--border-color)', display: 'flex', alignItems: 'center', gap: '20px'}}>
-                                        <label style={{fontWeight: '500'}}>Assign Source Function:</label>
+                                    <div className="role-assignment" style={{ marginTop: '10px', paddingTop: '10px', borderTop: '1px solid var(--border-color)', display: 'flex', alignItems: 'center', gap: '20px' }}>
+                                        <label style={{ fontWeight: '500' }}>Assign Source Function:</label>
                                         <div className="checkbox-group" style={{ display: 'flex', alignItems: 'center', gap: '5px' }}>
-                                            <input type="checkbox" id={`ac-role-${inst.address}`} checked={acSourceAddress === inst.address} onChange={(e) => handleAcDcCheckboxChange(inst, 'ac', e.target.checked)} disabled={!selectedSessionId || (acSourceAddress && acSourceAddress !== inst.address)}/>
-                                            <label htmlFor={`ac-role-${inst.address}`} style={{marginBottom: 0}}>AC Source</label>
+                                            <input type="checkbox" id={`ac-role-${inst.address}`} checked={acSourceAddress === inst.address} onChange={(e) => handleAcDcCheckboxChange(inst, 'ac', e.target.checked)} disabled={!selectedSessionId || (acSourceAddress && acSourceAddress !== inst.address)} />
+                                            <label htmlFor={`ac-role-${inst.address}`} style={{ marginBottom: 0 }}>AC Source</label>
                                         </div>
                                         <div className="checkbox-group" style={{ display: 'flex', alignItems: 'center', gap: '5px' }}>
-                                            <input type="checkbox" id={`dc-role-${inst.address}`} checked={dcSourceAddress === inst.address} onChange={(e) => handleAcDcCheckboxChange(inst, 'dc', e.target.checked)} disabled={!selectedSessionId || (dcSourceAddress && dcSourceAddress !== inst.address)}/>
-                                            <label htmlFor={`dc-role-${inst.address}`} style={{marginBottom: 0}}>DC Source</label>
+                                            <input type="checkbox" id={`dc-role-${inst.address}`} checked={dcSourceAddress === inst.address} onChange={(e) => handleAcDcCheckboxChange(inst, 'dc', e.target.checked)} disabled={!selectedSessionId || (dcSourceAddress && dcSourceAddress !== inst.address)} />
+                                            <label htmlFor={`dc-role-${inst.address}`} style={{ marginBottom: 0 }}>DC Source</label>
                                         </div>
                                     </div>
                                 )}
@@ -256,8 +321,8 @@ function InstrumentStatusPanel({ showNotification }) {
                                     <div className="status-card-body">
                                         {isFetching && <p>Fetching status details...</p>}
                                         {status?.decoded && !status.error && (
-                                             <>
-                                                <h4 style={{marginTop: 0, marginBottom: '10px'}}>Active Status Flags</h4>
+                                            <>
+                                                <h4 style={{ marginTop: 0, marginBottom: '10px' }}>Active Status Flags</h4>
                                                 <ul className="status-flags-list">
                                                     {Object.entries(status.decoded).filter(([, value]) => value === true).length > 0 ?
                                                         Object.entries(status.decoded).filter(([, value]) => value === true).map(([key]) => (

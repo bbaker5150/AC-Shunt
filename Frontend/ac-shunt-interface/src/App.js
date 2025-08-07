@@ -6,11 +6,11 @@
  */
 import React, { useState, useCallback } from 'react';
 import SessionSetup from './components/session/SessionSetup';
-import InstrumentStatusTab from './components/session/InstrumentStatusTab'; // Import new component
+import InstrumentStatusTab from './components/session/InstrumentStatusTab';
 import Calibration from './components/calibration/Calibration';
 import TestPointEditor from './components/calibration/TestPointEditor';
 import CalibrationResults from './components/calibration/CalibrationResults';
-// Import the correct Instrument provider and hook
+import UncertaintyAnalysis from './components/analysis/UncertaintyAnalysis'; // 1. Import new component
 import { InstrumentContextProvider, useInstruments } from './contexts/InstrumentContext'; 
 import { ThemeProvider, useTheme } from './contexts/ThemeContext';
 import 'bootstrap/dist/css/bootstrap.min.css';
@@ -96,7 +96,6 @@ function AppContent() {
                     <button onClick={() => setActiveTab('sessionSetup')} className={activeTab === 'sessionSetup' ? 'tab-button active' : 'tab-button'}>
                         Session Setup
                     </button>
-                    {/* New Tab Button */}
                     <button onClick={() => setActiveTab('instrumentStatus')} className={activeTab === 'instrumentStatus' ? 'tab-button active' : 'tab-button'}>
                         Instrument Status
                     </button>
@@ -109,6 +108,10 @@ function AppContent() {
                     <button onClick={() => setActiveTab('calibrationResults')} className={activeTab === 'calibrationResults' ? 'tab-button active' : 'tab-button'}>
                         Calibration Results
                     </button>
+                    {/* 2. Add the new tab button */}
+                    <button onClick={() => setActiveTab('uncertaintyAnalysis')} className={activeTab === 'uncertaintyAnalysis' ? 'tab-button active' : 'tab-button'}>
+                        Uncertainty Analysis
+                    </button>
                 </nav>
             </header>
 
@@ -116,7 +119,6 @@ function AppContent() {
                 {activeTab === 'sessionSetup' && (
                     <SessionSetup showNotification={showNotification} />
                 )}
-                {/* New Tab Content */}
                 {activeTab === 'instrumentStatus' && (
                     <InstrumentStatusTab showNotification={showNotification} />
                 )}
@@ -128,6 +130,10 @@ function AppContent() {
                 )}
                 {activeTab === 'calibrationResults' && (
                     <CalibrationResults showNotification={showNotification} />
+                )}
+                {/* 3. Add the new tab content rendering */}
+                {activeTab === 'uncertaintyAnalysis' && (
+                    <UncertaintyAnalysis showNotification={showNotification} />
                 )}
             </main>
         </div>

@@ -20,27 +20,29 @@ const AVAILABLE_FREQUENCIES = [
     { text: '5kHz', value: 5000 }, { text: '10kHz', value: 10000 }, { text: '20kHz', value: 20000 },
     { text: '50kHz', value: 50000 }, { text: '100kHz', value: 100000 }
 ];
+const READING_KEY_NAMES = [
+    'std_ac_open_readings', 'std_dc_pos_readings', 'std_dc_neg_readings', 'std_ac_close_readings',
+    'ti_ac_open_readings', 'ti_dc_pos_readings', 'ti_dc_neg_readings', 'ti_ac_close_readings'
+];
 
-const DirectionToggle = ({ activeDirection, setActiveDirection }) => (
-    <div className="view-toggle" style={{ marginBottom: '1rem', justifyContent: 'center' }}>
-        <button
-            className={activeDirection === 'Forward' ? 'active' : ''}
-            onClick={() => setActiveDirection('Forward')}>
-            Forward
-        </button>
-        <button
-            className={activeDirection === 'Reverse' ? 'active' : ''}
-            onClick={() => setActiveDirection('Reverse')}>
-            Reverse
-        </button>
-    </div>
-);
+const DirectionToggle = ({ activeDirection, setActiveDirection, point }) => {
+    const hasBothDirections = point?.forward?.results && point?.reverse?.results;
+    return (
+        <div className="view-toggle" style={{ marginBottom: '1rem', justifyContent: 'center' }}>
+            <button className={activeDirection === 'Forward' ? 'active' : ''} onClick={() => setActiveDirection('Forward')}>Forward</button>
+            <button className={activeDirection === 'Reverse' ? 'active' : ''} onClick={() => setActiveDirection('Reverse')}>Reverse</button>
+            <button className={activeDirection === 'Combined' ? 'active' : ''} onClick={() => setActiveDirection('Combined')} disabled={!hasBothDirections} title={!hasBothDirections ? "Both directions must be complete" : ""}>
+                Combined
+            </button>
+        </div>
+    );
+};
 
 const FinalResultCard = ({ title, value, formula }) => {
     const isCalculated = value !== null && value !== undefined;
-    const cardStyle = title.toLowerCase().includes('average') 
-        ? { borderTop: '4px solid var(--success-color)'}
-        : { borderTop: '4px solid var(--primary-color)'};
+    const cardStyle = title.toLowerCase().includes('average') || title.toLowerCase().includes('combined')
+        ? { borderTop: '4px solid var(--success-color)' }
+        : { borderTop: '4px solid var(--primary-color)' };
 
     return (
         <div className="final-result-card" style={cardStyle}>
@@ -75,37 +77,58 @@ const DetailedReadingsTable = ({ readingsArray }) => {
     );
 };
 
-const SummaryTable = ({ results, prefix, title }) => (
-    <div style={{marginBottom: '20px'}}>
-        <h4>{title}</h4>
-        <div className="table-container">
-            <table className="cal-results-table">
-                <thead><tr><th>Measurement</th><th>Average (V)</th><th>Std. Dev. (PPM)</th></tr></thead>
-                <tbody>
-                    {READING_TYPES.map(rt => {
-                        const avgKey = `${prefix}${rt.value.replace('_readings', '_avg')}`;
-                        const stddevKey = `${prefix}${rt.value.replace('_readings', '_stddev')}`;
-                        const average = results?.[avgKey];
-                        const stddev = results?.[stddevKey];
-                        let stddevPpm = '...';
-                        if (average && stddev && average !== 0) {
-                            const ppm = (stddev / Math.abs(average)) * 1_000_000;
-                            stddevPpm = ppm.toFixed(3);
-                        }
-                        return (
-                             <tr key={rt.value}>
-                                <td>{rt.label}</td>
-                                <td>{average?.toPrecision(8) ?? '...'}</td>
-                                <td>{stddevPpm}</td>
-                             </tr>
-                        );
-                    })}
-                </tbody>
-            </table>
-        </div>
-    </div>
-);
+const SummaryTable = ({ results, prefix, title }) => {
+    const [stdDevUnit, setStdDevUnit] = useState('ppm'); // 'ppm' or 'volts'
 
+    return (
+        <div style={{ marginBottom: '20px' }}>
+            <div className="summary-table-header">
+                <h4>{title}</h4>
+                <div className="unit-toggle">
+                    <button className={stdDevUnit === 'ppm' ? 'active' : ''} onClick={() => setStdDevUnit('ppm')}>PPM</button>
+                    <button className={stdDevUnit === 'volts' ? 'active' : ''} onClick={() => setStdDevUnit('volts')}>Volts</button>
+                </div>
+            </div>
+            <div className="table-container">
+                <table className="cal-results-table">
+                    <thead>
+                        <tr>
+                            <th>Measurement</th>
+                            <th>Average (V)</th>
+                            <th>Std. Dev. ({stdDevUnit === 'ppm' ? 'PPM' : 'V'})</th>
+                        </tr>
+                    </thead>
+                    <tbody>
+                        {READING_TYPES.map(rt => {
+                            const avgKey = `${prefix}${rt.value.replace('_readings', '_avg')}`;
+                            const stddevKey = `${prefix}${rt.value.replace('_readings', '_stddev')}`;
+                            const average = results?.[avgKey];
+                            const stddev = results?.[stddevKey];
+                            let displayStdDev = '...';
+
+                            if (average && stddev) {
+                                if (stdDevUnit === 'ppm' && average !== 0) {
+                                    const ppm = (stddev / Math.abs(average)) * 1_000_000;
+                                    displayStdDev = ppm.toFixed(3);
+                                } else {
+                                    displayStdDev = stddev.toPrecision(3);
+                                }
+                            }
+
+                            return (
+                                <tr key={rt.value}>
+                                    <td>{rt.label}</td>
+                                    <td>{average?.toPrecision(8) ?? '...'}</td>
+                                    <td>{displayStdDev}</td>
+                                </tr>
+                            );
+                        })}
+                    </tbody>
+                </table>
+            </div>
+        </div>
+    );
+};
 
 function CalibrationResults({ showNotification }) {
     const { selectedSessionId } = useInstruments();
@@ -122,7 +145,6 @@ function CalibrationResults({ showNotification }) {
     const [selectedReadingType, setSelectedReadingType] = useState('ac_open_readings');
     const [showCalcDetails, setShowCalcDetails] = useState(false);
     const [activeDirection, setActiveDirection] = useState('Forward');
-    const [averagedResult, setAveragedResult] = useState(null);
 
     const calInfoHeaders = ['TI Model', 'TI Serial', 'STD Model', 'STD Serial', 'Calibration Date', 'Temperature', 'Humidity'];
 
@@ -143,11 +165,11 @@ function CalibrationResults({ showNotification }) {
 
     useEffect(() => {
         if (window.MathJax && (showCalcDetails || activeTab === 'summary')) {
-             if (typeof window.MathJax.typesetPromise === 'function') {
+            if (typeof window.MathJax.typesetPromise === 'function') {
                 window.MathJax.typesetPromise().catch((err) => console.error('MathJax typeset failed:', err));
-             }
+            }
         }
-    }, [showCalcDetails, calResults, activeTab, averagedResult]);
+    }, [showCalcDetails, calResults, activeTab, activeDirection]);
 
     const fetchCalibrationData = useCallback(async () => {
         if (!selectedSessionId) {
@@ -174,31 +196,67 @@ function CalibrationResults({ showNotification }) {
     }, [fetchCalibrationData]);
 
     useEffect(() => {
-        const pointForDirection = activeDirection === 'Forward' ? selectedTP?.forward : selectedTP?.reverse;
-        if (pointForDirection) {
-            setCalResults(pointForDirection.results);
-            setCalReadings(pointForDirection.readings);
-        } else {
-            setCalResults(null);
-            setCalReadings(null);
-        }
-    }, [selectedTP, activeDirection]);
-
-    useEffect(() => {
         if (selectedTP) {
-            const forwardResult = selectedTP.forward?.results?.delta_uut_ppm;
-            const reverseResult = selectedTP.reverse?.results?.delta_uut_ppm;
-
-            if (forwardResult !== null && forwardResult !== undefined && reverseResult !== null && reverseResult !== undefined) {
-                const avg = (parseFloat(forwardResult) + parseFloat(reverseResult)) / 2;
-                setAveragedResult(avg);
+            const hasCombinedData = selectedTP.forward?.results && selectedTP.reverse?.results;
+            if (hasCombinedData) {
+                setActiveDirection('Combined');
             } else {
-                setAveragedResult(null);
+                setActiveDirection('Forward');
             }
-        } else {
-            setAveragedResult(null);
         }
     }, [selectedTP]);
+
+    useEffect(() => {
+        if (!selectedTP) return;
+    
+        if (activeDirection === 'Combined') {
+            const { forward, reverse } = selectedTP;
+            if (forward?.readings && reverse?.readings && forward?.results && reverse?.results) {
+                const combinedReadings = {};
+                READING_KEY_NAMES.forEach(key => {
+                    const forwardReadings = forward.readings[key] || [];
+                    const reverseReadings = reverse.readings[key] || [];
+                    combinedReadings[key] = [...forwardReadings, ...reverseReadings];
+                });
+                setCalReadings(combinedReadings);
+    
+                const combinedResults = {};
+                READING_KEY_NAMES.forEach(key => {
+                    const readings = combinedReadings[key].map(r => (typeof r === 'object' ? r.value : r));
+                    if (readings.length > 0) {
+                        const sum = readings.reduce((a, b) => a + b, 0);
+                        const avg = sum / readings.length;
+                        const stddev = readings.length > 1
+                            ? Math.sqrt(readings.map(x => Math.pow(x - avg, 2)).reduce((a, b) => a + b, 0) / (readings.length - 1))
+                            : 0;
+                        
+                        combinedResults[key.replace('_readings', '_avg')] = avg;
+                        combinedResults[key.replace('_readings', '_stddev')] = stddev;
+                    }
+                });
+    
+                combinedResults.eta_std = forward.results.eta_std;
+                combinedResults.eta_ti = forward.results.eta_ti;
+                combinedResults.delta_std = forward.results.delta_std;
+                combinedResults.delta_ti = forward.results.delta_ti;
+                combinedResults.delta_std_known = forward.results.delta_std_known;
+                combinedResults.delta_uut_ppm = forward.results.delta_uut_ppm_avg;
+                setCalResults(combinedResults);
+            } else {
+                setCalResults(null);
+                setCalReadings(null);
+            }
+        } else {
+            const pointForDirection = activeDirection === 'Forward' ? selectedTP?.forward : selectedTP?.reverse;
+            if (pointForDirection) {
+                setCalResults(pointForDirection.results);
+                setCalReadings(pointForDirection.readings);
+            } else {
+                setCalResults(null);
+                setCalReadings(null);
+            }
+        }
+    }, [selectedTP, activeDirection]);
 
     const hasAllReadings = (point) => point?.readings && ['std_ac_open_readings', 'std_dc_pos_readings', 'std_dc_neg_readings', 'std_ac_close_readings', 'ti_ac_open_readings', 'ti_dc_pos_readings', 'ti_dc_neg_readings', 'ti_ac_close_readings'].every(key => point.readings[key]?.length > 0);
     const formatFrequency = (value) => (AVAILABLE_FREQUENCIES.find(f => f.value === value) || { text: `${value}Hz` }).text;
@@ -211,8 +269,7 @@ function CalibrationResults({ showNotification }) {
         const wb = XLSX.utils.book_new();
         const prefix = instrumentType === 'std' ? 'std_' : 'ti_';
         const instrumentName = instrumentType === 'std' ? 'Standard' : 'Test_Instrument';
-        const pointForDirection = activeDirection === 'Forward' ? selectedTP.forward : selectedTP.reverse;
-
+        
         READING_TYPES.forEach(rt => {
             const key = `${prefix}${rt.value}`;
             const readingsArray = calReadings[key] || [];
@@ -241,7 +298,7 @@ function CalibrationResults({ showNotification }) {
         });
 
         if (wb.SheetNames.length > 0) {
-            XLSX.writeFile(wb, `${instrumentName}_Readings_${pointForDirection.current}A_${formatFrequency(pointForDirection.frequency)}_${pointForDirection.direction}.xlsx`);
+            XLSX.writeFile(wb, `${instrumentName}_Readings_${selectedTP.current}A_${formatFrequency(selectedTP.frequency)}_${activeDirection}.xlsx`);
         } else {
             showNotification('No detailed readings to export for this instrument.', 'warning');
         }
@@ -269,7 +326,7 @@ function CalibrationResults({ showNotification }) {
     };
 
     const CalculationBreakdown = ({ results }) => {
-        if (!results || !results.delta_std_known || !results.eta_std || !results.eta_ti || !results.delta_uut_ppm) {
+        if (!results || !results.delta_std_known || !results.eta_std || !results.eta_ti || !results.delta_std || !results.delta_ti || !results.delta_uut_ppm) {
             return <div className="form-section-warning"><p>Calculation cannot be shown until all factors and readings are complete for this direction.</p></div>;
         }
         const V_DCSTD = (results.std_dc_pos_avg + Math.abs(results.std_dc_neg_avg)) / 2;
@@ -278,29 +335,29 @@ function CalibrationResults({ showNotification }) {
         const V_ACUUT = (results.ti_ac_open_avg + results.ti_ac_close_avg) / 2;
         const term_STD = ((V_ACSTD - V_DCSTD) * 1000000) / (results.eta_std * V_DCSTD);
         const term_UUT = ((V_ACUUT - V_DCUUT) * 1000000) / (results.eta_ti * V_DCUUT);
-        const mainFormula = `$$ \\delta_{UUT} \\approx \\delta_{STD} + \\left( \\frac{V_{AC} - V_{DC}}{\\eta \\times V_{DC}} \\right)_{STD} \\times 10^6 - \\left( \\frac{V_{AC} - V_{DC}}{\\eta \\times V_{DC}} \\right)_{UUT} \\times 10^6 $$`;
-        const appliedValues = `$$ \\delta_{UUT} \\approx ${results.delta_std_known} + \\left( \\frac{${V_ACSTD.toPrecision(8)} - ${V_DCSTD.toPrecision(8)}}{${results.eta_std} \\times ${V_DCSTD.toPrecision(8)}} \\right) \\times 10^6 - \\left( \\frac{${V_ACUUT.toPrecision(8)} - ${V_DCUUT.toPrecision(8)}}{${results.eta_ti} \\times ${V_DCUUT.toPrecision(8)}} \\right) \\times 10^6 $$`;
-        const intermediateBreakdown = `$$ \\delta_{UUT} \\approx ${results.delta_std_known.toFixed(3)} + ${term_STD.toFixed(3)} - ${term_UUT.toFixed(3)} $$`;
+        const mainFormula = `$$ \\delta_{UUT} \\approx \\delta_{STD} + \\left( \\frac{V_{AC} - V_{DC}}{\\eta \\times V_{DC}} \\right)_{STD} \\times 10^6 - \\left( \\frac{V_{AC} - V_{DC}}{\\eta \\times V_{DC}} \\right)_{UUT} \\times 10^6 + \\delta_{USTD:TVC} - \\delta_{UUT:TVC} $$`;
+        const appliedValues = `$$ \\delta_{UUT} \\approx ${results.delta_std_known} + \\left( \\frac{${V_ACSTD.toPrecision(8)} - ${V_DCSTD.toPrecision(8)}}{${results.eta_std} \\times ${V_DCSTD.toPrecision(8)}} \\right) \\times 10^6 - \\left( \\frac{${V_ACUUT.toPrecision(8)} - ${V_DCUUT.toPrecision(8)}}{${results.eta_ti} \\times ${V_DCUUT.toPrecision(8)}} \\right) \\times 10^6 + ${results.delta_std} - ${results.delta_ti} $$`;
+        const intermediateBreakdown = `$$ \\delta_{UUT} \\approx ${results.delta_std_known.toFixed(3)} + ${term_STD.toFixed(3)} - ${term_UUT.toFixed(3)} + ${results.delta_std.toFixed(3)} - ${results.delta_ti.toFixed(3)} $$`;
         const finalResult = `$$ \\delta_{UUT} \\approx ${parseFloat(results.delta_uut_ppm).toFixed(3)} \\text{ PPM} $$`
 
         return (
-            <div className="calculation-breakdown" style={{background: 'var(--background-color)', padding: '20px', borderRadius: '8px', border: '1px solid var(--border-color)'}}>
-                <h4 style={{marginTop: 0}}>Calculation Breakdown for {activeDirection} Direction</h4>
-                <p style={{marginBottom: '0.5rem'}}><b>1. Full Formula:</b></p>
-                <p style={{marginTop: '0.5rem'}}>{mainFormula}</p>
-                <hr style={{borderColor: 'var(--border-color)', opacity: 0.5, margin: '1rem 0'}} />
-                <p style={{marginBottom: '0.5rem'}}><b>2. Applied Values:</b></p>
-                <p style={{marginTop: '0.5rem', overflowX: 'auto', whiteSpace: 'nowrap'}}>{appliedValues}</p>
-                <hr style={{borderColor: 'var(--border-color)', opacity: 0.5, margin: '1rem 0'}} />
-                <p style={{marginBottom: '0.5rem'}}><b>3. Intermediate Calculation:</b></p>
-                <p style={{marginTop: '0.5rem'}}>{intermediateBreakdown}</p>
-                <hr style={{borderColor: 'var(--border-color)', opacity: 0.5, margin: '1rem 0'}} />
-                <p style={{marginBottom: '0.5rem'}}><b>4. Final Result:</b></p>
-                <p style={{marginTop: '0.5rem'}}>{finalResult}</p>
+            <div className="calculation-breakdown" style={{ background: 'var(--background-color)', padding: '20px', borderRadius: '8px', border: '1px solid var(--border-color)' }}>
+                <h4 style={{ marginTop: 0 }}>Calculation Breakdown for {activeDirection} Direction</h4>
+                <p style={{ marginBottom: '0.5rem' }}><b>1. Full Formula:</b></p>
+                <p style={{ marginTop: '0.5rem' }}>{mainFormula}</p>
+                <hr style={{ borderColor: 'var(--border-color)', opacity: 0.5, margin: '1rem 0' }} />
+                <p style={{ marginBottom: '0.5rem' }}><b>2. Applied Values:</b></p>
+                <p style={{ marginTop: '0.5rem', overflowX: 'auto', whiteSpace: 'nowrap' }}>{appliedValues}</p>
+                <hr style={{ borderColor: 'var(--border-color)', opacity: 0.5, margin: '1rem 0' }} />
+                <p style={{ marginBottom: '0.5rem' }}><b>3. Intermediate Calculation:</b></p>
+                <p style={{ marginTop: '0.5rem' }}>{intermediateBreakdown}</p>
+                <hr style={{ borderColor: 'var(--border-color)', opacity: 0.5, margin: '1rem 0' }} />
+                <p style={{ marginBottom: '0.5rem' }}><b>4. Final Result:</b></p>
+                <p style={{ marginTop: '0.5rem' }}>{finalResult}</p>
             </div>
         );
     };
-    
+
     return (
         <React.Fragment>
             <div className="content-area">
@@ -309,7 +366,7 @@ function CalibrationResults({ showNotification }) {
                     <>
                         <h2>Calibration Session Information</h2>
                         <div className="table-container">
-                            <table id="cal-info-table" className="cal-results-table" style={{marginBottom: '20px'}}>
+                            <table id="cal-info-table" className="cal-results-table" style={{ marginBottom: '20px' }}>
                                 <thead><tr>{calInfoHeaders.map((h, i) => <th key={i}>{h}</th>)}</tr></thead>
                                 <tbody><tr><td>{sessionInfo?.test_instrument_model || ''}</td><td>{sessionInfo?.test_instrument_serial || ''}</td><td>{sessionInfo?.standard_instrument_model || ''}</td><td>{sessionInfo?.standard_instrument_serial || ''}</td><td>{sessionInfo?.created_at ? new Date(sessionInfo.created_at).toLocaleDateString() : ''}</td><td>{sessionInfo?.temperature || ''}</td><td>{sessionInfo?.humidity || ''}</td></tr></tbody>
                             </table>
@@ -340,29 +397,47 @@ function CalibrationResults({ showNotification }) {
                                 ) : (
                                     <>
                                         <div className="sub-nav">
-                                            <button onClick={() => setActiveTab('summary')} className={activeTab === 'summary' ? 'active' : ''}><FaCalculator style={{marginRight: '8px'}}/>Summary</button>
-                                            <button onClick={() => setActiveTab('details')} className={activeTab === 'details' ? 'active' : ''}><FaBookOpen style={{marginRight: '8px'}}/>Detailed Readings</button>
+                                            <button onClick={() => setActiveTab('summary')} className={activeTab === 'summary' ? 'active' : ''}><FaCalculator style={{ marginRight: '8px' }} />Summary</button>
+                                            <button onClick={() => setActiveTab('details')} className={activeTab === 'details' ? 'active' : ''}><FaBookOpen style={{ marginRight: '8px' }} />Detailed Readings</button>
                                         </div>
-                                        
-                                        <DirectionToggle activeDirection={activeDirection} setActiveDirection={setActiveDirection} />
+
+                                        <DirectionToggle activeDirection={activeDirection} setActiveDirection={setActiveDirection} point={selectedTP} />
 
                                         {activeTab === 'summary' && (
                                             <div>
-                                                <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '20px', marginBottom: '20px' }}>
-                                                    <FinalResultCard title={`AC-DC Diff. (${activeDirection})`} value={calResults?.delta_uut_ppm} formula={`$$ \\delta_{${activeDirection === 'Forward' ? 'Fwd' : 'Rev'}} $$`}/>
-                                                    <FinalResultCard title="Averaged AC-DC Difference" value={averagedResult} formula="$$ \\delta_{Avg} = (\\delta_{Fwd} + \\delta_{Rev}) / 2 $$"/>
+                                                <div style={{
+                                                    display: 'grid',
+                                                    gridTemplateColumns: '1fr',
+                                                    justifyItems: 'center',
+                                                    gap: '20px',
+                                                    marginBottom: '20px'
+                                                }}>
+                                                    <FinalResultCard
+                                                        title={`AC-DC Diff. (${activeDirection})`}
+                                                        value={calResults?.delta_uut_ppm}
+                                                        formula={activeDirection === 'Combined' ? `$$ \\delta_{Avg} = (\\delta_{Fwd} + \\delta_{Rev}) / 2 $$` : `$$ \\delta_{${activeDirection === 'Forward' ? 'Fwd' : 'Rev'}} $$`}
+                                                    />
                                                 </div>
 
-                                                <div style={{ textAlign: 'center', margin: '10px 0 20px' }}><button className="button button-secondary button-small" onClick={() => setShowCalcDetails(!showCalcDetails)}>{showCalcDetails ? 'Hide Calculation Details' : 'Show Calculation Details'}</button></div>
-                                                {showCalcDetails && <CalculationBreakdown results={calResults} />}
+                                                {activeDirection !== 'Combined' && (
+                                                    <div style={{ textAlign: 'center', margin: '10px 0 20px' }}>
+                                                        <button className="button button-secondary button-small" onClick={() => setShowCalcDetails(!showCalcDetails)}>
+                                                            {showCalcDetails ? 'Hide Calculation Details' : 'Show Calculation Details'}
+                                                        </button>
+                                                    </div>
+                                                )}
+                                                {showCalcDetails && activeDirection !== 'Combined' && <CalculationBreakdown results={calResults} />}
+                                                
                                                 <h4>Correction Factor Inputs ({activeDirection})</h4>
                                                 <div className="reading-group">
                                                     <div className="reading"><h3>δ Standard (PPM)</h3><p>{calResults?.delta_std_known?.toFixed(3) ?? 'N/A'}</p></div>
+                                                    <div className="reading"><h3>δ Standard (TVC AC-DC Difference)</h3><p>{calResults?.delta_std?.toFixed(3) ?? 'N/A'}</p></div>
+                                                    <div className="reading"><h3>δ Test Instrument (TVC AC-DC Difference)</h3><p>{calResults?.delta_ti?.toFixed(3) ?? 'N/A'}</p></div>
                                                     <div className="reading"><h3>η Standard</h3><p>{calResults?.eta_std?.toPrecision(8) ?? 'N/A'}</p></div>
                                                     <div className="reading"><h3>η Test Instrument</h3><p>{calResults?.eta_ti?.toPrecision(8) ?? 'N/A'}</p></div>
                                                 </div>
-                                                <SummaryTable results={calResults} prefix="std_" title={`Standard Instrument Summary (${activeDirection})`}/>
-                                                <SummaryTable results={calResults} prefix="ti_" title={`Test Instrument Summary (${activeDirection})`}/>
+                                                <SummaryTable results={calResults} prefix="std_" title={`Standard Instrument Summary (${activeDirection})`} />
+                                                <SummaryTable results={calResults} prefix="ti_" title={`Test Instrument Summary (${activeDirection})`} />
                                             </div>
                                         )}
 
@@ -381,19 +456,19 @@ function CalibrationResults({ showNotification }) {
                                                             </select>
                                                         </div>
                                                         <div className="view-toggle">
-                                                            <button className={detailsView === 'chart' ? 'active' : ''} onClick={() => setDetailsView('chart')}><FaChartBar style={{marginRight: '6px'}}/> Chart</button>
-                                                            <button className={detailsView === 'table' ? 'active' : ''} onClick={() => setDetailsView('table')}><FaTable style={{marginRight: '6px'}}/> Table</button>
+                                                            <button className={detailsView === 'chart' ? 'active' : ''} onClick={() => setDetailsView('chart')}><FaChartBar style={{ marginRight: '6px' }} /> Chart</button>
+                                                            <button className={detailsView === 'table' ? 'active' : ''} onClick={() => setDetailsView('table')}><FaTable style={{ marginRight: '6px' }} /> Table</button>
                                                         </div>
                                                         <FaDownload className="download-icon" title={`Export ${activeInstrument.toUpperCase()} Readings`} onClick={() => exportReadingsToXLSX(activeInstrument)} />
                                                     </div>
                                                 </div>
 
                                                 {detailsView === 'table' && (
-                                                   <DetailedReadingsTable readingsArray={calReadings ? calReadings[`${activeInstrument}_${selectedReadingType}`] : []} />
+                                                    <DetailedReadingsTable readingsArray={calReadings ? calReadings[`${activeInstrument}_${selectedReadingType}`] : []} />
                                                 )}
 
                                                 {detailsView === 'chart' && (
-                                                    <div className="chart-container" style={{margin: 0, padding: 0, border: 'none'}}>
+                                                    <div className="chart-container" style={{ margin: 0, padding: 0, border: 'none' }}>
                                                         <CalibrationChart
                                                             title={`${activeInstrument === 'std' ? 'Standard' : 'Test'} Instrument Readings (${activeDirection})`}
                                                             chartData={buildRawReadingsChartData(`${activeInstrument}_`)}

@@ -5,7 +5,7 @@ import { AVAILABLE_FREQUENCIES } from '../../constants/constants';
 
 const API_BASE_URL = process.env.REACT_APP_API_BASE_URL;
 
-const DataEditor = ({ dataType = 'correction', showNotification }) => {
+const ShuntCorrections = ({ dataType = 'correction', showNotification }) => {
     const [data, setData] = useState({});
     const [isModalOpen, setIsModalOpen] = useState(false);
     const [editingData, setEditingData] = useState({});
@@ -218,4 +218,4 @@ const DataTable = React.memo(({ dataToEdit, onCellChange }) => {
     );
 });
 
-export default DataEditor;
+export default ShuntCorrections;
