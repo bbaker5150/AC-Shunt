@@ -4,6 +4,7 @@
  * * This component provides a form to input or update metadata for a calibration
  * session, including instrument details, environmental conditions (temperature,
  * humidity), and notes. It can operate in two modes: creating a new session or
+
  * updating an existing one, determined by whether a `selectedSessionId` is
  * active in the InstrumentContext. On submission, it communicates with the
  * backend API to save the data.
@@ -27,28 +28,23 @@ function SessionDetailsForm({ sessionsList, fetchSessionsList, showNotification 
         selectedSessionId,
         setSelectedSessionId,
         setSelectedSessionName,
-        setStdInstrumentAddress,
-        setTiInstrumentAddress,
-        setAcSourceAddress,
-        setDcSourceAddress
+        stdInstrumentAddress, setStdInstrumentAddress, stdReaderModel, setStdReaderModel,
+        tiInstrumentAddress, setTiInstrumentAddress, tiReaderModel, setTiReaderModel,
+        acSourceAddress, setAcSourceAddress,
+        dcSourceAddress, setDcSourceAddress,
+        switchDriverAddress, setSwitchDriverAddress, switchDriverModel, setSwitchDriverModel,
+        amplifierAddress, setAmplifierAddress,
     } = useInstruments();
     const [formData, setFormData] = useState(initialFormData);
     const [isLoading, setIsLoading] = useState(false);
 
     useEffect(() => {
-        // If a session is selected...
         if (selectedSessionId) {
-            // ...but the list of sessions hasn't loaded yet, do nothing.
-            // This prevents the form from clearing while data is in transit.
             if (sessionsList.length === 0) {
                 return;
             }
-
-            // Once the list is loaded, find the session.
             const session = sessionsList.find(s => s.id.toString() === selectedSessionId.toString());
-
             if (session) {
-                // If found, populate the form with its data.
                 setFormData({
                     sessionName: session.session_name || '',
                     testInstrument: session.test_instrument_model || '',
@@ -60,12 +56,10 @@ function SessionDetailsForm({ sessionsList, fetchSessionsList, showNotification 
                     notes: session.notes || '',
                 });
             } else {
-                // If the ID is not in the loaded list, the state is stale. Reset everything.
                 showNotification("Could not find the selected session. Resetting.", "warning");
                 setSelectedSessionId(null);
             }
         } else {
-            // If no session is selected, reset the form to its initial state.
             setFormData(initialFormData);
         }
     }, [selectedSessionId, sessionsList, setSelectedSessionId, showNotification]);
@@ -87,6 +81,15 @@ function SessionDetailsForm({ sessionsList, fetchSessionsList, showNotification 
             temperature: parseFloat(formData.temperature) || null,
             humidity: parseFloat(formData.humidity) || null,
             notes: formData.notes,
+            standard_reader_address: stdInstrumentAddress,
+            standard_reader_model: stdReaderModel,
+            test_reader_address: tiInstrumentAddress,
+            test_reader_model: tiReaderModel,
+            ac_source_address: acSourceAddress,
+            dc_source_address: dcSourceAddress,
+            switch_driver_address: switchDriverAddress,
+            switch_driver_model: switchDriverModel,
+            amplifier_address: amplifierAddress,
         };
 
         try {
@@ -100,16 +103,20 @@ function SessionDetailsForm({ sessionsList, fetchSessionsList, showNotification 
             }
 
             const savedSession = response.data;
-            // Ensure the session list is refreshed BEFORE updating the context.
             await fetchSessionsList();
 
-            // Now, update the application's context with the fresh data.
+            // ✅ FIX: This block is now complete and correctly updates the entire application state.
             setSelectedSessionId(savedSession.id);
             setSelectedSessionName(savedSession.session_name);
-            setStdInstrumentAddress(savedSession.standard_instrument_address || null);
-            setTiInstrumentAddress(savedSession.test_instrument_address || null);
+            setStdInstrumentAddress(savedSession.standard_reader_address || null);
+            setStdReaderModel(savedSession.standard_reader_model || null);
+            setTiInstrumentAddress(savedSession.test_reader_address || null);
+            setTiReaderModel(savedSession.test_reader_model || null);
             setAcSourceAddress(savedSession.ac_source_address || null);
             setDcSourceAddress(savedSession.dc_source_address || null);
+            setSwitchDriverAddress(savedSession.switch_driver_address || null);
+            setSwitchDriverModel(savedSession.switch_driver_model || null);
+            setAmplifierAddress(savedSession.amplifier_address || null);
 
         } catch (error) {
             console.error("Failed to save session", error);

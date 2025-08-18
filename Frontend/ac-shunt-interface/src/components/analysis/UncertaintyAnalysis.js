@@ -109,7 +109,6 @@ const UncertaintyBudgetTable = ({ components, onRemove, calcResults }) => {
                                             <b>Type A Calculation</b>
                                             <hr style={{ margin: '4px 0', opacity: 0.2 }} />
                                             <b>Absolute Std Dev (σ):</b> {c.calculationDetails.stddev.toExponential(4)} V<br />
-                                            {/* FIX #1: Added a null check for stddevInPpm */}
                                             <b>Relative Std Dev (σ):</b> {stddevInPpm != null ? stddevInPpm.toFixed(3) : 'N/A'} ppm<br />
                                             <b>Average (V):</b> {c.calculationDetails.avg.toExponential(4)} V<br />
                                             <b>Samples (n):</b> {c.calculationDetails.n}
@@ -125,7 +124,6 @@ const UncertaintyBudgetTable = ({ components, onRemove, calcResults }) => {
                             </td>
                             <td>{c.type}</td>
                             <td>{c.value != null ? c.value.toFixed(4) : 'N/A'}</td>
-                            {/* FIX #2: Added a robust null check for c.dof */}
                             <td>{c.dof === Infinity ? '∞' : (c.dof != null ? c.dof.toFixed(0) : 'N/A')}</td>
                             <td className="action-cell">
                                 {!c.isAuto && (
@@ -1085,9 +1083,7 @@ function UncertaintyAnalysis({ showNotification }) {
                 combinedReadings[key] = [...forwardReadings, ...reverseReadings];
             });
 
-            const combinedResults = {
-                ...forward.results
-            };
+            const combinedResults = {};
 
             READING_KEY_NAMES.forEach(key => {
                 const readings = combinedReadings[key].map(r => (typeof r === 'object' ? r.value : r));
@@ -1099,12 +1095,29 @@ function UncertaintyAnalysis({ showNotification }) {
                         : 0;
 
                     const avgKey = key.replace('_readings', '_avg');
-                    const stddevKey = key.replace('_readings', 'stddev');
+                    const stddevKey = key.replace('_readings', '_stddev');
 
                     combinedResults[avgKey] = avg;
                     combinedResults[stddevKey] = stddev;
                 }
             });
+
+            Object.assign(combinedResults, {
+                eta_std: forward.results.eta_std,
+                eta_ti: forward.results.eta_ti,
+                delta_std: forward.results.delta_std,
+                delta_ti: forward.results.delta_ti,
+                delta_std_known: forward.results.delta_std_known,
+                is_detailed_uncertainty_calculated: forward.results.is_detailed_uncertainty_calculated,
+                manual_uncertainty_components: forward.results.manual_uncertainty_components,
+                combined_uncertainty: forward.results.combined_uncertainty,
+                effective_dof: forward.results.effective_dof,
+                k_value: forward.results.k_value,
+                expanded_uncertainty: forward.results.expanded_uncertainty,
+            });
+
+            // 3. Explicitly set the final result to the pre-calculated average PPM.
+            combinedResults.delta_uut_ppm = forward.results.delta_uut_ppm_avg;
 
             setTestPointData({
                 readings: combinedReadings,

@@ -12,18 +12,29 @@ class Instrument34420A():
 
         # Initialize instrument to a known state
         self.reset()
-        self.device.write('CONF:VOLT:DC DEF') # Configure for DCV with default range/resolution
+        self.clear()
+
+        # self.device.write('CONF:VOLT:DC DEF')
+        # self.device.write('SENS:VOLT:DC:NPLC 20')
 
         self.max_range = float(self.device.query('SENS:VOLT:DC:RANG? MAX'))
+        # print(f"Max Range: {self.max_range}")
         self.min_range = float(self.device.query('SENS:VOLT:DC:RANG? MIN'))
+        # print(f"Min Range: {self.min_range}")
         self.max_integration = float(self.device.query('SENS:VOLT:DC:NPLC? MAX'))
+        # print(f"Max Integration (NPLC): {self.max_integration}")
         self.min_integration = float(self.device.query('SENS:VOLT:DC:NPLC? MIN'))
-        
+        # print(f"Min Integration (NPLC): {self.min_integration}")
+        # self.check_instrument_errors("Initialization")
+
     def get_identity(self):
         return self.device.query('*IDN?')
 
     def reset(self):
         self.device.write('*RST')
+
+    def clear(self):
+        self.device.write('*CLS')
 
     def measure_dc_volt(self):
         return float(self.device.query('MEAS:VOLT:DC?'))
@@ -59,10 +70,13 @@ class Instrument34420A():
 
         
     def set_integration(self, setting: float):
-        if setting > self.max_integration or setting < self.min_integratione:
+        if setting > self.max_integration or setting < self.min_integration:
             raise ValueError(f'Invalid Integration Setting {setting}')
 
         self.device.write(f'SENS:VOLT:DC:NPLC {setting}')
+        current_nplc = self.device.query('SENS:VOLT:DC:NPLC?')
+        # print(f"Current NPLC is set to: {float(current_nplc)}")
+
     def get_integration(self):
         return float(self.device.query('SENS:VOLT:DC:NPLC?'))
     
@@ -135,3 +149,25 @@ class Instrument34420A():
             
             
             return data
+        
+    def check_instrument_errors(self, operation_name: str):
+        print(f"--- Checking for errors after: {operation_name} ---")
+        while True:
+            # Query the error queue
+            error_string = self.device.query('SYST:ERR?')
+            
+            # The response is a string like "-113,\"Undefined header\""
+            error_code = int(error_string.split(',')[0])
+
+            if error_code == 0:
+                # No more errors
+                print("--- No errors found. ---")
+                break
+            else:
+                # Print the error and continue checking
+                print(f"Instrument Error: {error_string.strip()}")
+
+    def close(self):
+        """Closes the VISA resource connection."""
+        if self.device:
+            self.device.close()

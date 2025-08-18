@@ -100,13 +100,25 @@ class CalibrationSessionSerializer(serializers.ModelSerializer):
     class Meta:
         model = CalibrationSession
         fields = [
-            'id', 'session_name',
-            'test_instrument_model', 'test_instrument_serial',
-            'test_reader_model', 'test_reader_address',
-            'standard_instrument_model', 'standard_instrument_serial',
-            'standard_reader_model', 'standard_reader_address',
-            'ac_source_address', 'dc_source_address',
-            'temperature', 'humidity', 'created_at', 'notes',
+            'id',
+            'session_name',
+            'test_instrument_model',
+            'test_instrument_serial',
+            'test_reader_model',
+            'test_reader_address',
+            'standard_instrument_model',
+            'standard_instrument_serial',
+            'standard_reader_model',
+            'standard_reader_address',
+            'ac_source_address',
+            'dc_source_address',
+            'switch_driver_address',
+            'switch_driver_model',
+            'amplifier_address',
+            'temperature',
+            'humidity',
+            'created_at',
+            'notes',
         ]
 
 class CalibrationTVCCorrectionsSerializer(serializers.ModelSerializer):
@@ -143,7 +155,7 @@ class CalibrationSettingsSerializer(serializers.ModelSerializer):
     test_point = serializers.PrimaryKeyRelatedField(read_only=True)
     class Meta:
         model = CalibrationSettings
-        fields = ['test_point', 'initial_warm_up_time', 'num_samples', 'settling_time']
+        exclude = ['id']
 
 # --- New Custom Field for Formatting Timestamps ---
 class FormattedReadingsField(serializers.Field):

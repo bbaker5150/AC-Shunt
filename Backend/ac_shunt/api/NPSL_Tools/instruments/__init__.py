@@ -9,3 +9,4 @@ from .instrument_5790B import Instrument5790B
 from .instrument_53132A import Instrument53132A
 from .instrument_34420A import Instrument34420A
 from .instrument_11713C import Instrument11713C
+from .instrument_8100 import Instrument8100

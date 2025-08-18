@@ -1,3 +1,5 @@
+# instrument_11713C.py
+
 import pyvisa
 import time
 
@@ -32,17 +34,17 @@ class Instrument11713C():
         self.resource.write(f"ROUT:OPEN (@{RELAY_CONTROL_CHANNEL})")
 
     def deactivate_all(self):
-        """Deactivates the relay, which defaults to the DC source."""
-        self.select_dc_source()
+        """Deactivates the relay, which defaults to the AC source (de-energized, NC state)."""
+        self.select_ac_source()
         
     def get_active_source(self):
         """Queries the single relay channel to determine which source is active."""
         try:
             is_relay_energized = int(self.resource.query(f"ROUT:CLOS? (@{RELAY_CONTROL_CHANNEL})"))
             if is_relay_energized:
-                return 'AC'
-            else:
                 return 'DC'
+            else:
+                return 'AC'
         except Exception as e:
             print(f"Could not determine active source: {e}")
             return 'Unknown'

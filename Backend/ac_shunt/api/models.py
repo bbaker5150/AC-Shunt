@@ -40,6 +40,9 @@ class CalibrationSession(models.Model):
     # Switch Driver Addresses
     switch_driver_address = models.CharField(max_length=100, blank=True, null=True)
     switch_driver_model = models.CharField(max_length=100, blank=True, null=True)
+
+    # Amplifier Address
+    amplifier_address = models.CharField(max_length=255, null=True, blank=True)
     
     temperature = models.FloatField(null=True, blank=True, help_text="Temperature in °C")
     humidity = models.FloatField(null=True, blank=True, help_text="Relative Humidity in %RH")
@@ -151,6 +154,7 @@ class CalibrationSettings(models.Model):
     initial_warm_up_time = models.IntegerField(null=True, blank=True)
     num_samples = models.IntegerField(default=8, null=True, blank=True)
     settling_time = models.IntegerField(default=5, null=True, blank=True)
+    nplc = models.FloatField(default=20, null=True, blank=True, help_text="Integration time in Power Line Cycles for 34420A")
 
 class CalibrationReadings(models.Model):
 
@@ -190,13 +194,10 @@ class CalibrationReadings(models.Model):
             if not readings or len(readings) == 0:
                 return None, None
             
-            # Check if the first item is a dictionary (new format) or a number (old format)
             if isinstance(readings[0], dict) and 'value' in readings[0]:
-                # Extract just the 'value' from each dictionary
                 numeric_values = [r.get('value') for r in readings]
                 return np.mean(numeric_values), np.std(numeric_values)
             else:
-                # Handle the old format (list of numbers) for backward compatibility
                 return np.mean(readings), np.std(readings)
 
         results.std_ac_open_avg, results.std_ac_open_stddev = calculate_stats(self.std_ac_open_readings)
@@ -220,7 +221,6 @@ class CalibrationResults(models.Model):
         blank=True
     )
     
-    # ... (existing fields for stats and corrections) ...
     std_ac_open_avg = models.FloatField(null=True, blank=True)
     std_ac_open_stddev = models.FloatField(null=True, blank=True)
     std_dc_pos_avg = models.FloatField(null=True, blank=True)
@@ -248,14 +248,12 @@ class CalibrationResults(models.Model):
     delta_uut_ppm = models.FloatField(null=True, blank=True, help_text="Final calculated UUT AC-DC difference in PPM -> Forward or Revers")
     delta_uut_ppm_avg = models.FloatField(null=True, blank=True, help_text="Final averaged UUT AC-DC difference in PPM")
 
-    # Calculated Uncertainty Budget
     combined_uncertainty = models.FloatField(null=True, blank=True, help_text="Calculated combined standard uncertainty (uc) in PPM")
     effective_dof = models.FloatField(null=True, blank=True, help_text="Calculated effective degrees of freedom (veff)")
     k_value = models.FloatField(null=True, blank=True, help_text="Calculated coverage factor (k)")
     expanded_uncertainty = models.FloatField(null=True, blank=True, help_text="Calculated expanded uncertainty (U) in PPM")
     is_detailed_uncertainty_calculated = models.BooleanField(default=False)
     
-    # NEW FIELD to store the manual uncertainty components
     manual_uncertainty_components = models.JSONField(default=list, blank=True, null=True)
 
     created_at = models.DateTimeField(auto_now_add=True)
@@ -263,25 +261,3 @@ class CalibrationResults(models.Model):
 
     def __str__(self):
         return f"Calibration Results for {self.test_point.test_point_set.session.session_name} at Test Point {self.test_point.id}" if self.test_point else "Calibration Results (no test point)"
-
-class Correction(models.Model):
-    range = models.FloatField()
-    current = models.FloatField()
-    frequency = models.IntegerField()
-    correction = models.FloatField(null=True, blank=True)
-    class Meta:
-        unique_together = ('range', 'current', 'frequency')
-
-    def __str__(self):
-        return f"ID: {self.id} | Range: {self.range}, Current: {self.current}, Frequency: {self.frequency}, Correction: {self.correction}"
-    
-class Uncertainty(models.Model):
-    range = models.FloatField()
-    current = models.FloatField()
-    frequency = models.IntegerField()
-    uncertainty = models.FloatField(null=True, blank=True)
-    class Meta:
-        unique_together = ('range', 'current', 'frequency')
-
-    def __str__(self):
-        return f"ID: {self.id} | Range: {self.range}, Current: {self.current}, Frequency: {self.frequency}, Uncertainty: {self.uncertainty}"

@@ -9,6 +9,7 @@ import { useInstruments } from '../../contexts/InstrumentContext';
 const API_BASE_URL = process.env.REACT_APP_API_BASE_URL;
 const ASSIGNABLE_MODELS = ['34420A', '3458A', '5790B'];
 const ACDC_ASSIGNABLE_MODELS = ['5730A'];
+const AMPLIFIER_MODELS = ['8100']; // Added for the 8100 Amplifier
 const SUPPORTED_STATUS_MODELS = ['5730', '5790'];
 const SWITCH_DRIVER_MODELS = ['11713C'];
 
@@ -27,9 +28,11 @@ function InstrumentStatusPanel({ showNotification }) {
         tiInstrumentAddress, setTiInstrumentAddress, tiReaderModel, setTiReaderModel,
         acSourceAddress, setAcSourceAddress, dcSourceAddress, setDcSourceAddress,
         switchDriverAddress, setSwitchDriverAddress, switchDriverModel, setSwitchDriverModel,
+        amplifierAddress, setAmplifierAddress, // Added for Amplifier
     } = useInstruments();
 
     const [isScanning, setIsScanning] = useState(false);
+    const [isInitializing, setIsInitializing] = useState(false);
     const [activeWorkstationIp, setActiveWorkstationIp] = useState('');
     const [localIp, setLocalIp] = useState('');
     const [editingIp, setEditingIp] = useState(null);
@@ -83,6 +86,7 @@ function InstrumentStatusPanel({ showNotification }) {
         setTiReaderModel(null);
         setAcSourceAddress(null);
         setDcSourceAddress(null);
+        setAmplifierAddress(null); // Added for Amplifier
 
         const payload = {
             test_reader_model: null,
@@ -90,13 +94,37 @@ function InstrumentStatusPanel({ showNotification }) {
             standard_reader_model: null,
             standard_reader_address: null,
             ac_source_address: null,
-            dc_source_address: null
+            dc_source_address: null,
+            amplifier_address: null, // Added for Amplifier
         };
 
         try {
             await axios.patch(`${API_BASE_URL}/calibration_sessions/${selectedSessionId}/`, payload);
         } catch (error) {
             console.error('Failed to reset instrument addresses:', error);
+        }
+    };
+
+    const handleInitializeInstruments = async () => {
+        if (!selectedSessionId) {
+            showNotification("Please select a session first.", "warning");
+            return;
+        }
+        setIsInitializing(true);
+        try {
+            const response = await axios.post(`${API_BASE_URL}/calibration_sessions/${selectedSessionId}/initialize-instruments/`);
+            if (response.data.errors && response.data.errors.length > 0) {
+                 const errorMessages = response.data.errors.join('\n');
+                 showNotification(`Initialization completed with errors:\n${errorMessages}`, 'warning');
+            } else {
+                 showNotification(response.data.status, 'success');
+            }
+        } catch (error) {
+            const errorMessage = error.response?.data?.detail || "An unexpected error occurred during initialization.";
+            showNotification(`Initialization failed: ${errorMessage}`, 'error');
+            console.error("Initialization error:", error);
+        } finally {
+            setIsInitializing(false);
         }
     };
 
@@ -185,7 +213,7 @@ function InstrumentStatusPanel({ showNotification }) {
         if (!identity) return null;
         const parts = identity.split(',');
         if (parts.length > 1 && parts[1]) return parts[1].trim();
-        const allKnownModels = [...ASSIGNABLE_MODELS, ...ACDC_ASSIGNABLE_MODELS];
+        const allKnownModels = [...ASSIGNABLE_MODELS, ...ACDC_ASSIGNABLE_MODELS, ...AMPLIFIER_MODELS]; // Added Amplifier
         for (const model of allKnownModels) if (identity.includes(model)) return model;
         return identity.trim();
     };
@@ -216,6 +244,13 @@ function InstrumentStatusPanel({ showNotification }) {
             handleRoleAssignment({ test_reader_address: newAddress, test_reader_model: newModel });
         }
     };
+    
+    // Added for Amplifier
+    const handleAmplifierRoleChange = (instrument, isChecked) => {
+        const newAddress = isChecked ? instrument.address : null;
+        setAmplifierAddress(newAddress);
+        handleRoleAssignment({ amplifier_address: newAddress });
+    };
 
     const handleAcDcCheckboxChange = (instrument, role, isChecked) => {
         const newAddress = isChecked ? instrument.address : null;
@@ -237,21 +272,34 @@ function InstrumentStatusPanel({ showNotification }) {
     };
 
     const activeInstruments = workstations.find(ws => ws.ip === activeWorkstationIp)?.instruments || [];
+    const hasAssignedInstruments = stdInstrumentAddress || tiInstrumentAddress || acSourceAddress || dcSourceAddress || switchDriverAddress || amplifierAddress;
 
     return (
         <div className="content-area instrument-status-panel">
             <div className="instrument-status-header">
                 <h2>Instrument Status Overview</h2>
-                <button type="button" onClick={handleScanInstruments} className="button button-icon" disabled={isScanning}>
-                    &#128269; {isScanning ? 'Scanning...' : 'Scan for Instruments'}
-                </button>
+                    <div className="header-buttons" style={{ display: 'flex', gap: '10px' }}>
+                        <button type="button" onClick={handleScanInstruments} className="button button-icon" disabled={isScanning}>
+                            &#128269; {isScanning ? 'Scanning...' : 'Scan for Instruments'}
+                        </button>
+                        <button 
+                            type="button" 
+                            onClick={handleInitializeInstruments} 
+                            className="button button-icon button-secondary" 
+                            disabled={isInitializing || !selectedSessionId || !hasAssignedInstruments}
+                            title="Send initialization commands to all assigned instruments"
+                        >
+                            ⚙️ {isInitializing ? 'Initializing...' : 'Initialize Instruments'}
+                        </button>
+                    </div>
             </div>
             <div className="test-set-details" style={{ flexWrap: 'wrap' }}>
-                <div><strong>Standard Reader:</strong> {stdInstrumentAddress ? `${stdReaderModel || ''} (${stdInstrumentAddress})` : 'Not Assigned'}</div>
-                <div><strong>Test Reader:</strong> {tiInstrumentAddress ? `${tiReaderModel || ''} (${tiInstrumentAddress})` : 'Not Assigned'}</div>
-                <div><strong>AC Source:</strong> {acSourceAddress || 'Not Assigned'}</div>
-                <div><strong>DC Source:</strong> {dcSourceAddress || 'Not Assigned'}</div>
-                <div><strong>Switch Driver:</strong> {switchDriverAddress ? `${switchDriverModel || ''} (${switchDriverAddress})` : 'Not Assigned'}</div>
+                {stdInstrumentAddress && <div><strong>Standard Reader:</strong> {stdReaderModel || ''} ({stdInstrumentAddress})</div>}
+                {tiInstrumentAddress && <div><strong>Test Reader:</strong> {tiReaderModel || ''} ({tiInstrumentAddress})</div>}
+                {acSourceAddress && <div><strong>AC Source:</strong> {acSourceAddress}</div>}
+                {dcSourceAddress && <div><strong>DC Source:</strong> {dcSourceAddress}</div>}
+                {amplifierAddress && <div><strong>Amplifier:</strong> {amplifierAddress}</div>}
+                {switchDriverAddress && <div><strong>Switch Driver:</strong> {switchDriverModel || ''} ({switchDriverAddress})</div>}
             </div>
 
             {workstations.length > 0 && (
@@ -292,6 +340,7 @@ function InstrumentStatusPanel({ showNotification }) {
                         const isFetching = isFetchingStatuses[inst.address];
                         const isAssignable = ASSIGNABLE_MODELS.some(m => inst.identity.includes(m));
                         const isAcDcAssignable = ACDC_ASSIGNABLE_MODELS.some(m => inst.identity.includes(m));
+                        const isAmplifierAssignable = AMPLIFIER_MODELS.some(m => inst.identity.includes(m)); // Added for Amplifier
                         const isStatusSupported = SUPPORTED_STATUS_MODELS.some(m => inst.identity.includes(m));
                         const isSwitchDriverAssignable = SWITCH_DRIVER_MODELS.some(m => inst.identity.includes(m));
                         return (
@@ -326,6 +375,16 @@ function InstrumentStatusPanel({ showNotification }) {
                                         <div className="checkbox-group" style={{ display: 'flex', alignItems: 'center', gap: '5px' }}>
                                             <input type="checkbox" id={`dc-role-${inst.address}`} checked={dcSourceAddress === inst.address} onChange={(e) => handleAcDcCheckboxChange(inst, 'dc', e.target.checked)} disabled={!selectedSessionId || (dcSourceAddress && dcSourceAddress !== inst.address)} />
                                             <label htmlFor={`dc-role-${inst.address}`} style={{ marginBottom: 0 }}>DC Source</label>
+                                        </div>
+                                    </div>
+                                )}
+                                {/* Added for Amplifier */}
+                                {isAmplifierAssignable && (
+                                     <div className="role-assignment" style={{marginTop: '10px', paddingTop: '10px', borderTop: '1px solid var(--border-color)', display: 'flex', alignItems: 'center', gap: '20px'}}>
+                                        <label style={{fontWeight: '500'}}>Assign Amplifier Role:</label>
+                                        <div className="checkbox-group" style={{ display: 'flex', alignItems: 'center', gap: '5px' }}>
+                                            <input type="checkbox" id={`amp-role-${inst.address}`} checked={amplifierAddress === inst.address} onChange={(e) => handleAmplifierRoleChange(inst, e.target.checked)} disabled={!selectedSessionId || (amplifierAddress && amplifierAddress !== inst.address)}/>
+                                            <label htmlFor={`amp-role-${inst.address}`} style={{marginBottom: 0}}>Amplifier</label>
                                         </div>
                                     </div>
                                 )}
