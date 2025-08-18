@@ -46,6 +46,14 @@ class Instrument5730A(FlukeInstrument):
     def set_standby(self):
         """Sets 5730A to Standby"""
         self.resource.write('STBY')
+        
+    def safe_standby(self) -> None:
+        """Sets the calibrator output to 0V at 0Hz and then places it in Standby mode.
+        
+        This is a convenient method for safely shutting down the output.
+        """
+        self.set_output(voltage=0, frequency=0)
+        self.set_standby()
 
     def set_operate_standby(self, operate: bool):
         """Set the 5730A to either operate or standby, based on argument passed.

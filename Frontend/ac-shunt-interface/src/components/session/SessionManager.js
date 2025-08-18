@@ -60,6 +60,7 @@ function SessionManager({ sessionsList, isLoadingSessions, showNotification, fet
         setDcSourceAddress,
         setSwitchDriverAddress,
         setSwitchDriverModel,
+        setAmplifierAddress,
     } = useInstruments();
 
     // State to manage the confirmation modal
@@ -81,6 +82,7 @@ function SessionManager({ sessionsList, isLoadingSessions, showNotification, fet
         setDcSourceAddress(null);
         setSwitchDriverAddress(null);
         setSwitchDriverModel(null);
+        setAmplifierAddress(null);
     };
 
     const handleSessionSelectChange = (e) => {
@@ -100,6 +102,7 @@ function SessionManager({ sessionsList, isLoadingSessions, showNotification, fet
             setDcSourceAddress(session.dc_source_address || null);
             setSwitchDriverAddress(session.switch_driver_address || null);
             setSwitchDriverModel(session.switch_driver_model || null);
+            setAmplifierAddress(session.amplifier_address || null);
         } else {
             // Clear everything if "-- Start New Session --" is selected
             clearSessionState();

@@ -10,10 +10,19 @@ from rest_framework.decorators import action
 from rest_framework.response import Response
 from .models import Message, Correction, Uncertainty, CalibrationSession, TestPoint, TestPointSet, Calibration, CalibrationConfigurations, CalibrationTVCCorrections
 from .serializers import MessageSerializer, CorrectionSerializer, CorrectionGroupedSerializer, FlatCorrectionSerializer, UncertaintySerializer, UncertaintyGroupedSerializer, FlatUncertaintySerializer, CalibrationSerializer, CalibrationSessionSerializer, TestPointSerializer, TestPointSetSerializer, CalibrationTVCCorrectionsSerializer, CalibrationConfigurationsSerializer, CalibrationSettingsSerializer, CalibrationReadingsSerializer, CalibrationResultsSerializer
-from .NPSL_Tools.instruments.instrument_34420A import Instrument34420A
+from .NPSL_Tools.instruments import Instrument11713C, Instrument3458A, Instrument5730A, Instrument5790B, Instrument34420A, Instrument8100
 from django.core.exceptions import ObjectDoesNotExist
 import json
 import os
+
+INSTRUMENT_CLASS_MAP = {
+    '5730A': Instrument5730A,
+    '5790B': Instrument5790B,
+    '3458A': Instrument3458A,
+    '34420A': Instrument34420A,
+    '11713C': Instrument11713C,
+    '8100': Instrument8100
+}
 
 def get_instrument_identity(rm, address):
     """
@@ -296,6 +305,61 @@ class CalibrationSessionViewSet(viewsets.ModelViewSet):
     """
     queryset = CalibrationSession.objects.all().order_by('-created_at')
     serializer_class = CalibrationSessionSerializer
+
+    @action(detail=True, methods=['post'], url_path='initialize-instruments')
+    def initialize_instruments(self, request, pk=None):
+        session = self.get_object()
+        
+        assigned_instruments = [
+            ("Standard Reader", session.standard_reader_model, session.standard_reader_address),
+            ("Test Reader", session.test_reader_model, session.test_reader_address),
+            ("AC Source", "5730A", session.ac_source_address),
+            ("DC Source", "5730A", session.dc_source_address),
+            ("Switch Driver", session.switch_driver_model, session.switch_driver_address),
+            ("Amplifier", "8100", session.amplifier_address),
+        ]
+
+        initialized = []
+        errors = []
+
+        for role, model, address in assigned_instruments:
+            if not model or not address:
+                continue
+
+            instrument = None
+            try:
+                instrument_class = INSTRUMENT_CLASS_MAP.get(model)
+                if not instrument_class:
+                    raise RuntimeError(f"Unknown instrument model: {model}")
+
+                print(f"Initializing {role} ({model}) at {address}...")
+                # Instantiating the class runs its __init__ method, which performs the initialization
+                if instrument_class in [Instrument34420A, Instrument11713C]:
+                     instrument = instrument_class(gpib=address)
+                else:
+                     instrument = instrument_class(model=model, gpib=address)
+                
+                initialized.append(f"{role} ({model})")
+
+            except Exception as e:
+                errors.append(f"{role}: {str(e)}")
+            finally:
+                # Ensure the VISA resource is closed after initialization
+                if instrument:
+                    connection = getattr(instrument, 'resource', None) or getattr(instrument, 'device', None)
+                    if connection and hasattr(connection, 'close'):
+                        connection.close()
+        
+        if errors:
+            return Response(
+                {"status": "Completed with errors", "initialized": initialized, "errors": errors},
+                status=status.HTTP_207_MULTI_STATUS
+            )
+
+        return Response(
+            {"status": "All assigned instruments initialized successfully.", "initialized": initialized},
+            status=status.HTTP_200_OK
+        )
 
     @action(detail=True, methods=['get', 'put'], url_path='information')
     def calibration_handler(self, request, pk=None):

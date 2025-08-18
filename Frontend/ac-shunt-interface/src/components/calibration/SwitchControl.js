@@ -1,79 +1,40 @@
 // src/components/calibration/SwitchControl.js
-import React, { useState, useEffect, useRef } from 'react';
-import { FaBolt, FaWaveSquare } from 'react-icons/fa';
+import React from 'react';
+import { FaBolt, FaWaveSquare, FaQuestionCircle, FaExclamationTriangle } from 'react-icons/fa';
+import { useInstruments } from '../../contexts/InstrumentContext';
 
-const SwitchControl = ({ model, gpibAddress, showNotification }) => {
-    const [activeSource, setActiveSource] = useState('Unknown');
-    const [isConnected, setIsConnected] = useState(false);
-    const ws = useRef(null);
+const StatusDisplay = ({ icon, text }) => (
+    <div className='switch-status-item active'>
+        {icon}
+        <span style={{marginLeft: '8px'}}>{text}</span>
+    </div>
+);
 
-    useEffect(() => {
-        if (!model || !gpibAddress) return;
-        const wsUrl = `ws://${window.location.hostname}:8000/ws/switch/${model}/${gpibAddress}/`;
+const SwitchControl = () => {
+    const { switchStatus } = useInstruments(); 
+
+    const renderStatus = () => {
+        if (!switchStatus.isConnected) {
+            return <StatusDisplay icon={<FaExclamationTriangle />} text={switchStatus.status} />;
+        }
         
-        ws.current = new WebSocket(wsUrl);
-
-        ws.current.onopen = () => {
-            console.log('Switch driver WebSocket connected.');
-            setIsConnected(true);
-        };
-
-        ws.current.onmessage = (event) => {
-            const data = JSON.parse(event.data);
-            if (data.type === 'connection_established' || data.type === 'source_changed' || data.type === 'status_update') {
-                setActiveSource(data.active_source);
-            }
-        };
-
-        ws.current.onclose = () => {
-            console.log('Switch driver WebSocket disconnected.');
-            setIsConnected(false);
-            setActiveSource('Error');
-        };
-
-        ws.current.onerror = (error) => {
-            console.error('Switch driver WebSocket error:', error);
-            showNotification(`Could not connect to Switch Driver at ${gpibAddress}.`, 'error');
-            setActiveSource('Error');
-        };
-
-        return () => {
-            if (ws.current) {
-                ws.current.close();
-            }
-        };
-    }, [model, gpibAddress, showNotification]);
-
-    const handleSwitch = (targetSource) => {
-        if (ws.current && ws.current.readyState === WebSocket.OPEN) {
-            ws.current.send(JSON.stringify({
-                command: 'select_source',
-                source: targetSource,
-            }));
+        switch (switchStatus.status) {
+            case 'AC':
+                return <StatusDisplay icon={<FaWaveSquare />} text="AC Source Active" />;
+            case 'DC':
+                return <StatusDisplay icon={<FaBolt />} text="DC Source Active" />;
+            case 'Error':
+                return <StatusDisplay icon={<FaExclamationTriangle />} text="Connection Error" />;
+            default:
+                return <StatusDisplay icon={<FaQuestionCircle />} text="Unknown State" />;
         }
     };
-    
-    const isAcActive = activeSource === 'AC';
-    const isDcActive = activeSource === 'DC';
 
     return (
-        <div className="switch-control-container">
-            <span className="switch-label">Source Select:</span>
-            <div className={`switch-control ${!isConnected ? 'disconnected' : ''}`}>
-                <button 
-                    className={`switch-button ${isAcActive ? 'active' : ''}`} 
-                    onClick={() => handleSwitch('AC')}
-                    disabled={!isConnected || isAcActive}
-                >
-                    <FaWaveSquare /> AC
-                </button>
-                <button 
-                    className={`switch-button ${isDcActive ? 'active' : ''}`} 
-                    onClick={() => handleSwitch('DC')}
-                    disabled={!isConnected || isDcActive}
-                >
-                    <FaBolt /> DC
-                </button>
+        <div className="switch-control-container summary-item" style={{ textAlign: 'left' }}>
+            <strong>Source Switch Status:</strong>
+            <div className={`switch-control-status ${!switchStatus.isConnected ? 'disconnected' : ''}`} style={{ marginLeft: '8px', display: 'inline-flex', alignItems: 'center' }}>
+                {renderStatus()}
             </div>
         </div>
     );
