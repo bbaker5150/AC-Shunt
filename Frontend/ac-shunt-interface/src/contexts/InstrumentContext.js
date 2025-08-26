@@ -34,18 +34,22 @@ export const InstrumentContextProvider = ({ children }) => {
   const [tiLiveReadings, setTiLiveReadings] = useState(initialLiveReadings);
   const [readingWsState, setReadingWsState] = useState(WebSocket.CLOSED);
   const [collectionStatus, setCollectionStatus] = useState('');
+  const [stabilizationStatus, setStabilizationStatus] = useState(null);
   const readingWs = useRef(null);
   const readingKeyRef = useRef('');
   const [activeCollectionDetails, setActiveCollectionDetails] = useState(null);
   const reconnectTimeout = useRef(null);
+  const [timerState, setTimerState] = useState({ isActive: false, duration: 0, label: '' });
+  
+  // *** ADDED STATE FOR BATCH RUNS ***
+  const [bulkRunProgress, setBulkRunProgress] = useState({ current: 0, total: 0, pointKey: null });
+  const [focusedTPKey, setFocusedTPKey] = useState(null);
 
   const switchWs = useRef(null);
   const [switchStatus, setSwitchStatus] = useState({ status: 'Disconnected', isConnected: false });
 
-  // ✅ FIX: Add state to hold the most recent message for components to react to.
   const [lastMessage, setLastMessage] = useState(null);
 
-  // This separate websocket for the switch status display remains useful
   useEffect(() => {
     if (switchDriverAddress && switchDriverModel) {
       const socketUrl = `${WS_BASE_URL}/switch/${switchDriverModel}/${encodeURIComponent(switchDriverAddress)}/`;
@@ -89,6 +93,11 @@ export const InstrumentContextProvider = ({ children }) => {
       }
     });
   }, [switchDriverAddress]);
+  
+  const clearLiveReadings = useCallback(() => {
+    setLiveReadings(initialLiveReadings);
+    setTiLiveReadings(initialLiveReadings);
+  }, []);
 
   const connectWebSocket = useCallback(() => {
     if (!selectedSessionId || (readingWs.current && readingWs.current.readyState < 2)) return;
@@ -110,16 +119,21 @@ export const InstrumentContextProvider = ({ children }) => {
 
     readingWs.current.onmessage = (event) => {
       const data = JSON.parse(event.data);
-
-      // ✅ FIX: Set the last message for any component that needs to react to it.
       setLastMessage(data);
 
-      // --- Existing logic ---
       if (data.type === 'calibration_stage_update') {
-        setActiveCollectionDetails(prev => ({ ...prev, stage: data.stage }));
+        const updates = { stage: data.stage };
+        if (data.tpId) {
+          updates.tpId = data.tpId;
+        }
+        setActiveCollectionDetails(prev => ({ ...prev, ...updates }));
+
         if (data.total !== undefined) setCollectionProgress({ count: 0, total: data.total });
         setLiveReadings(prev => ({ ...prev, [data.stage]: [] }));
         setTiLiveReadings(prev => ({ ...prev, [data.stage]: [] }));
+
+        setTimerState({ isActive: false, duration: 0, label: '' });
+
       } else if (data.type === 'dual_reading_update') {
         const key = data.stage;
         if (key) {
@@ -128,19 +142,53 @@ export const InstrumentContextProvider = ({ children }) => {
           setLiveReadings(readings => ({ ...readings, [key]: [...(readings[key] || []), stdPoint] }));
           setTiLiveReadings(readings => ({ ...readings, [key]: [...(readings[key] || []), tiPoint] }));
         }
+        
         setCollectionProgress({ count: data.count, total: data.total });
-        setActiveCollectionDetails(prev => ({ ...prev, stage: data.stage }));
-      } else if (['collection_finished', 'collection_stopped', 'error'].includes(data.type)) {
-        setCollectionStatus(data.type);
-        setIsCollecting(false);
-        setActiveCollectionDetails(null);
-        readingKeyRef.current = '';
-      }
-      else if (data.type === 'switch_status_update') {
+        setTimerState({ isActive: false, duration: 0, label: '' });
+
+      } else if (data.type === 'stabilization_update') {
+
+        setStabilizationStatus(`[${data.count}/${data.max_attempts}] Reading: ${data.reading.toFixed(6)} V, Stdev: ${data.stdev_ppm} PPM`);
+        setTimerState({ isActive: false, duration: 0, label: '' });
+      
+      } else if (data.type === 'batch_progress_update') {
+        const { test_point, current, total } = data;
+        if (current > 1) {
+            clearLiveReadings();
+        }
+        if (test_point) {
+            const pointKey = `${test_point.current}-${test_point.frequency}`;
+            setFocusedTPKey(pointKey);
+            setBulkRunProgress({ current, total, pointKey });
+        }
+      } else if (data.type === 'status_update') {
+        const message = data.message;
+        let match;
+
+        if ((match = message.match(/Initial warm-up period started for (\d+\.?\d*)s/))) {
+          setTimerState({ isActive: true, duration: parseFloat(match[1]), label: 'Warm-up' });
+        } else if ((match = message.match(/Settling for (\d+\.?\d*)s/))) {
+          setTimerState({ isActive: true, duration: parseFloat(match[1]), label: 'Settling' });
+        }
+
+      } else if (['collection_finished', 'collection_stopped', 'error', 'warning'].includes(data.type)) {
+        if (data.type !== 'warning') {
+          setCollectionStatus(data.type);
+          setIsCollecting(false);
+          setActiveCollectionDetails(null);
+          readingKeyRef.current = '';
+          // *** RESET BATCH STATE ON COMPLETION/STOP ***
+          setBulkRunProgress({ current: 0, total: 0, pointKey: null });
+          setFocusedTPKey(null);
+        }
+        setStabilizationStatus(null);
+        setTimerState({ isActive: false, duration: 0, label: '' });
+
+      } else if (data.type === 'switch_status_update') {
         setSwitchStatus({ status: data.active_source, isConnected: true });
       }
     };
-  }, [selectedSessionId, setSwitchStatus]);
+  }, [selectedSessionId, setSwitchStatus, clearLiveReadings]);
 
   useEffect(() => {
     if (selectedSessionId) connectWebSocket();
@@ -185,11 +233,6 @@ export const InstrumentContextProvider = ({ children }) => {
     });
   };
 
-  const clearLiveReadings = useCallback(() => {
-    setLiveReadings(initialLiveReadings);
-    setTiLiveReadings(initialLiveReadings);
-  }, []);
-
   const getInstrumentStatus = useCallback(async (instrumentModel, gpibAddress) => {
     if (!instrumentModel || !gpibAddress || isFetchingStatuses[gpibAddress] || (statusWs.current[gpibAddress] && statusWs.current[gpibAddress].readyState === WebSocket.CONNECTING)) return;
     setIsFetchingStatuses(prev => ({ ...prev, [gpibAddress]: true }));
@@ -222,11 +265,14 @@ export const InstrumentContextProvider = ({ children }) => {
 
   const startReadingCollection = (params) => {
     if (readingWs.current?.readyState === WebSocket.OPEN) {
+      clearLiveReadings();
       setCollectionStatus('');
+      setStabilizationStatus(null);
       const readingKey = params.reading_type;
       readingKeyRef.current = readingKey || '';
       setIsCollecting(true);
       setCollectionProgress({ count: 0, total: params.num_samples });
+      
       const initialDetails = { tpId: params.test_point_id, readingKey: readingKey, stage: readingKey };
       setActiveCollectionDetails(initialDetails);
 
@@ -234,7 +280,7 @@ export const InstrumentContextProvider = ({ children }) => {
       return true;
     }
     return false;
-  };
+  };;
 
   const stopReadingCollection = () => {
     if (readingWs.current?.readyState === WebSocket.OPEN) {
@@ -268,6 +314,11 @@ export const InstrumentContextProvider = ({ children }) => {
     setAmplifierRange,
     lastMessage,
     sendWsCommand,
+    stabilizationStatus,
+    timerState,
+    // *** EXPORT NEW STATE VALUES ***
+    bulkRunProgress,
+    focusedTPKey,
   };
 
   return <InstrumentContext.Provider value={contextValue}>{children}</InstrumentContext.Provider>;

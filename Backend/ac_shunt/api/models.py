@@ -155,6 +155,9 @@ class CalibrationSettings(models.Model):
     num_samples = models.IntegerField(default=8, null=True, blank=True)
     settling_time = models.IntegerField(default=5, null=True, blank=True)
     nplc = models.FloatField(default=20, null=True, blank=True, help_text="Integration time in Power Line Cycles for 34420A")
+    stability_window = models.IntegerField(default=5, null=True, blank=True)
+    stability_threshold_ppm = models.FloatField(default=10, null=True, blank=True)
+    stability_max_attempts = models.IntegerField(default=50, null=True, blank=True)
 
 class CalibrationReadings(models.Model):
 
@@ -191,14 +194,20 @@ class CalibrationReadings(models.Model):
         results, _ = CalibrationResults.objects.get_or_create(test_point=self.test_point)
         
         def calculate_stats(readings):
-            if not readings or len(readings) == 0:
+            if not readings or len(readings) < 2: # Require at least 2 readings for std dev
                 return None, None
             
+            # Extract numeric values, whether from a list of dicts or a list of floats
             if isinstance(readings[0], dict) and 'value' in readings[0]:
                 numeric_values = [r.get('value') for r in readings]
-                return np.mean(numeric_values), np.std(numeric_values)
             else:
-                return np.mean(readings), np.std(readings)
+                numeric_values = readings
+
+            # **THE FIX**: Use ddof=1 to calculate the SAMPLE standard deviation (N-1)
+            mean = np.mean(numeric_values)
+            std_dev = np.std(numeric_values, ddof=1)
+            
+            return mean, std_dev
 
         results.std_ac_open_avg, results.std_ac_open_stddev = calculate_stats(self.std_ac_open_readings)
         results.std_dc_pos_avg, results.std_dc_pos_stddev = calculate_stats(self.std_dc_pos_readings)

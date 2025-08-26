@@ -1,19 +1,23 @@
 import React, { useState, useEffect, useCallback, useMemo, useRef } from 'react';
 import axios from 'axios';
-import { FaStop, FaCalculator, FaTimes } from 'react-icons/fa';
+import { DndContext, closestCenter } from '@dnd-kit/core';
+import { arrayMove, SortableContext, useSortable, verticalListSortingStrategy } from '@dnd-kit/sortable';
+import { CSS } from '@dnd-kit/utilities';
+import { FaStop, FaCalculator, FaTimes, FaPlay, FaEraser, FaHourglassHalf, FaCrosshairs, FaStream, FaGripVertical } from 'react-icons/fa';
 import { useInstruments } from '../../contexts/InstrumentContext';
 import { useTheme } from '../../contexts/ThemeContext';
 import CalibrationChart from './CalibrationChart';
 import SwitchControl from './SwitchControl';
 import ActionDropdownButton from './ActionDropdownButton';
+import LiveStatisticsTracker from './LiveStatisticsTracker';
 
 const API_BASE_URL = process.env.REACT_APP_API_BASE_URL;
 
 const READING_TYPES = [
     { key: 'ac_open', label: 'AC Open', color: 'rgb(75, 192, 192)' },
-    { key: 'dc_pos', label: 'DC+', color: 'rgb(255, 99, 132)' },
-    { key: 'dc_neg', label: 'DC-', color: 'rgb(54, 162, 235)' },
-    { key: 'ac_close', label: 'AC Close', color: 'rgb(255, 205, 86)' }
+    { key: 'dc_pos', label: 'DC Positive', color: 'rgb(255, 99, 132)' },
+    { key: 'dc_neg', label: 'DC Negative', color: 'rgb(54, 162, 235)' },
+    { key: 'ac_close', label: 'AC Closed', color: 'rgb(255, 205, 86)' }
 ];
 
 const AVAILABLE_FREQUENCIES = [
@@ -129,6 +133,72 @@ const DirectionToggle = ({ activeDirection, setActiveDirection }) => (
     </div>
 );
 
+const SortableTestPointItem = ({ point, isFocused, isSelected, isComplete, isCurrentlyExecuting, areControlsDisabled, onFocus, onToggle, onClearReadings }) => {
+    const { attributes, listeners, setNodeRef, transform, transition, isDragging } = useSortable({ id: point.key });
+
+    const style = {
+        transform: CSS.Transform.toString(transform),
+        transition,
+        opacity: isDragging ? 0.5 : 1,
+    };
+
+    const hasReadingsForward = onClearReadings.hasAnyReadings(point.forward);
+    const hasReadingsReverse = onClearReadings.hasAnyReadings(point.reverse);
+
+    return (
+        <div
+            ref={setNodeRef}
+            style={style}
+            className={`test-point-item-selectable ${isFocused ? 'active' : ''} ${isComplete ? 'completed' : ''} ${isDragging ? 'dragging' : ''}`}
+            onClick={() => onFocus(point)}
+            {...attributes}
+        >
+            <div className="drag-handle" {...listeners} onClick={(e) => e.stopPropagation()}>
+                <FaGripVertical />
+            </div>
+            <input
+                type="checkbox"
+                checked={isSelected}
+                onChange={(e) => {
+                    e.stopPropagation();
+                    onToggle(point.key);
+                }}
+                onClick={(e) => e.stopPropagation()}
+                disabled={areControlsDisabled}
+                className="tp-checkbox"
+            />
+            <div className="tp-label">
+                <span className="test-point-name">{point.current}A @ {onClearReadings.formatFrequency(point.frequency)}</span>
+                <div style={{ display: 'flex', alignItems: 'center' }}>
+                    {hasReadingsForward && (
+                        <button
+                            title="Clear Forward Readings"
+                            className="clear-readings-button"
+                            onClick={(e) => { e.stopPropagation(); onClearReadings.prompt('Forward', point); }}
+                        >
+                            <FaEraser />
+                        </button>
+                    )}
+                    {hasReadingsReverse && (
+                        <button
+                            title="Clear Reverse Readings"
+                            className="clear-readings-button"
+                            onClick={(e) => { e.stopPropagation(); onClearReadings.prompt('Reverse', point); }}
+                        >
+                            <FaEraser />
+                        </button>
+                    )}
+                    {/* Use the new prop for the status indicator */}
+                    {isCurrentlyExecuting && <span className="status-indicator"></span>}
+                    {/* Hide the checkmark if the point is running */}
+                    {isComplete && !isCurrentlyExecuting && <span className="status-icon">✓</span>}
+                </div>
+            </div>
+        </div>
+    );
+};
+
+
 function Calibration({ showNotification }) {
     const {
         selectedSessionId, liveReadings, tiLiveReadings, initialLiveReadings, discoveredInstruments,
@@ -138,6 +208,10 @@ function Calibration({ showNotification }) {
         clearLiveReadings, amplifierAddress,
         lastMessage,
         sendWsCommand,
+        stabilizationStatus,
+        timerState,
+        bulkRunProgress,
+        focusedTPKey,
     } = useInstruments();
     const { theme } = useTheme();
 
@@ -145,13 +219,26 @@ function Calibration({ showNotification }) {
     const [tpData, setTPData] = useState({ test_points: [] });
     const [isLoading, setIsLoading] = useState(true);
     const [calibrationConfigurations, setCalibrationConfigurations] = useState({});
-    const [calibrationSettings, setCalibrationSettings] = useState({ initial_warm_up_time: 0, num_samples: 8, settling_time: 5 });
+    const [calibrationSettings, setCalibrationSettings] = useState({
+        initial_warm_up_time: 0,
+        num_samples: 8,
+        settling_time: 5,
+        stability_window: 5,
+        stability_threshold_ppm: 10,
+        stability_max_attempts: 50
+    });
     const [correctionInputs, setCorrectionInputs] = useState({ eta_std: '', eta_ti: '', delta_std: '', delta_ti: '', delta_std_known: '' });
     const [averagedPpmDifference, setAveragedPpmDifference] = useState(null);
-    const [selectedTP, setSelectedTP] = useState(null);
+
+    const [focusedTP, setFocusedTP] = useState(null);
+    const [selectedTPs, setSelectedTPs] = useState(new Set());
+    const [isBulkRunning, setIsBulkRunning] = useState(false);
+
+    const [orderedTestPoints, setOrderedTestPoints] = useState([]);
+
     const [activeDirection, setActiveDirection] = useState('Forward');
     const [lastCollectionDirection, setLastCollectionDirection] = useState(null);
-    const [hardwareModal, setHardwareModal] = useState({ isOpen: false, onConfirm: () => { } });
+    const [confirmationModal, setConfirmationModal] = useState({ isOpen: false, title: '', message: '', onConfirm: () => { } });
     const [amplifierModal, setAmplifierModal] = useState({ isOpen: false, range: null, onConfirm: () => { } });
     const [historicalReadings, setHistoricalReadings] = useState(initialLiveReadings);
     const [tiHistoricalReadings, setTiHistoricalReadings] = useState(initialLiveReadings);
@@ -160,6 +247,88 @@ function Calibration({ showNotification }) {
     const [tvcCorrections, setTVCCorrections] = useState({});
     const collectionPromise = useRef(null);
     const [isCorrectionModalOpen, setIsCorrectionModalOpen] = useState(false);
+    const [countdown, setCountdown] = useState(0);
+    const timerInterval = useRef(null);
+    const [clearConfirmationModal, setClearConfirmationModal] = useState({ isOpen: false, title: '', message: '', onConfirm: () => { } });
+
+    const uniqueTestPoints = useMemo(() => {
+        if (!tpData?.test_points) return [];
+        const pointMap = new Map();
+        tpData.test_points.forEach(point => {
+            const key = `${point.current}-${point.frequency}`;
+            if (!pointMap.has(key)) pointMap.set(key, { key, current: point.current, frequency: point.frequency, forward: null, reverse: null });
+            const entry = pointMap.get(key);
+            if (point.direction === 'Forward') entry.forward = point;
+            else if (point.direction === 'Reverse') entry.reverse = point;
+        });
+        return Array.from(pointMap.values());
+    }, [tpData]);
+
+    useEffect(() => {
+        const newPointsMap = new Map(uniqueTestPoints.map(p => [p.key, p]));
+
+        setOrderedTestPoints(prevOrderedPoints => {
+            if (prevOrderedPoints.length === 0) {
+                return uniqueTestPoints;
+            }
+
+            const updatedAndOrderedPoints = prevOrderedPoints
+                .map(oldPoint => newPointsMap.get(oldPoint.key))
+                .filter(Boolean);
+
+            const existingKeys = new Set(updatedAndOrderedPoints.map(p => p.key));
+            const newPointsToAdd = uniqueTestPoints.filter(p => !existingKeys.has(p.key));
+
+            return [...updatedAndOrderedPoints, ...newPointsToAdd];
+        });
+    }, [uniqueTestPoints]);
+
+    const handleDragEnd = (event) => {
+        const { active, over } = event;
+
+        if (over && active.id !== over.id) {
+            setOrderedTestPoints((items) => {
+                const oldIndex = items.findIndex(item => item.key === active.id);
+                const newIndex = items.findIndex(item => item.key === over.id);
+                return arrayMove(items, oldIndex, newIndex);
+            });
+        }
+    };
+
+    useEffect(() => {
+        if (timerState.isActive) {
+            setCountdown(Math.ceil(timerState.duration));
+
+            if (timerInterval.current) clearInterval(timerInterval.current);
+
+            timerInterval.current = setInterval(() => {
+                setCountdown(prev => {
+                    if (prev <= 1) {
+                        clearInterval(timerInterval.current);
+                        return 0;
+                    }
+                    return prev - 1;
+                });
+            }, 1000);
+
+        } else {
+            if (timerInterval.current) clearInterval(timerInterval.current);
+            setCountdown(0);
+        }
+
+        return () => {
+            if (timerInterval.current) clearInterval(timerInterval.current);
+        };
+    }, [timerState.isActive, timerState.duration]);
+
+    useEffect(() => {
+        if (focusedTPKey) {
+            const pointToFocus = uniqueTestPoints.find(p => p.key === focusedTPKey);
+            if (pointToFocus) {
+                setFocusedTP(pointToFocus);
+            }
+        }
+    }, [focusedTPKey, uniqueTestPoints]);
 
     useEffect(() => {
         if (collectionStatus === 'collection_finished' || collectionStatus === 'collection_stopped') {
@@ -174,6 +343,12 @@ function Calibration({ showNotification }) {
             }
         }
     }, [collectionStatus]);
+
+    useEffect(() => {
+        if (lastMessage?.type === 'warning') {
+            showNotification(lastMessage.message, 'warning');
+        }
+    }, [lastMessage, showNotification]);
 
     const waitForCollection = () => {
         return new Promise((resolve, reject) => {
@@ -238,25 +413,21 @@ function Calibration({ showNotification }) {
         } catch (error) { showNotification('Could not refresh test point list.', 'error'); }
     }, [selectedSessionId, showNotification]);
 
-    useEffect(() => { if (!isCollecting) refreshTestPointList(); }, [isCollecting, refreshTestPointList]);
+    useEffect(() => { if (!isCollecting && !isBulkRunning) refreshTestPointList(); }, [isCollecting, isBulkRunning, refreshTestPointList]);
 
     const hasAllReadings = useCallback((point) => {
         if (!point?.readings) return false;
         return ['std_ac_open_readings', 'std_dc_pos_readings', 'std_dc_neg_readings', 'std_ac_close_readings', 'ti_ac_open_readings', 'ti_dc_pos_readings', 'ti_dc_neg_readings', 'ti_ac_close_readings'].every(k => point.readings[k]?.length > 0);
     }, []);
 
-    const uniqueTestPoints = useMemo(() => {
-        if (!tpData?.test_points) return [];
-        const pointMap = new Map();
-        tpData.test_points.forEach(point => {
-            const key = `${point.current}-${point.frequency}`;
-            if (!pointMap.has(key)) pointMap.set(key, { key, current: point.current, frequency: point.frequency, forward: null, reverse: null });
-            const entry = pointMap.get(key);
-            if (point.direction === 'Forward') entry.forward = point;
-            else if (point.direction === 'Reverse') entry.reverse = point;
-        });
-        return Array.from(pointMap.values());
-    }, [tpData]);
+    const hasAnyReadings = useCallback((point) => {
+        if (!point?.readings) return false;
+        const readingKeys = [
+            'std_ac_open_readings', 'std_dc_pos_readings', 'std_dc_neg_readings', 'std_ac_close_readings',
+            'ti_ac_open_readings', 'ti_dc_pos_readings', 'ti_dc_neg_readings', 'ti_ac_close_readings'
+        ];
+        return readingKeys.some(key => point.readings[key]?.length > 0);
+    }, []);
 
     const allForwardPointsComplete = useMemo(() => {
         if (uniqueTestPoints.length === 0) return false;
@@ -264,9 +435,9 @@ function Calibration({ showNotification }) {
     }, [uniqueTestPoints, hasAllReadings]);
 
     useEffect(() => {
-        if (selectedTP && uniqueTestPoints.length > 0) {
-            const updatedSelectedTP = uniqueTestPoints.find(p => p.key === selectedTP.key);
-            if (updatedSelectedTP) setSelectedTP(updatedSelectedTP);
+        if (focusedTP && uniqueTestPoints.length > 0) {
+            const updatedFocusedTP = uniqueTestPoints.find(p => p.key === focusedTP.key);
+            if (updatedFocusedTP) setFocusedTP(updatedFocusedTP);
         }
         // eslint-disable-next-line react-hooks/exhaustive-deps
     }, [uniqueTestPoints]);
@@ -278,16 +449,17 @@ function Calibration({ showNotification }) {
         } else {
             setTPData({ test_points: [] });
             setCalibrationConfigurations({});
-            setSelectedTP(null);
+            setFocusedTP(null);
+            setSelectedTPs(new Set());
             setIsLoading(false);
         }
     }, [selectedSessionId, refreshTestPointList]);
 
     const getShuntCorrection = useCallback(() => {
-        if (selectedTP && calibrationConfigurations.ac_shunt_range) {
+        if (focusedTP && calibrationConfigurations.ac_shunt_range) {
             const range = normalizeKey(calibrationConfigurations.ac_shunt_range);
-            const current = normalizeKey(selectedTP.current);
-            const frequency = normalizeKey(selectedTP.frequency);
+            const current = normalizeKey(focusedTP.current);
+            const frequency = normalizeKey(focusedTP.frequency);
             const correctionValue = normalizeData[range]?.[current]?.[frequency];
             if (correctionValue === undefined || correctionValue === null) {
                 return null;
@@ -295,22 +467,24 @@ function Calibration({ showNotification }) {
             return correctionValue;
         }
         return null;
-    }, [selectedTP, calibrationConfigurations, normalizeData]);
+    }, [focusedTP, calibrationConfigurations, normalizeData]);
 
     const getTVCCorrection = useCallback(() => {
         const corrections = [];
+        if (!focusedTP) return [null, null];
+
         const types = ['Standard', 'Test'];
 
         for (const typeKey of types) {
             if (tvcCorrections && tvcCorrections[typeKey] && Array.isArray(tvcCorrections[typeKey].measurements)) {
                 const foundMeasurement = tvcCorrections[typeKey].measurements.find(
-                    (measurement) => measurement.frequency === selectedTP.frequency
+                    (measurement) => measurement.frequency === focusedTP.frequency
                 );
 
                 if (foundMeasurement) {
                     corrections.push(foundMeasurement.ac_dc_difference);
                 } else {
-                    console.warn(`Frequency ${selectedTP.frequency} not found in measurements for type ${typeKey}.`);
+                    console.warn(`Frequency ${focusedTP.frequency} not found in measurements for type ${typeKey}.`);
                     corrections.push(null);
                 }
             } else {
@@ -319,7 +493,7 @@ function Calibration({ showNotification }) {
             }
         }
         return corrections;
-    }, [selectedTP, tvcCorrections]);
+    }, [focusedTP, tvcCorrections]);
 
     useEffect(() => {
         const formatReadingsForChart = (readingsArray) => {
@@ -329,26 +503,36 @@ function Calibration({ showNotification }) {
         setHistoricalReadings(initialLiveReadings);
         setTiHistoricalReadings(initialLiveReadings);
 
-        if (selectedTP) {
-            const pointForDirection = activeDirection === 'Forward' ? selectedTP.forward : selectedTP.reverse;
+        if (focusedTP) {
+            const pointForDirection = activeDirection === 'Forward' ? focusedTP.forward : focusedTP.reverse;
             if (pointForDirection) {
-                const defaultSettings = { initial_warm_up_time: 0, num_samples: 8, settling_time: 5, nplc: 20 };
-                setCalibrationSettings({ ...defaultSettings, ...pointForDirection.settings });
+                const defaultSettings = {
+                    initial_warm_up_time: 0,
+                    num_samples: 8,
+                    settling_time: 5,
+                    nplc: 20,
+                    stability_window: 5,
+                    stability_threshold_ppm: 10,
+                    stability_max_attempts: 50
+                };
+                if (pointForDirection.settings && Object.keys(pointForDirection.settings).length > 0) {
+                    setCalibrationSettings({ ...defaultSettings, ...pointForDirection.settings });
+                }
                 if (pointForDirection.readings) {
                     setHistoricalReadings({ ac_open: formatReadingsForChart(pointForDirection.readings.std_ac_open_readings), dc_pos: formatReadingsForChart(pointForDirection.readings.std_dc_pos_readings), dc_neg: formatReadingsForChart(pointForDirection.readings.std_dc_neg_readings), ac_close: formatReadingsForChart(pointForDirection.readings.std_ac_close_readings) });
                     setTiHistoricalReadings({ ac_open: formatReadingsForChart(pointForDirection.readings.ti_ac_open_readings), dc_pos: formatReadingsForChart(pointForDirection.readings.ti_dc_pos_readings), dc_neg: formatReadingsForChart(pointForDirection.readings.ti_dc_neg_readings), ac_close: formatReadingsForChart(pointForDirection.readings.ti_ac_close_readings) });
                 }
             }
         }
-    }, [selectedTP, activeDirection, initialLiveReadings]);
+    }, [focusedTP, activeDirection, initialLiveReadings]);
 
     useEffect(() => {
-        if (!selectedTP) {
+        if (!focusedTP) {
             setAveragedPpmDifference(null);
             return;
         }
-        const forwardResult = selectedTP.forward?.results?.delta_uut_ppm;
-        const reverseResult = selectedTP.reverse?.results?.delta_uut_ppm;
+        const forwardResult = focusedTP.forward?.results?.delta_uut_ppm;
+        const reverseResult = focusedTP.reverse?.results?.delta_uut_ppm;
 
         if (forwardResult !== undefined && forwardResult !== null && reverseResult !== undefined && reverseResult !== null) {
             const averagePpm = (parseFloat(forwardResult) + parseFloat(reverseResult)) / 2;
@@ -357,11 +541,11 @@ function Calibration({ showNotification }) {
 
             const saveAverage = async () => {
                 try {
-                    const forwardPayload = { ...selectedTP.forward.results, delta_uut_ppm_avg: averagePpmFormatted };
-                    const reversePayload = { ...selectedTP.reverse.results, delta_uut_ppm_avg: averagePpmFormatted };
+                    const forwardPayload = { ...focusedTP.forward.results, delta_uut_ppm_avg: averagePpmFormatted };
+                    const reversePayload = { ...focusedTP.reverse.results, delta_uut_ppm_avg: averagePpmFormatted };
                     await Promise.all([
-                        axios.put(`${API_BASE_URL}/calibration_sessions/${selectedSessionId}/test_points/${selectedTP.forward.id}/update-results/`, forwardPayload),
-                        axios.put(`${API_BASE_URL}/calibration_sessions/${selectedSessionId}/test_points/${selectedTP.reverse.id}/update-results/`, reversePayload)
+                        axios.put(`${API_BASE_URL}/calibration_sessions/${selectedSessionId}/test_points/${focusedTP.forward.id}/update-results/`, forwardPayload),
+                        axios.put(`${API_BASE_URL}/calibration_sessions/${selectedSessionId}/test_points/${focusedTP.reverse.id}/update-results/`, reversePayload)
                     ]);
                     if (averagedPpmDifference !== averagePpmFormatted) {
                         showNotification(`Saved Averaged δ UUT: ${averagePpmFormatted} PPM`, 'success');
@@ -375,7 +559,7 @@ function Calibration({ showNotification }) {
         } else {
             setAveragedPpmDifference(null);
         }
-    }, [selectedTP, selectedSessionId, showNotification, averagedPpmDifference, refreshTestPointList]);
+    }, [focusedTP, selectedSessionId, showNotification, averagedPpmDifference, refreshTestPointList]);
 
 
     const handleCorrectionInputChange = (e) => setCorrectionInputs(prev => ({ ...prev, [e.target.name]: e.target.value }));
@@ -396,8 +580,8 @@ function Calibration({ showNotification }) {
             return (delta_std_known + term_STD - term_UUT + delta_std - delta_ti).toFixed(3);
         };
 
-        const newForwardPpm = hasAllReadings(selectedTP.forward) ? calculatePpmFor(selectedTP.forward) : null;
-        const newReversePpm = hasAllReadings(selectedTP.reverse) ? calculatePpmFor(selectedTP.reverse) : null;
+        const newForwardPpm = hasAllReadings(focusedTP.forward) ? calculatePpmFor(focusedTP.forward) : null;
+        const newReversePpm = hasAllReadings(focusedTP.reverse) ? calculatePpmFor(focusedTP.reverse) : null;
 
         if (newForwardPpm === null && newReversePpm === null) {
             return showNotification("No directions have complete readings to calculate.", "warning");
@@ -407,23 +591,23 @@ function Calibration({ showNotification }) {
             const updatePromises = [];
             const sharedPayload = { ...currentCorrectionInputs };
 
-            if (selectedTP.forward && selectedTP.forward.id) {
-                const forwardPayload = { ...(selectedTP.forward.results || {}), ...sharedPayload };
+            if (focusedTP.forward && focusedTP.forward.id) {
+                const forwardPayload = { ...(focusedTP.forward.results || {}), ...sharedPayload };
                 if (newForwardPpm !== null) {
                     forwardPayload.delta_uut_ppm = newForwardPpm;
                 }
                 updatePromises.push(
-                    axios.put(`${API_BASE_URL}/calibration_sessions/${selectedSessionId}/test_points/${selectedTP.forward.id}/update-results/`, forwardPayload)
+                    axios.put(`${API_BASE_URL}/calibration_sessions/${selectedSessionId}/test_points/${focusedTP.forward.id}/update-results/`, forwardPayload)
                 );
             }
 
-            if (selectedTP.reverse && selectedTP.reverse.id) {
-                const reversePayload = { ...(selectedTP.reverse.results || {}), ...sharedPayload };
+            if (focusedTP.reverse && focusedTP.reverse.id) {
+                const reversePayload = { ...(focusedTP.reverse.results || {}), ...sharedPayload };
                 if (newReversePpm !== null) {
                     reversePayload.delta_uut_ppm = newReversePpm;
                 }
                 updatePromises.push(
-                    axios.put(`${API_BASE_URL}/calibration_sessions/${selectedSessionId}/test_points/${selectedTP.reverse.id}/update-results/`, reversePayload)
+                    axios.put(`${API_BASE_URL}/calibration_sessions/${selectedSessionId}/test_points/${focusedTP.reverse.id}/update-results/`, reversePayload)
                 );
             }
 
@@ -442,7 +626,7 @@ function Calibration({ showNotification }) {
     };
 
     const handleOpenCorrectionModal = () => {
-        const primaryPoint = selectedTP.forward || selectedTP.reverse;
+        const primaryPoint = focusedTP.forward || focusedTP.reverse;
         const existingResults = primaryPoint?.results || {};
         const tvcCorrection = getTVCCorrection();
         const shuntCorrection = getShuntCorrection();
@@ -493,110 +677,332 @@ function Calibration({ showNotification }) {
         }
     };
 
-    const runMeasurement = async (runType, baseReadingKey = null) => {
-        if (!selectedTP) return;
+    const runMeasurement = useCallback(async (testPointToRun, runType, baseReadingKey = null, bypassAmplifierConfirmation = false) => {
+        if (!testPointToRun) return;
         const ampRange = calibrationConfigurations.amplifier_range;
 
         if (amplifierAddress && !ampRange) {
-            return showNotification('An amplifier is assigned, but its range is not set. Please set it in the Test Point Editor.', 'error');
+            showNotification('An amplifier is assigned, but its range is not set. Please set it in the Test Point Editor.', 'error');
+            return Promise.reject(new Error('Amplifier range not set.'));
         }
 
-        if (activeDirection === 'Reverse' && !allForwardPointsComplete) return showNotification('Please complete all Forward readings before starting Reverse.', 'error');
-
-        let pointData = activeDirection === 'Forward' ? selectedTP.forward : selectedTP.reverse;
+        let pointData = activeDirection === 'Forward' ? testPointToRun.forward : testPointToRun.reverse;
         if (!pointData) {
             try {
-                const response = await axios.post(`${API_BASE_URL}/calibration_sessions/${selectedSessionId}/test_points/`, { current: selectedTP.current, frequency: selectedTP.frequency, direction: activeDirection });
+                const response = await axios.post(`${API_BASE_URL}/calibration_sessions/${selectedSessionId}/test_points/`, { current: testPointToRun.current, frequency: testPointToRun.frequency, direction: activeDirection });
                 pointData = response.data;
                 await refreshTestPointList();
-            } catch (error) { return showNotification(`Error creating ${activeDirection} configuration.`, 'error'); }
+            } catch (error) {
+                showNotification(`Error creating ${activeDirection} configuration.`, 'error');
+                return Promise.reject(error);
+            }
         }
 
         clearLiveReadings();
 
-        try {
-            let params;
-            if (runType === 'full') {
-                params = {
-                    command: 'start_full_calibration',
-                    num_samples: parseInt((pointData.settings || { num_samples: 8 }).num_samples, 10) || 8,
-                    settling_time: calibrationSettings.settling_time || 5,
-                };
-            } else { // 'single'
-                params = {
-                    command: 'start_collection',
-                    reading_type: baseReadingKey,
-                    num_samples: parseInt((pointData.settings || { num_samples: 8 }).num_samples, 10) || 8,
-                    settling_time: calibrationSettings.settling_time || 5,
-                };
+        const runSettings = calibrationSettings;
+
+        let params;
+        if (runType === 'full') {
+            params = {
+                command: 'start_full_calibration',
+                num_samples: parseInt(runSettings.num_samples, 10),
+                settling_time: parseFloat(runSettings.settling_time),
+            };
+        } else { // 'single'
+            params = {
+                command: 'start_collection',
+                reading_type: baseReadingKey,
+                num_samples: parseInt(runSettings.num_samples, 10),
+                settling_time: parseFloat(runSettings.settling_time),
+            };
+        }
+
+        Object.assign(params, {
+            nplc: parseFloat(runSettings.nplc),
+            initial_warm_up_time: parseFloat(runSettings.initial_warm_up_time),
+            stability_params: {
+                enabled: true,
+                window: parseInt(runSettings.stability_window, 10),
+                threshold_ppm: parseFloat(runSettings.stability_threshold_ppm),
+                max_attempts: parseInt(runSettings.stability_max_attempts, 10)
+            },
+            test_point: { current: testPointToRun.current, frequency: testPointToRun.frequency, direction: activeDirection },
+            test_point_id: pointData.id,
+            std_reader_model: stdReaderModel,
+            ti_reader_model: tiReaderModel,
+        });
+
+        if (amplifierAddress) {
+            params.amplifier_range = ampRange;
+        }
+
+        if (bypassAmplifierConfirmation) {
+            params.bypass_amplifier_confirmation = true;
+        }
+
+        if (startReadingCollection(params)) {
+            return waitForCollection();
+        } else {
+            showNotification('WebSocket is not connected. Please refresh the page.', 'error');
+            return Promise.reject(new Error('WebSocket not connected.'));
+        }
+    }, [
+        activeDirection, amplifierAddress, calibrationConfigurations.amplifier_range, clearLiveReadings,
+        refreshTestPointList, selectedSessionId, showNotification, startReadingCollection,
+        stdReaderModel, tiReaderModel, calibrationSettings
+    ]);
+
+    const handleRunSelectedPoints = async () => {
+        if (selectedTPs.size === 0) {
+            showNotification('No test points selected.', 'warning');
+            return;
+        }
+
+        if (activeDirection === 'Reverse' && !allForwardPointsComplete) {
+            return showNotification('Please complete all Forward readings before starting Reverse.', 'error');
+        }
+
+        const runBatchSequence = () => {
+            const pointsToRunData = orderedTestPoints
+                .filter(p => selectedTPs.has(p.key))
+                .map(p => {
+                    const pointForDirection = activeDirection === 'Forward' ? p.forward : p.reverse;
+                    if (!pointForDirection) return null;
+                    return {
+                        id: pointForDirection.id,
+                        current: p.current,
+                        frequency: p.frequency,
+                        direction: activeDirection
+                    };
+                }).filter(Boolean);
+
+            if (pointsToRunData.length === 0) {
+                showNotification(`No valid test points for the ${activeDirection} direction were selected.`, 'error');
+                return;
             }
 
-            Object.assign(params, {
-                nplc: parseFloat(calibrationSettings.nplc) || 20,
-                test_point: { current: selectedTP.current, frequency: selectedTP.frequency, direction: activeDirection },
-                test_point_id: pointData.id,
+            const firstPointKey = `${pointsToRunData[0].current}-${pointsToRunData[0].frequency}`;
+
+            setIsBulkRunning(true);
+
+            const firstPointToRun = uniqueTestPoints.find(p => p.key === firstPointKey);
+            if (firstPointToRun) setFocusedTP(firstPointToRun);
+
+            const params = {
+                command: 'start_full_calibration_batch',
+                test_points: pointsToRunData,
+                direction: activeDirection,
+                num_samples: parseInt(calibrationSettings.num_samples, 10),
+                settling_time: parseFloat(calibrationSettings.settling_time),
+                nplc: parseFloat(calibrationSettings.nplc),
+                initial_warm_up_time: parseFloat(calibrationSettings.initial_warm_up_time),
+                stability_params: {
+                    enabled: true,
+                    window: parseInt(calibrationSettings.stability_window, 10),
+                    threshold_ppm: parseFloat(calibrationSettings.stability_threshold_ppm),
+                    max_attempts: parseInt(calibrationSettings.stability_max_attempts, 10)
+                },
                 std_reader_model: stdReaderModel,
                 ti_reader_model: tiReaderModel,
-            });
-
-            if (amplifierAddress) {
-                params.amplifier_range = ampRange;
-            }
+                amplifier_range: calibrationConfigurations.amplifier_range,
+                bypass_amplifier_confirmation: false
+            };
 
             if (startReadingCollection(params)) {
-                setLastCollectionDirection(activeDirection);
-                const result = await waitForCollection();
-                const message = runType === 'full' ? 'Full measurement sequence' : `${baseReadingKey.replace(/_/g, ' ')} readings`;
-                if (result === 'collection_stopped') {
-                    showNotification("Sequence stopped by user.", "warning");
-                } else if (result === 'collection_finished') {
-                    showNotification(`${message} complete!`, "success");
-                }
+                waitForCollection()
+                    .then(result => {
+                        if (result === 'collection_stopped' || result === 'error') {
+                            showNotification(`Batch sequence stopped.`, 'warning');
+                        } else {
+                            showNotification('Batch sequence finished.', 'success');
+                        }
+                    })
+                    .catch(error => {
+                        showNotification(`Operation failed: ${error.message || 'An unknown error occurred.'}`, 'error');
+                    })
+                    .finally(async () => {
+                        setIsBulkRunning(false);
+                        await refreshTestPointList();
+                    });
             } else {
                 showNotification('WebSocket is not connected. Please refresh the page.', 'error');
+                setIsBulkRunning(false);
             }
+        };
 
-        } catch (error) {
-            showNotification(`Operation failed: ${error.message || 'An unknown error occurred.'}`, 'error');
-            console.error("Measurement run error:", error);
-        }
-    };
-
-    const handleRunAllRequest = () => {
-        const run = () => runMeasurement('full');
-        if (!lastCollectionDirection || activeDirection === lastCollectionDirection) {
-            run();
-        } else {
-            setHardwareModal({
+        if (activeDirection !== lastCollectionDirection && lastCollectionDirection !== null) {
+            setConfirmationModal({
                 isOpen: true,
-                onConfirm: () => { setHardwareModal({ isOpen: false }); run(); },
-                onCancel: () => setHardwareModal({ isOpen: false })
+                title: 'Confirm Hardware Change',
+                message: `Please ensure you have physically configured the hardware for the '${activeDirection}' direction before proceeding.`,
+                onConfirm: () => {
+                    setConfirmationModal(prev => ({ ...prev, isOpen: false }));
+                    setLastCollectionDirection(activeDirection);
+                    runBatchSequence();
+                },
+                onCancel: () => setConfirmationModal(prev => ({ ...prev, isOpen: false })),
             });
+        } else {
+            setLastCollectionDirection(activeDirection);
+            runBatchSequence();
         }
     };
-    const handleCollectReadingsRequest = (baseReadingKey) => runMeasurement('single', baseReadingKey);
 
+    const handleCollectReadingsRequest = useCallback((baseReadingKey) => {
+        const run = () => {
+            setLastCollectionDirection(activeDirection);
+            runMeasurement(focusedTP, 'single', baseReadingKey)
+                .then(result => {
+                    const message = `${baseReadingKey.replace(/_/g, ' ')} readings`;
+                    if (result === 'collection_stopped') {
+                        showNotification("Sequence stopped by user.", "warning");
+                    } else if (result === 'collection_finished') {
+                        showNotification(`${message} complete!`, "success");
+                    }
+                })
+                .catch(error => {
+                    showNotification(`Operation failed: ${error.message || 'An unknown error occurred.'}`, 'error');
+                    console.error("Measurement run error:", error);
+                });
+        };
+
+        if (activeDirection !== lastCollectionDirection && lastCollectionDirection !== null) {
+            setConfirmationModal({
+                isOpen: true,
+                title: 'Confirm Hardware Change',
+                message: `Please ensure you have physically configured the hardware for the '${activeDirection}' direction before proceeding.`,
+                onConfirm: () => { setConfirmationModal(prev => ({ ...prev, isOpen: false })); run(); },
+                onCancel: () => setConfirmationModal(prev => ({ ...prev, isOpen: false })),
+            });
+        } else {
+            run();
+        }
+    }, [activeDirection, lastCollectionDirection, focusedTP, runMeasurement, showNotification]);
+
+    const handleRunSingleStageOnSelected = useCallback(async (readingKey) => {
+        if (selectedTPs.size === 0) {
+            showNotification('No test points selected for batch run.', 'warning');
+            return;
+        }
+
+        const pointsToRunData = orderedTestPoints
+            .filter(p => selectedTPs.has(p.key))
+            .map(p => {
+                const pointForDirection = activeDirection === 'Forward' ? p.forward : p.reverse;
+                if (!pointForDirection) return null;
+                return {
+                    id: pointForDirection.id,
+                    current: p.current,
+                    frequency: p.frequency,
+                    direction: activeDirection
+                };
+            }).filter(Boolean);
+
+        if (pointsToRunData.length === 0) {
+            showNotification(`No valid test points for the ${activeDirection} direction were selected.`, 'error');
+            return;
+        }
+
+        setIsBulkRunning(true);
+        const firstPointToRun = uniqueTestPoints.find(p => p.key === pointsToRunData[0].key);
+        if (firstPointToRun) {
+            setFocusedTP(firstPointToRun);
+        }
+
+        const params = {
+            command: 'start_single_stage_batch',
+            reading_type: readingKey,
+            test_points: pointsToRunData,
+            direction: activeDirection,
+            initial_warm_up_time: parseFloat(calibrationSettings.initial_warm_up_time) || 0,
+            num_samples: parseInt(calibrationSettings.num_samples, 10),
+            settling_time: parseFloat(calibrationSettings.settling_time),
+            nplc: parseFloat(calibrationSettings.nplc),
+            stability_params: {
+                enabled: true,
+                window: parseInt(calibrationSettings.stability_window, 10),
+                threshold_ppm: parseFloat(calibrationSettings.stability_threshold_ppm),
+                max_attempts: parseInt(calibrationSettings.stability_max_attempts, 10)
+            },
+            std_reader_model: stdReaderModel,
+            ti_reader_model: tiReaderModel,
+            amplifier_range: calibrationConfigurations.amplifier_range
+        };
+
+        if (startReadingCollection(params)) {
+            try {
+                const result = await waitForCollection();
+                if (result === 'collection_stopped' || result === 'error') {
+                    showNotification(`Batch sequence stopped.`, 'warning');
+                } else {
+                    showNotification('Batch sequence finished.', 'success');
+                }
+            } catch (error) {
+                showNotification(`Operation failed: ${error.message || 'An unknown error occurred.'}`, 'error');
+            } finally {
+                setIsBulkRunning(false);
+                await refreshTestPointList();
+            }
+        } else {
+            showNotification('WebSocket is not connected. Please refresh the page.', 'error');
+            setIsBulkRunning(false);
+        }
+    }, [
+        selectedTPs, orderedTestPoints, activeDirection, calibrationSettings, stdReaderModel,
+        tiReaderModel, calibrationConfigurations.amplifier_range, startReadingCollection,
+        showNotification, refreshTestPointList, uniqueTestPoints
+    ]);
+
+    const handleToggleSelectAll = () => {
+        if (selectedTPs.size === uniqueTestPoints.length) {
+            setSelectedTPs(new Set());
+        } else {
+            const allPointKeys = uniqueTestPoints.map(p => p.key);
+            setSelectedTPs(new Set(allPointKeys));
+        }
+    };
+
+    const handleRowFocus = (point) => {
+        setFocusedTP(point);
+        setActiveTab('settings');
+    };
+
+    const handleCheckboxToggle = (pointKey) => {
+        const newSelected = new Set(selectedTPs);
+        if (newSelected.has(pointKey)) {
+            newSelected.delete(pointKey);
+        } else {
+            newSelected.add(pointKey);
+        }
+        setSelectedTPs(newSelected);
+    };
 
     const buildChartData = (readings) => ({
         labels: [...new Set(Object.values(readings).flatMap(arr => arr ? arr.map(point => point.x) : []))].sort((a, b) => a - b),
         datasets: READING_TYPES.map(type => ({ label: type.label, data: readings[type.key], borderColor: type.color, backgroundColor: type.color.replace(')', ', 0.5)').replace('rgb', 'rgba'), tension: 0.1, fill: false }))
     });
 
-    const formatFrequency = (value) => (AVAILABLE_FREQUENCIES.find(f => f.value === value) || { text: `${value}Hz` }).text;
+    const formatFrequency = useCallback((value) => {
+        return (AVAILABLE_FREQUENCIES.find(f => f.value === value) || { text: `${value}Hz` }).text;
+    }, []);
 
     const handleSettingsSubmit = async (e) => {
         e.preventDefault();
-        if (!selectedTP || !selectedSessionId) return showNotification('No test point selected.', 'error');
+        if (!focusedTP || !selectedSessionId) return showNotification('No test point selected.', 'error');
         const newSettings = {
             initial_warm_up_time: parseFloat(calibrationSettings.initial_warm_up_time) || 0,
             num_samples: parseInt(calibrationSettings.num_samples, 10) || 8,
             settling_time: parseFloat(calibrationSettings.settling_time) || 5,
             nplc: parseFloat(calibrationSettings.nplc) || 20,
+            stability_window: parseInt(calibrationSettings.stability_window, 10) || 5,
+            stability_threshold_ppm: parseFloat(calibrationSettings.stability_threshold_ppm) || 10,
+            stability_max_attempts: parseInt(calibrationSettings.stability_max_attempts, 10) || 50,
         };
-        let { forward, reverse } = selectedTP;
+        let { forward, reverse } = focusedTP;
         try {
-            if (!forward) forward = (await axios.post(`${API_BASE_URL}/calibration_sessions/${selectedSessionId}/test_points/`, { current: selectedTP.current, frequency: selectedTP.frequency, direction: 'Forward' })).data;
-            if (!reverse) reverse = (await axios.post(`${API_BASE_URL}/calibration_sessions/${selectedSessionId}/test_points/`, { current: selectedTP.current, frequency: selectedTP.frequency, direction: 'Reverse' })).data;
+            if (!forward) forward = (await axios.post(`${API_BASE_URL}/calibration_sessions/${selectedSessionId}/test_points/`, { current: focusedTP.current, frequency: focusedTP.frequency, direction: 'Forward' })).data;
+            if (!reverse) reverse = (await axios.post(`${API_BASE_URL}/calibration_sessions/${selectedSessionId}/test_points/`, { current: focusedTP.current, frequency: focusedTP.frequency, direction: 'Reverse' })).data;
             await axios.patch(`${API_BASE_URL}/calibration_sessions/${selectedSessionId}/test_points/${forward.id}/`, { settings: newSettings });
             await axios.patch(`${API_BASE_URL}/calibration_sessions/${selectedSessionId}/test_points/${reverse.id}/`, { settings: newSettings });
             showNotification("Settings saved for both directions!", 'success');
@@ -605,7 +1011,73 @@ function Calibration({ showNotification }) {
         } catch (error) { showNotification("Error saving settings.", 'error'); }
     };
 
-    const pointForDirection = selectedTP ? (activeDirection === 'Forward' ? selectedTP.forward : selectedTP.reverse) : null;
+    const handleApplySettingsToAll = () => {
+        const confirmAction = async () => {
+            if (!focusedTP || !selectedSessionId) {
+                showNotification("No focused test point to get settings from.", "warning");
+                return;
+            }
+
+            const settingsPayload = {
+                initial_warm_up_time: parseFloat(calibrationSettings.initial_warm_up_time) || 0,
+                num_samples: parseInt(calibrationSettings.num_samples, 10) || 8,
+                settling_time: parseFloat(calibrationSettings.settling_time) || 5,
+                nplc: parseFloat(calibrationSettings.nplc) || 20,
+                stability_window: parseInt(calibrationSettings.stability_window, 10) || 5,
+                stability_threshold_ppm: parseFloat(calibrationSettings.stability_threshold_ppm) || 10,
+                stability_max_attempts: parseInt(calibrationSettings.stability_max_attempts, 10) || 50,
+            };
+
+            try {
+                await axios.post(`${API_BASE_URL}/calibration_sessions/${selectedSessionId}/test_points/actions/apply-settings-to-all/`, {
+                    settings: settingsPayload,
+                    focused_test_point_id: focusedTP.forward?.id || focusedTP.reverse?.id
+                });
+                showNotification("Settings applied to all test points successfully!", "success");
+                await refreshTestPointList();
+            } catch (error) {
+                showNotification("An error occurred while applying settings.", "error");
+            } finally {
+                setConfirmationModal(prev => ({ ...prev, isOpen: false }));
+            }
+        };
+
+        setConfirmationModal({
+            isOpen: true,
+            title: 'Apply Settings to All?',
+            message: "This will apply the current settings for Samples, Settling Time, NPLC, and Stability to ALL test points.\n\nThe 'Initial Warm-up Wait' will be saved for this point but set to 0 for all others.",
+            onConfirm: confirmAction,
+            onCancel: () => setConfirmationModal(prev => ({ ...prev, isOpen: false })),
+        });
+    };
+
+    const handleClearReadings = useCallback(async (testPointId, direction) => {
+        try {
+            await axios.post(`${API_BASE_URL}/calibration_sessions/${selectedSessionId}/test_points/${testPointId}/clear_readings/`);
+            showNotification(`Readings for the ${direction} direction have been cleared.`, 'success');
+            refreshTestPointList();
+        } catch (error) {
+            showNotification('Failed to clear readings. Please try again.', 'error');
+            console.error("Error clearing readings:", error);
+        } finally {
+            setClearConfirmationModal({ isOpen: false });
+        }
+    }, [selectedSessionId, showNotification, refreshTestPointList]);
+
+    const promptClearReadings = useCallback((direction, point) => {
+        const pointForDirection = direction === 'Forward' ? point.forward : point.reverse;
+        if (!pointForDirection) return;
+
+        setClearConfirmationModal({
+            isOpen: true,
+            title: 'Confirm Clear Readings',
+            message: `Are you sure you want to permanently delete all readings for ${point.current}A @ ${formatFrequency(point.frequency)} in the ${direction} direction?`,
+            onConfirm: () => handleClearReadings(pointForDirection.id, direction),
+            onCancel: () => setClearConfirmationModal({ isOpen: false })
+        });
+    }, [handleClearReadings, formatFrequency]);
+
+    const pointForDirection = focusedTP ? (activeDirection === 'Forward' ? focusedTP.forward : focusedTP.reverse) : null;
     const isCurrentTPActive = isCollecting && activeCollectionDetails?.tpId === pointForDirection?.id;
 
     const stdChartDataSource = isCurrentTPActive ? { ...historicalReadings, ...liveReadings } : historicalReadings;
@@ -617,13 +1089,32 @@ function Calibration({ showNotification }) {
     const showTiChart = isCurrentTPActive || Object.values(tiHistoricalReadings).some(arr => arr && arr.length > 0);
 
     const getStageName = () => {
-        const stage = activeCollectionDetails?.stage || activeCollectionDetails?.readingKey;
-        if (!stage) return 'Initializing...';
-        return stage.replace(/_/g, ' ').replace(/(^\w{1})|(\s+\w{1})/g, letter => letter.toUpperCase());
+        const stageKey = activeCollectionDetails?.stage || activeCollectionDetails?.readingKey;
+        if (!stageKey) return 'Initializing...';
+
+        const readingType = READING_TYPES.find(rt => rt.key === stageKey);
+
+        return readingType ? readingType.label : stageKey.replace(/_/g, ' ');
     };
 
-    const isCalculationReady = selectedTP && (hasAllReadings(selectedTP.forward) || hasAllReadings(selectedTP.reverse));
+    const isCalculationReady = focusedTP && (hasAllReadings(focusedTP.forward) || hasAllReadings(focusedTP.reverse));
     const is34420AInUse = stdReaderModel === '34420A' || tiReaderModel === '34420A';
+
+    const dropdownOptions = useMemo(() => {
+        if (selectedTPs.size > 1) {
+            return READING_TYPES.map(({ key, label }) => ({
+                key: key,
+                label: `Take ${label} on ${selectedTPs.size} Points`,
+                onClick: () => handleRunSingleStageOnSelected(key)
+            }));
+        } else {
+            return READING_TYPES.map(({ key, label }) => ({
+                key: key,
+                label: `Take ${label} Readings (Focused)`,
+                onClick: () => handleCollectReadingsRequest(key)
+            }));
+        }
+    }, [selectedTPs.size, handleCollectReadingsRequest, handleRunSingleStageOnSelected]);
 
     return (
         <>
@@ -635,7 +1126,22 @@ function Calibration({ showNotification }) {
                 onInputChange={handleCorrectionInputChange}
                 onGetCorrection={handleGetCorrection}
             />
-            <ConfirmationModal isOpen={hardwareModal.isOpen} title="Confirm Hardware Change" message={`Please ensure you have physically configured the hardware for the '${activeDirection}' direction before proceeding.`} onConfirm={hardwareModal.onConfirm} onCancel={() => setHardwareModal({ isOpen: false })} confirmText="Ready" />
+            <ConfirmationModal
+                isOpen={confirmationModal.isOpen}
+                title={confirmationModal.title}
+                message={confirmationModal.message}
+                onConfirm={confirmationModal.onConfirm}
+                onCancel={confirmationModal.onCancel}
+                confirmText="Ready"
+            />
+            <ConfirmationModal
+                isOpen={clearConfirmationModal.isOpen}
+                title={clearConfirmationModal.title}
+                message={clearConfirmationModal.message}
+                onConfirm={clearConfirmationModal.onConfirm}
+                onCancel={clearConfirmationModal.onCancel}
+                confirmText="Clear Readings"
+            />
             <ConfirmationModal isOpen={amplifierModal.isOpen} title="Confirm Amplifier Range" message={`Please ensure the 8100 Amplifier range is set to ${amplifierModal.range} A.\n\nIncorrect range may damage the equipment. Once verified, set 8100 to operate.`} onConfirm={amplifierModal.onConfirm} onCancel={amplifierModal.onCancel} confirmText="Range is Set" />
             {!selectedSessionId ? <div className="content-area form-section-warning"><p>Please select a session to run a calibration.</p></div>
                 : isLoading ? <div className="content-area"><p>Loading session data...</p></div>
@@ -657,24 +1163,64 @@ function Calibration({ showNotification }) {
                                     )}
                                 </div></div>
                                 <div className="content-area"><div className="calibration-workflow-container">
-                                    <div className="test-point-sidebar"><h4>Test Points</h4><div className="test-point-list">
-                                        {uniqueTestPoints.map((point) => {
-                                            const isSelected = selectedTP?.key === point.key;
-                                            const isComplete = hasAllReadings(point.forward) && hasAllReadings(point.reverse);
-                                            const isCollectingNow = isCollecting && (activeCollectionDetails?.tpId === point.forward?.id || activeCollectionDetails?.tpId === point.reverse?.id);
-                                            return (
-                                                <button key={point.key} onClick={() => setSelectedTP(point)} className={`test-point-item ${isSelected ? 'active' : ''} ${isComplete ? 'completed' : ''}`}>
-                                                    <span className="test-point-name">{point.current}A @ {formatFrequency(point.frequency)}</span>
-                                                    {isCollectingNow && <span className="status-indicator"></span>}
-                                                    {isComplete && !isCollectingNow && <span className="status-icon">✓</span>}
-                                                </button>
-                                            );
-                                        })}
-                                    </div></div>
-                                    <div className="test-point-content">{!selectedTP ? <div className="placeholder-content"><h3>Select a Test Point</h3><p>Please select a test point from the list on the left to begin.</p></div> : (
+                                    <div className="test-point-sidebar">
+                                        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+                                            <h4>Test Points</h4>
+                                            <button
+                                                onClick={handleToggleSelectAll}
+                                                className="button button-small button-secondary"
+                                                disabled={isBulkRunning || isCollecting}
+                                            >
+                                                {selectedTPs.size === uniqueTestPoints.length ? 'Deselect All' : 'Select All'}
+                                            </button>
+                                        </div>
+                                        <DndContext
+                                            collisionDetection={closestCenter}
+                                            onDragEnd={handleDragEnd}
+                                        >
+                                            <SortableContext
+                                                items={orderedTestPoints.map(p => p.key)}
+                                                strategy={verticalListSortingStrategy}
+                                            >
+                                                <div className="test-point-list">
+                                                    {orderedTestPoints.map((point) => {
+                                                        const isFocused = focusedTP?.key === point.key;
+                                                        const isSelected = selectedTPs.has(point.key);
+                                                        const isComplete = hasAllReadings(point.forward) && hasAllReadings(point.reverse);
+
+                                                        // This variable is now used for the 'isCurrentlyExecuting' prop
+                                                        const isPointCurrentlyExecuting = (isCollecting && activeCollectionDetails?.tpId === (activeDirection === 'Forward' ? point.forward?.id : point.reverse?.id)) || (isBulkRunning && bulkRunProgress.pointKey === point.key);
+
+                                                        // This variable is now used for the 'areControlsDisabled' prop
+                                                        const areControlsDisabled = isBulkRunning || isCollecting;
+
+                                                        return (
+                                                            <SortableTestPointItem
+                                                                key={point.key}
+                                                                point={point}
+                                                                isFocused={isFocused}
+                                                                isSelected={isSelected}
+                                                                isComplete={isComplete}
+                                                                isCurrentlyExecuting={isPointCurrentlyExecuting} // Pass the specific status
+                                                                areControlsDisabled={areControlsDisabled}       // Pass the global disabled status
+                                                                onFocus={handleRowFocus}
+                                                                onToggle={handleCheckboxToggle}
+                                                                onClearReadings={{
+                                                                    prompt: promptClearReadings,
+                                                                    hasAnyReadings: hasAnyReadings,
+                                                                    formatFrequency: formatFrequency
+                                                                }}
+                                                            />
+                                                        );
+                                                    })}
+                                                </div>
+                                            </SortableContext>
+                                        </DndContext>
+                                    </div>
+                                    <div className="test-point-content">{!focusedTP ? <div className="placeholder-content"><h3>Select a Test Point</h3><p>Please select a test point from the list on the left to begin.</p></div> : (
                                         <><SubNav activeTab={activeTab} setActiveTab={setActiveTab} /><div className="sub-tab-content">
                                             {activeTab === 'settings' && (<form onSubmit={handleSettingsSubmit}>
-                                                <h4>Calibration Settings for {selectedTP.current}A @ {formatFrequency(selectedTP.frequency)}</h4>
+                                                <h4>Calibration Settings for {focusedTP.current}A @ {formatFrequency(focusedTP.frequency)}</h4>
                                                 <div className="config-grid">
                                                     <div className="form-section"><label htmlFor="initial_warm_up_time">Initial Warm-up Wait (sec)</label><input type="number" id="initial_warm_up_time" name="initial_warm_up_time" value={calibrationSettings.initial_warm_up_time || 0} onChange={(e) => setCalibrationSettings(prev => ({ ...prev, initial_warm_up_time: e.target.value }))} /></div>
                                                     <div className="form-section"><label htmlFor="num_samples"># of Samples</label><input type="number" id="num_samples" name="num_samples" required value={calibrationSettings.num_samples || 8} onChange={(e) => setCalibrationSettings(prev => ({ ...prev, num_samples: e.target.value }))} /></div>
@@ -694,36 +1240,87 @@ function Calibration({ showNotification }) {
                                                             </select>
                                                         </div>
                                                     )}
-                                                </div><button type="submit" className="button button-primary">Save and Continue</button>
+                                                    {/* Stability Settings */}
+                                                    <div className="form-section"><label htmlFor="stability_window">Stability Window (# Samples)</label><input type="number" id="stability_window" name="stability_window" value={calibrationSettings.stability_window || 5} onChange={(e) => setCalibrationSettings(prev => ({ ...prev, stability_window: parseInt(e.target.value, 10) }))} /></div>
+                                                    <div className="form-section"><label htmlFor="stability_threshold_ppm">Stability Threshold (PPM)</label><input type="number" step="any" id="stability_threshold_ppm" name="stability_threshold_ppm" placeholder="e.g., 10" value={calibrationSettings.stability_threshold_ppm || ''} onChange={(e) => setCalibrationSettings(prev => ({ ...prev, stability_threshold_ppm: e.target.value }))} /></div>
+                                                    <div className="form-section"><label htmlFor="stability_max_attempts">Max Stability Attempts</label><input type="number" id="stability_max_attempts" name="stability_max_attempts" value={calibrationSettings.stability_max_attempts || 50} onChange={(e) => setCalibrationSettings(prev => ({ ...prev, stability_max_attempts: parseInt(e.target.value, 10) }))} /></div>
+                                                </div>
+                                                <div className="form-section-action" style={{ display: 'flex', gap: '10px' }}>
+                                                    <button type="submit" className="button button-primary">Save for This Point</button>
+                                                    <button type="button" onClick={handleApplySettingsToAll} className="button button-secondary">Apply to All Points</button>
+                                                </div>
                                             </form>)}
                                             {activeTab === 'readings' && (<>
                                                 <DirectionToggle activeDirection={activeDirection} setActiveDirection={setActiveDirection} />
                                                 <div className="form-section">
                                                     <div className="readings-grid">
-                                                        {isCollecting ? (
-                                                            <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', width: '100%', gap: '20px', padding: '10px', border: '1px solid var(--border-color)', borderRadius: '8px', gridColumn: '1 / -1' }}>
-                                                                <div style={{ flexGrow: 1, textAlign: 'left' }}>
-                                                                    <p style={{ margin: 0, fontWeight: 500 }}>Collecting: {getStageName()}</p>
-                                                                    <p style={{ margin: 0, fontSize: '0.9em', color: 'var(--text-color-muted)' }}>{collectionProgress.count} / {collectionProgress.total}</p>
+                                                        {(isCollecting || isBulkRunning) ? (
+                                                            <div className="status-bar">
+                                                                <div className="status-bar-content">
+                                                                    {isBulkRunning && (
+                                                                        <div className="status-section" style={{ flexGrow: 1.5 }}>
+                                                                            <span className="status-label">Batch Progress</span>
+                                                                            <span className="status-value">{`Point ${bulkRunProgress.current} of ${bulkRunProgress.total}`}</span>
+                                                                            <span className="status-detail">{`${focusedTP?.current}A @ ${formatFrequency(focusedTP?.frequency)}`}</span>
+                                                                        </div>
+                                                                    )}
+                                                                    <div className="status-section">
+                                                                        <span className="status-label">
+                                                                            {timerState.isActive ? <><FaHourglassHalf /> {timerState.label}</> : (stabilizationStatus ? <><FaCrosshairs /> Stability</> : <><FaStream /> Collecting</>)}
+                                                                        </span>
+                                                                        <span className="status-value">
+                                                                            {timerState.isActive ? `${countdown}s` : getStageName()}
+                                                                        </span>
+                                                                        <span className="status-detail">
+                                                                            {stabilizationStatus || `${collectionProgress.count} / ${collectionProgress.total} Samples`}
+                                                                        </span>
+                                                                    </div>
                                                                 </div>
-                                                                <FaStop onClick={stopReadingCollection} title="Stop Collection" style={{ fontSize: '24px', color: '#dc3545', cursor: 'pointer', transition: 'transform 0.2s' }} onMouseOver={e => e.currentTarget.style.transform = 'scale(1.1)'} onMouseOut={e => e.currentTarget.style.transform = 'scale(1)'} />
+                                                                <div className="status-bar-progress-container">
+                                                                    <div
+                                                                        className="status-bar-progress"
+                                                                        style={{ width: `${(collectionProgress.count / collectionProgress.total) * 100}%` }}
+                                                                    ></div>
+                                                                </div>
+                                                                <div className="status-bar-action">
+                                                                    <button onClick={stopReadingCollection} className="button-stop" title="Stop Collection">
+                                                                        <FaStop />
+                                                                    </button>
+                                                                </div>
                                                             </div>
                                                         ) : (
                                                             <ActionDropdownButton
-                                                                primaryText="Run All Measurements"
-                                                                onPrimaryClick={handleRunAllRequest}
-                                                                disabled={!selectedTP || readingWsState !== WebSocket.OPEN}
-                                                                options={READING_TYPES.map(({ key, label }) => ({
-                                                                    key: key,
-                                                                    label: `Take ${label} Readings`,
-                                                                    onClick: () => handleCollectReadingsRequest(key)
-                                                                }))}
+                                                                primaryText={selectedTPs.size > 0 ? `Run ${selectedTPs.size} Selected Point(s) (Full)` : 'Run Measurement(s)'}
+                                                                primaryIcon={<FaPlay />}
+                                                                onPrimaryClick={handleRunSelectedPoints}
+                                                                disabled={!focusedTP || readingWsState !== WebSocket.OPEN || selectedTPs.size === 0}
+                                                                options={dropdownOptions}
                                                             />
                                                         )}
                                                     </div>
                                                 </div>
-                                                {showStdChart && <div className="chart-container"><CalibrationChart title="Standard Instrument Readings" chartData={stdChartData} chartType="line" theme={theme} onHover={setHoveredIndex} syncedHoverIndex={hoveredIndex} comparisonData={tiChartData.datasets} /></div>}
-                                                {showTiChart && <div className="chart-container"><CalibrationChart title="Test Instrument Readings" chartData={tiChartData} chartType="line" theme={theme} onHover={setHoveredIndex} syncedHoverIndex={hoveredIndex} comparisonData={stdChartData.datasets} /></div>}
+
+                                                {showStdChart && (
+                                                    <div className="chart-container">
+                                                        <CalibrationChart title="Standard Instrument Readings" chartData={stdChartData} chartType="line" theme={theme} onHover={setHoveredIndex} syncedHoverIndex={hoveredIndex} comparisonData={tiChartData.datasets} />
+                                                        <LiveStatisticsTracker
+                                                            title="Standard Instrument Statistics"
+                                                            readings={stdChartDataSource}
+                                                            activeStage={isCurrentTPActive ? (activeCollectionDetails?.stage || activeCollectionDetails?.readingKey) : null}
+                                                        />
+                                                    </div>
+                                                )}
+
+                                                {showTiChart && (
+                                                    <div className="chart-container">
+                                                        <CalibrationChart title="Test Instrument Readings" chartData={tiChartData} chartType="line" theme={theme} onHover={setHoveredIndex} syncedHoverIndex={hoveredIndex} comparisonData={stdChartData.datasets} />
+                                                        <LiveStatisticsTracker
+                                                            title="Test Instrument Statistics"
+                                                            readings={tiChartDataSource}
+                                                            activeStage={isCurrentTPActive ? (activeCollectionDetails?.stage || activeCollectionDetails?.readingKey) : null}
+                                                        />
+                                                    </div>
+                                                )}
                                             </>)}
                                             {activeTab === 'calculate' && (
                                                 <div className="results-container">
@@ -746,35 +1343,35 @@ function Calibration({ showNotification }) {
                                                     )}
 
                                                     <div className="reading-group" style={{ gridTemplateColumns: '1fr 1fr', alignItems: 'start' }}>
-                                                        {selectedTP.forward?.results?.delta_uut_ppm && (
+                                                        {focusedTP.forward?.results?.delta_uut_ppm && (
                                                             <div className="reading">
                                                                 <h4>Forward Direction</h4>
                                                                 <div className="reading-group" style={{ gridTemplateColumns: '1fr' }}>
                                                                     <div className="reading">
                                                                         <h3>δ UUT (PPM):</h3>
                                                                         <p style={{ fontSize: '1.5em', fontWeight: 'bold', color: 'var(--primary-color)' }}>
-                                                                            {parseFloat(selectedTP.forward.results.delta_uut_ppm).toFixed(3)}
+                                                                            {parseFloat(focusedTP.forward.results.delta_uut_ppm).toFixed(3)}
                                                                         </p>
                                                                     </div>
                                                                 </div>
                                                             </div>
                                                         )}
 
-                                                        {selectedTP.reverse?.results?.delta_uut_ppm && (
+                                                        {focusedTP.reverse?.results?.delta_uut_ppm && (
                                                             <div className="reading">
                                                                 <h4>Reverse Direction</h4>
                                                                 <div className="reading-group" style={{ gridTemplateColumns: '1fr' }}>
                                                                     <div className="reading">
                                                                         <h3>δ UUT (PPM):</h3>
                                                                         <p style={{ fontSize: '1.5em', fontWeight: 'bold', color: 'var(--primary-color)' }}>
-                                                                            {parseFloat(selectedTP.reverse.results.delta_uut_ppm).toFixed(3)}
+                                                                            {parseFloat(focusedTP.reverse.results.delta_uut_ppm).toFixed(3)}
                                                                         </p>
                                                                     </div>
                                                                 </div>
                                                             </div>
                                                         )}
                                                     </div>
-                                                    {!(selectedTP.forward?.results?.delta_uut_ppm || selectedTP.reverse?.results?.delta_uut_ppm) && (
+                                                    {!(focusedTP.forward?.results?.delta_uut_ppm || focusedTP.reverse?.results?.delta_uut_ppm) && (
                                                         <div className="placeholder-content" style={{ minHeight: '200px' }}>
                                                             <h3>No Results Calculated</h3>
                                                             <p>Complete readings for a direction and click the "Calculate" button above.</p>

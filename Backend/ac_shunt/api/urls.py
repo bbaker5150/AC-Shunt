@@ -15,7 +15,13 @@ test_point_router = routers.NestedSimpleRouter(router, r'calibration_sessions', 
 test_point_router.register(r'test_points', TestPointViewSet, basename='session-test-point')
 
 urlpatterns = [
+    path('calibration_sessions/<int:session_pk>/test_points/<int:pk>/clear_readings/',
+         TestPointViewSet.as_view({'post': 'clear_readings'}),
+         name='testpoint-clear-readings'),
+    
+    # The router includes can now remain in their original order.
     path('', include(router.urls)),
     path('', include(test_point_router.urls)),
+    
     path('instruments/discover/', discover_instruments, name='discover-instruments'),
 ]

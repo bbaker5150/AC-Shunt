@@ -21,6 +21,7 @@ class Instrument5730A(FlukeInstrument):
     """
     def __init__(self, model: str, gpib: str, timeout: float=60000):
         super().__init__(model=model, gpib=gpib, timeout=timeout)
+        self.reset()
 
     def set_output(self, voltage: float, frequency: float) -> None:
         """Set the output voltage for the 5730A.
@@ -46,6 +47,10 @@ class Instrument5730A(FlukeInstrument):
     def set_standby(self):
         """Sets 5730A to Standby"""
         self.resource.write('STBY')
+        
+    def reset(self):
+        """Sets 5730A to Standby"""
+        self.resource.write('*RST')
         
     def safe_standby(self) -> None:
         """Sets the calibrator output to 0V at 0Hz and then places it in Standby mode.

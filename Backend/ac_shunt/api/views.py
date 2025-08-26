@@ -8,7 +8,8 @@ from rest_framework.decorators import api_view
 from rest_framework import viewsets, status
 from rest_framework.decorators import action
 from rest_framework.response import Response
-from .models import Message, Correction, Uncertainty, CalibrationSession, TestPoint, TestPointSet, Calibration, CalibrationConfigurations, CalibrationTVCCorrections
+from django.db import transaction
+from .models import Message, Correction, Uncertainty, CalibrationSession, TestPoint, TestPointSet, Calibration, CalibrationConfigurations, CalibrationTVCCorrections, CalibrationSettings, CalibrationReadings, CalibrationResults
 from .serializers import MessageSerializer, CorrectionSerializer, CorrectionGroupedSerializer, FlatCorrectionSerializer, UncertaintySerializer, UncertaintyGroupedSerializer, FlatUncertaintySerializer, CalibrationSerializer, CalibrationSessionSerializer, TestPointSerializer, TestPointSetSerializer, CalibrationTVCCorrectionsSerializer, CalibrationConfigurationsSerializer, CalibrationSettingsSerializer, CalibrationReadingsSerializer, CalibrationResultsSerializer
 from .NPSL_Tools.instruments import Instrument11713C, Instrument3458A, Instrument5730A, Instrument5790B, Instrument34420A, Instrument8100
 from django.core.exceptions import ObjectDoesNotExist
@@ -590,7 +591,7 @@ class CalibrationSessionViewSet(viewsets.ModelViewSet):
 
                     existing_results_instance = getattr(test_point_instance, 'readings', None)
 
-                    if existing_readings_instance:
+                    if existing_results_instance:
                         results_serializer = CalibrationResultsSerializer(
                             instance=existing_results_instance,
                             data=results_data,
@@ -743,6 +744,43 @@ class TestPointViewSet(viewsets.ModelViewSet):
         session = CalibrationSession.objects.get(pk=self.kwargs['session_pk'])
         test_point_set = TestPointSet.objects.get(session=session)
         serializer.save(test_point_set=test_point_set)
+    
+    @action(detail=False, methods=['post'], url_path='actions/apply-settings-to-all')
+    def apply_settings_to_all(self, request, session_pk=None):
+        print("--- DEBUG: Reached the apply_settings_to_all view! ---")
+        settings_data = request.data.get('settings')
+        # Use focused_test_point_id to preserve its warm-up time
+        focused_tp_id = request.data.get('focused_test_point_id')
+
+        if not settings_data:
+            return Response({"detail": "Settings data is required."}, status=status.HTTP_400_BAD_REQUEST)
+
+        try:
+            test_point_set = TestPointSet.objects.get(session_id=session_pk)
+            test_points = test_point_set.points.all()
+            
+            with transaction.atomic():
+                for point in test_points:
+                    if point.id == focused_tp_id:
+                        CalibrationSettings.objects.update_or_create(
+                            test_point=point,
+                            defaults=settings_data
+                        )
+                    else:
+                        settings_for_others = settings_data.copy()
+                        settings_for_others['initial_warm_up_time'] = 0
+                        CalibrationSettings.objects.update_or_create(
+                            test_point=point,
+                            defaults=settings_for_others
+                        )
+            
+            return Response({"message": f"Settings applied to {test_points.count()} test points."}, status=status.HTTP_200_OK)
+
+        except TestPointSet.DoesNotExist:
+            return Response({"detail": "TestPointSet not found for this session."}, status=status.HTTP_404_NOT_FOUND)
+        except Exception as e:
+            return Response({"detail": f"An error occurred: {str(e)}"}, status=status.HTTP_400_BAD_REQUEST)
+
 
     @action(detail=False, methods=['post'], url_path='append')
     def append_points(self, request, session_pk=None):
@@ -790,6 +828,44 @@ class TestPointViewSet(viewsets.ModelViewSet):
             status=status.HTTP_204_NO_CONTENT
         )
 
+    @action(detail=True, methods=['post'], url_path='clear-readings')
+    def clear_readings(self, request, session_pk=None, pk=None):
+        """
+        Clears all readings and calculated results for a specific test point.
+        """
+        try:
+            test_point = self.get_queryset().get(pk=pk)
+            
+            with transaction.atomic():
+                # **THE FIX**: Delete the results object entirely.
+                if hasattr(test_point, 'results') and test_point.results is not None:
+                    test_point.results.delete()
+
+                readings_instance = getattr(test_point, 'readings', None)
+                if readings_instance:
+                    readings_instance.std_ac_open_readings = []
+                    readings_instance.std_dc_pos_readings = []
+                    readings_instance.std_dc_neg_readings = []
+                    readings_instance.std_ac_close_readings = []
+                    readings_instance.ti_ac_open_readings = []
+                    readings_instance.ti_dc_pos_readings = []
+                    readings_instance.ti_dc_neg_readings = []
+                    readings_instance.ti_ac_close_readings = []
+                    
+                    # Saving the blank readings will trigger the auto-creation
+                    # of a fresh, empty CalibrationResults object.
+                    readings_instance.save()
+
+            return Response(
+                {"message": f"Readings and results for Test Point {pk} have been cleared."},
+                status=status.HTTP_200_OK
+            )
+
+        except TestPoint.DoesNotExist:
+            return Response({"detail": "Test point not found."}, status=status.HTTP_404_NOT_FOUND)
+        except Exception as e:
+            return Response({"detail": f"An unexpected error occurred: {str(e)}"}, status=status.HTTP_500_INTERNAL_SERVER_ERROR)
+
     @action(detail=True, methods=['put'], url_path='update-results')
     def update_results(self, request, session_pk=None, pk=None):
         try:
@@ -797,7 +873,7 @@ class TestPointViewSet(viewsets.ModelViewSet):
             results = getattr(test_point, 'results', None)
 
             if not results:
-                return Response({"detail": "Results not found for this test point."}, status=status.HTTP_404_NOT_FOUND)
+                results, _ = CalibrationResults.objects.get_or_create(test_point=test_point)
 
             serializer = CalibrationResultsSerializer(results, data=request.data, partial=True)
             serializer.is_valid(raise_exception=True)

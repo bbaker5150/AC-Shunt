@@ -26,6 +26,7 @@ class Instrument34420A():
         self.min_integration = float(self.device.query('SENS:VOLT:DC:NPLC? MIN'))
         # print(f"Min Integration (NPLC): {self.min_integration}")
         # self.check_instrument_errors("Initialization")
+        self.device.timeout = 20000 
 
     def get_identity(self):
         return self.device.query('*IDN?')

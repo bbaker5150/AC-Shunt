@@ -1,7 +1,7 @@
 import React, { useState, useEffect, useRef } from 'react';
 import { FaCaretDown } from 'react-icons/fa';
 
-const ActionDropdownButton = ({ primaryText, onPrimaryClick, options, disabled }) => {
+const ActionDropdownButton = ({ primaryText, onPrimaryClick, options, disabled, primaryIcon }) => {
     const [isDropdownOpen, setIsDropdownOpen] = useState(false);
     const containerRef = useRef(null);
 
@@ -22,19 +22,19 @@ const ActionDropdownButton = ({ primaryText, onPrimaryClick, options, disabled }
     };
 
     return (
-        <div className="action-dropdown-container" ref={containerRef}>
-            <div className="action-dropdown-wrapper">
+        <div className="premium-action-button-container" ref={containerRef}>
+            <div className="premium-action-button-wrapper">
                 <button
                     onClick={onPrimaryClick}
                     disabled={disabled}
-                    className="button button-primary action-dropdown-primary"
+                    className="button premium-action-button-primary"
                 >
-                    {primaryText}
+                    {primaryIcon} {primaryText}
                 </button>
                 <button
                     onClick={() => setIsDropdownOpen(!isDropdownOpen)}
                     disabled={disabled}
-                    className="button button-primary action-dropdown-caret"
+                    className="button premium-action-button-caret"
                     aria-haspopup="true"
                     aria-expanded={isDropdownOpen}
                 >
@@ -42,11 +42,11 @@ const ActionDropdownButton = ({ primaryText, onPrimaryClick, options, disabled }
                 </button>
             </div>
             {isDropdownOpen && (
-                <div className="action-dropdown-menu">
+                <div className="premium-action-button-menu">
                     {options.map(({ key, label, onClick }) => (
                         <button
                             key={key}
-                            className="action-dropdown-item"
+                            className="premium-action-button-item"
                             onClick={() => handleOptionClick(onClick)}
                         >
                             {label}

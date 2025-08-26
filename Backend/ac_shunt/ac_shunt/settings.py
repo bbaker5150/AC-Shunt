@@ -142,16 +142,15 @@ CORS_ALLOWED_ORIGINS = [
     "http://10.206.104.144:3000",
 ]
 
-# This allows consumers to talk to each other and is necessary for more complex featuresy
-# CHANNEL_LAYERS = {
-#     "default": {
-#         "BACKEND": "channels_redis.core.RedisChannelLayer",
-#         "CONFIG": {
-#             "hosts": [("localhost", 6379)], # Default Redis host and port
-#         },
-#     },
-# }
-# If you don't want to use Redis for initial local testing, you can use the in-memory layer:
+CORS_ALLOWED_METHODS = [
+    "DELETE",
+    "GET",
+    "OPTIONS",
+    "PATCH",
+    "POST",
+    "PUT",
+]
+
 CHANNEL_LAYERS = {
     "default": {
         "BACKEND": "channels.layers.InMemoryChannelLayer"
