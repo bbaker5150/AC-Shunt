@@ -8,6 +8,8 @@ import re
 from channels.generic.websocket import AsyncWebsocketConsumer
 from asgiref.sync import sync_to_async
 from channels.db import database_sync_to_async
+from collections import deque
+import statistics
 
 from .NPSL_Tools.instruments import Instrument11713C, Instrument3458A, Instrument5730A, Instrument5790B, Instrument34420A, Instrument8100
 from .models import CalibrationReadings, CalibrationSession, CalibrationSettings, TestPoint, TestPointSet
@@ -100,6 +102,8 @@ class CalibrationConsumer(AsyncWebsocketConsumer):
         self.stop_event = asyncio.Event()
         self.confirmation_event = asyncio.Event()
         self.confirmation_status = None
+        # State machine to prevent race conditions
+        self.state = "IDLE"
 
     async def connect(self):
         self.session_id = self.scope['url_route']['kwargs']['session_id']
@@ -116,56 +120,72 @@ class CalibrationConsumer(AsyncWebsocketConsumer):
         data = json.loads(text_data)
         command = data.get('command')
         
-        if command == 'amplifier_confirmed':
-            self.confirmation_status = 'confirmed'
-            self.confirmation_event.set()
-            return
-        elif command == 'operation_cancelled':
-            self.confirmation_status = 'cancelled'
+        # --- DEBUG LOG ---
+        print(f"\n[RECEIVE] Received command: '{command}'")
+        print(f"[RECEIVE] Payload: {json.dumps(data, indent=2)}")
+        
+        if command in ['amplifier_confirmed', 'operation_cancelled']:
+            self.confirmation_status = 'confirmed' if command == 'amplifier_confirmed' else 'cancelled'
             self.confirmation_event.set()
             return
 
-        if self.collection_task and not self.collection_task.done():
-            if command == 'stop_collection': self.stop_event.set()
-            else: await self.send(text_data=json.dumps({'type': 'error', 'message': 'A collection is already in progress.'}))
+        if command == 'stop_collection':
+            self.stop_event.set()
+            if self.collection_task:
+                self.collection_task.cancel()
+            return
+
+        if self.state == "BUSY":
+            await self.send(text_data=json.dumps({'type': 'error', 'message': 'A collection is already in progress.'}))
             return
             
         self.stop_event.clear()
         
-        if command == 'start_collection':
-            self.collection_task = asyncio.create_task(self.collect_single_reading_set(data))
-        elif command == 'start_full_calibration':
-            self.collection_task = asyncio.create_task(self.run_full_calibration_sequence(data))
+        task_started = False
+        if command in ['start_collection', 'start_full_calibration', 'start_single_stage_batch', 'start_full_calibration_batch']:
+            self.state = "BUSY"
+            task_started = True
+            if command == 'start_collection':
+                print("[RECEIVE] Dispatching to 'collect_single_reading_set'")
+                self.collection_task = asyncio.create_task(self.collect_single_reading_set(data))
+            elif command == 'start_full_calibration':
+                print("[RECEIVE] Dispatching to 'run_full_calibration_sequence'")
+                self.collection_task = asyncio.create_task(self.run_full_calibration_sequence(data))
+            elif command == 'start_single_stage_batch':
+                print("[RECEIVE] Dispatching to 'run_single_stage_batch'")
+                self.collection_task = asyncio.create_task(self.run_single_stage_batch(data))
+            elif command == 'start_full_calibration_batch':
+                print("[RECEIVE] Dispatching to 'run_full_calibration_batch'")
+                self.collection_task = asyncio.create_task(self.run_full_calibration_batch(data))
         elif command == 'set_amplifier_range':
             await self.set_amplifier_range(data)
-        elif command == 'stop_collection':
-            self.stop_event.set()
+
+        if not task_started:
+            self.state = "IDLE"
+
 
     async def _handle_amplifier_confirmation(self, amplifier_instrument, amplifier_range, data):
-        """Handles the amplifier confirmation flow."""
-        if not amplifier_instrument or not amplifier_range:
-            return True # Nothing to confirm, proceed.
+        if data.get('bypass_amplifier_confirmation'):
+            return True
 
-        # Set the range on the instrument BEFORE asking the user to confirm.
+        if not amplifier_instrument or not amplifier_range:
+            return True
+
         await self.send(text_data=json.dumps({'type': 'status_update', 'message': f"Setting amplifier range to {amplifier_range} A..."}))
         await sync_to_async(amplifier_instrument.set_range, thread_sensitive=True)(range_amps=float(amplifier_range))
 
-        # 1. Clear previous confirmation state
         self.confirmation_event.clear()
         self.confirmation_status = None
 
-        # 2. Send request to frontend for user to verify the physical setting and wait
         await self.send(text_data=json.dumps({'type': 'awaiting_amplifier_confirmation', 'range': amplifier_range}))
         await self.confirmation_event.wait()
 
-        # 3. Check the user's response
         if self.confirmation_status != 'confirmed':
             await self.send(text_data=json.dumps({'type': 'collection_stopped', 'message': 'Operation cancelled by user.'}))
-            return False # Signal that the operation was cancelled
+            return False 
 
-        # 4. If confirmed, proceed
         await self.send(text_data=json.dumps({'type': 'status_update', 'message': "Amplifier range confirmed by user."}))
-        return True # Signal that the operation can continue
+        return True 
 
     async def set_amplifier_range(self, data):
         amplifier = None
@@ -207,7 +227,6 @@ class CalibrationConsumer(AsyncWebsocketConsumer):
         except CalibrationSession.DoesNotExist: return None
 
     async def _verify_initial_reading(self, instrument, instrument_name, expected_value, tolerance=0.10):
-        """Takes a single reading and checks if it's within tolerance of the expected value."""
         await self.send(text_data=json.dumps({'type': 'status_update', 'message': f"Taking pre-check sample from {instrument_name}..."}))
         print(f"VERIFY: Performing 10% pre-check for {instrument_name}.")
         
@@ -229,7 +248,116 @@ class CalibrationConsumer(AsyncWebsocketConsumer):
             print(f"VERIFY: {instrument_name} check FAILED.")
             return False
 
-    async def _perform_single_measurement(self, reading_type_base, num_samples, test_point_data, bypass_tvc, amplifier_range, source_instrument, std_reader_instrument, ti_reader_instrument, amplifier_instrument=None, settling_time=0, nplc_setting=None):
+    async def _perform_warmup(self, warmup_time, test_point_data, bypass_tvc, amplifier_range, ac_source=None, dc_source=None):
+        # --- DEBUG LOG ---
+        print(f"[WARMUP_FUNC] Entered _perform_warmup with warmup_time = {warmup_time}")
+
+        if not warmup_time or warmup_time <= 0:
+            print("[WARMUP_FUNC] Condition met (time is zero or None). Skipping warmup.")
+            return
+
+        print(f"[WARMUP_FUNC] Condition NOT met. Proceeding with warmup.")
+        await self.send(text_data=json.dumps({'type': 'status_update', 'message': f"Initial warm-up period started for {warmup_time}s..."}))
+
+        input_current = float(test_point_data.get('current'))
+        voltage = (input_current / float(amplifier_range)) * 2 if not bypass_tvc and amplifier_range and float(amplifier_range) != 0 else input_current
+        
+        if ac_source:
+            # --- DEBUG LOG ---
+            print("[WARMUP_FUNC] AC source provided. Activating AC source.")
+            frequency = float(test_point_data.get('frequency', 0))
+            await sync_to_async(ac_source.set_output, thread_sensitive=True)(voltage=voltage, frequency=frequency)
+            await sync_to_async(ac_source.set_operate, thread_sensitive=True)()
+        
+        if dc_source:
+            # --- DEBUG LOG ---
+            print("[WARMUP_FUNC] DC source provided. Activating DC source.")
+            await sync_to_async(dc_source.set_output, thread_sensitive=True)(voltage=voltage, frequency=0)
+            await sync_to_async(dc_source.set_operate, thread_sensitive=True)()
+        
+        try:
+            await asyncio.sleep(warmup_time)
+        except asyncio.CancelledError:
+            print("[WARMUP_FUNC] Warm-up cancelled.")
+            raise
+
+        if not self.stop_event.is_set():
+            await self.send(text_data=json.dumps({'type': 'status_update', 'message': "Warm-up complete. Starting measurement."}))
+        print("[WARMUP_FUNC] Warm-up period finished.")
+
+    async def _wait_for_stabilization(self, std_instrument, ti_instrument, window_size=5, threshold_ppm=10, max_attempts=50):
+        await self.send(text_data=json.dumps({
+            'type': 'status_update', 
+            'message': f"Waiting for readings to stabilize (Stdev < {threshold_ppm} PPM)..."
+        }))
+
+        std_readings = deque(maxlen=window_size)
+        ti_readings = deque(maxlen=window_size)
+        
+        current_stdev_ppm = float('inf')
+        
+        for i in range(max_attempts):
+            if self.stop_event.is_set():
+                return list(std_readings), list(ti_readings)
+
+            std_reading_val, ti_reading_val = await asyncio.gather(
+                self._take_one_reading(std_instrument), 
+                self._take_one_reading(ti_instrument)
+            )
+            timestamp = time.time()
+            std_readings.append({'value': std_reading_val, 'timestamp': timestamp})
+            ti_readings.append({'value': ti_reading_val, 'timestamp': timestamp})
+            
+            if len(std_readings) == window_size:
+                std_values = [r['value'] for r in std_readings]
+                try:
+                    mean_val = statistics.mean(std_values)
+                    stdev_val = statistics.stdev(std_values)
+
+                    if abs(mean_val) < 1e-9:
+                        current_stdev_ppm = float('inf')
+                    else:
+                        current_stdev_ppm = (stdev_val / abs(mean_val)) * 1_000_000
+
+                    if current_stdev_ppm < threshold_ppm:
+                        await self.send(text_data=json.dumps({
+                            'type': 'status_update',
+                            'message': f"Signal stabilized with Stdev: {current_stdev_ppm:.2f} PPM. Starting measurement."
+                        }))
+                        print(f"STABILIZED: Stdev {current_stdev_ppm:.2f} PPM < {threshold_ppm} PPM after {i+1} readings.")
+                        return list(std_readings), list(ti_readings)
+
+                except statistics.StatisticsError:
+                    current_stdev_ppm = 0.0
+                    await self.send(text_data=json.dumps({
+                        'type': 'status_update',
+                        'message': "Signal is perfectly stable. Starting measurement."
+                    }))
+                    print(f"STABILIZED: Signal perfectly stable after {i+1} readings.")
+                    return list(std_readings), list(ti_readings)
+
+            await self.send(text_data=json.dumps({
+                'type': 'stabilization_update',
+                'reading': std_reading_val,
+                'stdev_ppm': f"{current_stdev_ppm:.2f}" if current_stdev_ppm != float('inf') else "Calculating...",
+                'count': i + 1,
+                'max_attempts': max_attempts
+            }))
+            
+            try:
+                await asyncio.sleep(0.2)
+            except asyncio.CancelledError:
+                print("STABILIZATION: Stabilization wait cancelled.")
+                raise
+
+        await self.send(text_data=json.dumps({
+            'type': 'warning',
+            'message': f"Signal unstable! Proceeding with last {len(std_readings)} readings. (Stdev: {current_stdev_ppm:.2f} PPM)"
+        }))
+        print(f"STABILIZATION WARNING: Timed out after {max_attempts} attempts. Using last readings.")
+        return list(std_readings), list(ti_readings)
+
+    async def _perform_single_measurement(self, reading_type_base, num_samples, test_point_data, bypass_tvc, amplifier_range, source_instrument, std_reader_instrument, ti_reader_instrument, amplifier_instrument=None, settling_time=0, nplc_setting=None, stability_params=None):
         is_ac_reading = 'ac' in reading_type_base
         input_current = float(test_point_data.get('current'))
         voltage = (input_current / float(amplifier_range)) * 2 if not bypass_tvc and amplifier_range and float(amplifier_range) != 0 else input_current
@@ -246,20 +374,43 @@ class CalibrationConsumer(AsyncWebsocketConsumer):
         await sync_to_async(source_instrument.set_output, thread_sensitive=True)(voltage=voltage, frequency=frequency)
         await sync_to_async(source_instrument.set_operate, thread_sensitive=True)()
         
-        # Add a fixed delay to allow the instrument's internal relays to engage.
-        await asyncio.sleep(1.5)
+        try:
+            await asyncio.sleep(1.5)
+        except asyncio.CancelledError:
+            print("MEASUREMENT: Initial delay cancelled.")
+            raise
+        
+        all_std_readings, all_ti_readings = [], []
         
         if settling_time > 0:
             await self.send(text_data=json.dumps({'type': 'status_update', 'message': f"Settling for {settling_time}s..."}))
-            await asyncio.sleep(settling_time)
+            try:
+                await asyncio.sleep(settling_time)
+            except asyncio.CancelledError:
+                print("MEASUREMENT: Settling time cancelled.")
+                raise
+        
+        if stability_params and stability_params.get('enabled', False):
+            initial_std_readings, initial_ti_readings = await self._wait_for_stabilization(
+                std_instrument=std_reader_instrument,
+                ti_instrument=ti_reader_instrument,
+                window_size=stability_params.get('window', 5),
+                threshold_ppm=stability_params.get('threshold_ppm', 10),
+                max_attempts=stability_params.get('max_attempts', 50)
+            )
+            
+            if len(initial_std_readings) > num_samples:
+                initial_std_readings = initial_std_readings[-num_samples:]
+                initial_ti_readings = initial_ti_readings[-num_samples:]
 
-        # if not await self._verify_initial_reading(std_reader_instrument, "Standard Reader", config_voltage):
-        #     return
-        # if not await self._verify_initial_reading(ti_reader_instrument, "Test Instrument", config_voltage):
-        #     return
+            all_std_readings.extend(initial_std_readings)
+            all_ti_readings.extend(initial_ti_readings)
 
-        all_std_readings, all_ti_readings = [], []
-        for i in range(num_samples):
+            for i, (std_r, ti_r) in enumerate(zip(all_std_readings, all_ti_readings)):
+                await self.send(text_data=json.dumps({'type': 'dual_reading_update', 'std_reading': std_r['value'], 'ti_reading': ti_r['value'], 'count': i + 1, 'total': num_samples, 'timestamp': std_r['timestamp'], 'stage': reading_type_base}))
+
+        start_index = len(all_std_readings)
+        for i in range(start_index, num_samples):
             if self.stop_event.is_set(): return
             
             std_reading, ti_reading = await asyncio.gather(self._take_one_reading(std_reader_instrument), self._take_one_reading(ti_reader_instrument))
@@ -267,13 +418,17 @@ class CalibrationConsumer(AsyncWebsocketConsumer):
             all_std_readings.append({'value': std_reading, 'timestamp': timestamp})
             all_ti_readings.append({'value': ti_reading, 'timestamp': timestamp})
             await self.send(text_data=json.dumps({'type': 'dual_reading_update', 'std_reading': std_reading, 'ti_reading': ti_reading, 'count': i + 1, 'total': num_samples, 'timestamp': timestamp, 'stage': reading_type_base}))
-            await asyncio.sleep(0.1)
+            try:
+                await asyncio.sleep(0.1)
+            except asyncio.CancelledError:
+                print("MEASUREMENT: Reading loop cancelled.")
+                raise
 
         await self.save_readings_to_db(f"std_{reading_type_base}", all_std_readings, test_point_data)
         await self.save_readings_to_db(f"ti_{reading_type_base}", all_ti_readings, test_point_data)
 
     async def collect_single_reading_set(self, data):
-        source_instrument, std_reader_instrument, ti_reader_instrument, amplifier_instrument, switch_driver = None, None, None, None, None
+        ac_source, dc_source, std_reader_instrument, ti_reader_instrument, amplifier_instrument, switch_driver = None, None, None, None, None, None
         try:
             session_details = await self.get_session_details()
             if not session_details: raise Exception("Session not found.")
@@ -284,22 +439,17 @@ class CalibrationConsumer(AsyncWebsocketConsumer):
             std_model = session_details.get('std_reader_model')
             ti_model = session_details.get('ti_reader_model')
 
-            print(f"[{direction.upper()}] Initial instrument roles: STD GPIB={std_addr}, TI GPIB={ti_addr}")
             if direction == 'Reverse':
                 std_addr, ti_addr = ti_addr, std_addr
                 std_model, ti_model = ti_model, std_model
-                print(f"[{direction.upper()}] Swapped instrument roles: STD GPIB={std_addr}, TI GPIB={ti_addr}")
             
             if session_details.get('amplifier_address'):
                 amplifier_instrument = await sync_to_async(Instrument8100, thread_sensitive=True)(model='8100', gpib=session_details.get('amplifier_address'))
-                is_confirmed = await self._handle_amplifier_confirmation(amplifier_instrument, data.get('amplifier_range'), data)
-                if not is_confirmed:
-                    return
+                if not await self._handle_amplifier_confirmation(amplifier_instrument, data.get('amplifier_range'), data): return
 
             if session_details.get('switch_driver_address'):
                 switch_driver = await sync_to_async(Instrument11713C, thread_sensitive=True)(gpib=session_details.get('switch_driver_address'))
 
-            nplc_setting = data.get('nplc')
             reading_type_base = data.get('reading_type')
             is_ac_reading = 'ac' in reading_type_base
 
@@ -314,140 +464,396 @@ class CalibrationConsumer(AsyncWebsocketConsumer):
                 await self.send(text_data=json.dumps({'type': 'switch_status_update', 'active_source': required_state}))
                 await asyncio.sleep(1)
 
-            source_address = session_details.get('ac_source_address') if is_ac_reading else session_details.get('dc_source_address')
-            if not source_address: raise Exception(f"Required {'AC' if is_ac_reading else 'DC'} Source is not assigned.")
+            ac_source_address = session_details.get('ac_source_address')
+            dc_source_address = session_details.get('dc_source_address')
+
+            if ac_source_address and ac_source_address == dc_source_address:
+                shared_source = await sync_to_async(Instrument5730A, thread_sensitive=True)(model="5730A", gpib=ac_source_address)
+                ac_source, dc_source = shared_source, shared_source
+            else:
+                if ac_source_address: 
+                    ac_source = await sync_to_async(Instrument5730A, thread_sensitive=True)(model="5730A", gpib=ac_source_address)
+                if dc_source_address: 
+                    dc_source = await sync_to_async(Instrument5730A, thread_sensitive=True)(model="5730A", gpib=dc_source_address)
 
             std_reader_class, ti_reader_class = INSTRUMENT_CLASS_MAP.get(std_model), INSTRUMENT_CLASS_MAP.get(ti_model)
-            
-            source_instrument = await sync_to_async(Instrument5730A, thread_sensitive=True)(model="5730A", gpib=source_address)
             std_reader_instrument = await sync_to_async(std_reader_class, thread_sensitive=True)(gpib=std_addr) if std_reader_class == Instrument34420A else await sync_to_async(std_reader_class, thread_sensitive=True)(model=std_model, gpib=std_addr)
             ti_reader_instrument = await sync_to_async(ti_reader_class, thread_sensitive=True)(gpib=ti_addr) if ti_reader_class == Instrument34420A else await sync_to_async(ti_reader_class, thread_sensitive=True)(model=ti_model, gpib=ti_addr)
             
-            await self._perform_single_measurement(reading_type_base, data.get('num_samples'), data.get('test_point'), data.get('bypass_tvc'), data.get('amplifier_range'), source_instrument, std_reader_instrument, ti_reader_instrument, amplifier_instrument, float(data.get('settling_time', 0.0)), nplc_setting)
+            warmup_time = data.get('initial_warm_up_time', 0)
             
-            if not self.stop_event.is_set(): await self.send(text_data=json.dumps({'type': 'collection_finished', 'message': 'All readings complete.'}))
-            else: await self.send(text_data=json.dumps({'type': 'collection_stopped', 'message': 'Collection stopped by user.'}))
+            # --- DEBUG LOG ---
+            print(f"[SINGLE_POINT_RUN] Found warmup_time={warmup_time}. Preparing to call _perform_warmup.")
+            
+            if warmup_time > 0:
+                await self._perform_warmup(
+                    warmup_time, 
+                    data.get('test_point'), 
+                    data.get('bypass_tvc'), 
+                    data.get('amplifier_range'), 
+                    ac_source=ac_source, 
+                    dc_source=dc_source
+                )
+
+            source_instrument = ac_source if is_ac_reading else dc_source
+            if not source_instrument:
+                raise Exception(f"Required {'AC' if is_ac_reading else 'DC'} Source is not assigned.")
+
+            # *** MODIFICATION START ***
+            # Send a stage update to the client so it knows which measurement is starting.
+            # This makes single-stage runs behave like stages in a full run, enabling live updates.
+            await self.send(text_data=json.dumps({
+                'type': 'calibration_stage_update',
+                'stage': reading_type_base,
+                'total': data.get('num_samples')
+            }))
+            # *** MODIFICATION END ***
+
+            await self._perform_single_measurement(reading_type_base, data.get('num_samples'), data.get('test_point'), data.get('bypass_tvc'), data.get('amplifier_range'), source_instrument, std_reader_instrument, ti_reader_instrument, amplifier_instrument, float(data.get('settling_time', 0.0)), data.get('nplc'), data.get('stability_params'))
+            
+            if not self.stop_event.is_set():
+                await self.send(text_data=json.dumps({'type': 'collection_finished', 'message': 'All readings complete.'}))
+
+        except asyncio.CancelledError:
+            await self.send(text_data=json.dumps({'type': 'collection_stopped', 'message': 'Collection stopped by user.'}))
         except Exception as e:
             traceback.print_exc()
             await self.send(text_data=json.dumps({'type': 'error', 'message': f"An instrument error occurred: {e}"}))
         finally:
+            self.state = "IDLE"
             if switch_driver:
                 await sync_to_async(switch_driver.deactivate_all, thread_sensitive=True)()
                 await self.send(text_data=json.dumps({'type': 'switch_status_update', 'active_source': 'AC'}))
                 if hasattr(switch_driver, 'close'): await sync_to_async(switch_driver.close, thread_sensitive=True)()
             
-            if source_instrument:
-                await sync_to_async(source_instrument.safe_standby, thread_sensitive=True)()
-            if amplifier_instrument:
-                await sync_to_async(amplifier_instrument.set_standby, thread_sensitive=True)()
+            sources_to_shutdown = list(filter(None, {ac_source, dc_source}))
+            for source in sources_to_shutdown:
+                await sync_to_async(source.safe_standby, thread_sensitive=True)()
+
+            if amplifier_instrument: await sync_to_async(amplifier_instrument.set_standby, thread_sensitive=True)()
             
-            if std_reader_instrument and hasattr(std_reader_instrument, 'close'): await sync_to_async(std_reader_instrument.close, thread_sensitive=True)()
-            if ti_reader_instrument and hasattr(ti_reader_instrument, 'close'): await sync_to_async(ti_reader_instrument.close, thread_sensitive=True)()
-            if amplifier_instrument and hasattr(amplifier_instrument, 'close'): await sync_to_async(amplifier_instrument.close, thread_sensitive=True)()
+            for inst in filter(None, {std_reader_instrument, ti_reader_instrument, amplifier_instrument, ac_source, dc_source}):
+                if hasattr(inst, 'close'):
+                    await sync_to_async(inst.close, thread_sensitive=True)()
+
+            if self.stop_event.is_set():
+                await self.send(text_data=json.dumps({'type': 'collection_stopped', 'message': 'Collection stopped by user.'}))
 
     async def run_full_calibration_sequence(self, data):
         ac_source, dc_source, std_reader, ti_reader, amplifier = None, None, None, None, None
         try:
             session_details = await self.get_session_details()
-            if not session_details:
-                raise Exception("Session not found.")
+            if not session_details: raise Exception("Session not found.")
 
             direction = data.get('test_point', {}).get('direction', 'Forward')
-            std_addr = session_details.get('std_reader_address')
-            ti_addr = session_details.get('ti_reader_address')
-            std_model = session_details.get('std_reader_model')
-            ti_model = session_details.get('ti_reader_model')
+            std_addr, ti_addr = session_details.get('std_reader_address'), session_details.get('ti_reader_address')
+            std_model, ti_model = session_details.get('std_reader_model'), session_details.get('ti_reader_model')
 
-            print(f"[{direction.upper()}] Initial instrument roles: STD GPIB={std_addr}, TI GPIB={ti_addr}")
             if direction == 'Reverse':
                 std_addr, ti_addr = ti_addr, std_addr
                 std_model, ti_model = ti_model, std_model
-                print(f"[{direction.upper()}] Swapped instrument roles: STD GPIB={std_addr}, TI GPIB={ti_addr}")
 
             if session_details.get('amplifier_address'):
                 amplifier = await sync_to_async(Instrument8100, thread_sensitive=True)(model='8100', gpib=session_details.get('amplifier_address'))
-                is_confirmed = await self._handle_amplifier_confirmation(amplifier, data.get('amplifier_range'), data)
-                if not is_confirmed:
-                    return
+                if not await self._handle_amplifier_confirmation(amplifier, data.get('amplifier_range'), data): return
 
-            ac_source_address = session_details.get('ac_source_address')
-            dc_source_address = session_details.get('dc_source_address')
+            ac_source_address, dc_source_address = session_details.get('ac_source_address'), session_details.get('dc_source_address')
             
             if ac_source_address and ac_source_address == dc_source_address:
                 shared_source = await sync_to_async(Instrument5730A, thread_sensitive=True)(model="5730A", gpib=ac_source_address)
                 ac_source, dc_source = shared_source, shared_source
             else:
-                if ac_source_address:
-                    ac_source = await sync_to_async(Instrument5730A, thread_sensitive=True)(model="5730A", gpib=ac_source_address)
-                if dc_source_address:
-                    dc_source = await sync_to_async(Instrument5730A, thread_sensitive=True)(model="5730A", gpib=dc_source_address)
+                if ac_source_address: ac_source = await sync_to_async(Instrument5730A, thread_sensitive=True)(model="5730A", gpib=ac_source_address)
+                if dc_source_address: dc_source = await sync_to_async(Instrument5730A, thread_sensitive=True)(model="5730A", gpib=dc_source_address)
 
             std_reader_class, ti_reader_class = INSTRUMENT_CLASS_MAP.get(std_model), INSTRUMENT_CLASS_MAP.get(ti_model)
             std_reader = await sync_to_async(std_reader_class, thread_sensitive=True)(gpib=std_addr) if std_reader_class == Instrument34420A else await sync_to_async(std_reader_class, thread_sensitive=True)(model=std_model, gpib=std_addr)
             ti_reader = await sync_to_async(ti_reader_class, thread_sensitive=True)(gpib=ti_addr) if ti_reader_class == Instrument34420A else await sync_to_async(ti_reader_class, thread_sensitive=True)(model=ti_model, gpib=ti_addr)
 
-            settling_time = float(data.get('settling_time', 5.0))
-            num_samples = data.get('num_samples', 8)
-            nplc_setting = data.get('nplc')
+            warmup_time = data.get('initial_warm_up_time', 0)
+            
+            # --- DEBUG LOG ---
+            print(f"[FULL_RUN] Found warmup_time={warmup_time}. Preparing to call _perform_warmup.")
+            
+            if warmup_time > 0:
+                await self._perform_warmup(warmup_time, data.get('test_point'), data.get('bypass_tvc'), data.get('amplifier_range'), ac_source=ac_source, dc_source=dc_source)
+
+            settling_time, num_samples, nplc_setting, stability_params = float(data.get('settling_time', 5.0)), data.get('num_samples', 8), data.get('nplc'), data.get('stability_params')
 
             for stage in ['ac_open', 'dc_pos', 'dc_neg', 'ac_close']:
-                if self.stop_event.is_set():
-                    break
-
+                if self.stop_event.is_set(): break
+                
                 switch_driver = None
                 try:
                     if session_details.get('switch_driver_address'):
                         switch_driver = await sync_to_async(Instrument11713C, thread_sensitive=True)(gpib=session_details.get('switch_driver_address'))
                         required_switch_state = 'AC' if 'ac' in stage else 'DC'
-                        
                         await self.send(text_data=json.dumps({'type': 'status_update', 'message': f"Switching to {required_switch_state} source..."}))
-                        if required_switch_state == 'AC':
-                            await sync_to_async(switch_driver.select_ac_source, thread_sensitive=True)()
-                        else:
-                            await sync_to_async(switch_driver.select_dc_source, thread_sensitive=True)()
-                        
+                        if required_switch_state == 'AC': await sync_to_async(switch_driver.select_ac_source, thread_sensitive=True)()
+                        else: await sync_to_async(switch_driver.select_dc_source, thread_sensitive=True)()
                         await self.send(text_data=json.dumps({'type': 'switch_status_update', 'active_source': required_switch_state}))
                         await asyncio.sleep(1)
 
                     source_instrument = ac_source if 'ac' in stage else dc_source
-                    if not source_instrument:
-                        raise Exception(f"Required {'AC' if 'ac' in stage else 'DC'} Source is not assigned.")
+                    if not source_instrument: raise Exception(f"Required {'AC' if 'ac' in stage else 'DC'} Source is not assigned.")
                     
                     await self.send(text_data=json.dumps({'type': 'calibration_stage_update', 'stage': stage, 'total': num_samples}))
                     
-                    await self._perform_single_measurement(stage, num_samples, data.get('test_point'), data.get('bypass_tvc'), data.get('amplifier_range'), source_instrument, std_reader, ti_reader, amplifier, settling_time, nplc_setting)
-
+                    await self._perform_single_measurement(stage, num_samples, data.get('test_point'), data.get('bypass_tvc'), data.get('amplifier_range'), source_instrument, std_reader, ti_reader, amplifier, settling_time, nplc_setting, stability_params)
                 finally:
-                    if switch_driver:
-                        await sync_to_async(switch_driver.deactivate_all, thread_sensitive=True)()
-                        await self.send(text_data=json.dumps({'type': 'switch_status_update', 'active_source': 'AC'}))
-                        if hasattr(switch_driver, 'close'):
-                            await sync_to_async(switch_driver.close, thread_sensitive=True)()
+                    if switch_driver and hasattr(switch_driver, 'close'): await sync_to_async(switch_driver.close, thread_sensitive=True)()
             
             if not self.stop_event.is_set():
                 await self.send(text_data=json.dumps({'type': 'collection_finished', 'message': 'All readings complete.'}))
-            else:
-                await self.send(text_data=json.dumps({'type': 'collection_stopped', 'message': 'Collection stopped by user.'}))
+
+        except asyncio.CancelledError:
+            await self.send(text_data=json.dumps({'type': 'collection_stopped', 'message': 'Collection stopped by user.'}))
         except Exception as e:
             traceback.print_exc()
             await self.send(text_data=json.dumps({'type': 'error', 'message': f"An instrument error occurred: {e}"}))
         finally:
-            sources_to_shutdown = []
-            if ac_source and dc_source and ac_source is dc_source:
-                sources_to_shutdown.append(ac_source)
-            else:
-                if ac_source: sources_to_shutdown.append(ac_source)
-                if dc_source: sources_to_shutdown.append(dc_source)
+            self.state = "IDLE"
+            sources_to_shutdown = list(filter(None, {ac_source, dc_source}))
+            for source in sources_to_shutdown:
+                await sync_to_async(source.safe_standby, thread_sensitive=True)()
+            if amplifier: await sync_to_async(amplifier.set_standby, thread_sensitive=True)()
             
+            for inst in filter(None, {std_reader, ti_reader, amplifier, ac_source, dc_source}):
+                if hasattr(inst, 'close'):
+                    await sync_to_async(inst.close, thread_sensitive=True)()
+            if self.stop_event.is_set():
+                await self.send(text_data=json.dumps({'type': 'collection_stopped', 'message': 'Collection stopped by user.'}))
+
+    async def run_full_calibration_batch(self, data):
+        ac_source, dc_source, std_reader, ti_reader, amplifier, switch_driver = None, None, None, None, None, None
+        try:
+            session_details = await self.get_session_details()
+            if not session_details: raise Exception("Session not found.")
+
+            test_points_to_run = data.get('test_points', [])
+            if not test_points_to_run:
+                raise Exception("No test points provided for batch run.")
+
+            # --- 1. INITIALIZE ALL INSTRUMENTS ONCE ---
+            direction = data.get('direction', 'Forward')
+            std_addr, ti_addr = session_details.get('std_reader_address'), session_details.get('ti_reader_address')
+            std_model, ti_model = session_details.get('std_reader_model'), session_details.get('ti_reader_model')
+
+            if direction == 'Reverse':
+                std_addr, ti_addr = ti_addr, std_addr
+                std_model, ti_model = ti_model, std_model
+
+            if session_details.get('amplifier_address'):
+                amplifier = await sync_to_async(Instrument8100, thread_sensitive=True)(model='8100', gpib=session_details.get('amplifier_address'))
+                if not await self._handle_amplifier_confirmation(amplifier, data.get('amplifier_range'), data): return
+
+            ac_source_address, dc_source_address = session_details.get('ac_source_address'), session_details.get('dc_source_address')
+            if ac_source_address and ac_source_address == dc_source_address:
+                shared_source = await sync_to_async(Instrument5730A, thread_sensitive=True)(model="5730A", gpib=ac_source_address)
+                ac_source, dc_source = shared_source, shared_source
+            else:
+                if ac_source_address: ac_source = await sync_to_async(Instrument5730A, thread_sensitive=True)(model="5730A", gpib=ac_source_address)
+                if dc_source_address: dc_source = await sync_to_async(Instrument5730A, thread_sensitive=True)(model="5730A", gpib=dc_source_address)
+            
+            std_reader_class, ti_reader_class = INSTRUMENT_CLASS_MAP.get(std_model), INSTRUMENT_CLASS_MAP.get(ti_model)
+            std_reader = await sync_to_async(std_reader_class, thread_sensitive=True)(gpib=std_addr) if std_reader_class == Instrument34420A else await sync_to_async(std_reader_class, thread_sensitive=True)(model=std_model, gpib=std_addr)
+            ti_reader = await sync_to_async(ti_reader_class, thread_sensitive=True)(gpib=ti_addr) if ti_reader_class == Instrument34420A else await sync_to_async(ti_reader_class, thread_sensitive=True)(model=ti_model, gpib=ti_addr)
+
+            if session_details.get('switch_driver_address'):
+                switch_driver = await sync_to_async(Instrument11713C, thread_sensitive=True)(gpib=session_details.get('switch_driver_address'))
+            
+            warmup_time = data.get('initial_warm_up_time', 0)
+            if warmup_time > 0:
+                await self._perform_warmup(warmup_time, test_points_to_run[0], data.get('bypass_tvc'), data.get('amplifier_range'), ac_source=ac_source, dc_source=dc_source)
+
+            settling_time, num_samples, nplc_setting, stability_params = float(data.get('settling_time', 5.0)), data.get('num_samples', 8), data.get('nplc'), data.get('stability_params')
+
+            # --- 2. LOOP THROUGH TEST POINTS ---
+            for i, point_data in enumerate(test_points_to_run):
+                if self.stop_event.is_set(): break
+                
+                # Send progress update to the frontend
+                await self.send(text_data=json.dumps({
+                    'type': 'batch_progress_update',
+                    'test_point': point_data,
+                    'current': i + 1,
+                    'total': len(test_points_to_run)
+                }))
+
+                for stage in ['ac_open', 'dc_pos', 'dc_neg', 'ac_close']:
+                    if self.stop_event.is_set(): break
+                    
+                    required_switch_state = 'AC' if 'ac' in stage else 'DC'
+                    if switch_driver:
+                        await self.send(text_data=json.dumps({'type': 'status_update', 'message': f"Switching to {required_switch_state} source..."}))
+                        if required_switch_state == 'AC': await sync_to_async(switch_driver.select_ac_source, thread_sensitive=True)()
+                        else: await sync_to_async(switch_driver.select_dc_source, thread_sensitive=True)()
+                        await self.send(text_data=json.dumps({'type': 'switch_status_update', 'active_source': required_switch_state}))
+                        await asyncio.sleep(1)
+
+                    source_instrument = ac_source if 'ac' in stage else dc_source
+                    if not source_instrument: raise Exception(f"Required source for stage '{stage}' is not assigned.")
+                    
+                    await self.send(text_data=json.dumps({
+                        'type': 'calibration_stage_update', 
+                        'stage': stage, 
+                        'total': num_samples,
+                        'tpId': point_data.get('id')
+                    }))
+                    
+                    await self._perform_single_measurement(stage, num_samples, point_data, data.get('bypass_tvc'), data.get('amplifier_range'), source_instrument, std_reader, ti_reader, amplifier, settling_time, nplc_setting, stability_params)
+
+            if not self.stop_event.is_set():
+                await self.send(text_data=json.dumps({'type': 'collection_finished', 'message': 'Batch calibration complete.'}))
+
+        except asyncio.CancelledError:
+            await self.send(text_data=json.dumps({'type': 'collection_stopped', 'message': 'Batch collection stopped by user.'}))
+        except Exception as e:
+            traceback.print_exc()
+            await self.send(text_data=json.dumps({'type': 'error', 'message': f"An instrument error occurred during batch run: {e}"}))
+        finally:
+            # --- 3. CLEANUP ONCE AT THE VERY END ---
+            self.state = "IDLE"
+            if switch_driver:
+                await sync_to_async(switch_driver.deactivate_all, thread_sensitive=True)()
+                if hasattr(switch_driver, 'close'): await sync_to_async(switch_driver.close, thread_sensitive=True)()
+
+            sources_to_shutdown = list(filter(None, {ac_source, dc_source}))
             for source in sources_to_shutdown:
                 await sync_to_async(source.safe_standby, thread_sensitive=True)()
 
-            if amplifier:
-                await sync_to_async(amplifier.set_standby, thread_sensitive=True)()
+            if amplifier: await sync_to_async(amplifier.set_standby, thread_sensitive=True)()
+            
+            for inst in filter(None, {std_reader, ti_reader, amplifier, ac_source, dc_source}):
+                if hasattr(inst, 'close'):
+                    await sync_to_async(inst.close, thread_sensitive=True)()
+            
+            if self.stop_event.is_set():
+                await self.send(text_data=json.dumps({'type': 'collection_stopped', 'message': 'Batch collection stopped by user.'}))
 
-            if std_reader and hasattr(std_reader, 'close'): await sync_to_async(std_reader.close, thread_sensitive=True)()
-            if ti_reader and hasattr(ti_reader, 'close'): await sync_to_async(ti_reader.close, thread_sensitive=True)()
-            if amplifier and hasattr(amplifier, 'close'): await sync_to_async(amplifier.close, thread_sensitive=True)()
+    async def run_single_stage_batch(self, data):
+        # --- DEBUG LOG ---
+        print("[BATCH_RUN] Entered 'run_single_stage_batch'.")
+        ac_source, dc_source, std_reader, ti_reader, amplifier = None, None, None, None, None
+        try:
+            session_details = await self.get_session_details()
+            if not session_details: raise Exception("Session not found.")
+
+            stage = data.get('reading_type')
+            test_points_to_run = data.get('test_points', [])
+            if not stage or not test_points_to_run:
+                raise Exception("Missing reading type or test points for batch run.")
+
+            # --- Initialize all instruments once ---
+            direction = data.get('direction', 'Forward')
+            std_addr, ti_addr = session_details.get('std_reader_address'), session_details.get('ti_reader_address')
+            std_model, ti_model = session_details.get('std_reader_model'), session_details.get('ti_reader_model')
+
+            if direction == 'Reverse':
+                std_addr, ti_addr = ti_addr, std_addr
+                std_model, ti_model = ti_model, std_model
+
+            if session_details.get('amplifier_address'):
+                amplifier = await sync_to_async(Instrument8100, thread_sensitive=True)(model='8100', gpib=session_details.get('amplifier_address'))
+                if not await self._handle_amplifier_confirmation(amplifier, data.get('amplifier_range'), data): return
+
+            ac_source_address, dc_source_address = session_details.get('ac_source_address'), session_details.get('dc_source_address')
+            if ac_source_address and ac_source_address == dc_source_address:
+                shared_source = await sync_to_async(Instrument5730A, thread_sensitive=True)(model="5730A", gpib=ac_source_address)
+                ac_source, dc_source = shared_source, shared_source
+            else:
+                if ac_source_address: ac_source = await sync_to_async(Instrument5730A, thread_sensitive=True)(model="5730A", gpib=ac_source_address)
+                if dc_source_address: dc_source = await sync_to_async(Instrument5730A, thread_sensitive=True)(model="5730A", gpib=dc_source_address)
+
+            std_reader_class, ti_reader_class = INSTRUMENT_CLASS_MAP.get(std_model), INSTRUMENT_CLASS_MAP.get(ti_model)
+            std_reader = await sync_to_async(std_reader_class, thread_sensitive=True)(gpib=std_addr) if std_reader_class == Instrument34420A else await sync_to_async(std_reader_class, thread_sensitive=True)(model=std_model, gpib=std_addr)
+            ti_reader = await sync_to_async(ti_reader_class, thread_sensitive=True)(gpib=ti_addr) if ti_reader_class == Instrument34420A else await sync_to_async(ti_reader_class, thread_sensitive=True)(model=ti_model, gpib=ti_addr)
+
+            # --- NEW: Perform warmup BEFORE the loop ---
+            warmup_time = data.get('initial_warm_up_time', 0)
+            print(f"[BATCH_RUN] Found warmup_time={warmup_time}. Preparing to call _perform_warmup.") # --- DEBUG LOG ---
+            if warmup_time > 0:
+                await self._perform_warmup(
+                    warmup_time,
+                    test_points_to_run[0],  # Use the first test point for warmup parameters
+                    data.get('bypass_tvc'),
+                    data.get('amplifier_range'),
+                    ac_source=ac_source,
+                    dc_source=dc_source
+                )
+
+            source_instrument = ac_source if 'ac' in stage else dc_source
+            if not source_instrument: raise Exception(f"Required source for stage '{stage}' is not assigned.")
+
+            # --- Set switch state once ---
+            switch_driver = None
+            if session_details.get('switch_driver_address'):
+                switch_driver = await sync_to_async(Instrument11713C, thread_sensitive=True)(gpib=session_details.get('switch_driver_address'))
+                required_switch_state = 'AC' if 'ac' in stage else 'DC'
+                await self.send(text_data=json.dumps({'type': 'status_update', 'message': f"Switching to {required_switch_state} source for batch run..."}))
+                if required_switch_state == 'AC': await sync_to_async(switch_driver.select_ac_source, thread_sensitive=True)()
+                else: await sync_to_async(switch_driver.select_dc_source, thread_sensitive=True)()
+                await self.send(text_data=json.dumps({'type': 'switch_status_update', 'active_source': required_switch_state}))
+                await asyncio.sleep(1)
+
+            # --- Loop through selected test points ---
+            for i, point_data in enumerate(test_points_to_run):
+                if self.stop_event.is_set(): break
+
+                await self.send(text_data=json.dumps({
+                    'type': 'batch_progress_update',
+                    'test_point': point_data,
+                    'current': i + 1,
+                    'total': len(test_points_to_run)
+                }))
+
+                print(f"[BATCH_RUN] Starting measurement for point {i+1}/{len(test_points_to_run)}: {point_data}")
+                
+                await self.send(text_data=json.dumps({
+                    'type': 'calibration_stage_update', 
+                    'stage': stage, 
+                    'total': data.get('num_samples', 8),
+                    'tpId': point_data.get('id')
+                }))
+
+                await self._perform_single_measurement(
+                    stage, 
+                    data.get('num_samples', 8), 
+                    point_data, 
+                    data.get('bypass_tvc'), 
+                    data.get('amplifier_range'), 
+                    source_instrument, std_reader, ti_reader, amplifier, 
+                    data.get('settling_time', 5.0), 
+                    data.get('nplc'), 
+                    data.get('stability_params')
+                )
+
+            if not self.stop_event.is_set():
+                await self.send(text_data=json.dumps({'type': 'collection_finished', 'message': 'Batch readings complete.'}))
+
+        except asyncio.CancelledError:
+            await self.send(text_data=json.dumps({'type': 'collection_stopped', 'message': 'Batch collection stopped by user.'}))
+        except Exception as e:
+            traceback.print_exc()
+            await self.send(text_data=json.dumps({'type': 'error', 'message': f"An instrument error occurred during batch run: {e}"}))
+        finally:
+            self.state = "IDLE"
+            # --- Safely shut down all instruments ---
+            if switch_driver:
+                await sync_to_async(switch_driver.deactivate_all, thread_sensitive=True)()
+                if hasattr(switch_driver, 'close'): await sync_to_async(switch_driver.close, thread_sensitive=True)()
+
+            sources_to_shutdown = list(filter(None, {ac_source, dc_source}))
+            for source in sources_to_shutdown:
+                await sync_to_async(source.safe_standby, thread_sensitive=True)()
+
+            if amplifier: await sync_to_async(amplifier.set_standby, thread_sensitive=True)()
+            
+            for inst in filter(None, {std_reader, ti_reader, amplifier, ac_source, dc_source}):
+                if hasattr(inst, 'close'):
+                    await sync_to_async(inst.close, thread_sensitive=True)()
+            if self.stop_event.is_set():
+                await self.send(text_data=json.dumps({'type': 'collection_stopped', 'message': 'Batch collection stopped by user.'}))
 
     @database_sync_to_async
     def save_readings_to_db(self, reading_type_full, readings_list, test_point):

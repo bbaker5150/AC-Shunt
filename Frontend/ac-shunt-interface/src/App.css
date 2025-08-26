@@ -781,6 +781,28 @@ input:checked+.slider:before {
   animation: fadeIn 0.5s ease;
 }
 
+.accordion-header .header-controls {
+  display: flex;
+  align-items: center;
+  gap: 15px;
+}
+
+/* Make the toggle a bit smaller to fit nicely in the header */
+.accordion-header .unit-toggle {
+  transform: scale(0.9);
+  transform-origin: right;
+}
+
+.stat-value-ppm {
+  font-weight: 600;
+  color: var(--primary-color);
+}
+
+.reference-mean {
+  font-weight: 400 !important;
+  font-style: italic;
+}
+
 @keyframes fadeIn {
   from { opacity: 0; transform: translateY(-5px); }
   to { opacity: 1; transform: translateY(0); }
@@ -994,6 +1016,134 @@ input:checked+.slider:before {
   border-left: 4px solid #ffc107;
 }
 
+.test-point-sidebar h4 {
+  margin-top: 0;
+  padding-bottom: 10px;
+  border-bottom: 1px solid var(--border-color);
+  margin-bottom: 15px;
+  color: var(--text-color);
+}
+
+.test-point-list {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+/* MODIFIED: Replaced .test-point-item with a container for checkbox and label */
+.test-point-item-selectable {
+    display: flex;
+    align-items: center;
+    gap: 12px;
+    padding: 8px;
+    border-radius: 6px;
+    border: 1px solid transparent;
+    transition: background-color 0.2s ease-in-out;
+    cursor: pointer;
+}
+
+.test-point-item-selectable:hover {
+    background-color: var(--background-color);
+}
+
+.test-point-item-selectable.active {
+    background-color: rgba(0, 123, 255, 0.1);
+    border-color: var(--primary-color);
+}
+
+.test-point-item-selectable .tp-checkbox {
+    width: 18px;
+    height: 18px;
+    flex-shrink: 0;
+    cursor: pointer;
+}
+
+.test-point-item-selectable .tp-label {
+    flex-grow: 1;
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    font-weight: 500;
+}
+
+.test-point-item-selectable.completed .test-point-name {
+    color: var(--success-text-color);
+}
+body.dark-mode .test-point-item-selectable.completed .test-point-name {
+    color: var(--text-color);
+}
+
+.test-point-item-selectable.active.completed {
+    background-color: var(--success-color-light);
+    border-color: var(--success-color);
+}
+
+
+.test-point-item {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  width: 100%;
+  text-align: left;
+  padding: 12px 15px;
+  border-radius: 6px;
+  border: 1px solid var(--border-color);
+  background-color: var(--content-background);
+  color: var(--text-color);
+  font-weight: 500;
+  cursor: pointer;
+  transition: all 0.2s ease-in-out;
+  border-left: 3px solid transparent;
+}
+
+.test-point-item:hover {
+  border-color: var(--primary-color);
+  background-color: var(--background-color);
+}
+
+.test-point-item.active {
+  background-color: var(--primary-color);
+  border-color: var(--primary-color);
+  color: white;
+  font-weight: 700;
+}
+
+.test-point-item-selectable .tp-label {
+    flex-grow: 1;
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    gap: 8px; /* Added gap for spacing */
+    font-weight: 500;
+}
+
+/* === NEW STYLES FOR CLEAR READINGS BUTTON === */
+.clear-readings-button {
+    background: none;
+    border: none;
+    color: var(--text-color-muted);
+    cursor: pointer;
+    padding: 4px;
+    margin: 0;
+    font-size: 0.9rem;
+    line-height: 1;
+    border-radius: 4px;
+    opacity: 0; /* Hidden by default */
+    transition: all 0.2s ease-in-out;
+    flex-shrink: 0; /* Prevents the button from shrinking */
+}
+
+.test-point-item-selectable:hover .clear-readings-button {
+    opacity: 0.6; /* Show on parent hover */
+}
+
+.clear-readings-button:hover {
+    opacity: 1; /* Fully visible on its own hover */
+    color: var(--status-bad);
+    background-color: var(--status-bad-bg);
+    transform: scale(1.1);
+}
+
 .delete-chip-button {
   margin-left: 8px;
   border: none;
@@ -1170,6 +1320,213 @@ input:checked+.slider:before {
   margin: 0;
 }
 
+/* =============================================== */
+/* ======== CHART OPTIONS DROPDOWN STYLES ======== */
+/* =============================================== */
+
+.chart-options-container {
+  position: relative;
+}
+
+.chart-options-button {
+  background-color: transparent;
+  border: 1px solid var(--border-color);
+  color: var(--text-color-muted);
+  padding: 6px 10px;
+  border-radius: 6px;
+  cursor: pointer;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 1rem;
+  margin: 0;
+  box-shadow: none;
+  transition: all 0.2s ease-in-out;
+}
+
+.chart-options-button:hover {
+  background-color: var(--background-color);
+  border-color: var(--primary-color);
+  color: var(--primary-color);
+  transform: none;
+  box-shadow: none;
+}
+
+.chart-options-dropdown {
+  position: absolute;
+  top: calc(100% + 8px);
+  right: 0;
+  width: 280px; /* Increased width for new inputs */
+  background-color: var(--content-background);
+  border: 1px solid var(--border-color);
+  border-radius: 8px;
+  box-shadow: 0 5px 15px rgba(0, 0, 0, 0.1);
+  z-index: 100;
+  padding: 15px;
+  display: flex;
+  flex-direction: column;
+  gap: 15px;
+  animation: fadeIn 0.15s ease-out;
+}
+
+.chart-options-section {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+}
+
+.chart-options-label {
+  font-size: 0.8rem;
+  font-weight: 600;
+  color: var(--text-color-muted);
+  text-transform: uppercase;
+  letter-spacing: 0.5px;
+  text-align: left;
+  padding-bottom: 5px;
+  border-bottom: 1px solid var(--border-color);
+}
+
+.chart-options-divider {
+  border: none;
+  height: 1px;
+  background-color: var(--border-color);
+  margin: 0;
+}
+
+.chart-options-form-group {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  text-align: left;
+}
+
+.chart-options-form-group label {
+  font-size: 0.9rem;
+  font-weight: 500;
+  color: var(--text-color);
+}
+
+.chart-options-range-inputs {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 10px;
+}
+
+.chart-options-result {
+  background-color: var(--background-color);
+  border: 1px solid var(--border-color);
+  border-left: 3px solid var(--primary-color);
+  border-radius: 4px;
+  padding: 10px;
+  margin-top: 5px;
+  font-size: 0.9rem;
+  line-height: 1.5;
+}
+
+/* =============================================== */
+/* ======== LIVE STATISTICS TRACKER STYLES ======= */
+/* =============================================== */
+
+.live-stats-container {
+  display: grid;
+  grid-template-columns: 1fr;
+  gap: 20px;
+  width: 100%;
+  margin-top: 20px;
+}
+
+.live-stats-tracker {
+  background-color: var(--background-color);
+  border: 1px solid var(--border-color);
+  border-radius: 8px;
+  padding: 15px 20px;
+}
+
+.live-stats-header {
+  margin-top: 0;
+  margin-bottom: 15px;
+  padding-bottom: 10px;
+  border-bottom: 1px solid var(--border-color);
+  font-size: 1rem;
+  font-weight: 600;
+  color: var(--primary-color);
+  text-align: left;
+}
+
+.stats-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));
+  gap: 15px;
+}
+
+.stat-card {
+  background-color: var(--content-background);
+  border-radius: 6px;
+  padding: 12px;
+  border: 1px solid var(--border-color);
+  border-left: 4px solid var(--border-color);
+  text-align: left;
+  transition: all 0.3s ease;
+  opacity: 0.6;
+}
+
+.stat-card.active {
+  border-left-color: var(--primary-color);
+  box-shadow: 0 4px 12px rgba(0, 123, 255, 0.1);
+  opacity: 1.0;
+  transform: scale(1.02);
+}
+
+.stat-card h6 {
+  margin: 0 0 10px 0;
+  font-size: 0.9rem;
+  font-weight: 500;
+  color: var(--text-color);
+}
+
+.stat-details {
+  font-size: 0.85rem;
+  line-height: 1.6;
+  color: var(--text-color-muted);
+}
+
+.stat-details strong {
+  color: var(--text-color);
+  font-weight: 600;
+  min-width: 60px;
+  display: inline-block;
+}
+
+/* Dark Mode */
+body.dark-mode .stat-card.active {
+  box-shadow: 0 4px 12px rgba(66, 153, 225, 0.2);
+}
+
+/* Make the unit-toggle full width inside the dropdown */
+.chart-options-dropdown .unit-toggle {
+  width: 100%;
+}
+
+.chart-options-dropdown .unit-toggle button {
+  flex-grow: 1; /* Make buttons share space equally */
+}
+
+/* Dark Mode Overrides */
+body.dark-mode .chart-options-button:hover {
+    background-color: #4a5568;
+}
+
+body.dark-mode .chart-options-dropdown {
+    box-shadow: 0 5px 15px rgba(0, 0, 0, 0.3);
+}
+
+body.dark-mode .chart-options-form-group label {
+    color: var(--text-color-muted);
+}
+
+body.dark-mode .chart-options-result {
+    background-color: var(--input-background);
+}
 
 /* --- Calibration Results Page --- */
 .results-workflow-container {
@@ -3060,4 +3417,264 @@ body.dark-mode .pfr-card .risk-value { color: #a0aec0; }
 body.dark-mode .action-dropdown-item:hover {
   background-color: var(--button-primary-bg);
   color: white;
+}
+
+/* --- Premium Action Dropdown Button --- */
+.premium-action-button-container {
+    position: relative;
+    display: inline-block;
+    grid-column: 1 / -1; /* Ensures it takes the full width in your grid */
+    justify-self: center; /* Centers the button within the grid container */
+}
+
+.premium-action-button-wrapper {
+    display: flex;
+    border: 1px solid var(--button-primary-hover);
+    border-radius: 6px;
+    overflow: hidden;
+    box-shadow: 0 4px 10px rgba(0, 123, 255, 0.2);
+    transition: all 0.2s ease-in-out;
+}
+
+.premium-action-button-wrapper:hover:not(:disabled) {
+    box-shadow: 0 6px 15px rgba(0, 123, 255, 0.3);
+}
+
+.premium-action-button-wrapper .button {
+    margin: 0;
+    border: none;
+    border-radius: 0;
+    box-shadow: none;
+    background: var(--button-primary-bg);
+    transition: background-color 0.2s ease;
+}
+
+.premium-action-button-wrapper .button:hover:not(:disabled) {
+    background: var(--button-primary-hover);
+    transform: none;
+    box-shadow: none;
+}
+
+.premium-action-button-primary {
+    flex-grow: 1;
+    font-size: 1.1rem;
+    font-weight: 600;
+    padding: 12px 20px;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    gap: 10px;
+}
+
+.premium-action-button-caret {
+    border-left: 1px solid rgba(255, 255, 255, 0.2);
+    padding-left: 12px;
+    padding-right: 12px;
+}
+
+.premium-action-button-menu {
+    position: absolute;
+    top: calc(100% + 5px);
+    left: 0;
+    right: 0;
+    background-color: var(--content-background);
+    border: 1px solid var(--border-color);
+    border-radius: 5px;
+    box-shadow: 0 4px 12px rgba(0, 0, 0, 0.1);
+    z-index: 100;
+    padding: 5px;
+    display: flex;
+    flex-direction: column;
+    gap: 3px;
+    animation: fadeIn 0.15s ease-out;
+}
+
+.premium-action-button-item {
+    width: 100%;
+    text-align: left;
+    background-color: transparent;
+    color: var(--text-color);
+    font-weight: 500;
+    border: none;
+    box-shadow: none;
+    margin: 0;
+    padding: 10px 15px;
+    border-radius: 4px;
+}
+
+.premium-action-button-item:hover {
+    background-color: var(--primary-color);
+    color: white;
+    transform: none;
+    box-shadow: none;
+}
+
+/* Dark Mode Overrides */
+body.dark-mode .premium-action-button-wrapper {
+    border-color: #2b6cb0;
+    box-shadow: 0 4px 10px rgba(66, 153, 225, 0.2);
+}
+
+body.dark-mode .premium-action-button-wrapper:hover:not(:disabled) {
+    box-shadow: 0 6px 15px rgba(66, 153, 225, 0.3);
+}
+
+body.dark-mode .premium-action-button-item:hover {
+    background-color: var(--button-primary-bg);
+    color: white;
+}
+
+/* =================================== */
+/* == Professional Status Bar Styles == */
+/* =================================== */
+
+.status-bar {
+    grid-column: 1 / -1;
+    display: flex;
+    align-items: stretch;
+    background-color: var(--background-color-offset);
+    border: 1px solid var(--border-color);
+    border-radius: 8px;
+    overflow: hidden;
+    width: 100%;
+    min-height: 70px;
+    box-shadow: 0 2px 4px rgba(0, 0, 0, 0.05);
+    position: relative; /* This is the required fix */
+}
+
+.status-bar-content {
+    flex-grow: 1;
+    display: flex;
+    padding: 10px 15px;
+}
+
+.status-section {
+    display: flex;
+    flex-direction: column;
+    justify-content: center;
+    padding: 0 15px;
+    border-right: 1px solid var(--border-color);
+}
+
+.status-bar-content .status-section:last-child {
+    border-right: none;
+}
+
+.status-label {
+    font-size: 0.8rem;
+    font-weight: 600;
+    color: var(--text-color-muted);
+    text-transform: uppercase;
+    margin-bottom: 4px;
+    display: flex;
+    align-items: center;
+    gap: 6px;
+}
+
+.status-value {
+    font-size: 1.1rem;
+    font-weight: 700;
+    color: var(--primary-color);
+}
+
+.status-detail {
+    font-size: 0.85rem;
+    color: var(--text-color-light);
+}
+
+.status-bar-action {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    padding: 0 20px;
+    background-color: var(--background-color);
+}
+
+.button-stop {
+    background: none;
+    border: none;
+    color: #dc3545;
+    font-size: 28px;
+    cursor: pointer;
+    transition: transform 0.2s ease, color 0.2s ease;
+    padding: 0;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+}
+
+.button-stop:hover {
+    color: #a71d2a;
+    transform: scale(1.15);
+}
+
+.status-bar-progress-container {
+    position: absolute;
+    bottom: 0;
+    left: 0;
+    width: 100%;
+    height: 4px;
+    background-color: var(--border-color);
+}
+
+.status-bar-progress {
+    height: 100%;
+    background-color: var(--primary-color);
+    transition: width 0.3s ease-in-out;
+    border-radius: 0 2px 2px 0;
+}
+
+/* --- STYLES FOR DRAGGABLE TEST POINTS --- */
+.test-point-item-selectable {
+    display: flex; /* Use flexbox to align handle, checkbox, and label */
+    align-items: center; /* Vertically center all items */
+    gap: 10px; /* Space between items */
+    padding: 8px;
+    border-radius: 6px;
+    border: 1px solid transparent;
+    transition: background-color 0.2s ease-in-out;
+    cursor: pointer; /* Change cursor back to pointer for selection */
+    user-select: none;
+}
+
+/* Add a new rule for the drag handle */
+.drag-handle {
+    color: var(--text-color-muted);
+    padding: 4px;
+    cursor: grab;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    border-radius: 4px;
+    transition: background-color 0.2s;
+}
+
+.drag-handle:hover {
+    background-color: var(--border-color);
+}
+
+.drag-handle:active {
+    cursor: grabbing;
+}
+
+/* Style for when an item is actively being dragged (this rule already exists) */
+.test-point-item-selectable.dragging {
+    opacity: 0.5;
+    box-shadow: 0 4px 12px rgba(0, 0, 0, 0.15);
+    background-color: var(--background-color);
+}
+
+/* This rule already exists, just ensure it's there */
+.test-point-item-selectable:active {
+    cursor: pointer; /* Ensure this doesn't change to grabbing */
+}
+
+/* The .test-point-item-selectable:hover rule should remain as is */
+.test-point-item-selectable:hover {
+    background-color: var(--background-color);
+}
+
+.test-point-item-selectable.active {
+    background-color: rgba(0, 123, 255, 0.1);
+    border-color: var(--primary-color);
 }

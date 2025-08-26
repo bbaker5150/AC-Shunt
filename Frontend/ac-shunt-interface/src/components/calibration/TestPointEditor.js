@@ -323,7 +323,6 @@ function TestPointEditor({ showNotification }) {
                             {uniqueTestPoints.length > 0 && (<button onClick={handleClearAllTestPoints} className="button button-danger">Clear All Points</button>)}
                         </div>
                     </div>
-                    
                 </div>
                 {uniqueTestPoints.length > 0 && (
                     <div className="test-points-legend">
@@ -332,27 +331,52 @@ function TestPointEditor({ showNotification }) {
                         <span className="legend-item"><span className="legend-icon not-started"></span> Not Started</span>
                     </div>
                 )}
-                <div className="test-point-chip-container">
+                {/* MODIFICATION START: Replaced chip container with a styled list */}
+                <div className="test-point-list">
                     {uniqueTestPoints.length > 0 ? (
                         uniqueTestPoints.map((point) => {
                             const isComplete = hasAllReadings(point.forward) && hasAllReadings(point.reverse);
                             const isPartial = !isComplete && (hasAnyReadings(point.forward) || hasAnyReadings(point.reverse));
+                            
+                            // Determine the appropriate class for status styling
                             let statusClass = '';
                             if (isComplete) {
                                 statusClass = 'completed';
                             } else if (isPartial) {
-                                statusClass = 'in-progress';
+                                // Applying an inline style for the 'in-progress' state as it's not in the main CSS for this element
+                                // This maintains the visual language from the chip style.
                             }
+
                             return (
-                                <div key={point.key} className={`test-point-chip ${statusClass}`}>
-                                    <span>{formatCurrent(point.current)} @ {formatFrequency(point.frequency)}</span>
-                                    {isComplete && <span className="status-icon">✓</span>}
-                                    <button onClick={() => handleDeleteTestPoint(point)} className="delete-chip-button" title="Delete test point">&times;</button>
+                                <div 
+                                    key={point.key} 
+                                    className={`test-point-item ${statusClass}`}
+                                    style={isPartial ? { borderLeft: '3px solid #ffc107' } : {}}
+                                >
+                                    <div style={{ display: 'flex', alignItems: 'center', gap: '15px' }}>
+                                        <span className="test-point-name">
+                                            {formatCurrent(point.current)} @ {formatFrequency(point.frequency)}
+                                        </span>
+                                        {isComplete && <span className="status-icon">✓</span>}
+                                    </div>
+                                    <button 
+                                        onClick={() => handleDeleteTestPoint(point)} 
+                                        className="delete-chip-button" 
+                                        title="Delete test point"
+                                        style={{ fontSize: '1.5rem' }} // Slightly larger for better clickability
+                                    >
+                                        &times;
+                                    </button>
                                 </div>
                             );
                         })
-                    ) : ( <p style={{ margin: 0, fontStyle: 'italic', color: '#6c757d' }}>{selectedSessionId ? "No test points generated for this session." : "Select a session to view its test points."}</p> )}
+                    ) : ( 
+                        <p className="no-test-points-message" style={{ padding: '20px 0' }}>
+                            {selectedSessionId ? "No test points generated for this session." : "Select a session to view its test points."}
+                        </p> 
+                    )}
                 </div>
+                {/* MODIFICATION END */}
             </div>
         </React.Fragment>
     );

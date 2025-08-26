@@ -20,6 +20,5 @@ from api.views import discover_instruments
 
 urlpatterns = [
     path('admin/', admin.site.urls),
-    path('api/', include('api.urls'),),
-    path('api/instruments/discover/', discover_instruments, name='discover-instruments'),
+    path('api/', include('api.urls')),
 ]
