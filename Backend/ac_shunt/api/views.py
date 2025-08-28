@@ -747,26 +747,48 @@ class TestPointViewSet(viewsets.ModelViewSet):
     
     @action(detail=False, methods=['post'], url_path='actions/apply-settings-to-all')
     def apply_settings_to_all(self, request, session_pk=None):
-        print("--- DEBUG: Reached the apply_settings_to_all view! ---")
         settings_data = request.data.get('settings')
-        # Use focused_test_point_id to preserve its warm-up time
         focused_tp_id = request.data.get('focused_test_point_id')
 
         if not settings_data:
             return Response({"detail": "Settings data is required."}, status=status.HTTP_400_BAD_REQUEST)
+        if not focused_tp_id:
+            return Response({"detail": "focused_test_point_id is required."}, status=status.HTTP_400_BAD_REQUEST)
 
         try:
             test_point_set = TestPointSet.objects.get(session_id=session_pk)
+
+            # --- FIX START: Identify the focused point AND its sibling ---
+            try:
+                focused_point = test_point_set.points.get(pk=focused_tp_id)
+            except TestPoint.DoesNotExist:
+                return Response({"detail": "Focused test point not found in this session."}, status=status.HTTP_404_NOT_FOUND)
+
+            # Find the sibling by matching current and frequency, but excluding the focused point's ID
+            sibling_point = test_point_set.points.filter(
+                current=focused_point.current,
+                frequency=focused_point.frequency
+            ).exclude(pk=focused_tp_id).first()
+
+            # Create a set of IDs for the pair that should receive the full settings
+            pair_ids = {focused_point.id}
+            if sibling_point:
+                pair_ids.add(sibling_point.id)
+            # --- FIX END ---
+
             test_points = test_point_set.points.all()
             
             with transaction.atomic():
                 for point in test_points:
-                    if point.id == focused_tp_id:
+                    # Check if the current point is part of the focused pair
+                    if point.id in pair_ids:
+                        # Apply the full, original settings to both members of the pair
                         CalibrationSettings.objects.update_or_create(
                             test_point=point,
                             defaults=settings_data
                         )
                     else:
+                        # For all other points, reset the warm-up time
                         settings_for_others = settings_data.copy()
                         settings_for_others['initial_warm_up_time'] = 0
                         CalibrationSettings.objects.update_or_create(
@@ -779,7 +801,7 @@ class TestPointViewSet(viewsets.ModelViewSet):
         except TestPointSet.DoesNotExist:
             return Response({"detail": "TestPointSet not found for this session."}, status=status.HTTP_404_NOT_FOUND)
         except Exception as e:
-            return Response({"detail": f"An error occurred: {str(e)}"}, status=status.HTTP_400_BAD_REQUEST)
+            return Response({"detail": f"An error occurred: {str(e)}"}, status=status.HTTP_500_INTERNAL_SERVER_ERROR)
 
 
     @action(detail=False, methods=['post'], url_path='append')
