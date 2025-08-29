@@ -99,10 +99,10 @@ class CalibrationConsumer(AsyncWebsocketConsumer):
     def __init__(self, *args, **kwargs):
         super().__init__(*args, **kwargs)
         self.collection_task = None
+        self.heartbeat_task = None # Add this line
         self.stop_event = asyncio.Event()
         self.confirmation_event = asyncio.Event()
         self.confirmation_status = None
-        # State machine to prevent race conditions
         self.state = "IDLE"
 
     async def connect(self):
@@ -110,19 +110,36 @@ class CalibrationConsumer(AsyncWebsocketConsumer):
         self.session_group_name = f'session_{self.session_id}'
         await self.channel_layer.group_add(self.session_group_name, self.channel_name)
         await self.accept()
+        print(f"[HEARTBEAT] Starting for client {self.channel_name}")
+        self.heartbeat_task = asyncio.create_task(self.send_heartbeat())
 
     async def disconnect(self, close_code):
         if self.collection_task:
             self.collection_task.cancel()
+        if self.heartbeat_task:
+            self.heartbeat_task.cancel()
+        print(f"[HEARTBEAT] Stopping for client {self.channel_name}")
         await self.channel_layer.group_discard(self.session_group_name, self.channel_name)
+
+    async def send_heartbeat(self):
+        """
+        Sends a ping message every 25 seconds to keep the connection alive.
+        """
+        while True:
+            try:
+                await asyncio.sleep(25)
+                print(f"[HEARTBEAT] Sending ping to client {self.channel_name}")
+                await self.send(text_data=json.dumps({'type': 'ping'}))
+            except asyncio.CancelledError:
+                # This is expected when the client disconnects
+                break
+            except Exception as e:
+                print(f"Error in heartbeat task: {e}")
+                break
 
     async def receive(self, text_data):
         data = json.loads(text_data)
         command = data.get('command')
-        
-        # --- DEBUG LOG ---
-        print(f"\n[RECEIVE] Received command: '{command}'")
-        print(f"[RECEIVE] Payload: {json.dumps(data, indent=2)}")
         
         if command in ['amplifier_confirmed', 'operation_cancelled']:
             self.confirmation_status = 'confirmed' if command == 'amplifier_confirmed' else 'cancelled'
