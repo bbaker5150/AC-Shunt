@@ -528,7 +528,7 @@ class CalibrationConsumer(AsyncWebsocketConsumer):
             
             sources_to_shutdown = list(filter(None, {ac_source, dc_source}))
             for source in sources_to_shutdown:
-                await sync_to_async(source.safe_standby, thread_sensitive=True)()
+                await sync_to_async(source.reset, thread_sensitive=True)()
 
             if amplifier_instrument: await sync_to_async(amplifier_instrument.set_standby, thread_sensitive=True)()
             
@@ -615,7 +615,7 @@ class CalibrationConsumer(AsyncWebsocketConsumer):
             self.state = "IDLE"
             sources_to_shutdown = list(filter(None, {ac_source, dc_source}))
             for source in sources_to_shutdown:
-                await sync_to_async(source.safe_standby, thread_sensitive=True)()
+                await sync_to_async(source.reset, thread_sensitive=True)()
             if amplifier: await sync_to_async(amplifier.set_standby, thread_sensitive=True)()
             
             for inst in filter(None, {std_reader, ti_reader, amplifier, ac_source, dc_source}):
@@ -720,7 +720,7 @@ class CalibrationConsumer(AsyncWebsocketConsumer):
 
             sources_to_shutdown = list(filter(None, {ac_source, dc_source}))
             for source in sources_to_shutdown:
-                await sync_to_async(source.safe_standby, thread_sensitive=True)()
+                await sync_to_async(source.reset, thread_sensitive=True)()
 
             if amplifier: await sync_to_async(amplifier.set_standby, thread_sensitive=True)()
             
@@ -845,7 +845,7 @@ class CalibrationConsumer(AsyncWebsocketConsumer):
 
             sources_to_shutdown = list(filter(None, {ac_source, dc_source}))
             for source in sources_to_shutdown:
-                await sync_to_async(source.safe_standby, thread_sensitive=True)()
+                await sync_to_async(source.reset, thread_sensitive=True)()
 
             if amplifier: await sync_to_async(amplifier.set_standby, thread_sensitive=True)()
             

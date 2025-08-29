@@ -1535,8 +1535,18 @@ function Calibration({
   };
 
   const handleRowFocus = (point) => {
+    const pointForDirection =
+      activeDirection === "Forward" ? point.forward : point.reverse;
+
+    const areReadingsComplete = hasAllReadings(pointForDirection);
+
     setFocusedTP(point);
-    setActiveTab("settings");
+
+    if (areReadingsComplete) {
+      setActiveTab("readings");
+    } else {
+      setActiveTab("settings");
+    }
   };
 
   const handleCheckboxToggle = (pointKey) => {
@@ -1577,8 +1587,10 @@ function Calibration({
 
   const handleSettingsSubmit = async (e) => {
     e.preventDefault();
-    if (!focusedTP || !selectedSessionId)
+    if (!focusedTP || !selectedSessionId) {
       return showNotification("No test point selected.", "error");
+    }
+
     const newSettings = {
       initial_warm_up_time:
         parseFloat(calibrationSettings.initial_warm_up_time) || 0,
@@ -1591,39 +1603,34 @@ function Calibration({
       stability_max_attempts:
         parseInt(calibrationSettings.stability_max_attempts, 10) || 50,
     };
-    let { forward, reverse } = focusedTP;
+
+    let pointToUpdate =
+      activeDirection === "Forward" ? focusedTP.forward : focusedTP.reverse;
+    const directionName = activeDirection;
+
     try {
-      if (!forward)
-        forward = (
+      if (!pointToUpdate) {
+        pointToUpdate = (
           await axios.post(
             `${API_BASE_URL}/calibration_sessions/${selectedSessionId}/test_points/`,
             {
               current: focusedTP.current,
               frequency: focusedTP.frequency,
-              direction: "Forward",
+              direction: directionName,
             }
           )
         ).data;
-      if (!reverse)
-        reverse = (
-          await axios.post(
-            `${API_BASE_URL}/calibration_sessions/${selectedSessionId}/test_points/`,
-            {
-              current: focusedTP.current,
-              frequency: focusedTP.frequency,
-              direction: "Reverse",
-            }
-          )
-        ).data;
+      }
+
       await axios.patch(
-        `${API_BASE_URL}/calibration_sessions/${selectedSessionId}/test_points/${forward.id}/`,
+        `${API_BASE_URL}/calibration_sessions/${selectedSessionId}/test_points/${pointToUpdate.id}/`,
         { settings: newSettings }
       );
-      await axios.patch(
-        `${API_BASE_URL}/calibration_sessions/${selectedSessionId}/test_points/${reverse.id}/`,
-        { settings: newSettings }
+
+      showNotification(
+        `Settings saved for the ${directionName} direction!`,
+        "success"
       );
-      showNotification("Settings saved for both directions!", "success");
       await refreshTestPointList();
       setActiveTab("readings");
     } catch (error) {
