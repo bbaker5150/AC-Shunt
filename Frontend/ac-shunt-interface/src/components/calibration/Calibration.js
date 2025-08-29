@@ -389,7 +389,11 @@ const SortableTestPointItem = ({
   );
 };
 
-function Calibration({ showNotification }) {
+function Calibration({
+  showNotification,
+  orderedTestPoints,
+  setOrderedTestPoints,
+}) {
   const {
     selectedSessionId,
     liveReadings,
@@ -447,9 +451,6 @@ function Calibration({ showNotification }) {
   const [focusedTP, setFocusedTP] = useState(null);
   const [selectedTPs, setSelectedTPs] = useState(new Set());
   const [isBulkRunning, setIsBulkRunning] = useState(false);
-
-  const [orderedTestPoints, setOrderedTestPoints] = useState([]);
-
   const [activeDirection, setActiveDirection] = useState("Forward");
   const [lastCollectionDirection, setLastCollectionDirection] = useState(null);
   const [confirmationModal, setConfirmationModal] = useState({
@@ -502,10 +503,13 @@ function Calibration({ showNotification }) {
   }, [tpData]);
 
   useEffect(() => {
-    const newPointsMap = new Map(uniqueTestPoints.map((p) => [p.key, p]));
+    if (isLoading) {
+      return;
+    }
 
+    const newPointsMap = new Map(uniqueTestPoints.map((p) => [p.key, p]));
     setOrderedTestPoints((prevOrderedPoints) => {
-      if (prevOrderedPoints.length === 0) {
+      if (prevOrderedPoints.length === 0 && uniqueTestPoints.length > 0) {
         return uniqueTestPoints;
       }
 
@@ -515,12 +519,13 @@ function Calibration({ showNotification }) {
 
       const existingKeys = new Set(updatedAndOrderedPoints.map((p) => p.key));
       const newPointsToAdd = uniqueTestPoints.filter(
+        // Adds any new points
         (p) => !existingKeys.has(p.key)
       );
 
       return [...updatedAndOrderedPoints, ...newPointsToAdd];
     });
-  }, [uniqueTestPoints]);
+  }, [uniqueTestPoints, setOrderedTestPoints, isLoading]);
 
   const handleDragEnd = (event) => {
     const { active, over } = event;
@@ -792,22 +797,29 @@ function Calibration({ showNotification }) {
             : null,
       }));
     };
+
+    // Define default settings in one place.
+    const defaultSettings = {
+      initial_warm_up_time: 0,
+      num_samples: 8,
+      settling_time: 5,
+      nplc: 20,
+      stability_window: 5,
+      stability_threshold_ppm: 10,
+      stability_max_attempts: 50,
+    };
+
+    // Always clear previous charts before evaluating new state.
     setHistoricalReadings(initialLiveReadings);
     setTiHistoricalReadings(initialLiveReadings);
 
     if (focusedTP) {
       const pointForDirection =
         activeDirection === "Forward" ? focusedTP.forward : focusedTP.reverse;
+
       if (pointForDirection) {
-        const defaultSettings = {
-          initial_warm_up_time: 0,
-          num_samples: 8,
-          settling_time: 5,
-          nplc: 20,
-          stability_window: 5,
-          stability_threshold_ppm: 10,
-          stability_max_attempts: 50,
-        };
+        // --- FIX START ---
+        // Settings Logic: Use existing settings or fall back to default.
         if (
           pointForDirection.settings &&
           Object.keys(pointForDirection.settings).length > 0
@@ -816,7 +828,13 @@ function Calibration({ showNotification }) {
             ...defaultSettings,
             ...pointForDirection.settings,
           });
+        } else {
+          // Explicitly reset to defaults if no settings exist for this direction.
+          setCalibrationSettings(defaultSettings);
         }
+        // --- FIX END ---
+
+        // Readings Logic: Repopulate charts if readings exist.
         if (pointForDirection.readings) {
           setHistoricalReadings({
             ac_open: formatReadingsForChart(
@@ -847,6 +865,8 @@ function Calibration({ showNotification }) {
             ),
           });
         }
+      } else {
+        setCalibrationSettings(defaultSettings);
       }
     }
   }, [focusedTP, activeDirection, initialLiveReadings]);
@@ -1636,7 +1656,8 @@ function Calibration({ showNotification }) {
           parseInt(calibrationSettings.stability_max_attempts, 10) || 50,
       };
 
-      const { initial_warm_up_time, ...commonSettingsPayload } = fullSettingsPayload;
+      const { initial_warm_up_time, ...commonSettingsPayload } =
+        fullSettingsPayload;
 
       let { forward, reverse } = focusedTP;
       try {
@@ -1645,7 +1666,11 @@ function Calibration({ showNotification }) {
           forward = (
             await axios.post(
               `${API_BASE_URL}/calibration_sessions/${selectedSessionId}/test_points/`,
-              { current: focusedTP.current, frequency: focusedTP.frequency, direction: "Forward" }
+              {
+                current: focusedTP.current,
+                frequency: focusedTP.frequency,
+                direction: "Forward",
+              }
             )
           ).data;
         }
@@ -1653,7 +1678,11 @@ function Calibration({ showNotification }) {
           reverse = (
             await axios.post(
               `${API_BASE_URL}/calibration_sessions/${selectedSessionId}/test_points/`,
-              { current: focusedTP.current, frequency: focusedTP.frequency, direction: "Reverse" }
+              {
+                current: focusedTP.current,
+                frequency: focusedTP.frequency,
+                direction: "Reverse",
+              }
             )
           ).data;
         }
