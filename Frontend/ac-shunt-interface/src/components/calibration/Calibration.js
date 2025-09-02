@@ -475,6 +475,7 @@ function Calibration({
   const [isCorrectionModalOpen, setIsCorrectionModalOpen] = useState(false);
   const [countdown, setCountdown] = useState(0);
   const timerInterval = useRef(null);
+  const timerStartTime = useRef(null);
   const [clearConfirmationModal, setClearConfirmationModal] = useState({
     isOpen: false,
     title: "",
@@ -540,27 +541,39 @@ function Calibration({
   };
 
   useEffect(() => {
+    if (timerInterval.current) {
+      clearInterval(timerInterval.current);
+    }
+
     if (timerState.isActive) {
+      // Record the exact time the timer starts
+      timerStartTime.current = Date.now();
+      const totalDurationInMs = timerState.duration * 1000;
+
+      // Set the initial countdown display
       setCountdown(Math.ceil(timerState.duration));
 
-      if (timerInterval.current) clearInterval(timerInterval.current);
-
       timerInterval.current = setInterval(() => {
-        setCountdown((prev) => {
-          if (prev <= 1) {
-            clearInterval(timerInterval.current);
-            return 0;
-          }
-          return prev - 1;
-        });
-      }, 1000);
+        const elapsedTime = Date.now() - timerStartTime.current;
+        const remainingTime = totalDurationInMs - elapsedTime;
+
+        if (remainingTime <= 0) {
+          clearInterval(timerInterval.current);
+          setCountdown(0);
+        } else {
+          // Update the countdown with the correctly calculated remaining time
+          setCountdown(Math.ceil(remainingTime / 1000));
+        }
+      }, 1000); // The interval still runs every second to update the UI
     } else {
-      if (timerInterval.current) clearInterval(timerInterval.current);
       setCountdown(0);
+      timerStartTime.current = null;
     }
 
     return () => {
-      if (timerInterval.current) clearInterval(timerInterval.current);
+      if (timerInterval.current) {
+        clearInterval(timerInterval.current);
+      }
     };
   }, [timerState.isActive, timerState.duration]);
 

@@ -50,6 +50,9 @@ export const InstrumentContextProvider = ({ children }) => {
 
   const [lastMessage, setLastMessage] = useState(null);
 
+  // Ref for the client-side heartbeat timer
+  const heartbeatTimeout = useRef(null);
+
   useEffect(() => {
     if (switchDriverAddress && switchDriverModel) {
       const socketUrl = `${WS_BASE_URL}/switch/${switchDriverModel}/${encodeURIComponent(switchDriverAddress)}/`;
@@ -102,6 +105,7 @@ export const InstrumentContextProvider = ({ children }) => {
   const connectWebSocket = useCallback(() => {
     if (!selectedSessionId || (readingWs.current && readingWs.current.readyState < 2)) return;
     if (reconnectTimeout.current) clearTimeout(reconnectTimeout.current);
+    if (heartbeatTimeout.current) clearTimeout(heartbeatTimeout.current);
 
     const socketUrl = `${WS_BASE_URL}/collect-readings/${selectedSessionId}/`;
 
@@ -111,6 +115,7 @@ export const InstrumentContextProvider = ({ children }) => {
     readingWs.current.onopen = () => setReadingWsState(readingWs.current.readyState);
 
     readingWs.current.onclose = () => {
+      if (heartbeatTimeout.current) clearTimeout(heartbeatTimeout.current);
       setReadingWsState(WebSocket.CLOSED);
       if (selectedSessionId) reconnectTimeout.current = setTimeout(connectWebSocket, 3000);
     };
@@ -118,7 +123,22 @@ export const InstrumentContextProvider = ({ children }) => {
     readingWs.current.onerror = () => setReadingWsState(readingWs.current.readyState);
 
     readingWs.current.onmessage = (event) => {
+      // --- HEARTBEAT LOGIC START ---
+      if (heartbeatTimeout.current) clearTimeout(heartbeatTimeout.current);
+      heartbeatTimeout.current = setTimeout(() => {
+        console.log("Heartbeat timeout: No message received in 30s. Reconnecting.");
+        if (readingWs.current) {
+          readingWs.current.close();
+        }
+      }, 30000);
+      // --- HEARTBEAT LOGIC END ---
+
       const data = JSON.parse(event.data);
+      
+      if (data.type === 'ping') {
+        return;
+      }
+
       setLastMessage(data);
 
       if (data.type === 'calibration_stage_update') {
@@ -189,6 +209,23 @@ export const InstrumentContextProvider = ({ children }) => {
       }
     };
   }, [selectedSessionId, setSwitchStatus, clearLiveReadings]);
+
+  // *** NEW: useEffect for Page Visibility API ***
+  useEffect(() => {
+    const handleVisibilityChange = () => {
+      if (document.visibilityState === 'visible') {
+        console.log("Tab is now visible. Checking WebSocket connection...");
+        if (selectedSessionId && (!readingWs.current || readingWs.current.readyState === WebSocket.CLOSED)) {
+          console.log("WebSocket is closed. Attempting to reconnect.");
+          connectWebSocket();
+        }
+      }
+    };
+    document.addEventListener('visibilitychange', handleVisibilityChange);
+    return () => {
+      document.removeEventListener('visibilitychange', handleVisibilityChange);
+    };
+  }, [selectedSessionId, connectWebSocket]);
 
   useEffect(() => {
     if (selectedSessionId) connectWebSocket();
