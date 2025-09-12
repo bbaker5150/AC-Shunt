@@ -1,124 +1,77 @@
-# api/serializers.py
+import re
 from rest_framework import serializers
-from .models import Message, Correction, Uncertainty, CalibrationSession, TestPoint, TestPointSet, Calibration, CalibrationTVCCorrections, CalibrationConfigurations, CalibrationSettings, CalibrationReadings, CalibrationResults
+from .models import (
+    Message, Shunt, ShuntCorrection, TVC, TVCCorrection, 
+    CalibrationSession, TestPoint, TestPointSet, Calibration, 
+    CalibrationTVCCorrections, CalibrationConfigurations, CalibrationSettings, 
+    CalibrationReadings, CalibrationResults
+)
 from datetime import datetime
+
 
 class MessageSerializer(serializers.ModelSerializer):
     class Meta:
         model = Message
         fields = ['id', 'text', 'created_at']
 
-class BaseDataSerializer(serializers.BaseSerializer):
-    """
-    Base serializer to group a queryset into a nested dictionary.
-    Output: { range: { current: { frequency: value } } }
-    """
-    value_key = None
+# ==============================================================================
+#  NEW Serializers for Correction Data
+#  (Replaces the old BaseDataSerializer, CorrectionSerializer, etc.)
+# ==============================================================================
 
-    def to_representation(self, instance):
-        if self.value_key is None:
-            raise ValueError("value_key must be set for this serializer.")
-            
-        data = {}
-        for obj in instance:
-            range_str = str(obj.range)
-            current_str = str(obj.current)
-            frequency_str = str(obj.frequency)
-            
-            data.setdefault(range_str, {}).setdefault(current_str, {})[frequency_str] = getattr(obj, self.value_key)
+class ShuntCorrectionSerializer(serializers.ModelSerializer):
+    """ Serializes a single correction point for a Shunt. """
+    class Meta:
+        model = ShuntCorrection
+        fields = ['frequency', 'correction', 'uncertainty']
 
-        for range_key, range_value in data.items():
-            for current_key, current_value in range_value.items():
-                sorted_freqs = sorted(current_value.keys(), key=float)
-                ordered_freqs_dict = {freq_key: current_value[freq_key] for freq_key in sorted_freqs}
-                data[range_key][current_key] = ordered_freqs_dict
-                
-        return data
+class ShuntSerializer(serializers.ModelSerializer):
+    corrections = ShuntCorrectionSerializer(many=True, read_only=True)
+    size = serializers.SerializerMethodField()
 
-class BaseDataGroupedSerializer(serializers.BaseSerializer):
-    """
-    Base serializer to group a queryset into a nested list of dictionaries.
-    Output: [ { range: ..., currents: [ { current: ..., frequencies: [...] } ] } ]
-    """
-    value_key = None
-
-    def to_representation(self, instance):
-        if not hasattr(instance, '__iter__'):
-            instance = [instance]
-        if self.value_key is None:
-            raise ValueError("value_key must be set for this serializer.")
-
-        structured = {}
-        for obj in instance:
-            r = float(obj.range)
-            c = float(obj.current)
-            f = float(obj.frequency)
-            
-            structured.setdefault(r, {}).setdefault(c, []).append({
-                'frequency': f,
-                self.value_key: getattr(obj, self.value_key)
-            })
-
-        output = []
-        for range_val, currents in structured.items():
-            current_entries = []
-            for current_val, freqs in currents.items():
-                current_entries.append({
-                    'current': current_val,
-                    'frequencies': freqs
-                })
-            output.append({
-                'range': range_val,
-                'currents': current_entries
-            })
-        
-        return output
+    class Meta:
+        model = Shunt
+        fields = ['id', 'serial_number', 'range', 'current', 'remark', 'size', 'corrections']
     
-class CorrectionSerializer(BaseDataSerializer):
-    value_key = 'correction'
+    def get_size(self, obj):
+        """
+        Parses the 'remarks' field to extract the shunt size.
+        e.g., from "A40B-10mA sn 450274734", it extracts "10mA".
+        """
+        if obj.remark:
+            match = re.search(r'-(\S+?)\s+sn', obj.remark)
+            if match:
+                return match.group(1)
+        return None
 
-class CorrectionGroupedSerializer(BaseDataGroupedSerializer):
-    value_key = 'correction'
-
-class FlatCorrectionSerializer(serializers.ModelSerializer):
+class TVCCorrectionSerializer(serializers.ModelSerializer):
+    """ Serializes a single correction point for a TVC. """
     class Meta:
-        model = Correction
-        fields = ['range', 'current', 'frequency', 'correction']
+        model = TVCCorrection
+        fields = ['frequency', 'ac_dc_difference', 'expanded_uncertainty']
 
-class UncertaintySerializer(BaseDataSerializer):
-    value_key = 'uncertainty'
+class TVCSerializer(serializers.ModelSerializer):
+    """ Serializes a TVC device and nests all its correction points. """
+    corrections = TVCCorrectionSerializer(many=True, read_only=True)
 
-class UncertaintyGroupedSerializer(BaseDataGroupedSerializer):
-    value_key = 'uncertainty'
-
-class FlatUncertaintySerializer(serializers.ModelSerializer):
     class Meta:
-        model = Uncertainty
-        fields = ['range', 'current', 'frequency', 'uncertainty']
+        model = TVC
+        fields = ['serial_number', 'test_voltage', 'corrections']
+
+# ==============================================================================
+#  Existing Serializers (Preserved from your original file)
+# ==============================================================================
 
 class CalibrationSessionSerializer(serializers.ModelSerializer):
     class Meta:
         model = CalibrationSession
         fields = [
-            'id',
-            'session_name',
-            'test_instrument_model',
-            'test_instrument_serial',
-            'test_reader_model',
-            'test_reader_address',
-            'standard_instrument_model',
-            'standard_instrument_serial',
-            'standard_reader_model',
-            'standard_reader_address',
-            'ac_source_address',
-            'dc_source_address',
-            'switch_driver_address',
-            'switch_driver_model',
-            'amplifier_address',
-            'temperature',
-            'humidity',
-            'created_at',
-            'notes',
+            'id', 'session_name', 'test_instrument_model', 'test_instrument_serial',
+            'test_reader_model', 'test_reader_address', 'standard_instrument_model',
+            'standard_instrument_serial', 'standard_reader_model', 'standard_reader_address',
+            'ac_source_address', 'dc_source_address', 'switch_driver_address',
+            'switch_driver_model', 'amplifier_address', 'temperature', 'humidity',
+            'created_at', 'notes', 'standard_tvc_serial', 'test_tvc_serial',
         ]
 
 class CalibrationTVCCorrectionsSerializer(serializers.ModelSerializer):
@@ -157,28 +110,21 @@ class CalibrationSettingsSerializer(serializers.ModelSerializer):
         model = CalibrationSettings
         exclude = ['id']
 
-# --- New Custom Field for Formatting Timestamps ---
 class FormattedReadingsField(serializers.Field):
-    """
-    Custom serializer field to add a human-readable timestamp.
-    """
+    """ Custom serializer field to add a human-readable timestamp. """
     def to_representation(self, value):
         if not isinstance(value, list):
             return value
         
         formatted_readings = []
         for point in value:
-            # Check if the point is a dictionary with the required keys
             if isinstance(point, dict) and 'timestamp' in point:
-                # Add a new key with the formatted string, leaving the original unchanged
                 point['timestamp_formatted'] = datetime.fromtimestamp(point['timestamp']).strftime('%Y-%m-%d %H:%M:%S')
             formatted_readings.append(point)
         return formatted_readings
 
 class CalibrationReadingsSerializer(serializers.ModelSerializer):
     test_point = serializers.PrimaryKeyRelatedField(read_only=True)
-    
-    # Use the custom field for each readings array
     std_ac_open_readings = FormattedReadingsField()
     std_dc_pos_readings = FormattedReadingsField()
     std_dc_neg_readings = FormattedReadingsField()
@@ -192,15 +138,11 @@ class CalibrationReadingsSerializer(serializers.ModelSerializer):
         model = CalibrationReadings
         fields = '__all__'
 
-
 class CalibrationResultsSerializer(serializers.ModelSerializer):
     test_point = serializers.PrimaryKeyRelatedField(read_only=True)
     class Meta:
         model = CalibrationResults
         fields = '__all__'
-        # The read_only_fields attribute has been removed to allow writing
-        # uncertainty results from the frontend. The avg/stddev fields are
-        # protected by the model's save logic, which recalculates them.
 
 class TestPointSerializer(serializers.ModelSerializer):
     settings = CalibrationSettingsSerializer(required=False)
@@ -212,28 +154,16 @@ class TestPointSerializer(serializers.ModelSerializer):
     
     def update(self, instance, validated_data):
         settings_data = validated_data.pop('settings', None)
-
         if settings_data:
-            CalibrationSettings.objects.update_or_create(
-                test_point=instance,
-                defaults=settings_data
-            )
+            CalibrationSettings.objects.update_or_create(test_point=instance, defaults=settings_data)
 
         readings_data = validated_data.pop('readings', None)
-
         if readings_data:
-            CalibrationReadings.objects.update_or_create(
-                test_point=instance,
-                defaults=readings_data
-            )
+            CalibrationReadings.objects.update_or_create(test_point=instance, defaults=readings_data)
 
         results_data = validated_data.pop('results', None)
-
         if results_data:
-            CalibrationResults.objects.update_or_create(
-                test_point=instance,
-                defaults=results_data
-            )
+            CalibrationResults.objects.update_or_create(test_point=instance, defaults=results_data)
 
         return super().update(instance, validated_data)
 
@@ -247,23 +177,19 @@ class TestPointSetSerializer(serializers.ModelSerializer):
     def _handle_nested_one_to_one(self, parent_instance, field_name, nested_data, nested_serializer_class, nested_model_class):
         if nested_data is not None:
             nested_instance = getattr(parent_instance, field_name, None) 
-
             if nested_instance:
                 nested_serializer = nested_serializer_class(nested_instance, data=nested_data, partial=True)
             else:
                 nested_serializer = nested_serializer_class(data=nested_data)
-            
             nested_serializer.is_valid(raise_exception=True)
             nested_serializer.save(**{parent_instance._meta.model_name: parent_instance})
 
     def update(self, instance, validated_data):
         points_data = validated_data.pop('points', [])
-        
         existing_test_points = {tp.id: tp for tp in instance.points.all()}
         
         for point_data in points_data:
             point_id = point_data.get('id')
-            
             settings_data = point_data.pop('settings', None)
             readings_data = point_data.pop('readings', None)
             results_data = point_data.pop('results', None)
@@ -273,33 +199,20 @@ class TestPointSetSerializer(serializers.ModelSerializer):
                 test_point_serializer = TestPointSerializer(test_point_instance, data=point_data, partial=True)
                 test_point_serializer.is_valid(raise_exception=True)
                 test_point_instance = test_point_serializer.save()
-                self._handle_nested_one_to_one(
-                    test_point_instance, 'settings', settings_data,
-                    CalibrationSettingsSerializer, CalibrationSettings
-                )
-                self._handle_nested_one_to_one(
-                    test_point_instance, 'readings', readings_data,
-                    CalibrationReadingsSerializer, CalibrationReadings
-                )
-                self._handle_nested_one_to_one(
-                    test_point_instance, 'results', results_data,
-                    CalibrationResultsSerializer, CalibrationResults
-                )
+                self._handle_nested_one_to_one(test_point_instance, 'settings', settings_data, CalibrationSettingsSerializer, CalibrationSettings)
+                self._handle_nested_one_to_one(test_point_instance, 'readings', readings_data, CalibrationReadingsSerializer, CalibrationReadings)
+                self._handle_nested_one_to_one(test_point_instance, 'results', results_data, CalibrationResultsSerializer, CalibrationResults)
             else:
                 test_point_serializer = TestPointSerializer(data=point_data, partial=True)
                 test_point_serializer.is_valid(raise_exception=True)
                 test_point_instance = test_point_serializer.save(test_point_set=instance) 
-                if settings_data:
-                    CalibrationSettings.objects.create(test_point=test_point_instance, **settings_data)
-                if readings_data:
-                    CalibrationReadings.objects.create(test_point=test_point_instance, **readings_data)
-                if results_data:
-                    CalibrationResults.objects.create(test_point=test_point_instance, **results_data)
+                if settings_data: CalibrationSettings.objects.create(test_point=test_point_instance, **settings_data)
+                if readings_data: CalibrationReadings.objects.create(test_point=test_point_instance, **readings_data)
+                if results_data: CalibrationResults.objects.create(test_point=test_point_instance, **results_data)
 
         for attr, value in validated_data.items():
             setattr(instance, attr, value)
         instance.save() 
-
         return instance 
 
 class CalibrationSerializer(serializers.ModelSerializer):
@@ -329,21 +242,13 @@ class CalibrationSerializer(serializers.ModelSerializer):
 
         if tvc_corrections_data is not None:
             tvc_corrections_instance, _ = CalibrationTVCCorrections.objects.get_or_create(calibration=instance)
-            tvc_corrections_serializer = CalibrationTVCCorrectionsSerializer(
-                tvc_corrections_instance,
-                data=tvc_corrections_data,
-                partial=True
-            )
+            tvc_corrections_serializer = CalibrationTVCCorrectionsSerializer(tvc_corrections_instance, data=tvc_corrections_data, partial=True)
             if tvc_corrections_serializer.is_valid(raise_exception=True):
                 tvc_corrections_serializer.save()
 
         if configurations_data is not None:
             configurations_instance, _ = CalibrationConfigurations.objects.get_or_create(calibration=instance)
-            configurations_serializer = CalibrationConfigurationsSerializer(
-                configurations_instance,
-                data=configurations_data,
-                partial=True
-            )
+            configurations_serializer = CalibrationConfigurationsSerializer(configurations_instance, data=configurations_data, partial=True)
             if configurations_serializer.is_valid(raise_exception=True):
                 configurations_serializer.save()
 

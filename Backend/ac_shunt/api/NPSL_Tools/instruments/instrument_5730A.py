@@ -58,6 +58,7 @@ class Instrument5730A(FlukeInstrument):
         This is a convenient method for safely shutting down the output.
         """
         self.set_output(voltage=0, frequency=0)
+        self.resource.timeout = 1000
         self.set_standby()
 
     def set_operate_standby(self, operate: bool):
@@ -73,7 +74,7 @@ class Instrument5730A(FlukeInstrument):
         if operate:
             self.resource.write('OPER;*WAI')
         else:
-            self.resource.write('STBY')
+            self.resource.write('STBY;*WAI')
             
     def enter_wb_cal(self):
         """Set the 5730A to the wideband calibration setting"""

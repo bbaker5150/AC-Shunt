@@ -1,15 +1,13 @@
 # api/urls.py
 from django.urls import path, include
 from rest_framework_nested import routers
-from .views import MessageViewSet, CorrectionViewSet, CorrectionGroupedViewSet, UncertaintyViewSet, UncertaintyGroupedViewSet, CalibrationSessionViewSet, TestPointViewSet, discover_instruments
+from .views import MessageViewSet, ShuntViewSet, TVCViewSet, CalibrationSessionViewSet, TestPointViewSet, discover_instruments
 
 router = routers.SimpleRouter()
 router.register(r'messages', MessageViewSet, basename='message')
-router.register(r'correction', CorrectionViewSet, basename='correction')
-router.register(r'correction/grouped', CorrectionGroupedViewSet, basename='correction-grouped')
-router.register(r'uncertainty', UncertaintyViewSet, basename='uncertainty')
-router.register(r'uncertainty/grouped', UncertaintyGroupedViewSet, basename='uncertainty-grouped')
 router.register(r'calibration_sessions', CalibrationSessionViewSet, basename='calibrationsession')
+router.register(r'shunts', ShuntViewSet, basename='shunt')
+router.register(r'tvcs', TVCViewSet, basename='tvc')
 
 test_point_router = routers.NestedSimpleRouter(router, r'calibration_sessions', lookup='session')
 test_point_router.register(r'test_points', TestPointViewSet, basename='session-test-point')

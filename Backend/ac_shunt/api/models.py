@@ -21,6 +21,10 @@ class CalibrationSession(models.Model):
     standard_instrument_model = models.CharField(max_length=100, blank=True, null=True)
     standard_instrument_serial = models.CharField(max_length=100, blank=True, null=True)
     
+    # TVC Serials
+    standard_tvc_serial = models.CharField(max_length=100, blank=True, null=True)
+    test_tvc_serial = models.CharField(max_length=100, blank=True, null=True)
+    
     # Standard Reader (The instrument reading the standard, e.g., 3458A)
     standard_reader_model = models.CharField(max_length=100, blank=True, null=True)
     standard_reader_address = models.CharField(max_length=100, blank=True, null=True)
@@ -62,28 +66,6 @@ class Calibration(models.Model):
         related_name='calibration',
         on_delete=models.CASCADE
     )
-
-class Correction(models.Model):
-    range = models.FloatField()
-    current = models.FloatField()
-    frequency = models.IntegerField()
-    correction = models.FloatField(null=True, blank=True)
-    class Meta:
-        unique_together = ('range', 'current', 'frequency')
-
-    def __str__(self):
-        return f"ID: {self.id} | Range: {self.range}, Current: {self.current}, Frequency: {self.frequency}, Correction: {self.correction}"
-    
-class Uncertainty(models.Model):
-    range = models.FloatField()
-    current = models.FloatField()
-    frequency = models.IntegerField()
-    uncertainty = models.FloatField(null=True, blank=True)
-    class Meta:
-        unique_together = ('range', 'current', 'frequency')
-
-    def __str__(self):
-        return f"ID: {self.id} | Range: {self.range}, Current: {self.current}, Frequency: {self.frequency}, Uncertainty: {self.uncertainty}"
     
 class TestPointSet(models.Model):
     session = models.OneToOneField(
@@ -108,6 +90,7 @@ class TestPoint(models.Model):
     current = models.DecimalField(max_digits=10, decimal_places=5)
     frequency = models.IntegerField()
     direction = models.CharField(max_length=10, choices=DIRECTION_CHOICES, default='Forward')
+    order = models.IntegerField(default=0, help_text="Custom sort order for the test point pair")
 
     def __str__(self):
         return f"ID: {self.id} | {self.direction} | Current: {self.current}, Frequency: {self.frequency}"
@@ -115,7 +98,7 @@ class TestPoint(models.Model):
     class Meta:
         # Ensure a test point is unique for a given current, frequency, and direction within a set
         unique_together = ('test_point_set', 'current', 'frequency', 'direction')
-        ordering = ['frequency', 'current', 'direction']
+        ordering = ['order', 'frequency', 'current', 'direction']
 
 class CalibrationTVCCorrections(models.Model):
     calibration = models.OneToOneField(
@@ -185,10 +168,6 @@ class CalibrationReadings(models.Model):
 
     def __str__(self):
         return f"Calibration Readings for TestPoint ID: {self.test_point.id} | Session: {self.test_point.test_point_set.session.session_name}"
-    
-    def save(self, *args, **kwargs):
-        super().save(*args, **kwargs)
-        self.update_related_results()
 
     def update_related_results(self):
         results, _ = CalibrationResults.objects.get_or_create(test_point=self.test_point)
@@ -206,6 +185,7 @@ class CalibrationReadings(models.Model):
             # **THE FIX**: Use ddof=1 to calculate the SAMPLE standard deviation (N-1)
             mean = np.mean(numeric_values)
             std_dev = np.std(numeric_values, ddof=1)
+            print(f"[DEBUG - Models] Calculated Mean: {mean}, StdDev: {std_dev}")
             
             return mean, std_dev
 
@@ -218,7 +198,7 @@ class CalibrationReadings(models.Model):
         results.ti_dc_pos_avg, results.ti_dc_pos_stddev = calculate_stats(self.ti_dc_pos_readings)
         results.ti_dc_neg_avg, results.ti_dc_neg_stddev = calculate_stats(self.ti_dc_neg_readings)
         results.ti_ac_close_avg, results.ti_ac_close_stddev = calculate_stats(self.ti_ac_close_readings)
-
+        print(f"[DEBUG - Models] Saving calculated averages for TestPoint ID: {self.test_point.id}")
         results.save()
 
 class CalibrationResults(models.Model):
@@ -270,3 +250,56 @@ class CalibrationResults(models.Model):
 
     def __str__(self):
         return f"Calibration Results for {self.test_point.test_point_set.session.session_name} at Test Point {self.test_point.id}" if self.test_point else "Calibration Results (no test point)"
+    
+class Shunt(models.Model):
+    """
+    Represents a single AC Shunt device at a specific range and current.
+    """
+    model_name = models.CharField(max_length=100, default='Shunt')
+    serial_number = models.CharField(max_length=100)
+    range = models.FloatField()
+    current = models.FloatField()
+    remark = models.CharField(max_length=255, blank=True, null=True)
+
+    class Meta:
+        unique_together = ('serial_number', 'range', 'current')
+
+    def __str__(self):
+        return f"{self.model_name} SN: {self.serial_number} ({self.range}A / {self.current}A)"
+
+
+class ShuntCorrection(models.Model):
+    """
+    Stores a single correction/uncertainty point for a specific Shunt.
+    """
+    shunt = models.ForeignKey(Shunt, on_delete=models.CASCADE, related_name='corrections')
+    frequency = models.IntegerField()
+    correction = models.FloatField(null=True, blank=True)
+    uncertainty = models.FloatField(null=True, blank=True)
+
+    class Meta:
+        unique_together = ('shunt', 'frequency')
+
+
+class TVC(models.Model):
+    """
+    Represents a single Thermal Voltage Converter device.
+    """
+    serial_number = models.IntegerField(unique=True)
+    test_voltage = models.FloatField()
+
+    def __str__(self):
+        return f"TVC Device SN: {self.serial_number}"
+
+
+class TVCCorrection(models.Model):
+    """
+    Stores a single correction point for a specific TVC device.
+    """
+    tvc = models.ForeignKey(TVC, on_delete=models.CASCADE, related_name='corrections')
+    frequency = models.IntegerField()
+    ac_dc_difference = models.IntegerField()
+    expanded_uncertainty = models.IntegerField()
+
+    class Meta:
+        unique_together = ('tvc', 'frequency')
