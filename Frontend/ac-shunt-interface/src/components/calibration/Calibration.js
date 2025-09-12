@@ -1,3 +1,5 @@
+// src/components/Calibration/Calibration.js
+
 import React, {
   useState,
   useEffect,
@@ -6,81 +8,32 @@ import React, {
   useRef,
 } from "react";
 import axios from "axios";
-import { DndContext, closestCenter } from "@dnd-kit/core";
-import {
-  arrayMove,
-  SortableContext,
-  useSortable,
-  verticalListSortingStrategy,
-} from "@dnd-kit/sortable";
-import { CSS } from "@dnd-kit/utilities";
 import {
   FaStop,
   FaCalculator,
   FaTimes,
   FaPlay,
-  FaEraser,
   FaHourglassHalf,
   FaCrosshairs,
   FaStream,
-  FaGripVertical,
+  FaInfoCircle,
+  FaSave,
+  FaChevronDown,
+  FaLayerGroup,
 } from "react-icons/fa";
 import { useInstruments } from "../../contexts/InstrumentContext";
 import { useTheme } from "../../contexts/ThemeContext";
 import CalibrationChart from "./CalibrationChart";
-import SwitchControl from "./SwitchControl";
-import ActionDropdownButton from "./ActionDropdownButton";
+import ConfigurationSummaryModal from "./ConfigurationSummaryModal";
 import LiveStatisticsTracker from "./LiveStatisticsTracker";
+import {
+  AVAILABLE_FREQUENCIES,
+  AVAILABLE_CURRENTS,
+  READING_TYPES,
+  NPLC_OPTIONS,
+  API_BASE_URL,
+} from "../../constants/constants";
 
-const API_BASE_URL = process.env.REACT_APP_API_BASE_URL;
-
-const READING_TYPES = [
-  { key: "ac_open", label: "AC Open", color: "rgb(75, 192, 192)" },
-  { key: "dc_pos", label: "DC Positive", color: "rgb(255, 99, 132)" },
-  { key: "dc_neg", label: "DC Negative", color: "rgb(54, 162, 235)" },
-  { key: "ac_close", label: "AC Closed", color: "rgb(255, 205, 86)" },
-];
-
-const AVAILABLE_FREQUENCIES = [
-  { text: "10Hz", value: 10 },
-  { text: "20Hz", value: 20 },
-  { text: "50Hz", value: 50 },
-  { text: "60Hz", value: 60 },
-  { text: "100Hz", value: 100 },
-  { text: "200Hz", value: 200 },
-  { text: "500Hz", value: 500 },
-  { text: "1kHz", value: 1000 },
-  { text: "2kHz", value: 2000 },
-  { text: "5kHz", value: 5000 },
-  { text: "10kHz", value: 10000 },
-  { text: "20kHz", value: 20000 },
-  { text: "50kHz", value: 50000 },
-  { text: "100kHz", value: 100000 },
-];
-
-const NPLC_OPTIONS = [0.02, 0.2, 1, 2, 10, 20, 100, 200];
-
-const normalizeKey = (value) => parseFloat(value).toString();
-
-const normalizeCorrectionData = (rawData) => {
-  const normalized = {};
-  for (const range in rawData) {
-    const normRange = parseFloat(range).toString();
-    normalized[normRange] = {};
-    for (const current in rawData[range]) {
-      const normCurrent = parseFloat(current).toString();
-      normalized[normRange][normCurrent] = {};
-      for (const frequency in rawData[range][current]) {
-        const normFreq = parseFloat(frequency).toString();
-        normalized[normRange][normCurrent][normFreq] =
-          rawData[range][current][frequency];
-      }
-    }
-  }
-  return normalized;
-};
-
-// MODAL FOR CORRECTION FACTOR INPUTS
 const CorrectionFactorsModal = ({
   isOpen,
   onClose,
@@ -254,28 +207,25 @@ const SubNav = ({ activeTab, setActiveTab }) => (
       onClick={() => setActiveTab("settings")}
       className={activeTab === "settings" ? "active" : ""}
     >
-      1. Settings
+      Settings
     </button>
     <button
       onClick={() => setActiveTab("readings")}
       className={activeTab === "readings" ? "active" : ""}
     >
-      2. Take Readings
+      Run Calibration
     </button>
     <button
       onClick={() => setActiveTab("calculate")}
       className={activeTab === "calculate" ? "active" : ""}
     >
-      3. Calculate Results
+      Calculate Results
     </button>
   </div>
 );
 
 const DirectionToggle = ({ activeDirection, setActiveDirection }) => (
-  <div
-    className="view-toggle"
-    style={{ marginBottom: "1rem", justifyContent: "center" }}
-  >
+  <div className="view-toggle">
     <button
       className={activeDirection === "Forward" ? "active" : ""}
       onClick={() => setActiveDirection("Forward")}
@@ -291,108 +241,13 @@ const DirectionToggle = ({ activeDirection, setActiveDirection }) => (
   </div>
 );
 
-const SortableTestPointItem = ({
-  point,
-  isFocused,
-  isSelected,
-  isComplete,
-  isCurrentlyExecuting,
-  areControlsDisabled,
-  onFocus,
-  onToggle,
-  onClearReadings,
-}) => {
-  const {
-    attributes,
-    listeners,
-    setNodeRef,
-    transform,
-    transition,
-    isDragging,
-  } = useSortable({ id: point.key });
-
-  const style = {
-    transform: CSS.Transform.toString(transform),
-    transition,
-    opacity: isDragging ? 0.5 : 1,
-  };
-
-  const hasReadingsForward = onClearReadings.hasAnyReadings(point.forward);
-  const hasReadingsReverse = onClearReadings.hasAnyReadings(point.reverse);
-
-  return (
-    <div
-      ref={setNodeRef}
-      style={style}
-      className={`test-point-item-selectable ${isFocused ? "active" : ""} ${
-        isComplete ? "completed" : ""
-      } ${isDragging ? "dragging" : ""}`}
-      onClick={() => onFocus(point)}
-      {...attributes}
-    >
-      <div
-        className="drag-handle"
-        {...listeners}
-        onClick={(e) => e.stopPropagation()}
-      >
-        <FaGripVertical />
-      </div>
-      <input
-        type="checkbox"
-        checked={isSelected}
-        onChange={(e) => {
-          e.stopPropagation();
-          onToggle(point.key);
-        }}
-        onClick={(e) => e.stopPropagation()}
-        disabled={areControlsDisabled}
-        className="tp-checkbox"
-      />
-      <div className="tp-label">
-        <span className="test-point-name">
-          {point.current}A @ {onClearReadings.formatFrequency(point.frequency)}
-        </span>
-        <div style={{ display: "flex", alignItems: "center" }}>
-          {hasReadingsForward && (
-            <button
-              title="Clear Forward Readings"
-              className="clear-readings-button"
-              onClick={(e) => {
-                e.stopPropagation();
-                onClearReadings.prompt("Forward", point);
-              }}
-            >
-              <FaEraser />
-            </button>
-          )}
-          {hasReadingsReverse && (
-            <button
-              title="Clear Reverse Readings"
-              className="clear-readings-button"
-              onClick={(e) => {
-                e.stopPropagation();
-                onClearReadings.prompt("Reverse", point);
-              }}
-            >
-              <FaEraser />
-            </button>
-          )}
-          {/* Use the new prop for the status indicator */}
-          {isCurrentlyExecuting && <span className="status-indicator"></span>}
-          {/* Hide the checkmark if the point is running */}
-          {isComplete && !isCurrentlyExecuting && (
-            <span className="status-icon">✓</span>
-          )}
-        </div>
-      </div>
-    </div>
-  );
-};
-
 function Calibration({
   showNotification,
   orderedTestPoints,
-  setOrderedTestPoints,
+  sharedFocusedTestPoint: focusedTP,
+  setSharedFocusedTestPoint: setFocusedTP,
+  sharedSelectedTPs: selectedTPs,
+  onDataUpdate,
 }) {
   const {
     selectedSessionId,
@@ -420,14 +275,15 @@ function Calibration({
     sendWsCommand,
     stabilizationStatus,
     timerState,
-    bulkRunProgress,
+    bulkRunProgress: bulkRunProgressFromContext,
     focusedTPKey,
+    standardInstrumentSerial,
+    standardTvcSn: standardTvcSerial,
+    testTvcSn: testTvcSerial,
   } = useInstruments();
   const { theme } = useTheme();
 
   const [activeTab, setActiveTab] = useState("settings");
-  const [tpData, setTPData] = useState({ test_points: [] });
-  const [isLoading, setIsLoading] = useState(true);
   const [calibrationConfigurations, setCalibrationConfigurations] = useState(
     {}
   );
@@ -435,6 +291,7 @@ function Calibration({
     initial_warm_up_time: 0,
     num_samples: 8,
     settling_time: 5,
+    nplc: 20,
     stability_window: 5,
     stability_threshold_ppm: 10,
     stability_max_attempts: 50,
@@ -447,9 +304,6 @@ function Calibration({
     delta_std_known: "",
   });
   const [averagedPpmDifference, setAveragedPpmDifference] = useState(null);
-
-  const [focusedTP, setFocusedTP] = useState(null);
-  const [selectedTPs, setSelectedTPs] = useState(new Set());
   const [isBulkRunning, setIsBulkRunning] = useState(false);
   const [activeDirection, setActiveDirection] = useState("Forward");
   const [lastCollectionDirection, setLastCollectionDirection] = useState(null);
@@ -469,76 +323,37 @@ function Calibration({
   const [tiHistoricalReadings, setTiHistoricalReadings] =
     useState(initialLiveReadings);
   const [hoveredIndex, setHoveredIndex] = useState(null);
-  const [normalizeData, setNormalizeData] = useState({});
-  const [tvcCorrections, setTVCCorrections] = useState({});
+  const [shuntsData, setShuntsData] = useState([]);
+  const [tvcsData, setTvcsData] = useState([]);
   const collectionPromise = useRef(null);
   const [isCorrectionModalOpen, setIsCorrectionModalOpen] = useState(false);
+  const [isSummaryModalOpen, setIsSummaryModalOpen] = useState(false);
   const [countdown, setCountdown] = useState(0);
   const timerInterval = useRef(null);
   const timerStartTime = useRef(null);
-  const [clearConfirmationModal, setClearConfirmationModal] = useState({
-    isOpen: false,
-    title: "",
-    message: "",
-    onConfirm: () => {},
-  });
+  const [isCalculatingAverages, setIsCalculatingAverages] = useState(false);
+  const [isRunDropdownOpen, setIsRunDropdownOpen] = useState(false);
+  const runDropdownRef = useRef(null);
 
-  const uniqueTestPoints = useMemo(() => {
-    if (!tpData?.test_points) return [];
-    const pointMap = new Map();
-    tpData.test_points.forEach((point) => {
-      const key = `${point.current}-${point.frequency}`;
-      if (!pointMap.has(key))
-        pointMap.set(key, {
-          key,
-          current: point.current,
-          frequency: point.frequency,
-          forward: null,
-          reverse: null,
-        });
-      const entry = pointMap.get(key);
-      if (point.direction === "Forward") entry.forward = point;
-      else if (point.direction === "Reverse") entry.reverse = point;
-    });
-    return Array.from(pointMap.values());
-  }, [tpData]);
+  const uniqueTestPoints = useMemo(
+    () => orderedTestPoints,
+    [orderedTestPoints]
+  );
 
   useEffect(() => {
-    if (isLoading) {
-      return;
-    }
-
-    const newPointsMap = new Map(uniqueTestPoints.map((p) => [p.key, p]));
-    setOrderedTestPoints((prevOrderedPoints) => {
-      if (prevOrderedPoints.length === 0 && uniqueTestPoints.length > 0) {
-        return uniqueTestPoints;
+    const handleClickOutside = (event) => {
+      if (
+        runDropdownRef.current &&
+        !runDropdownRef.current.contains(event.target)
+      ) {
+        setIsRunDropdownOpen(false);
       }
-
-      const updatedAndOrderedPoints = prevOrderedPoints
-        .map((oldPoint) => newPointsMap.get(oldPoint.key))
-        .filter(Boolean);
-
-      const existingKeys = new Set(updatedAndOrderedPoints.map((p) => p.key));
-      const newPointsToAdd = uniqueTestPoints.filter(
-        // Adds any new points
-        (p) => !existingKeys.has(p.key)
-      );
-
-      return [...updatedAndOrderedPoints, ...newPointsToAdd];
-    });
-  }, [uniqueTestPoints, setOrderedTestPoints, isLoading]);
-
-  const handleDragEnd = (event) => {
-    const { active, over } = event;
-
-    if (over && active.id !== over.id) {
-      setOrderedTestPoints((items) => {
-        const oldIndex = items.findIndex((item) => item.key === active.id);
-        const newIndex = items.findIndex((item) => item.key === over.id);
-        return arrayMove(items, oldIndex, newIndex);
-      });
-    }
-  };
+    };
+    document.addEventListener("mousedown", handleClickOutside);
+    return () => {
+      document.removeEventListener("mousedown", handleClickOutside);
+    };
+  }, []);
 
   useEffect(() => {
     if (timerInterval.current) {
@@ -546,11 +361,9 @@ function Calibration({
     }
 
     if (timerState.isActive) {
-      // Record the exact time the timer starts
       timerStartTime.current = Date.now();
       const totalDurationInMs = timerState.duration * 1000;
 
-      // Set the initial countdown display
       setCountdown(Math.ceil(timerState.duration));
 
       timerInterval.current = setInterval(() => {
@@ -561,10 +374,9 @@ function Calibration({
           clearInterval(timerInterval.current);
           setCountdown(0);
         } else {
-          // Update the countdown with the correctly calculated remaining time
           setCountdown(Math.ceil(remainingTime / 1000));
         }
-      }, 1000); // The interval still runs every second to update the UI
+      }, 1000);
     } else {
       setCountdown(0);
       timerStartTime.current = null;
@@ -584,7 +396,7 @@ function Calibration({
         setFocusedTP(pointToFocus);
       }
     }
-  }, [focusedTPKey, uniqueTestPoints]);
+  }, [focusedTPKey, uniqueTestPoints, setFocusedTP]);
 
   useEffect(() => {
     if (
@@ -635,21 +447,24 @@ function Calibration({
     }
   }, [lastMessage, sendWsCommand]);
 
-  const fetchCorrections = useCallback(async () => {
-    try {
-      const response = await axios.get(`${API_BASE_URL}/correction/`);
-      setNormalizeData(normalizeCorrectionData(response.data));
-    } catch (error) {
-      showNotification(
-        "Could not fetch correction data from the database.",
-        "warning"
-      );
-    }
-  }, [showNotification]);
-
   useEffect(() => {
-    fetchCorrections();
-  }, [fetchCorrections]);
+    const fetchCorrectionData = async () => {
+      try {
+        const [shuntsRes, tvcsRes] = await Promise.all([
+          axios.get(`${API_BASE_URL}/shunts/`),
+          axios.get(`${API_BASE_URL}/tvcs/`),
+        ]);
+        setShuntsData(shuntsRes.data || []);
+        setTvcsData(tvcsRes.data || []);
+      } catch (error) {
+        showNotification(
+          "Could not fetch correction data from the database.",
+          "warning"
+        );
+      }
+    };
+    fetchCorrectionData();
+  }, [showNotification]);
 
   useEffect(() => {
     if (collectionStatus === "collection_stopped") {
@@ -668,28 +483,26 @@ function Calibration({
       : address;
   };
 
-  const refreshTestPointList = useCallback(async () => {
+  const refreshComponentData = useCallback(async () => {
     if (!selectedSessionId) return;
     try {
-      const [tpResponse, infoResponse] = await Promise.all([
-        axios.get(
-          `${API_BASE_URL}/calibration_sessions/${selectedSessionId}/test_points/`
-        ),
-        axios.get(
-          `${API_BASE_URL}/calibration_sessions/${selectedSessionId}/information/`
-        ),
-      ]);
-      setTPData(tpResponse.data || { test_points: [] });
+      const infoResponse = await axios.get(
+        `${API_BASE_URL}/calibration_sessions/${selectedSessionId}/information/`
+      );
       setCalibrationConfigurations(infoResponse.data.configurations || {});
-      setTVCCorrections(infoResponse.data.tvc_corrections || {});
     } catch (error) {
-      showNotification("Could not refresh test point list.", "error");
+      showNotification(
+        "Could not refresh calibration configurations.",
+        "error"
+      );
     }
   }, [selectedSessionId, showNotification]);
 
   useEffect(() => {
-    if (!isCollecting && !isBulkRunning) refreshTestPointList();
-  }, [isCollecting, isBulkRunning, refreshTestPointList]);
+    if (!isCollecting && !isBulkRunning) {
+      refreshComponentData();
+    }
+  }, [isCollecting, isBulkRunning, refreshComponentData]);
 
   const hasAllReadings = useCallback((point) => {
     if (!point?.readings) return false;
@@ -705,20 +518,44 @@ function Calibration({
     ].every((k) => point.readings[k]?.length > 0);
   }, []);
 
-  const hasAnyReadings = useCallback((point) => {
-    if (!point?.readings) return false;
-    const readingKeys = [
-      "std_ac_open_readings",
-      "std_dc_pos_readings",
-      "std_dc_neg_readings",
-      "std_ac_close_readings",
-      "ti_ac_open_readings",
-      "ti_dc_pos_readings",
-      "ti_dc_neg_readings",
-      "ti_ac_close_readings",
-    ];
-    return readingKeys.some((key) => point.readings[key]?.length > 0);
-  }, []);
+  useEffect(() => {
+    if (!focusedTP || !selectedSessionId) return;
+
+    const triggerAverageCalculationIfNeeded = async (pointDirection) => {
+      if (!pointDirection || !pointDirection.id) return;
+
+      const readingsAreComplete = hasAllReadings(pointDirection);
+      const averagesAreMissing =
+        !pointDirection.results ||
+        pointDirection.results.std_ac_open_avg === null;
+
+      if (readingsAreComplete && averagesAreMissing) {
+        try {
+          setIsCalculatingAverages(true);
+          await axios.post(
+            `${API_BASE_URL}/calibration_sessions/${selectedSessionId}/test_points/${pointDirection.id}/calculate-averages/`
+          );
+          await onDataUpdate();
+        } catch (error) {
+          showNotification(
+            `Failed to trigger average calculation for ${pointDirection.direction}.`,
+            "error"
+          );
+        } finally {
+          setIsCalculatingAverages(false);
+        }
+      }
+    };
+
+    triggerAverageCalculationIfNeeded(focusedTP.forward);
+    triggerAverageCalculationIfNeeded(focusedTP.reverse);
+  }, [
+    focusedTP,
+    selectedSessionId,
+    hasAllReadings,
+    onDataUpdate,
+    showNotification,
+  ]);
 
   const allForwardPointsComplete = useMemo(() => {
     if (uniqueTestPoints.length === 0) return false;
@@ -727,76 +564,122 @@ function Calibration({
     );
   }, [uniqueTestPoints, hasAllReadings]);
 
-  useEffect(() => {
-    if (focusedTP && uniqueTestPoints.length > 0) {
-      const updatedFocusedTP = uniqueTestPoints.find(
-        (p) => p.key === focusedTP.key
-      );
-      if (updatedFocusedTP) setFocusedTP(updatedFocusedTP);
-    }
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [uniqueTestPoints]);
-
-  useEffect(() => {
-    if (selectedSessionId) {
-      setIsLoading(true);
-      refreshTestPointList().finally(() => setIsLoading(false));
-    } else {
-      setTPData({ test_points: [] });
-      setCalibrationConfigurations({});
-      setFocusedTP(null);
-      setSelectedTPs(new Set());
-      setIsLoading(false);
-    }
-  }, [selectedSessionId, refreshTestPointList]);
-
   const getShuntCorrection = useCallback(() => {
-    if (focusedTP && calibrationConfigurations.ac_shunt_range) {
-      const range = normalizeKey(calibrationConfigurations.ac_shunt_range);
-      const current = normalizeKey(focusedTP.current);
-      const frequency = normalizeKey(focusedTP.frequency);
-      const correctionValue = normalizeData[range]?.[current]?.[frequency];
-      if (correctionValue === undefined || correctionValue === null) {
-        return null;
-      }
-      return correctionValue;
+    if (
+      !focusedTP ||
+      !calibrationConfigurations.ac_shunt_range ||
+      !standardInstrumentSerial ||
+      shuntsData.length === 0
+    ) {
+      return null;
     }
-    return null;
-  }, [focusedTP, calibrationConfigurations, normalizeData]);
+
+    const range = parseFloat(calibrationConfigurations.ac_shunt_range);
+    const current = parseFloat(focusedTP.current);
+    const frequency = parseFloat(focusedTP.frequency);
+
+    const relevantShunt = shuntsData.find(
+      (s) =>
+        s.serial_number === String(standardInstrumentSerial) &&
+        parseFloat(s.range) === range &&
+        parseFloat(s.current) === current
+    );
+
+    if (!relevantShunt) return null;
+
+    const correctionEntry = relevantShunt.corrections.find(
+      (c) => parseFloat(c.frequency) === frequency
+    );
+
+    return correctionEntry ? correctionEntry.correction : null;
+  }, [
+    focusedTP,
+    calibrationConfigurations.ac_shunt_range,
+    standardInstrumentSerial,
+    shuntsData,
+  ]);
 
   const getTVCCorrection = useCallback(() => {
-    const corrections = [];
-    if (!focusedTP) return [null, null];
+    if (!focusedTP || tvcsData.length === 0) return [null, null];
 
-    const types = ["Standard", "Test"];
+    const targetFreq = parseFloat(focusedTP.frequency);
 
-    for (const typeKey of types) {
+    const findCorrectionForSerial = (serial) => {
+      if (!serial) return null;
+
+      const relevantTvc = tvcsData.find(
+        (t) => String(t.serial_number) === String(serial)
+      );
+
       if (
-        tvcCorrections &&
-        tvcCorrections[typeKey] &&
-        Array.isArray(tvcCorrections[typeKey].measurements)
+        !relevantTvc ||
+        !Array.isArray(relevantTvc.corrections) ||
+        relevantTvc.corrections.length === 0
       ) {
-        const foundMeasurement = tvcCorrections[typeKey].measurements.find(
-          (measurement) => measurement.frequency === focusedTP.frequency
-        );
-
-        if (foundMeasurement) {
-          corrections.push(foundMeasurement.ac_dc_difference);
-        } else {
-          console.warn(
-            `Frequency ${focusedTP.frequency} not found in measurements for type ${typeKey}.`
-          );
-          corrections.push(null);
-        }
-      } else {
-        console.error(
-          `Invalid or missing measurements data for type: ${typeKey}.`
-        );
-        corrections.push(null);
+        return null;
       }
-    }
-    return corrections;
-  }, [focusedTP, tvcCorrections]);
+
+      const sorted = [...relevantTvc.corrections].sort(
+        (a, b) => a.frequency - b.frequency
+      );
+
+      const exactMatch = sorted.find((m) => m.frequency === targetFreq);
+      if (exactMatch) {
+        return exactMatch.ac_dc_difference;
+      }
+
+      if (targetFreq < 1000) {
+        const next = sorted.find((m) => m.frequency > targetFreq);
+        return next ? next.ac_dc_difference : null;
+      }
+
+      let lower = null;
+      let upper = null;
+
+      for (let i = 0; i < sorted.length - 1; i++) {
+        if (
+          sorted[i].frequency < targetFreq &&
+          sorted[i + 1].frequency > targetFreq
+        ) {
+          lower = sorted[i];
+          upper = sorted[i + 1];
+          break;
+        }
+      }
+
+      if (lower && upper) {
+        const { frequency: f1, ac_dc_difference: d1 } = lower;
+        const { frequency: f2, ac_dc_difference: d2 } = upper;
+        const interpolated = d1 + ((targetFreq - f1) * (d2 - d1)) / (f2 - f1);
+        return interpolated;
+      } else {
+        if (sorted.length >= 2) {
+          if (targetFreq < sorted[0].frequency) {
+            const { frequency: f1, ac_dc_difference: d1 } = sorted[0];
+            const { frequency: f2, ac_dc_difference: d2 } = sorted[1];
+            const extrapolated =
+              d1 + ((targetFreq - f1) * (d2 - d1)) / (f2 - f1);
+            return extrapolated;
+          } else if (targetFreq > sorted[sorted.length - 1].frequency) {
+            const { frequency: f1, ac_dc_difference: d1 } =
+              sorted[sorted.length - 2];
+            const { frequency: f2, ac_dc_difference: d2 } =
+              sorted[sorted.length - 1];
+            const extrapolated =
+              d2 + ((targetFreq - f2) * (d2 - d1)) / (f2 - f1);
+            return extrapolated;
+          }
+        }
+      }
+
+      return null;
+    };
+
+    const stdCorrection = findCorrectionForSerial(standardTvcSerial);
+    const testCorrection = findCorrectionForSerial(testTvcSerial);
+
+    return [stdCorrection, testCorrection];
+  }, [focusedTP, tvcsData, standardTvcSerial, testTvcSerial]);
 
   useEffect(() => {
     const formatReadingsForChart = (readingsArray) => {
@@ -811,7 +694,6 @@ function Calibration({
       }));
     };
 
-    // Define default settings in one place.
     const defaultSettings = {
       initial_warm_up_time: 0,
       num_samples: 8,
@@ -822,17 +704,20 @@ function Calibration({
       stability_max_attempts: 50,
     };
 
-    // Always clear previous charts before evaluating new state.
     setHistoricalReadings(initialLiveReadings);
     setTiHistoricalReadings(initialLiveReadings);
 
-    if (focusedTP) {
+    const currentFocusedTP = focusedTP
+      ? orderedTestPoints.find((p) => p.key === focusedTP.key)
+      : null;
+
+    if (currentFocusedTP) {
       const pointForDirection =
-        activeDirection === "Forward" ? focusedTP.forward : focusedTP.reverse;
+        activeDirection === "Forward"
+          ? currentFocusedTP.forward
+          : currentFocusedTP.reverse;
 
       if (pointForDirection) {
-        // --- FIX START ---
-        // Settings Logic: Use existing settings or fall back to default.
         if (
           pointForDirection.settings &&
           Object.keys(pointForDirection.settings).length > 0
@@ -842,12 +727,9 @@ function Calibration({
             ...pointForDirection.settings,
           });
         } else {
-          // Explicitly reset to defaults if no settings exist for this direction.
           setCalibrationSettings(defaultSettings);
         }
-        // --- FIX END ---
 
-        // Readings Logic: Repopulate charts if readings exist.
         if (pointForDirection.readings) {
           setHistoricalReadings({
             ac_open: formatReadingsForChart(
@@ -882,7 +764,7 @@ function Calibration({
         setCalibrationSettings(defaultSettings);
       }
     }
-  }, [focusedTP, activeDirection, initialLiveReadings]);
+  }, [focusedTP, activeDirection, initialLiveReadings, orderedTestPoints]);
 
   useEffect(() => {
     if (!focusedTP) {
@@ -891,6 +773,7 @@ function Calibration({
     }
     const forwardResult = focusedTP.forward?.results?.delta_uut_ppm;
     const reverseResult = focusedTP.reverse?.results?.delta_uut_ppm;
+    const existingAverage = focusedTP.forward?.results?.delta_uut_ppm_avg;
 
     if (
       forwardResult !== undefined &&
@@ -903,48 +786,42 @@ function Calibration({
       const averagePpmFormatted = averagePpm.toFixed(3);
       setAveragedPpmDifference(averagePpmFormatted);
 
-      const saveAverage = async () => {
-        try {
-          const forwardPayload = {
-            ...focusedTP.forward.results,
-            delta_uut_ppm_avg: averagePpmFormatted,
-          };
-          const reversePayload = {
-            ...focusedTP.reverse.results,
-            delta_uut_ppm_avg: averagePpmFormatted,
-          };
-          await Promise.all([
-            axios.put(
-              `${API_BASE_URL}/calibration_sessions/${selectedSessionId}/test_points/${focusedTP.forward.id}/update-results/`,
-              forwardPayload
-            ),
-            axios.put(
-              `${API_BASE_URL}/calibration_sessions/${selectedSessionId}/test_points/${focusedTP.reverse.id}/update-results/`,
-              reversePayload
-            ),
-          ]);
-          if (averagedPpmDifference !== averagePpmFormatted) {
+      if (String(existingAverage) !== averagePpmFormatted) {
+        const saveAverage = async () => {
+          try {
+            const forwardPayload = {
+              ...focusedTP.forward.results,
+              delta_uut_ppm_avg: averagePpmFormatted,
+            };
+            const reversePayload = {
+              ...focusedTP.reverse.results,
+              delta_uut_ppm_avg: averagePpmFormatted,
+            };
+            await Promise.all([
+              axios.put(
+                `${API_BASE_URL}/calibration_sessions/${selectedSessionId}/test_points/${focusedTP.forward.id}/update-results/`,
+                forwardPayload
+              ),
+              axios.put(
+                `${API_BASE_URL}/calibration_sessions/${selectedSessionId}/test_points/${focusedTP.reverse.id}/update-results/`,
+                reversePayload
+              ),
+            ]);
             showNotification(
               `Saved Averaged δ UUT: ${averagePpmFormatted} PPM`,
               "success"
             );
-            refreshTestPointList();
+            onDataUpdate();
+          } catch (error) {
+            showNotification("Error saving the averaged result.", "error");
           }
-        } catch (error) {
-          showNotification("Error saving the averaged result.", "error");
-        }
-      };
-      saveAverage();
+        };
+        saveAverage();
+      }
     } else {
       setAveragedPpmDifference(null);
     }
-  }, [
-    focusedTP,
-    selectedSessionId,
-    showNotification,
-    averagedPpmDifference,
-    refreshTestPointList,
-  ]);
+  }, [focusedTP, selectedSessionId, showNotification, onDataUpdate]);
 
   const handleCorrectionInputChange = (e) =>
     setCorrectionInputs((prev) => ({
@@ -952,13 +829,155 @@ function Calibration({
       [e.target.name]: e.target.value,
     }));
 
-  const performFinalCalculation = async (currentCorrectionInputs) => {
-    const calculatePpmFor = (point) => {
-      const fetchedResults = point?.results;
-      if (
-        !point ||
-        !fetchedResults ||
-        ![
+  const performFinalCalculation = useCallback(
+    async (currentCorrectionInputs) => {
+      const calculatePpmFor = (point) => {
+        const fetchedResults = point?.results;
+        if (
+          !point ||
+          !fetchedResults ||
+          ![
+            "std_dc_pos_avg",
+            "std_dc_neg_avg",
+            "std_ac_open_avg",
+            "std_ac_close_avg",
+            "ti_dc_pos_avg",
+            "ti_dc_neg_avg",
+            "ti_ac_open_avg",
+            "ti_ac_close_avg",
+          ].every((key) => fetchedResults[key] != null)
+        ) {
+          return null;
+        }
+        const V_DCSTD =
+          (Math.abs(fetchedResults.std_dc_pos_avg) +
+            Math.abs(fetchedResults.std_dc_neg_avg)) /
+          2;
+        const V_ACSTD =
+          (Math.abs(fetchedResults.std_ac_open_avg) +
+            Math.abs(fetchedResults.std_ac_close_avg)) /
+          2;
+        const V_DCUUT =
+          (Math.abs(fetchedResults.ti_dc_pos_avg) +
+            Math.abs(fetchedResults.ti_dc_neg_avg)) /
+          2;
+        const V_ACUUT =
+          (Math.abs(fetchedResults.ti_ac_open_avg) +
+            Math.abs(fetchedResults.ti_ac_close_avg)) /
+          2;
+        const { eta_std, eta_ti, delta_std, delta_ti, delta_std_known } =
+          Object.fromEntries(
+            Object.entries(currentCorrectionInputs).map(([k, v]) => [
+              k,
+              parseFloat(v),
+            ])
+          );
+        const term_STD = ((V_ACSTD - V_DCSTD) * 1000000) / (eta_std * V_DCSTD);
+        const term_UUT = ((V_ACUUT - V_DCUUT) * 1000000) / (eta_ti * V_DCUUT);
+        return (
+          delta_std_known +
+          term_STD -
+          term_UUT +
+          delta_std -
+          delta_ti
+        ).toFixed(3);
+      };
+
+      const newForwardPpm = hasAllReadings(focusedTP.forward)
+        ? calculatePpmFor(focusedTP.forward)
+        : null;
+      const newReversePpm = hasAllReadings(focusedTP.reverse)
+        ? calculatePpmFor(focusedTP.reverse)
+        : null;
+
+      if (hasAllReadings(focusedTP.forward) && newForwardPpm === null) {
+        showNotification(
+          "Forward calculation failed: required average values are missing.",
+          "error"
+        );
+      }
+      if (hasAllReadings(focusedTP.reverse) && newReversePpm === null) {
+        showNotification(
+          "Reverse calculation failed: required average values are missing.",
+          "error"
+        );
+      }
+
+      if (newForwardPpm === null && newReversePpm === null) {
+        return showNotification(
+          "No directions have complete readings to calculate.",
+          "warning"
+        );
+      }
+
+      try {
+        const updatePromises = [];
+        const sharedPayload = { ...currentCorrectionInputs };
+
+        if (focusedTP.forward && focusedTP.forward.id) {
+          const forwardPayload = {
+            ...(focusedTP.forward.results || {}),
+            ...sharedPayload,
+          };
+          if (newForwardPpm !== null) {
+            forwardPayload.delta_uut_ppm = newForwardPpm;
+          }
+          updatePromises.push(
+            axios.put(
+              `${API_BASE_URL}/calibration_sessions/${selectedSessionId}/test_points/${focusedTP.forward.id}/update-results/`,
+              forwardPayload
+            )
+          );
+        }
+
+        if (focusedTP.reverse && focusedTP.reverse.id) {
+          const reversePayload = {
+            ...(focusedTP.reverse.results || {}),
+            ...sharedPayload,
+          };
+          if (newReversePpm !== null) {
+            reversePayload.delta_uut_ppm = newReversePpm;
+          }
+          updatePromises.push(
+            axios.put(
+              `${API_BASE_URL}/calibration_sessions/${selectedSessionId}/test_points/${focusedTP.reverse.id}/update-results/`,
+              reversePayload
+            )
+          );
+        }
+
+        if (updatePromises.length > 0) {
+          await Promise.all(updatePromises);
+          showNotification(`AC-DC Difference successfully saved!`, "success");
+        }
+
+        onDataUpdate();
+        setIsCorrectionModalOpen(false);
+      } catch (error) {
+        showNotification("Error saving results.", "error");
+        console.error(
+          "Error saving calculation results:",
+          error.response ? error.response.data : error.message
+        );
+      }
+    },
+    [
+      focusedTP,
+      hasAllReadings,
+      onDataUpdate,
+      selectedSessionId,
+      showNotification,
+    ]
+  );
+
+  useEffect(() => {
+    const attemptAutoCalculation = async () => {
+      if (!focusedTP) return;
+
+      const averagesArePresent = (point) => {
+        const results = point?.results;
+        if (!results) return false;
+        return [
           "std_dc_pos_avg",
           "std_dc_neg_avg",
           "std_ac_open_avg",
@@ -967,105 +986,59 @@ function Calibration({
           "ti_dc_neg_avg",
           "ti_ac_open_avg",
           "ti_ac_close_avg",
-        ].every((key) => fetchedResults[key] != null)
-      ) {
-        return null;
-      }
-      const V_DCSTD =
-        (fetchedResults.std_dc_pos_avg +
-          Math.abs(fetchedResults.std_dc_neg_avg)) /
-        2;
-      const V_ACSTD =
-        (fetchedResults.std_ac_open_avg + fetchedResults.std_ac_close_avg) / 2;
-      const V_DCUUT =
-        (fetchedResults.ti_dc_pos_avg +
-          Math.abs(fetchedResults.ti_dc_neg_avg)) /
-        2;
-      const V_ACUUT =
-        (fetchedResults.ti_ac_open_avg + fetchedResults.ti_ac_close_avg) / 2;
-      const { eta_std, eta_ti, delta_std, delta_ti, delta_std_known } =
-        Object.fromEntries(
-          Object.entries(currentCorrectionInputs).map(([k, v]) => [
-            k,
-            parseFloat(v),
-          ])
+        ].every((key) => results[key] != null);
+      };
+
+      const hasFwdReadings = hasAllReadings(focusedTP.forward);
+      const hasRevReadings = hasAllReadings(focusedTP.reverse);
+      const fwdAveragesPresent = averagesArePresent(focusedTP.forward);
+      const revAveragesPresent = averagesArePresent(focusedTP.reverse);
+      const fwdPpmMissing =
+        focusedTP.forward?.results?.delta_uut_ppm === undefined ||
+        focusedTP.forward?.results?.delta_uut_ppm === null;
+      const revPpmMissing =
+        focusedTP.reverse?.results?.delta_uut_ppm === undefined ||
+        focusedTP.reverse?.results?.delta_uut_ppm === null;
+
+      const isReadyForAutoCalc =
+        hasFwdReadings &&
+        hasRevReadings &&
+        fwdAveragesPresent &&
+        revAveragesPresent &&
+        fwdPpmMissing &&
+        revPpmMissing;
+
+      if (isReadyForAutoCalc) {
+        const [stdTVC, tiTVC] = getTVCCorrection();
+        const shuntCorrection = getShuntCorrection();
+
+        const autoCorrectionInputs = {
+          eta_std: focusedTP.forward?.results?.eta_std || "1",
+          eta_ti: focusedTP.forward?.results?.eta_ti || "1",
+          delta_std: stdTVC !== null ? String(stdTVC) : "0",
+          delta_ti: tiTVC !== null ? String(tiTVC) : "0",
+          delta_std_known:
+            shuntCorrection !== null ? String(shuntCorrection) : "0",
+        };
+
+        showNotification(
+          "Forward and Reverse readings complete. Automatically calculating results...",
+          "info"
         );
-      const term_STD = ((V_ACSTD - V_DCSTD) * 1000000) / (eta_std * V_DCSTD);
-      const term_UUT = ((V_ACUUT - V_DCUUT) * 1000000) / (eta_ti * V_DCUUT);
-      return (
-        delta_std_known +
-        term_STD -
-        term_UUT +
-        delta_std -
-        delta_ti
-      ).toFixed(3);
+
+        await performFinalCalculation(autoCorrectionInputs);
+      }
     };
 
-    const newForwardPpm = hasAllReadings(focusedTP.forward)
-      ? calculatePpmFor(focusedTP.forward)
-      : null;
-    const newReversePpm = hasAllReadings(focusedTP.reverse)
-      ? calculatePpmFor(focusedTP.reverse)
-      : null;
-
-    if (newForwardPpm === null && newReversePpm === null) {
-      return showNotification(
-        "No directions have complete readings to calculate.",
-        "warning"
-      );
-    }
-
-    try {
-      const updatePromises = [];
-      const sharedPayload = { ...currentCorrectionInputs };
-
-      if (focusedTP.forward && focusedTP.forward.id) {
-        const forwardPayload = {
-          ...(focusedTP.forward.results || {}),
-          ...sharedPayload,
-        };
-        if (newForwardPpm !== null) {
-          forwardPayload.delta_uut_ppm = newForwardPpm;
-        }
-        updatePromises.push(
-          axios.put(
-            `${API_BASE_URL}/calibration_sessions/${selectedSessionId}/test_points/${focusedTP.forward.id}/update-results/`,
-            forwardPayload
-          )
-        );
-      }
-
-      if (focusedTP.reverse && focusedTP.reverse.id) {
-        const reversePayload = {
-          ...(focusedTP.reverse.results || {}),
-          ...sharedPayload,
-        };
-        if (newReversePpm !== null) {
-          reversePayload.delta_uut_ppm = newReversePpm;
-        }
-        updatePromises.push(
-          axios.put(
-            `${API_BASE_URL}/calibration_sessions/${selectedSessionId}/test_points/${focusedTP.reverse.id}/update-results/`,
-            reversePayload
-          )
-        );
-      }
-
-      if (updatePromises.length > 0) {
-        await Promise.all(updatePromises);
-        showNotification(`AC-DC Difference successfully saved!`, "success");
-      }
-
-      await refreshTestPointList();
-      setIsCorrectionModalOpen(false);
-    } catch (error) {
-      showNotification("Error saving results.", "error");
-      console.error(
-        "Error saving calculation results:",
-        error.response ? error.response.data : error.message
-      );
-    }
-  };
+    attemptAutoCalculation();
+  }, [
+    focusedTP,
+    hasAllReadings,
+    getTVCCorrection,
+    getShuntCorrection,
+    performFinalCalculation,
+    showNotification,
+  ]);
 
   const handleOpenCorrectionModal = () => {
     const primaryPoint = focusedTP.forward || focusedTP.reverse;
@@ -1100,38 +1073,30 @@ function Calibration({
   };
 
   const handleGetCorrection = () => {
-    const tvcCorrection = getTVCCorrection();
-    const stdTVC = tvcCorrection[0];
-    const tiTVC = tvcCorrection[1];
+    const [stdTVC, tiTVC] = getTVCCorrection();
     const shuntCorrection = getShuntCorrection();
 
-    const updates = {};
-    let hasAnyCorrection = false;
     const updatedFieldDetails = [];
-
-    if (stdTVC !== null) {
-      updates.delta_std = stdTVC;
-      hasAnyCorrection = true;
-      updatedFieldDetails.push(`Standard TVC (${stdTVC})`);
-    }
-    if (tiTVC !== null) {
-      updates.delta_ti = tiTVC;
-      hasAnyCorrection = true;
-      updatedFieldDetails.push(`Test TVC (${tiTVC})`);
-    }
-    if (shuntCorrection !== null) {
-      updates.delta_std_known = shuntCorrection;
-      hasAnyCorrection = true;
+    if (stdTVC !== null)
+      updatedFieldDetails.push(`Standard TVC (${stdTVC.toFixed(3)})`);
+    if (tiTVC !== null)
+      updatedFieldDetails.push(`Test TVC (${tiTVC.toFixed(3)})`);
+    if (shuntCorrection !== null)
       updatedFieldDetails.push(`Shunt correction (${shuntCorrection})`);
-    }
 
-    if (!hasAnyCorrection) {
+    if (updatedFieldDetails.length === 0) {
       showNotification(
         "No correction found for the selected test point parameters.",
         "info"
       );
     } else {
-      setCorrectionInputs((prev) => ({ ...prev, ...updates }));
+      setCorrectionInputs((prev) => ({
+        ...prev,
+        delta_std: stdTVC ?? prev.delta_std,
+        delta_ti: tiTVC ?? prev.delta_ti,
+        delta_std_known: shuntCorrection ?? prev.delta_std_known,
+      }));
+
       const successMessage = `Successfully updated: ${updatedFieldDetails.join(
         ", "
       )}.`;
@@ -1172,7 +1137,7 @@ function Calibration({
             }
           );
           pointData = response.data;
-          await refreshTestPointList();
+          await onDataUpdate();
         } catch (error) {
           showNotification(
             `Error creating ${activeDirection} configuration.`,
@@ -1194,7 +1159,6 @@ function Calibration({
           settling_time: parseFloat(runSettings.settling_time),
         };
       } else {
-        // 'single'
         params = {
           command: "start_collection",
           reading_type: baseReadingKey,
@@ -1245,7 +1209,7 @@ function Calibration({
       amplifierAddress,
       calibrationConfigurations.amplifier_range,
       clearLiveReadings,
-      refreshTestPointList,
+      onDataUpdate,
       selectedSessionId,
       showNotification,
       startReadingCollection,
@@ -1297,7 +1261,6 @@ function Calibration({
         setFocusedTP(firstPointInBatch);
       }
 
-      // Derive settings from the newly focused first point, falling back to existing state if needed.
       const firstPointSettings =
         firstPointInBatch?.forward?.settings ||
         firstPointInBatch?.reverse?.settings ||
@@ -1309,7 +1272,6 @@ function Calibration({
         command: "start_full_calibration_batch",
         test_points: pointsToRunData,
         direction: activeDirection,
-        // Use the synchronized settings
         num_samples: parseInt(firstPointSettings.num_samples, 10),
         settling_time: parseFloat(firstPointSettings.settling_time),
         nplc: parseFloat(firstPointSettings.nplc),
@@ -1345,9 +1307,9 @@ function Calibration({
               "error"
             );
           })
-          .finally(async () => {
+          .finally(() => {
             setIsBulkRunning(false);
-            await refreshTestPointList();
+            onDataUpdate();
           });
       } else {
         showNotification(
@@ -1401,6 +1363,9 @@ function Calibration({
               "error"
             );
             console.error("Measurement run error:", error);
+          })
+          .finally(() => {
+            onDataUpdate();
           });
       };
 
@@ -1429,6 +1394,7 @@ function Calibration({
       focusedTP,
       runMeasurement,
       showNotification,
+      onDataUpdate,
     ]
   );
 
@@ -1479,7 +1445,6 @@ function Calibration({
         reading_type: readingKey,
         test_points: pointsToRunData,
         direction: activeDirection,
-        // Use the synchronized settings
         initial_warm_up_time:
           parseFloat(firstPointSettings.initial_warm_up_time) || 0,
         num_samples: parseInt(firstPointSettings.num_samples, 10),
@@ -1513,7 +1478,7 @@ function Calibration({
           );
         } finally {
           setIsBulkRunning(false);
-          await refreshTestPointList();
+          onDataUpdate();
         }
       } else {
         showNotification(
@@ -1533,44 +1498,11 @@ function Calibration({
       calibrationConfigurations.amplifier_range,
       startReadingCollection,
       showNotification,
-      refreshTestPointList,
+      onDataUpdate,
       uniqueTestPoints,
+      setFocusedTP,
     ]
   );
-
-  const handleToggleSelectAll = () => {
-    if (selectedTPs.size === uniqueTestPoints.length) {
-      setSelectedTPs(new Set());
-    } else {
-      const allPointKeys = uniqueTestPoints.map((p) => p.key);
-      setSelectedTPs(new Set(allPointKeys));
-    }
-  };
-
-  const handleRowFocus = (point) => {
-    const pointForDirection =
-      activeDirection === "Forward" ? point.forward : point.reverse;
-
-    const areReadingsComplete = hasAllReadings(pointForDirection);
-
-    setFocusedTP(point);
-
-    if (areReadingsComplete) {
-      setActiveTab("readings");
-    } else {
-      setActiveTab("settings");
-    }
-  };
-
-  const handleCheckboxToggle = (pointKey) => {
-    const newSelected = new Set(selectedTPs);
-    if (newSelected.has(pointKey)) {
-      newSelected.delete(pointKey);
-    } else {
-      newSelected.add(pointKey);
-    }
-    setSelectedTPs(newSelected);
-  };
 
   const buildChartData = (readings) => ({
     labels: [
@@ -1597,6 +1529,15 @@ function Calibration({
       }
     ).text;
   }, []);
+
+  const formatCurrent = (value) => {
+    const numValue = parseFloat(value);
+    const epsilon = 1e-9;
+    const found = AVAILABLE_CURRENTS.find(
+      (c) => Math.abs(c.value - numValue) < epsilon
+    );
+    return found ? found.text : `${numValue}A`;
+  };
 
   const handleSettingsSubmit = async (e) => {
     e.preventDefault();
@@ -1644,7 +1585,7 @@ function Calibration({
         `Settings saved for the ${directionName} direction!`,
         "success"
       );
-      await refreshTestPointList();
+      onDataUpdate();
       setActiveTab("readings");
     } catch (error) {
       showNotification("Error saving settings.", "error");
@@ -1661,7 +1602,6 @@ function Calibration({
         return;
       }
 
-      // 1. Define the complete settings payload for the focused point
       const fullSettingsPayload = {
         initial_warm_up_time:
           parseFloat(calibrationSettings.initial_warm_up_time) || 0,
@@ -1676,12 +1616,8 @@ function Calibration({
           parseInt(calibrationSettings.stability_max_attempts, 10) || 50,
       };
 
-      const { initial_warm_up_time, ...commonSettingsPayload } =
-        fullSettingsPayload;
-
-      let { forward, reverse } = focusedTP;
       try {
-        // 2. Ensure both forward/reverse exist for the focused point
+        let { forward, reverse } = focusedTP;
         if (!forward) {
           forward = (
             await axios.post(
@@ -1707,29 +1643,22 @@ function Calibration({
           ).data;
         }
 
-        // 3. Save the FULL settings payload to BOTH directions of the FOCUSED point
-        await axios.patch(
-          `${API_BASE_URL}/calibration_sessions/${selectedSessionId}/test_points/${forward.id}/`,
-          { settings: fullSettingsPayload }
-        );
-        await axios.patch(
-          `${API_BASE_URL}/calibration_sessions/${selectedSessionId}/test_points/${reverse.id}/`,
-          { settings: fullSettingsPayload }
-        );
+        const sourcePointId =
+          activeDirection === "Forward" ? forward.id : reverse.id;
 
-        // 4. Apply only the COMMON settings to all other test points
         await axios.post(
           `${API_BASE_URL}/calibration_sessions/${selectedSessionId}/test_points/actions/apply-settings-to-all/`,
           {
-            settings: commonSettingsPayload, // Send the payload WITHOUT the warm-up time
-            focused_test_point_id: forward.id,
+            settings: fullSettingsPayload,
+            focused_test_point_id: sourcePointId,
           }
         );
+
         showNotification(
           "Settings applied to all test points successfully!",
           "success"
         );
-        await refreshTestPointList();
+        onDataUpdate();
       } catch (error) {
         showNotification("An error occurred while applying settings.", "error");
       } finally {
@@ -1748,51 +1677,6 @@ function Calibration({
     });
   };
 
-  const handleClearReadings = useCallback(
-    async (testPointId, direction) => {
-      try {
-        await axios.post(
-          `${API_BASE_URL}/calibration_sessions/${selectedSessionId}/test_points/${testPointId}/clear_readings/`
-        );
-        showNotification(
-          `Readings for the ${direction} direction have been cleared.`,
-          "success"
-        );
-        refreshTestPointList();
-      } catch (error) {
-        showNotification(
-          "Failed to clear readings. Please try again.",
-          "error"
-        );
-        console.error("Error clearing readings:", error);
-      } finally {
-        setClearConfirmationModal({ isOpen: false });
-      }
-    },
-    [selectedSessionId, showNotification, refreshTestPointList]
-  );
-
-  const promptClearReadings = useCallback(
-    (direction, point) => {
-      const pointForDirection =
-        direction === "Forward" ? point.forward : point.reverse;
-      if (!pointForDirection) return;
-
-      setClearConfirmationModal({
-        isOpen: true,
-        title: "Confirm Clear Readings",
-        message: `Are you sure you want to permanently delete all readings for ${
-          point.current
-        }A @ ${formatFrequency(
-          point.frequency
-        )} in the ${direction} direction?`,
-        onConfirm: () => handleClearReadings(pointForDirection.id, direction),
-        onCancel: () => setClearConfirmationModal({ isOpen: false }),
-      });
-    },
-    [handleClearReadings, formatFrequency]
-  );
-
   const pointForDirection = focusedTP
     ? activeDirection === "Forward"
       ? focusedTP.forward
@@ -1800,14 +1684,12 @@ function Calibration({
     : null;
   const isCurrentTPActive =
     isCollecting && activeCollectionDetails?.tpId === pointForDirection?.id;
-
   const stdChartDataSource = isCurrentTPActive
     ? { ...historicalReadings, ...liveReadings }
     : historicalReadings;
   const tiChartDataSource = isCurrentTPActive
     ? { ...tiHistoricalReadings, ...tiLiveReadings }
     : tiHistoricalReadings;
-
   const stdChartData = buildChartData(stdChartDataSource);
   const tiChartData = buildChartData(tiChartDataSource);
   const showStdChart =
@@ -1821,17 +1703,18 @@ function Calibration({
     const stageKey =
       activeCollectionDetails?.stage || activeCollectionDetails?.readingKey;
     if (!stageKey) return "Initializing...";
-
     const readingType = READING_TYPES.find((rt) => rt.key === stageKey);
-
     return readingType ? readingType.label : stageKey.replace(/_/g, " ");
   };
 
   const isCalculationReady =
     focusedTP &&
     (hasAllReadings(focusedTP.forward) || hasAllReadings(focusedTP.reverse));
-  const is34420AInUse =
-    stdReaderModel === "34420A" || tiReaderModel === "34420A";
+  const isNplcInstrumentInUse =
+    stdReaderModel === "34420A" ||
+    tiReaderModel === "34420A" ||
+    stdReaderModel === "3458A" ||
+    tiReaderModel === "3458A";
 
   const dropdownOptions = useMemo(() => {
     if (selectedTPs.size > 1) {
@@ -1855,6 +1738,20 @@ function Calibration({
 
   return (
     <>
+      <ConfigurationSummaryModal
+        isOpen={isSummaryModalOpen}
+        onClose={() => setIsSummaryModalOpen(false)}
+        configurations={calibrationConfigurations}
+        uniqueTestPoints={uniqueTestPoints}
+        getInstrumentIdentity={getInstrumentIdentityByAddress}
+        stdInstrumentAddress={stdInstrumentAddress}
+        stdReaderModel={stdReaderModel}
+        tiInstrumentAddress={tiInstrumentAddress}
+        tiReaderModel={tiReaderModel}
+        acSourceAddress={acSourceAddress}
+        dcSourceAddress={dcSourceAddress}
+        switchDriverAddress={switchDriverAddress}
+      />
       <CorrectionFactorsModal
         isOpen={isCorrectionModalOpen}
         onClose={() => setIsCorrectionModalOpen(false)}
@@ -1868,16 +1765,8 @@ function Calibration({
         title={confirmationModal.title}
         message={confirmationModal.message}
         onConfirm={confirmationModal.onConfirm}
-        onCancel={confirmationModal.onCancel}
+        onCancel={() => setConfirmationModal({ isOpen: false })}
         confirmText="Ready"
-      />
-      <ConfirmationModal
-        isOpen={clearConfirmationModal.isOpen}
-        title={clearConfirmationModal.title}
-        message={clearConfirmationModal.message}
-        onConfirm={clearConfirmationModal.onConfirm}
-        onCancel={clearConfirmationModal.onCancel}
-        confirmText="Clear Readings"
       />
       <ConfirmationModal
         isOpen={amplifierModal.isOpen}
@@ -1891,11 +1780,7 @@ function Calibration({
         <div className="content-area form-section-warning">
           <p>Please select a session to run a calibration.</p>
         </div>
-      ) : isLoading ? (
-        <div className="content-area">
-          <p>Loading session data...</p>
-        </div>
-      ) : uniqueTestPoints.length === 0 ? (
+      ) : uniqueTestPoints && uniqueTestPoints.length === 0 ? (
         <div className="content-area form-section-warning">
           <p>
             This session has no test points. Please go to the "Test Point
@@ -1903,525 +1788,433 @@ function Calibration({
           </p>
         </div>
       ) : (
-        <>
-          <div className="content-area">
-            <h2>Configuration Summary</h2>
-            <div className="calibration-summary-bar">
-              <div className="summary-item">
-                <strong>AC Shunt Range:</strong>
-                <span>
-                  {calibrationConfigurations.ac_shunt_range || "N/A"} A
-                </span>
-              </div>
-              <div className="summary-item">
-                <strong>Amplifier Range:</strong>
-                <span>
-                  {calibrationConfigurations.amplifier_range || "N/A"} A
-                </span>
-              </div>
-              <div className="summary-item">
-                <strong>Input Current:</strong>
-                <span>
-                  {uniqueTestPoints?.[0]?.current
-                    ? `${uniqueTestPoints[0].current} A`
-                    : "N/A"}
-                </span>
-              </div>
-            </div>
-          </div>
-          <div className="content-area">
-            <h2>Sources & Readers</h2>
-            <div
-              className="calibration-summary-bar"
-              style={{
-                display: "grid",
-                gridTemplateColumns: "1fr 1fr",
-                gap: "20px",
-              }}
+        <div className="content-area">
+          <div className="header-with-info-button">
+            <h2>Calibration Workflow</h2>
+            <button
+              className="info-button"
+              onClick={() => setIsSummaryModalOpen(true)}
+              title="View Configuration Details"
             >
-              <div className="summary-item" style={{ textAlign: "left" }}>
-                <strong>Standard Instrument Reader:</strong>
-                <span style={{ marginLeft: "8px" }}>
-                  {getInstrumentIdentityByAddress(
-                    stdInstrumentAddress,
-                    stdReaderModel
-                  )}
-                </span>
-              </div>
-              <div className="summary-item" style={{ textAlign: "left" }}>
-                <strong>Test Instrument Reader:</strong>
-                <span style={{ marginLeft: "8px" }}>
-                  {getInstrumentIdentityByAddress(
-                    tiInstrumentAddress,
-                    tiReaderModel
-                  )}
-                </span>
-              </div>
-              <div className="summary-item" style={{ textAlign: "left" }}>
-                <strong>AC Source:</strong>
-                <span style={{ marginLeft: "8px" }}>
-                  {getInstrumentIdentityByAddress(acSourceAddress)}
-                </span>
-              </div>
-              <div className="summary-item" style={{ textAlign: "left" }}>
-                <strong>DC Source:</strong>
-                <span style={{ marginLeft: "8px" }}>
-                  {getInstrumentIdentityByAddress(dcSourceAddress)}
-                </span>
-              </div>
-              {switchDriverAddress && <SwitchControl />}
-            </div>
+              <FaInfoCircle />
+              <span>View Configuration</span>
+            </button>
           </div>
-          <div className="content-area">
-            <div className="calibration-workflow-container">
-              <div className="test-point-sidebar">
-                <div
-                  style={{
-                    display: "flex",
-                    justifyContent: "space-between",
-                    alignItems: "center",
-                  }}
-                >
-                  <h4>Test Points</h4>
-                  <button
-                    onClick={handleToggleSelectAll}
-                    className="button button-small button-secondary"
-                    disabled={isBulkRunning || isCollecting}
-                  >
-                    {selectedTPs.size === uniqueTestPoints.length
-                      ? "Deselect All"
-                      : "Select All"}
-                  </button>
+          <div className="calibration-workflow-container">
+            <div className="test-point-content">
+              {!focusedTP ? (
+                <div className="placeholder-content">
+                  <h3>Select a Test Point</h3>
+                  <p>
+                    Please select a test point from the list on the left to
+                    begin.
+                  </p>
                 </div>
-                <DndContext
-                  collisionDetection={closestCenter}
-                  onDragEnd={handleDragEnd}
-                >
-                  <SortableContext
-                    items={orderedTestPoints.map((p) => p.key)}
-                    strategy={verticalListSortingStrategy}
-                  >
-                    <div className="test-point-list">
-                      {orderedTestPoints.map((point) => {
-                        const isFocused = focusedTP?.key === point.key;
-                        const isSelected = selectedTPs.has(point.key);
-                        const isComplete =
-                          hasAllReadings(point.forward) &&
-                          hasAllReadings(point.reverse);
-
-                        // This variable is now used for the 'isCurrentlyExecuting' prop
-                        const isPointCurrentlyExecuting =
-                          (isCollecting &&
-                            activeCollectionDetails?.tpId ===
-                              (activeDirection === "Forward"
-                                ? point.forward?.id
-                                : point.reverse?.id)) ||
-                          (isBulkRunning &&
-                            bulkRunProgress.pointKey === point.key);
-
-                        // This variable is now used for the 'areControlsDisabled' prop
-                        const areControlsDisabled =
-                          isBulkRunning || isCollecting;
-
-                        return (
-                          <SortableTestPointItem
-                            key={point.key}
-                            point={point}
-                            isFocused={isFocused}
-                            isSelected={isSelected}
-                            isComplete={isComplete}
-                            isCurrentlyExecuting={isPointCurrentlyExecuting} // Pass the specific status
-                            areControlsDisabled={areControlsDisabled} // Pass the global disabled status
-                            onFocus={handleRowFocus}
-                            onToggle={handleCheckboxToggle}
-                            onClearReadings={{
-                              prompt: promptClearReadings,
-                              hasAnyReadings: hasAnyReadings,
-                              formatFrequency: formatFrequency,
-                            }}
-                          />
-                        );
-                      })}
-                    </div>
-                  </SortableContext>
-                </DndContext>
-              </div>
-              <div className="test-point-content">
-                {!focusedTP ? (
-                  <div className="placeholder-content">
-                    <h3>Select a Test Point</h3>
-                    <p>
-                      Please select a test point from the list on the left to
-                      begin.
-                    </p>
-                  </div>
-                ) : (
-                  <>
+              ) : (
+                <>
+                  <div className="calibration-content-header">
+                    <h4>
+                      {formatCurrent(focusedTP.current)} @{" "}
+                      {formatFrequency(focusedTP.frequency)}
+                    </h4>
                     <DirectionToggle
                       activeDirection={activeDirection}
                       setActiveDirection={setActiveDirection}
                     />
-                    <SubNav activeTab={activeTab} setActiveTab={setActiveTab} />
-                    <div className="sub-tab-content">
-                      {activeTab === "settings" && (
-                        <form onSubmit={handleSettingsSubmit}>
-                          <h4>
-                            Calibration Settings for {focusedTP.current}A @{" "}
-                            {formatFrequency(focusedTP.frequency)}
-                          </h4>
-                          <div className="config-grid">
-                            <div className="form-section">
-                              <label htmlFor="initial_warm_up_time">
-                                Initial Warm-up Wait (sec)
-                              </label>
-                              <input
-                                type="number"
-                                id="initial_warm_up_time"
-                                name="initial_warm_up_time"
-                                value={
-                                  calibrationSettings.initial_warm_up_time || 0
-                                }
-                                onChange={(e) =>
-                                  setCalibrationSettings((prev) => ({
-                                    ...prev,
-                                    initial_warm_up_time: e.target.value,
-                                  }))
-                                }
-                              />
-                            </div>
-                            <div className="form-section">
-                              <label htmlFor="num_samples"># of Samples</label>
-                              <input
-                                type="number"
-                                id="num_samples"
-                                name="num_samples"
-                                required
-                                value={calibrationSettings.num_samples || 8}
-                                onChange={(e) =>
-                                  setCalibrationSettings((prev) => ({
-                                    ...prev,
-                                    num_samples: e.target.value,
-                                  }))
-                                }
-                              />
-                            </div>
-                            <div className="form-section">
-                              <label htmlFor="settling_time">
-                                Settling Time (sec)
-                              </label>
-                              <input
-                                type="number"
-                                id="settling_time"
-                                name="settling_time"
-                                required
-                                value={calibrationSettings.settling_time || 5}
-                                onChange={(e) =>
-                                  setCalibrationSettings((prev) => ({
-                                    ...prev,
-                                    settling_time: e.target.value,
-                                  }))
-                                }
-                              />
-                            </div>
-                            {is34420AInUse && (
-                              <div className="form-section">
-                                <label htmlFor="nplc">
-                                  34420A Integration (NPLC)
-                                </label>
-                                <select
-                                  id="nplc"
-                                  name="nplc"
-                                  value={calibrationSettings.nplc || 20}
-                                  onChange={(e) =>
-                                    setCalibrationSettings((prev) => ({
-                                      ...prev,
-                                      nplc: parseFloat(e.target.value),
-                                    }))
-                                  }
-                                >
-                                  {NPLC_OPTIONS.map((val) => (
-                                    <option key={val} value={val}>
-                                      {val} PLC
-                                    </option>
-                                  ))}
-                                </select>
-                              </div>
-                            )}
-                            {/* Stability Settings */}
-                            <div className="form-section">
-                              <label htmlFor="stability_window">
-                                Stability Window (# Samples)
-                              </label>
-                              <input
-                                type="number"
-                                id="stability_window"
-                                name="stability_window"
-                                value={
-                                  calibrationSettings.stability_window || 5
-                                }
-                                onChange={(e) =>
-                                  setCalibrationSettings((prev) => ({
-                                    ...prev,
-                                    stability_window: parseInt(
-                                      e.target.value,
-                                      10
-                                    ),
-                                  }))
-                                }
-                              />
-                            </div>
-                            <div className="form-section">
-                              <label htmlFor="stability_threshold_ppm">
-                                Stability Threshold (PPM)
-                              </label>
-                              <input
-                                type="number"
-                                step="any"
-                                id="stability_threshold_ppm"
-                                name="stability_threshold_ppm"
-                                placeholder="e.g., 10"
-                                value={
-                                  calibrationSettings.stability_threshold_ppm ||
-                                  ""
-                                }
-                                onChange={(e) =>
-                                  setCalibrationSettings((prev) => ({
-                                    ...prev,
-                                    stability_threshold_ppm: e.target.value,
-                                  }))
-                                }
-                              />
-                            </div>
-                            <div className="form-section">
-                              <label htmlFor="stability_max_attempts">
-                                Max Stability Attempts
-                              </label>
-                              <input
-                                type="number"
-                                id="stability_max_attempts"
-                                name="stability_max_attempts"
-                                value={
-                                  calibrationSettings.stability_max_attempts ||
-                                  50
-                                }
-                                onChange={(e) =>
-                                  setCalibrationSettings((prev) => ({
-                                    ...prev,
-                                    stability_max_attempts: parseInt(
-                                      e.target.value,
-                                      10
-                                    ),
-                                  }))
-                                }
-                              />
-                            </div>
-                          </div>
-                          <div
-                            className="form-section-action"
-                            style={{ display: "flex", gap: "10px" }}
-                          >
-                            <button
-                              type="submit"
-                              className="button button-primary"
-                            >
-                              Save for This Point
-                            </button>
-                            <button
-                              type="button"
-                              onClick={handleApplySettingsToAll}
-                              className="button button-secondary"
-                            >
-                              Apply to All Points
-                            </button>
-                          </div>
-                        </form>
-                      )}
-                      {activeTab === "readings" && (
-                        <>
+                  </div>
+
+                  <SubNav activeTab={activeTab} setActiveTab={setActiveTab} />
+                  <div className="sub-tab-content">
+                    {activeTab === "settings" && (
+                      <form onSubmit={handleSettingsSubmit}>
+                        <h4>Calibration Settings</h4>
+                        <div className="config-grid">
                           <div className="form-section">
-                            <div className="readings-grid">
-                              {isCollecting || isBulkRunning ? (
-                                <div className="status-bar">
-                                  <div className="status-bar-content">
-                                    {isBulkRunning && (
-                                      <div
-                                        className="status-section"
-                                        style={{ flexGrow: 1.5 }}
-                                      >
-                                        <span className="status-label">
-                                          Batch Progress
-                                        </span>
-                                        <span className="status-value">{`Point ${bulkRunProgress.current} of ${bulkRunProgress.total}`}</span>
-                                        <span className="status-detail">{`${
-                                          focusedTP?.current
-                                        }A @ ${formatFrequency(
-                                          focusedTP?.frequency
-                                        )}`}</span>
-                                      </div>
-                                    )}
-                                    <div className="status-section">
-                                      <span className="status-label">
-                                        {timerState.isActive ? (
-                                          <>
-                                            <FaHourglassHalf />{" "}
-                                            {timerState.label}
-                                          </>
-                                        ) : stabilizationStatus ? (
-                                          <>
-                                            <FaCrosshairs /> Stability
-                                          </>
-                                        ) : (
-                                          <>
-                                            <FaStream /> Collecting
-                                          </>
-                                        )}
-                                      </span>
-                                      <span className="status-value">
-                                        {timerState.isActive
-                                          ? `${countdown}s`
-                                          : getStageName()}
-                                      </span>
-                                      <span className="status-detail">
-                                        {stabilizationStatus ||
-                                          `${collectionProgress.count} / ${collectionProgress.total} Samples`}
-                                      </span>
-                                    </div>
-                                  </div>
-                                  <div className="status-bar-progress-container">
+                            <label htmlFor="initial_warm_up_time">
+                              Initial Warm-up Wait (sec)
+                            </label>
+                            <input
+                              type="number"
+                              id="initial_warm_up_time"
+                              name="initial_warm_up_time"
+                              value={
+                                calibrationSettings.initial_warm_up_time || 0
+                              }
+                              onChange={(e) =>
+                                setCalibrationSettings((prev) => ({
+                                  ...prev,
+                                  initial_warm_up_time: e.target.value,
+                                }))
+                              }
+                            />
+                          </div>
+                          <div className="form-section">
+                            <label htmlFor="num_samples"># of Samples</label>
+                            <input
+                              type="number"
+                              id="num_samples"
+                              name="num_samples"
+                              required
+                              value={calibrationSettings.num_samples || 8}
+                              onChange={(e) =>
+                                setCalibrationSettings((prev) => ({
+                                  ...prev,
+                                  num_samples: e.target.value,
+                                }))
+                              }
+                            />
+                          </div>
+                          <div className="form-section">
+                            <label htmlFor="settling_time">
+                              Settling Time (sec)
+                            </label>
+                            <input
+                              type="number"
+                              id="settling_time"
+                              name="settling_time"
+                              required
+                              value={calibrationSettings.settling_time || 5}
+                              onChange={(e) =>
+                                setCalibrationSettings((prev) => ({
+                                  ...prev,
+                                  settling_time: e.target.value,
+                                }))
+                              }
+                            />
+                          </div>
+                          {isNplcInstrumentInUse && (
+                            <div className="form-section">
+                              <label htmlFor="nplc">
+                                Reader Integration (NPLC)
+                              </label>
+                              <select
+                                id="nplc"
+                                name="nplc"
+                                value={calibrationSettings.nplc || 20}
+                                onChange={(e) =>
+                                  setCalibrationSettings((prev) => ({
+                                    ...prev,
+                                    nplc: parseFloat(e.target.value),
+                                  }))
+                                }
+                              >
+                                {NPLC_OPTIONS.map((val) => (
+                                  <option key={val} value={val}>
+                                    {val} PLC
+                                  </option>
+                                ))}
+                              </select>
+                            </div>
+                          )}
+                          <div className="form-section">
+                            <label htmlFor="stability_window">
+                              Stability Window (# Samples)
+                            </label>
+                            <input
+                              type="number"
+                              id="stability_window"
+                              name="stability_window"
+                              value={calibrationSettings.stability_window || 5}
+                              onChange={(e) =>
+                                setCalibrationSettings((prev) => ({
+                                  ...prev,
+                                  stability_window: parseInt(
+                                    e.target.value,
+                                    10
+                                  ),
+                                }))
+                              }
+                            />
+                          </div>
+                          <div className="form-section">
+                            <label htmlFor="stability_threshold_ppm">
+                              Stability Threshold (PPM)
+                            </label>
+                            <input
+                              type="number"
+                              step="any"
+                              id="stability_threshold_ppm"
+                              name="stability_threshold_ppm"
+                              placeholder="e.g., 10"
+                              value={
+                                calibrationSettings.stability_threshold_ppm ||
+                                ""
+                              }
+                              onChange={(e) =>
+                                setCalibrationSettings((prev) => ({
+                                  ...prev,
+                                  stability_threshold_ppm: e.target.value,
+                                }))
+                              }
+                            />
+                          </div>
+                          <div className="form-section">
+                            <label htmlFor="stability_max_attempts">
+                              Max Stability Attempts
+                            </label>
+                            <input
+                              type="number"
+                              id="stability_max_attempts"
+                              name="stability_max_attempts"
+                              value={
+                                calibrationSettings.stability_max_attempts || 50
+                              }
+                              onChange={(e) =>
+                                setCalibrationSettings((prev) => ({
+                                  ...prev,
+                                  stability_max_attempts: parseInt(
+                                    e.target.value,
+                                    10
+                                  ),
+                                }))
+                              }
+                            />
+                          </div>
+                        </div>
+                        <div className="form-section-action-icons">
+                          <button
+                            type="button"
+                            onClick={handleApplySettingsToAll}
+                            className="sidebar-action-button"
+                            title="Apply to All Test Points"
+                          >
+                            <FaLayerGroup />
+                          </button>
+                          <button
+                            type="submit"
+                            className="sidebar-action-button"
+                            title="Save Settings for This Point"
+                          >
+                            <FaSave />
+                          </button>
+                        </div>
+                      </form>
+                    )}
+                    {activeTab === "readings" && (
+                      <>
+                        <div className="form-section">
+                          <div className="readings-grid">
+                            {isCollecting || isBulkRunning ? (
+                              <div className="status-bar">
+                                <div className="status-bar-content">
+                                  {isBulkRunning && (
                                     <div
-                                      className="status-bar-progress"
-                                      style={{
-                                        width: `${
-                                          (collectionProgress.count /
-                                            collectionProgress.total) *
-                                          100
-                                        }%`,
-                                      }}
-                                    ></div>
-                                  </div>
-                                  <div className="status-bar-action">
-                                    <button
-                                      onClick={stopReadingCollection}
-                                      className="button-stop"
-                                      title="Stop Collection"
+                                      className="status-section"
+                                      style={{ flexGrow: 1.5 }}
                                     >
-                                      <FaStop />
-                                    </button>
+                                      <span className="status-label">
+                                        Batch Progress
+                                      </span>
+                                      <span className="status-value">{`Point ${bulkRunProgressFromContext.current} of ${bulkRunProgressFromContext.total}`}</span>
+                                      <span className="status-detail">{`${
+                                        formatCurrent(focusedTP?.current)
+                                      }A @ ${formatFrequency(
+                                        focusedTP?.frequency
+                                      )}`}</span>
+                                    </div>
+                                  )}
+                                  <div className="status-section">
+                                    <span className="status-label">
+                                      {timerState.isActive ? (
+                                        <>
+                                          <FaHourglassHalf /> {timerState.label}
+                                        </>
+                                      ) : stabilizationStatus ? (
+                                        <>
+                                          <FaCrosshairs /> Stability
+                                        </>
+                                      ) : (
+                                        <>
+                                          <FaStream /> Collecting
+                                        </>
+                                      )}
+                                    </span>
+                                    <span className="status-value">
+                                      {timerState.isActive
+                                        ? `${countdown}s`
+                                        : getStageName()}
+                                    </span>
+                                    <span className="status-detail">
+                                      {stabilizationStatus ||
+                                        `${collectionProgress.count} / ${collectionProgress.total} Samples`}
+                                    </span>
                                   </div>
                                 </div>
-                              ) : (
-                                <ActionDropdownButton
-                                  primaryText={
-                                    selectedTPs.size > 0
-                                      ? `Run ${selectedTPs.size} Selected Point(s) (Full)`
-                                      : "Run Measurement(s)"
-                                  }
-                                  primaryIcon={<FaPlay />}
-                                  onPrimaryClick={handleRunSelectedPoints}
-                                  disabled={
-                                    !focusedTP ||
-                                    readingWsState !== WebSocket.OPEN ||
-                                    selectedTPs.size === 0
-                                  }
-                                  options={dropdownOptions}
-                                />
-                              )}
-                            </div>
+                                <div className="status-bar-progress-container">
+                                  <div
+                                    className="status-bar-progress"
+                                    style={{
+                                      width: `${
+                                        (collectionProgress.count /
+                                          collectionProgress.total) *
+                                        100
+                                      }%`,
+                                    }}
+                                  ></div>
+                                </div>
+                                <div className="status-bar-action">
+                                  <button
+                                    onClick={stopReadingCollection}
+                                    className="button-stop"
+                                    title="Stop Collection"
+                                  >
+                                    <FaStop />
+                                  </button>
+                                </div>
+                              </div>
+                            ) : (
+                              <div
+                                className="premium-action-button-container"
+                                ref={runDropdownRef}
+                              >
+                                <div className="premium-action-button-wrapper">
+                                  <button
+                                    className="button premium-action-button-primary"
+                                    onClick={handleRunSelectedPoints}
+                                    disabled={
+                                      !focusedTP ||
+                                      readingWsState !== WebSocket.OPEN ||
+                                      selectedTPs.size === 0
+                                    }
+                                    title={
+                                      selectedTPs.size > 0
+                                        ? `Run ${selectedTPs.size} Selected Point(s) (Full)`
+                                        : "Select points to run"
+                                    }
+                                  >
+                                    <FaPlay />
+                                  </button>
+                                  <button
+                                    className="button premium-action-button-caret"
+                                    onClick={() =>
+                                      setIsRunDropdownOpen((prev) => !prev)
+                                    }
+                                    disabled={
+                                      !focusedTP ||
+                                      readingWsState !== WebSocket.OPEN
+                                    }
+                                    title="More run options"
+                                  >
+                                    <FaChevronDown />
+                                  </button>
+                                </div>
+                                {isRunDropdownOpen && (
+                                  <div className="premium-action-button-menu">
+                                    {dropdownOptions.map((opt) => (
+                                      <button
+                                        key={opt.key}
+                                        onClick={() => {
+                                          opt.onClick();
+                                          setIsRunDropdownOpen(false);
+                                        }}
+                                        className="premium-action-button-item"
+                                      >
+                                        {opt.label}
+                                      </button>
+                                    ))}
+                                  </div>
+                                )}
+                              </div>
+                            )}
                           </div>
+                        </div>
 
-                          {showStdChart && (
-                            <div className="chart-container">
-                              <CalibrationChart
-                                title="Standard Instrument Readings"
-                                chartData={stdChartData}
-                                chartType="line"
-                                theme={theme}
-                                onHover={setHoveredIndex}
-                                syncedHoverIndex={hoveredIndex}
-                                comparisonData={tiChartData.datasets}
-                              />
-                              <LiveStatisticsTracker
-                                title="Standard Instrument Statistics"
-                                readings={stdChartDataSource}
-                                activeStage={
-                                  isCurrentTPActive
-                                    ? activeCollectionDetails?.stage ||
-                                      activeCollectionDetails?.readingKey
-                                    : null
-                                }
-                              />
-                            </div>
-                          )}
+                        {showStdChart && (
+                          <div className="chart-container">
+                            <CalibrationChart
+                              title="Standard Instrument Readings"
+                              chartData={stdChartData}
+                              chartType="line"
+                              theme={theme}
+                              onHover={setHoveredIndex}
+                              syncedHoverIndex={hoveredIndex}
+                              comparisonData={tiChartData.datasets}
+                            />
+                            <LiveStatisticsTracker
+                              title="Standard Instrument Statistics"
+                              readings={stdChartDataSource}
+                              activeStage={
+                                isCurrentTPActive
+                                  ? activeCollectionDetails?.stage ||
+                                    activeCollectionDetails?.readingKey
+                                  : null
+                              }
+                            />
+                          </div>
+                        )}
 
-                          {showTiChart && (
-                            <div className="chart-container">
-                              <CalibrationChart
-                                title="Test Instrument Readings"
-                                chartData={tiChartData}
-                                chartType="line"
-                                theme={theme}
-                                onHover={setHoveredIndex}
-                                syncedHoverIndex={hoveredIndex}
-                                comparisonData={stdChartData.datasets}
-                              />
-                              <LiveStatisticsTracker
-                                title="Test Instrument Statistics"
-                                readings={tiChartDataSource}
-                                activeStage={
-                                  isCurrentTPActive
-                                    ? activeCollectionDetails?.stage ||
-                                      activeCollectionDetails?.readingKey
-                                    : null
-                                }
-                              />
-                            </div>
-                          )}
-                        </>
-                      )}
-                      {activeTab === "calculate" && (
-                        <div className="results-container">
+                        {showTiChart && (
+                          <div className="chart-container">
+                            <CalibrationChart
+                              title="Test Instrument Readings"
+                              chartData={tiChartData}
+                              chartType="line"
+                              theme={theme}
+                              onHover={setHoveredIndex}
+                              syncedHoverIndex={hoveredIndex}
+                              comparisonData={stdChartData.datasets}
+                            />
+                            <LiveStatisticsTracker
+                              title="Test Instrument Statistics"
+                              readings={tiChartDataSource}
+                              activeStage={
+                                isCurrentTPActive
+                                  ? activeCollectionDetails?.stage ||
+                                    activeCollectionDetails?.readingKey
+                                  : null
+                              }
+                            />
+                          </div>
+                        )}
+                      </>
+                    )}
+                    {activeTab === "calculate" && (
+                      <div className="results-container">
+                        <div
+                          className="form-section"
+                          style={{
+                            textAlign: "center",
+                            paddingBottom: "20px",
+                            borderBottom: "1px solid var(--border-color)",
+                          }}
+                        >
+                          <button
+                            onClick={handleOpenCorrectionModal}
+                            disabled={
+                              isCollecting ||
+                              isCalculatingAverages ||
+                              !isCalculationReady
+                            }
+                            className="button button-success button-icon-only"
+                            title="Calculate AC-DC Difference"
+                          >
+                            <FaCalculator />
+                          </button>
+                        </div>
+
+                        {averagedPpmDifference && (
                           <div
-                            className="form-section"
+                            className="final-result-card"
                             style={{
-                              textAlign: "center",
-                              paddingBottom: "20px",
-                              borderBottom: "1px solid var(--border-color)",
+                              marginBottom: "20px",
+                              background: "var(--success-color)",
                             }}
                           >
-                            <button
-                              onClick={handleOpenCorrectionModal}
-                              disabled={isCollecting || !isCalculationReady}
-                              className="button button-success button-icon"
-                              style={{
-                                fontSize: "1.1rem",
-                                padding: "12px 24px",
-                              }}
-                            >
-                              <FaCalculator /> Calculate AC-DC Difference
-                            </button>
+                            <h4>Final Averaged AC-DC Difference</h4>
+                            <p>{averagedPpmDifference} PPM</p>
                           </div>
+                        )}
 
-                          {averagedPpmDifference && (
-                            <div
-                              className="final-result-card"
-                              style={{
-                                marginBottom: "20px",
-                                background: "var(--success-color)",
-                              }}
-                            >
-                              <h4>Final Averaged AC-DC Difference</h4>
-                              <p>{averagedPpmDifference} PPM</p>
-                            </div>
-                          )}
-
-                          <div
-                            className="reading-group"
-                            style={{
-                              gridTemplateColumns: "1fr 1fr",
-                              alignItems: "start",
-                            }}
-                          >
-                            {focusedTP.forward?.results?.delta_uut_ppm && (
+                        <div
+                          className="reading-group"
+                          style={{
+                            gridTemplateColumns: "1fr 1fr",
+                            alignItems: "start",
+                          }}
+                        >
+                          {focusedTP.forward?.results?.delta_uut_ppm !== null &&
+                            focusedTP.forward?.results?.delta_uut_ppm !==
+                              undefined && (
                               <div className="reading">
                                 <h4>Forward Direction</h4>
                                 <div
@@ -2446,7 +2239,9 @@ function Calibration({
                               </div>
                             )}
 
-                            {focusedTP.reverse?.results?.delta_uut_ppm && (
+                          {focusedTP.reverse?.results?.delta_uut_ppm !== null &&
+                            focusedTP.reverse?.results?.delta_uut_ppm !==
+                              undefined && (
                               <div className="reading">
                                 <h4>Reverse Direction</h4>
                                 <div
@@ -2470,31 +2265,30 @@ function Calibration({
                                 </div>
                               </div>
                             )}
-                          </div>
-                          {!(
-                            focusedTP.forward?.results?.delta_uut_ppm ||
-                            focusedTP.reverse?.results?.delta_uut_ppm
-                          ) && (
-                            <div
-                              className="placeholder-content"
-                              style={{ minHeight: "200px" }}
-                            >
-                              <h3>No Results Calculated</h3>
-                              <p>
-                                Complete readings for a direction and click the
-                                "Calculate" button above.
-                              </p>
-                            </div>
-                          )}
                         </div>
-                      )}
-                    </div>
-                  </>
-                )}
-              </div>
+                        {!(
+                          focusedTP.forward?.results?.delta_uut_ppm ||
+                          focusedTP.reverse?.results?.delta_uut_ppm
+                        ) && (
+                          <div
+                            className="placeholder-content"
+                            style={{ minHeight: "200px" }}
+                          >
+                            <h3>No Results Calculated</h3>
+                            <p>
+                              Complete readings for a direction and click the
+                              "Calculate" button above.
+                            </p>
+                          </div>
+                        )}
+                      </div>
+                    )}
+                  </div>
+                </>
+              )}
             </div>
           </div>
-        </>
+        </div>
       )}
     </>
   );

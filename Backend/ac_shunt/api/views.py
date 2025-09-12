@@ -1,20 +1,33 @@
 # api/views.py
 import pyvisa
 import re
-import statistics
-from collections import defaultdict
 from django.http import JsonResponse
 from rest_framework.decorators import api_view
 from rest_framework import viewsets, status
 from rest_framework.decorators import action
 from rest_framework.response import Response
 from django.db import transaction
-from .models import Message, Correction, Uncertainty, CalibrationSession, TestPoint, TestPointSet, Calibration, CalibrationConfigurations, CalibrationTVCCorrections, CalibrationSettings, CalibrationReadings, CalibrationResults
-from .serializers import MessageSerializer, CorrectionSerializer, CorrectionGroupedSerializer, FlatCorrectionSerializer, UncertaintySerializer, UncertaintyGroupedSerializer, FlatUncertaintySerializer, CalibrationSerializer, CalibrationSessionSerializer, TestPointSerializer, TestPointSetSerializer, CalibrationTVCCorrectionsSerializer, CalibrationConfigurationsSerializer, CalibrationSettingsSerializer, CalibrationReadingsSerializer, CalibrationResultsSerializer
-from .NPSL_Tools.instruments import Instrument11713C, Instrument3458A, Instrument5730A, Instrument5790B, Instrument34420A, Instrument8100
 from django.core.exceptions import ObjectDoesNotExist
 import json
 import os
+
+from .models import (
+    Message, CalibrationSession, TestPoint, TestPointSet, Calibration, 
+    CalibrationConfigurations, CalibrationTVCCorrections, CalibrationSettings, 
+    CalibrationReadings, CalibrationResults, Shunt, TVC
+)
+from .serializers import (
+    MessageSerializer, CalibrationSerializer, CalibrationSessionSerializer, 
+    TestPointSerializer, TestPointSetSerializer, 
+    CalibrationTVCCorrectionsSerializer, CalibrationConfigurationsSerializer, 
+    CalibrationSettingsSerializer, CalibrationReadingsSerializer, 
+    CalibrationResultsSerializer, ShuntSerializer, TVCSerializer
+)
+from .NPSL_Tools.instruments import (
+    Instrument11713C, Instrument3458A, Instrument5730A, Instrument5790B, 
+    Instrument34420A, Instrument8100
+)
+
 
 INSTRUMENT_CLASS_MAP = {
     '5730A': Instrument5730A,
@@ -141,164 +154,38 @@ class MessageViewSet(viewsets.ModelViewSet):
     queryset = Message.objects.all().order_by('-created_at')
     serializer_class = MessageSerializer
 
-class BaseDataViewSet(viewsets.ViewSet):
-    model_class = None
-    list_serializer_class = None
-    flat_serializer_class = None
-    value_key = None
+class ShuntViewSet(viewsets.ReadOnlyModelViewSet):
+    queryset = Shunt.objects.prefetch_related('corrections').all()
+    serializer_class = ShuntSerializer
 
-    def list(self, request):
-        if not self.list_serializer_class or not self.model_class:
-            return Response({"error": "Configuration missing"}, status=500)
-        
-        queryset = self.model_class.objects.all()
-        serializer = self.list_serializer_class(queryset)
-        return Response(serializer.data)
+    def list(self, request, *args, **kwargs):
+        response = super().list(request, *args, **kwargs)
+        # Pretty print the first item to see its structure and data types
+        if response.data:
+            import json
+            # print(json.dumps(response.data[0], indent=2))
+        return response
 
-    def create(self, request):
-        data_list = request.data
+class TVCViewSet(viewsets.ReadOnlyModelViewSet):
+    queryset = TVC.objects.prefetch_related('corrections').all()
+    serializer_class = TVCSerializer
 
-        if not isinstance(data_list, list):
-            return Response({"detail": f"Expected a list of {self.value_key}s."}, status=400)
-
-        saved = []
-        errors = []
-
-        for data in data_list:
-            try:
-                range_val = float(data["range"])
-                current_val = float(data["current"])
-                frequency_val = float(data["frequency"])
-                value_raw = data.get(self.value_key)
-
-                value = None
-                if value_raw is not None and value_raw != "":
-                    value = float(value_raw)
-
-                if value is not None:
-                    obj, created = self.model_class.objects.update_or_create(
-                        range=range_val,
-                        current=current_val,
-                        frequency=frequency_val,
-                        defaults={self.value_key: value}
-                    )
-                    saved.append(self.flat_serializer_class(obj).data)
-                else:
-                    deleted_count, _ = self.model_class.objects.filter(
-                        range=range_val,
-                        current=current_val,
-                        frequency=frequency_val,
-                    ).delete()
-                    if deleted_count > 0:
-                        print(f"Deleted {deleted_count} record(s) for {self.value_key}: {range_val}A, {current_val}A, {frequency_val}Hz")
-
-            except Exception as e:
-                errors.append({"input": data, "error": str(e)})
-
-        return Response(
-            {"saved": saved, "errors": errors},
-            status=status.HTTP_200_OK if not errors else status.HTTP_207_MULTI_STATUS
-        )
+    # --- ADDED: Logging for debugging ---
+    def list(self, request, *args, **kwargs):
+        response = super().list(request, *args, **kwargs)
+        if response.data:
+            import json
+        #     print(json.dumps(response.data[0], indent=2))
+        # print("------------------------------------------------\n")
+        return response
     
-    @action(detail=False, methods=['post'])
-    def reset(self, request):
-        try:
-            file_name = f"{self.value_key}_data.json"
-            base_dir = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
-            file_path = os.path.join(base_dir, file_name)
-            
-            with open(file_path, 'r') as f:
-                revert_data_list = json.load(f)
-
-            json_keys = set()
-            for data in revert_data_list:
-                json_keys.add((
-                    float(data.get('range')),
-                    float(data.get('current')),
-                    int(data.get('frequency'))
-                ))
-
-            updated_count = 0
-            created_count = 0
-            for data in revert_data_list:
-                range_val = str(data.get('range'))
-                current_val = str(data.get('current'))
-                frequency_val = int(data.get('frequency'))
-                value = float(data.get('value'))
-                
-                _, created = self.model_class.objects.update_or_create(
-                    range=range_val,
-                    current=current_val,
-                    frequency=frequency_val,
-                    defaults={self.value_key: value}
-                )
-                
-                if created:
-                    created_count += 1
-                else:
-                    updated_count += 1
-
-            all_db_records = self.model_class.objects.all()
-            
-            db_keys = set((
-                float(obj.range),
-                float(obj.current),
-                int(obj.frequency)
-            ) for obj in all_db_records)
-
-            records_to_delete_keys = db_keys - json_keys
-            deleted_count = 0
-            
-            if records_to_delete_keys:
-                for key in records_to_delete_keys:
-                    deleted_count += self.model_class.objects.filter(
-                        range=key[0],
-                        current=key[1],
-                        frequency=key[2]
-                    ).delete()[0]
-                
-            return Response(
-                {"status": f"Data synchronized successfully. Updated: {updated_count}, Created: {created_count}, Deleted: {deleted_count}"},
-                status=status.HTTP_200_OK
-            )
-
-        except FileNotFoundError:
-            return Response({"error": f"Reset data file '{file_name}' not found."}, status=status.HTTP_500_INTERNAL_SERVER_ERROR)
-        except Exception as e:
-            return Response({"error": f"Failed to reset data: {str(e)}"}, status=status.HTTP_500_INTERNAL_SERVER_ERROR)
-
-
-class BaseDataGroupedViewSet(viewsets.ViewSet):
-    model_class = None
-    grouped_serializer_class = None
-
-    def list(self, request):
-        if not self.grouped_serializer_class or not self.model_class:
-            return Response({"error": "Configuration missing"}, status=500)
-            
-        queryset = self.model_class.objects.all().order_by('range', 'current', 'frequency')
-        serializer = self.grouped_serializer_class(queryset)
-        return Response(serializer.data)
-    
-class CorrectionViewSet(BaseDataViewSet):
-    model_class = Correction
-    list_serializer_class = CorrectionSerializer
-    flat_serializer_class = FlatCorrectionSerializer
-    value_key = 'correction'
-
-class UncertaintyViewSet(BaseDataViewSet):
-    model_class = Uncertainty
-    list_serializer_class = UncertaintySerializer
-    flat_serializer_class = FlatUncertaintySerializer
-    value_key = 'uncertainty'
-
-class CorrectionGroupedViewSet(BaseDataGroupedViewSet):
-    model_class = Correction
-    grouped_serializer_class = CorrectionGroupedSerializer
-
-class UncertaintyGroupedViewSet(BaseDataGroupedViewSet):
-    model_class = Uncertainty
-    grouped_serializer_class = UncertaintyGroupedSerializer
+class CalibrationViewSet(viewsets.ModelViewSet):
+    """
+    API endpoint for managing Calibration records, which link together
+    all aspects of a calibration for a given session.
+    """
+    queryset = Calibration.objects.all()
+    serializer_class = CalibrationSerializer
 
 class CalibrationSessionViewSet(viewsets.ModelViewSet):
     """
@@ -747,82 +634,135 @@ class TestPointViewSet(viewsets.ModelViewSet):
     
     @action(detail=False, methods=['post'], url_path='actions/apply-settings-to-all')
     def apply_settings_to_all(self, request, session_pk=None):
-        settings_data = request.data.get('settings')
+        full_settings_data = request.data.get('settings')
         focused_tp_id = request.data.get('focused_test_point_id')
 
-        if not settings_data:
-            return Response({"detail": "Settings data is required."}, status=status.HTTP_400_BAD_REQUEST)
-        if not focused_tp_id:
-            return Response({"detail": "focused_test_point_id is required."}, status=status.HTTP_400_BAD_REQUEST)
+        if not full_settings_data or not focused_tp_id:
+            return Response({"detail": "Both 'settings' and 'focused_test_point_id' are required."}, status=status.HTTP_400_BAD_REQUEST)
 
         try:
             test_point_set = TestPointSet.objects.get(session_id=session_pk)
+            
+            # Identify the focused point to determine its current/frequency pair
+            focused_point = test_point_set.points.get(pk=focused_tp_id)
+            focused_key = (focused_point.current, focused_point.frequency)
 
-            # --- FIX START: Identify the focused point AND its sibling ---
-            try:
-                focused_point = test_point_set.points.get(pk=focused_tp_id)
-            except TestPoint.DoesNotExist:
-                return Response({"detail": "Focused test point not found in this session."}, status=status.HTTP_404_NOT_FOUND)
+            # Settings payload for the specific focused 'Forward' point
+            full_warmup_settings = full_settings_data.copy()
 
-            # Find the sibling by matching current and frequency, but excluding the focused point's ID
-            sibling_point = test_point_set.points.filter(
-                current=focused_point.current,
-                frequency=focused_point.frequency
-            ).exclude(pk=focused_tp_id).first()
+            # Common settings payload for all other points (warm-up is 0)
+            common_settings_data = full_settings_data.copy()
+            common_settings_data['initial_warm_up_time'] = 0
 
-            # Create a set of IDs for the pair that should receive the full settings
-            pair_ids = {focused_point.id}
-            if sibling_point:
-                pair_ids.add(sibling_point.id)
-            # --- FIX END ---
-
-            test_points = test_point_set.points.all()
+            # Get all unique (current, frequency) pairs for the session
+            unique_points = test_point_set.points.values('current', 'frequency').distinct()
             
             with transaction.atomic():
-                for point in test_points:
-                    # Check if the current point is part of the focused pair
-                    if point.id in pair_ids:
-                        # Apply the full, original settings to both members of the pair
-                        CalibrationSettings.objects.update_or_create(
-                            test_point=point,
-                            defaults=settings_data
-                        )
-                    else:
-                        # For all other points, reset the warm-up time
-                        settings_for_others = settings_data.copy()
-                        settings_for_others['initial_warm_up_time'] = 0
-                        CalibrationSettings.objects.update_or_create(
-                            test_point=point,
-                            defaults=settings_for_others
-                        )
+                for point_key in unique_points:
+                    current = point_key['current']
+                    frequency = point_key['frequency']
+                    
+                    is_focused_pair = (current, frequency) == focused_key
+
+                    # 1. Handle the 'Forward' direction for the current pair
+                    forward_settings = full_warmup_settings if is_focused_pair else common_settings_data
+                    forward_point_obj, _ = TestPoint.objects.get_or_create(
+                        test_point_set=test_point_set,
+                        current=current,
+                        frequency=frequency,
+                        direction='Forward'
+                    )
+                    CalibrationSettings.objects.update_or_create(
+                        test_point=forward_point_obj,
+                        defaults=forward_settings
+                    )
+
+                    # 2. Handle the 'Reverse' direction (always gets zero warm-up)
+                    reverse_point_obj, _ = TestPoint.objects.get_or_create(
+                        test_point_set=test_point_set,
+                        current=current,
+                        frequency=frequency,
+                        direction='Reverse'
+                    )
+                    CalibrationSettings.objects.update_or_create(
+                        test_point=reverse_point_obj,
+                        defaults=common_settings_data
+                    )
             
-            return Response({"message": f"Settings applied to {test_points.count()} test points."}, status=status.HTTP_200_OK)
+            return Response({"message": "Settings successfully applied to all test points and directions."}, status=status.HTTP_200_OK)
+
+        except TestPointSet.DoesNotExist:
+            return Response({"detail": "TestPointSet not found for this session."}, status=status.HTTP_404_NOT_FOUND)
+        except TestPoint.DoesNotExist:
+            return Response({"detail": "Focused test point not found in this session."}, status=status.HTTP_404_NOT_FOUND)
+        except Exception as e:
+            import traceback
+            traceback.print_exc()
+            return Response({"detail": f"An unexpected error occurred: {str(e)}"}, status=status.HTTP_500_INTERNAL_SERVER_ERROR)
+
+    @action(detail=False, methods=['post'], url_path='actions/update-order')
+    def update_order(self, request, session_pk=None):
+        """
+        Receives an ordered list of test point keys and updates the 'order'
+        field for both Forward and Reverse directions of each point.
+        """
+        ordered_keys = request.data.get('ordered_keys', [])
+
+        if not ordered_keys:
+            return Response({"detail": "An ordered list of keys is required."}, status=status.HTTP_400_BAD_REQUEST)
+
+        try:
+            test_point_set = TestPointSet.objects.get(session_id=session_pk)
+            with transaction.atomic():
+                for index, key in enumerate(ordered_keys):
+                    current_str, frequency_str = key.split('-')
+                    # Update both Forward and Reverse points for the given key
+                    test_point_set.points.filter(
+                        current=current_str,
+                        frequency=frequency_str
+                    ).update(order=index)
+
+            return Response({"message": "Test point order updated successfully."}, status=status.HTTP_200_OK)
 
         except TestPointSet.DoesNotExist:
             return Response({"detail": "TestPointSet not found for this session."}, status=status.HTTP_404_NOT_FOUND)
         except Exception as e:
             return Response({"detail": f"An error occurred: {str(e)}"}, status=status.HTTP_500_INTERNAL_SERVER_ERROR)
-
-
+    
     @action(detail=False, methods=['post'], url_path='append')
     def append_points(self, request, session_pk=None):
         points_data = request.data.get('points', [])
         try:
             tp_set, created_tp_set = TestPointSet.objects.get_or_create(session_id=session_pk)
-            existing = tp_set.points.values_list('current', 'frequency')
+            
+            # THE FIX: Fetch current, frequency, AND direction to create a truly unique key.
+            existing = tp_set.points.values_list('current', 'frequency', 'direction')
 
-            existing_set = set(existing)
-            created_points_count = 0
-
+            # Create a set of tuples for efficient lookup.
+            existing_set = { (str(c), f, d) for c, f, d in existing }
+            
+            points_to_create = []
+            
             for point in points_data:
-                key = (str(point.get('current')), point.get('frequency'))
+                # THE FIX: Create a key that includes the direction.
+                key = (
+                    str(point.get('current')), 
+                    point.get('frequency'), 
+                    point.get('direction')
+                )
+                
                 if key not in existing_set:
-                    TestPoint.objects.create(test_point_set=tp_set, **point)
-                    existing_set.add(key)
-                    created_points_count += 1
+                    points_to_create.append(
+                        TestPoint(test_point_set=tp_set, **point)
+                    )
+                    existing_set.add(key) # Prevent duplicates within the same request.
+            
+            # Use bulk_create for better performance when adding multiple points.
+            if points_to_create:
+                TestPoint.objects.bulk_create(points_to_create)
 
             return Response(
-                {"message": f"Added {created_points_count} new test point(s)."},
+                {"message": f"Added {len(points_to_create)} new test point(s)."},
                 status=status.HTTP_201_CREATED
             )
 
@@ -859,7 +799,6 @@ class TestPointViewSet(viewsets.ModelViewSet):
             test_point = self.get_queryset().get(pk=pk)
             
             with transaction.atomic():
-                # **THE FIX**: Delete the results object entirely.
                 if hasattr(test_point, 'results') and test_point.results is not None:
                     test_point.results.delete()
 
@@ -873,9 +812,6 @@ class TestPointViewSet(viewsets.ModelViewSet):
                     readings_instance.ti_dc_pos_readings = []
                     readings_instance.ti_dc_neg_readings = []
                     readings_instance.ti_ac_close_readings = []
-                    
-                    # Saving the blank readings will trigger the auto-creation
-                    # of a fresh, empty CalibrationResults object.
                     readings_instance.save()
 
             return Response(
@@ -887,6 +823,35 @@ class TestPointViewSet(viewsets.ModelViewSet):
             return Response({"detail": "Test point not found."}, status=status.HTTP_404_NOT_FOUND)
         except Exception as e:
             return Response({"detail": f"An unexpected error occurred: {str(e)}"}, status=status.HTTP_500_INTERNAL_SERVER_ERROR)
+
+    @action(detail=True, methods=['post'], url_path='calculate-averages')
+    def calculate_averages(self, request, session_pk=None, pk=None):
+        """
+        Manually triggers the calculation of averages for a specific test point's readings.
+        This should be called after all raw readings for the point have been collected.
+        """
+        print(f"[DEBUG - Views] Endpoint '/calculate-averages/' hit for TestPoint ID: {pk}")
+        try:
+            test_point = self.get_queryset().get(pk=pk)
+            readings = getattr(test_point, 'readings', None)
+
+            if not readings:
+                return Response(
+                    {"detail": "No readings found for this test point to calculate."}, 
+                    status=status.HTTP_404_NOT_FOUND
+                )
+
+            # Manually trigger the calculation method from the model
+            readings.update_related_results()
+
+            # Return the newly calculated and saved results
+            results_serializer = CalibrationResultsSerializer(test_point.results)
+            return Response(results_serializer.data, status=status.HTTP_200_OK)
+
+        except TestPoint.DoesNotExist:
+            return Response({"detail": "Test point not found."}, status=status.HTTP_404_NOT_FOUND)
+        except Exception as e:
+            return Response({"detail": f"An error occurred during calculation: {str(e)}"}, status=status.HTTP_500_INTERNAL_SERVER_ERROR)
 
     @action(detail=True, methods=['put'], url_path='update-results')
     def update_results(self, request, session_pk=None, pk=None):

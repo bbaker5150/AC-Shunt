@@ -34,6 +34,10 @@ export const InstrumentContextProvider = ({ children }) => {
   const [switchDriverAddress, setSwitchDriverAddress] = useState(null);
   const [switchDriverModel, setSwitchDriverModel] = useState(null);
   const [amplifierAddress, setAmplifierAddress] = useState(null);
+  const [standardTvcSn, setStandardTvcSn] = useState(null);
+  const [testTvcSn, setTestTvcSn] = useState(null);
+  const [standardInstrumentSerial, setStandardInstrumentSerial] = useState(null);
+  const [testInstrumentSerial, setTestInstrumentSerial] = useState(null);
   const [instrumentStatuses, setInstrumentStatuses] = useState({});
   const [isFetchingStatuses, setIsFetchingStatuses] = useState({});
   const statusWs = useRef({});
@@ -534,9 +538,16 @@ export const InstrumentContextProvider = ({ children }) => {
     sendWsCommand,
     stabilizationStatus,
     timerState,
-    // *** EXPORT NEW STATE VALUES ***
     bulkRunProgress,
     focusedTPKey,
+    standardTvcSn,
+    setStandardTvcSn,
+    testTvcSn,
+    setTestTvcSn,
+    standardInstrumentSerial,
+    setStandardInstrumentSerial,
+    testInstrumentSerial,
+    setTestInstrumentSerial,
   };
 
   return (
