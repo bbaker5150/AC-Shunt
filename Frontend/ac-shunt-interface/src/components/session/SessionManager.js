@@ -85,9 +85,9 @@ function SessionManager({
     selectedSessionId,
     setSelectedSessionId,
     setSelectedSessionName,
-    setStdInstrumentAddress, setStdReaderModel, setTiInstrumentAddress, setTiReaderModel,
-    setAcSourceAddress, setDcSourceAddress, setSwitchDriverAddress, setSwitchDriverModel,
-    setAmplifierAddress, setStandardTvcSn, setTestTvcSn, setStandardInstrumentSerial, setTestInstrumentSerial,
+    setStdInstrumentAddress, setStdReaderModel, setStdReaderSN, setTiInstrumentAddress, setTiReaderModel, setTiReaderSN,
+    setAcSourceAddress, setAcSourceSN, setDcSourceAddress, setDcSourceSN, setSwitchDriverAddress, setSwitchDriverModel, setSwitchDriverSN,
+    setAmplifierAddress, setAmplifierSN, setStandardTvcSn, setTestTvcSn, setStandardInstrumentSerial, setTestInstrumentSerial,
   } = useInstruments();
 
   const [isModalOpen, setIsModalOpen] = useState(false);
@@ -96,9 +96,9 @@ function SessionManager({
   const clearSessionState = () => {
     setSelectedSessionId(null);
     setSelectedSessionName("");
-    setStdInstrumentAddress(null); setStdReaderModel(null); setTiInstrumentAddress(null); setTiReaderModel(null);
-    setAcSourceAddress(null); setDcSourceAddress(null); setSwitchDriverAddress(null); setSwitchDriverModel(null);
-    setAmplifierAddress(null); setStandardTvcSn(null); setTestTvcSn(null);
+    setStdInstrumentAddress(null); setStdReaderModel(null); setStdReaderSN(null); setTiInstrumentAddress(null); setTiReaderModel(null); setTiReaderSN(null);
+    setAcSourceAddress(null); setAcSourceSN(null); setDcSourceAddress(null); setDcSourceSN(null); setSwitchDriverAddress(null); setSwitchDriverModel(null); setSwitchDriverSN(null);
+    setAmplifierAddress(null); setAmplifierSN(null); setStandardTvcSn(null); setTestTvcSn(null);
     setStandardInstrumentSerial(null); setTestInstrumentSerial(null);
   };
 
@@ -110,13 +110,19 @@ function SessionManager({
     if (session) {
       setStdInstrumentAddress(session.standard_reader_address || null);
       setStdReaderModel(session.standard_reader_model || null);
+      setStdReaderSN(session.standard_reader_serial || null);
       setTiInstrumentAddress(session.test_reader_address || null);
       setTiReaderModel(session.test_reader_model || null);
+      setTiReaderSN(session.test_reader_serial || null);
       setAcSourceAddress(session.ac_source_address || null);
+      setAcSourceSN(session.ac_source_serial || null);
       setDcSourceAddress(session.dc_source_address || null);
+      setDcSourceSN(session.dc_source_serial || null);
       setSwitchDriverAddress(session.switch_driver_address || null);
       setSwitchDriverModel(session.switch_driver_model || null);
+      setSwitchDriverSN(session.switch_driver_serial || null);
       setAmplifierAddress(session.amplifier_address || null);
+      setAmplifierSN(session.amplifier_serial || null);
       setStandardTvcSn(session.standard_tvc_serial || null);
       setTestTvcSn(session.test_tvc_serial || null);
       setStandardInstrumentSerial(session.standard_instrument_serial || null);

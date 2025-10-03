@@ -67,10 +67,10 @@ class CalibrationSessionSerializer(serializers.ModelSerializer):
         model = CalibrationSession
         fields = [
             'id', 'session_name', 'test_instrument_model', 'test_instrument_serial',
-            'test_reader_model', 'test_reader_address', 'standard_instrument_model',
-            'standard_instrument_serial', 'standard_reader_model', 'standard_reader_address',
-            'ac_source_address', 'dc_source_address', 'switch_driver_address',
-            'switch_driver_model', 'amplifier_address', 'temperature', 'humidity',
+            'test_reader_model', 'test_reader_serial', 'test_reader_address', 'standard_instrument_model',
+            'standard_instrument_serial', 'standard_reader_model', 'standard_reader_serial', 'standard_reader_address',
+            'ac_source_address', 'dc_source_address', 'ac_source_serial', 'dc_source_serial', 'switch_driver_address',
+            'switch_driver_model', 'switch_driver_serial', 'amplifier_address', 'amplifier_serial', 'temperature', 'humidity',
             'created_at', 'notes', 'standard_tvc_serial', 'test_tvc_serial',
         ]
 

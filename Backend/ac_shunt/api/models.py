@@ -27,6 +27,7 @@ class CalibrationSession(models.Model):
     
     # Standard Reader (The instrument reading the standard, e.g., 3458A)
     standard_reader_model = models.CharField(max_length=100, blank=True, null=True)
+    standard_reader_serial = models.CharField(max_length=100, blank=True, null=True)
     standard_reader_address = models.CharField(max_length=100, blank=True, null=True)
 
     # Test Instrument (The Unit Under Test, e.g., another A40B Shunt)
@@ -35,18 +36,23 @@ class CalibrationSession(models.Model):
 
     # Test Instrument Reader (The instrument reading the UUT, e.g., 5790B)
     test_reader_model = models.CharField(max_length=100, blank=True, null=True)
+    test_reader_serial = models.CharField(max_length=100, blank=True, null=True)
     test_reader_address = models.CharField(max_length=100, blank=True, null=True)
     
     # AC/DC Source Addresses
+    ac_source_serial = models.CharField(max_length=100, blank=True, null=True)
+    dc_source_serial = models.CharField(max_length=100, blank=True, null=True)
     ac_source_address = models.CharField(max_length=100, blank=True, null=True)
     dc_source_address = models.CharField(max_length=100, blank=True, null=True)
 
     # Switch Driver Addresses
     switch_driver_address = models.CharField(max_length=100, blank=True, null=True)
     switch_driver_model = models.CharField(max_length=100, blank=True, null=True)
+    switch_driver_serial = models.CharField(max_length=100, blank=True, null=True)
 
     # Amplifier Address
     amplifier_address = models.CharField(max_length=255, null=True, blank=True)
+    amplifier_serial = models.CharField(max_length=255, null=True, blank=True)
     
     temperature = models.FloatField(null=True, blank=True, help_text="Temperature in °C")
     humidity = models.FloatField(null=True, blank=True, help_text="Relative Humidity in %RH")

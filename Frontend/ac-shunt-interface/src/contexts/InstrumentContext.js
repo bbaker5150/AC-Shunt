@@ -27,13 +27,19 @@ export const InstrumentContextProvider = ({ children }) => {
   const [discoveredInstruments, setDiscoveredInstruments] = useState([]);
   const [stdInstrumentAddress, setStdInstrumentAddress] = useState(null);
   const [stdReaderModel, setStdReaderModel] = useState(null);
+  const [stdReaderSN, setStdReaderSN] = useState(null);
   const [tiInstrumentAddress, setTiInstrumentAddress] = useState(null);
   const [tiReaderModel, setTiReaderModel] = useState(null);
+  const [tiReaderSN, setTiReaderSN] = useState(null);
   const [acSourceAddress, setAcSourceAddress] = useState(null);
+  const [acSourceSN, setAcSourceSN] = useState(null);
   const [dcSourceAddress, setDcSourceAddress] = useState(null);
+  const [dcSourceSN, setDcSourceSN] = useState(null);
   const [switchDriverAddress, setSwitchDriverAddress] = useState(null);
   const [switchDriverModel, setSwitchDriverModel] = useState(null);
+  const [switchDriverSN, setSwitchDriverSN] = useState(null);
   const [amplifierAddress, setAmplifierAddress] = useState(null);
+  const [amplifierSN, setAmplifierSN] = useState(null);
   const [standardTvcSn, setStandardTvcSn] = useState(null);
   const [testTvcSn, setTestTvcSn] = useState(null);
   const [standardInstrumentSerial, setStandardInstrumentSerial] = useState(null);
@@ -501,21 +507,33 @@ export const InstrumentContextProvider = ({ children }) => {
     setStdInstrumentAddress,
     stdReaderModel,
     setStdReaderModel,
+    stdReaderSN,
+    setStdReaderSN,
     tiInstrumentAddress,
     setTiInstrumentAddress,
     tiReaderModel,
     setTiReaderModel,
+    tiReaderSN,
+    setTiReaderSN,
     acSourceAddress,
     setAcSourceAddress,
+    acSourceSN,
+    setAcSourceSN,
     dcSourceAddress,
     setDcSourceAddress,
+    dcSourceSN,
+    setDcSourceSN,
     instrumentStatuses,
     switchDriverAddress,
     setSwitchDriverAddress,
     switchDriverModel,
     setSwitchDriverModel,
+    switchDriverSN,
+    setSwitchDriverSN,
     amplifierAddress,
     setAmplifierAddress,
+    amplifierSN,
+    setAmplifierSN,
     isFetchingStatuses,
     getInstrumentStatus,
     liveReadings,
