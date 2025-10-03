@@ -481,10 +481,6 @@ class CalibrationConsumer(AsyncWebsocketConsumer):
             std_model = session_details.get('std_reader_model')
             ti_model = session_details.get('ti_reader_model')
             
-            if session_details.get('amplifier_address'):
-                amplifier_instrument = await sync_to_async(Instrument8100, thread_sensitive=True)(model='8100', gpib=session_details.get('amplifier_address'))
-                if not await self._handle_amplifier_confirmation(amplifier_instrument, data.get('amplifier_range'), data): return
-
             if session_details.get('switch_driver_address'):
                 switch_driver = await sync_to_async(Instrument11713C, thread_sensitive=True)(gpib=session_details.get('switch_driver_address'))
 
@@ -545,6 +541,10 @@ class CalibrationConsumer(AsyncWebsocketConsumer):
             if not source_instrument:
                 raise Exception(f"Required {'AC' if is_ac_reading else 'DC'} Source is not assigned.")
 
+            if session_details.get('amplifier_address'):
+                amplifier_instrument = await sync_to_async(Instrument8100, thread_sensitive=True)(model='8100', gpib=session_details.get('amplifier_address'))
+                if not await self._handle_amplifier_confirmation(amplifier_instrument, data.get('amplifier_range'), data): return
+
             await self.send(text_data=json.dumps({
                 'type': 'calibration_stage_update',
                 'stage': reading_type_base,
@@ -591,10 +591,6 @@ class CalibrationConsumer(AsyncWebsocketConsumer):
             std_addr, ti_addr = session_details.get('std_reader_address'), session_details.get('ti_reader_address')
             std_model, ti_model = session_details.get('std_reader_model'), session_details.get('ti_reader_model')
 
-            if session_details.get('amplifier_address'):
-                amplifier = await sync_to_async(Instrument8100, thread_sensitive=True)(model='8100', gpib=session_details.get('amplifier_address'))
-                if not await self._handle_amplifier_confirmation(amplifier, data.get('amplifier_range'), data): return
-
             ac_source_address, dc_source_address = session_details.get('ac_source_address'), session_details.get('dc_source_address')
             
             if ac_source_address and ac_source_address == dc_source_address:
@@ -623,6 +619,11 @@ class CalibrationConsumer(AsyncWebsocketConsumer):
                     ac_source=ac_source, 
                     dc_source=dc_source
                 )
+
+            if session_details.get('amplifier_address'):
+                amplifier = await sync_to_async(Instrument8100, thread_sensitive=True)(model='8100', gpib=session_details.get('amplifier_address'))
+                if not await self._handle_amplifier_confirmation(amplifier, data.get('amplifier_range'), data): return
+
 
             settling_time, num_samples, nplc_setting, stability_params = float(data.get('settling_time', 5.0)), data.get('num_samples', 8), data.get('nplc'), data.get('stability_params')
 
@@ -685,10 +686,6 @@ class CalibrationConsumer(AsyncWebsocketConsumer):
             std_addr, ti_addr = session_details.get('std_reader_address'), session_details.get('ti_reader_address')
             std_model, ti_model = session_details.get('std_reader_model'), session_details.get('ti_reader_model')
 
-            if session_details.get('amplifier_address'):
-                amplifier = await sync_to_async(Instrument8100, thread_sensitive=True)(model='8100', gpib=session_details.get('amplifier_address'))
-                if not await self._handle_amplifier_confirmation(amplifier, data.get('amplifier_range'), data): return
-
             ac_source_address, dc_source_address = session_details.get('ac_source_address'), session_details.get('dc_source_address')
             if ac_source_address and ac_source_address == dc_source_address:
                 shared_source = await sync_to_async(Instrument5730A, thread_sensitive=True)(model="5730A", gpib=ac_source_address)
@@ -715,6 +712,10 @@ class CalibrationConsumer(AsyncWebsocketConsumer):
                     ac_source=ac_source, 
                     dc_source=dc_source
                 )
+
+            if session_details.get('amplifier_address'):
+                amplifier = await sync_to_async(Instrument8100, thread_sensitive=True)(model='8100', gpib=session_details.get('amplifier_address'))
+                if not await self._handle_amplifier_confirmation(amplifier, data.get('amplifier_range'), data): return
 
             settling_time, num_samples, nplc_setting, stability_params = float(data.get('settling_time', 5.0)), data.get('num_samples', 8), data.get('nplc'), data.get('stability_params')
 
@@ -799,10 +800,6 @@ class CalibrationConsumer(AsyncWebsocketConsumer):
             std_addr, ti_addr = session_details.get('std_reader_address'), session_details.get('ti_reader_address')
             std_model, ti_model = session_details.get('std_reader_model'), session_details.get('ti_reader_model')
 
-            if session_details.get('amplifier_address'):
-                amplifier = await sync_to_async(Instrument8100, thread_sensitive=True)(model='8100', gpib=session_details.get('amplifier_address'))
-                if not await self._handle_amplifier_confirmation(amplifier, data.get('amplifier_range'), data): return
-
             ac_source_address, dc_source_address = session_details.get('ac_source_address'), session_details.get('dc_source_address')
             if ac_source_address and ac_source_address == dc_source_address:
                 shared_source = await sync_to_async(Instrument5730A, thread_sensitive=True)(model="5730A", gpib=ac_source_address)
@@ -836,6 +833,10 @@ class CalibrationConsumer(AsyncWebsocketConsumer):
 
             source_instrument = ac_source if 'ac' in stage else dc_source
             if not source_instrument: raise Exception(f"Required source for stage '{stage}' is not assigned.")
+
+            if session_details.get('amplifier_address'):
+                amplifier = await sync_to_async(Instrument8100, thread_sensitive=True)(model='8100', gpib=session_details.get('amplifier_address'))
+                if not await self._handle_amplifier_confirmation(amplifier, data.get('amplifier_range'), data): return
 
             # --- Set switch state once ---
             switch_driver = None

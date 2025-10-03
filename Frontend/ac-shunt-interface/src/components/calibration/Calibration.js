@@ -1786,10 +1786,10 @@ function Calibration({
       <ConfirmationModal
         isOpen={amplifierModal.isOpen}
         title="Confirm Amplifier Range"
-        message={`Please ensure the 8100 Amplifier range is set to ${amplifierModal.range} A.\n\nIncorrect range may damage the equipment. Once verified, set 8100 to operate.`}
+        message={`Please ensure the 8100 Amplifier range is set to ${amplifierModal.range} A. Incorrect range setting may damage the equipment.\n\nVerify 5730A calibrators voltage output are correct. Once verified, set the 8100 to operate and click Proceed.`}
         onConfirm={amplifierModal.onConfirm}
         onCancel={amplifierModal.onCancel}
-        confirmText="Range is Set"
+        confirmText="Proceed"
       />
       {!selectedSessionId ? (
         <div className="content-area form-section-warning">
