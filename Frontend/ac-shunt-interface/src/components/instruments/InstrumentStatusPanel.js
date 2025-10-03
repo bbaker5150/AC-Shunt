@@ -414,7 +414,10 @@ function InstrumentStatusPanel({ showNotification }) {
                         const isSwitchDriverAssignable = SWITCH_DRIVER_MODELS.some(m => inst.identity.includes(m));
 
                         const parts = inst.identity.split(',');
-                        const model = parts[1].trim();
+                        let model = '';
+                        if (parts.length > 1 && parts[1]) {
+                            model = parts[1].trim();
+                        }
                         if (model === "34420A") {
                             isConnected = true;
                         }
