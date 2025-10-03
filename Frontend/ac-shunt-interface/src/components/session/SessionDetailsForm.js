@@ -32,20 +32,32 @@ function SessionDetailsForm({ sessionsList, fetchSessionsList, showNotification 
     setStdInstrumentAddress,
     stdReaderModel,
     setStdReaderModel,
+    stdReaderSN,
+    setStdReaderSN,
     tiInstrumentAddress,
     setTiInstrumentAddress,
     tiReaderModel,
     setTiReaderModel,
+    tiReaderSN,
+    setTiReaderSN,
     acSourceAddress,
     setAcSourceAddress,
+    acSourceSN,
+    setAcSourceSN,
     dcSourceAddress,
     setDcSourceAddress,
+    dcSourceSN,
+    setDcSourceSN,
     switchDriverAddress,
     setSwitchDriverAddress,
     switchDriverModel,
     setSwitchDriverModel,
+    switchDriverSN,
+    setSwitchDriverSN,
     amplifierAddress,
     setAmplifierAddress,
+    amplifierSN,
+    setAmplifierSN,
     setStandardTvcSn,
     setTestTvcSn,
     setStandardInstrumentSerial,
@@ -97,13 +109,19 @@ function SessionDetailsForm({ sessionsList, fetchSessionsList, showNotification 
       notes: formData.notes,
       standard_reader_address: stdInstrumentAddress,
       standard_reader_model: stdReaderModel,
+      standard_reader_serial: stdReaderSN,
       test_reader_address: tiInstrumentAddress,
       test_reader_model: tiReaderModel,
+      test_reader_serial: tiReaderSN,
       ac_source_address: acSourceAddress,
       dc_source_address: dcSourceAddress,
+      ac_source_serial: acSourceSN,
+      dc_source_serial: dcSourceSN,
       switch_driver_address: switchDriverAddress,
       switch_driver_model: switchDriverModel,
+      switch_driver_serial: switchDriverSN,
       amplifier_address: amplifierAddress,
+      amplifier_serial: amplifierSN,
     };
 
     try {
@@ -120,13 +138,19 @@ function SessionDetailsForm({ sessionsList, fetchSessionsList, showNotification 
       setSelectedSessionName(savedSession.session_name);
       setStdInstrumentAddress(savedSession.standard_reader_address || null);
       setStdReaderModel(savedSession.standard_reader_model || null);
+      setStdReaderSN(savedSession.standard_reader_serial || null);
       setTiInstrumentAddress(savedSession.test_reader_address || null);
       setTiReaderModel(savedSession.test_reader_model || null);
+      setTiReaderSN(savedSession.test_reader_serial || null);
       setAcSourceAddress(savedSession.ac_source_address || null);
+      setAcSourceSN(savedSession.ac_source_serial || null);
       setDcSourceAddress(savedSession.dc_source_address || null);
+      setDcSourceSN(savedSession.dc_source_serial || null);
       setSwitchDriverAddress(savedSession.switch_driver_address || null);
       setSwitchDriverModel(savedSession.switch_driver_model || null);
+      setSwitchDriverSN(savedSession.switch_driver_serial || null);
       setAmplifierAddress(savedSession.amplifier_address || null);
+      setAmplifierSN(savedSession.amplifier_serial || null);
       setStandardTvcSn(savedSession.standard_tvc_serial || null);
       setTestTvcSn(savedSession.test_tvc_serial || null);
       setStandardInstrumentSerial(savedSession.standard_instrument_serial || null);

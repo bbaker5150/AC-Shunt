@@ -5,6 +5,7 @@
 import React, { useState, useEffect, useMemo } from 'react';
 import axios from 'axios';
 import { useInstruments } from '../../contexts/InstrumentContext';
+import { FaSave, FaUndo, FaTimes } from 'react-icons/fa';
 
 const API_BASE_URL = process.env.REACT_APP_API_BASE_URL;
 const ASSIGNABLE_MODELS = ['34420A', '3458A', '5790B'];
@@ -24,11 +25,11 @@ function InstrumentStatusPanel({ showNotification }) {
     const {
         selectedSessionId, instrumentStatuses, isFetchingStatuses, getInstrumentStatus,
         discoveredInstruments, setDiscoveredInstruments,
-        stdInstrumentAddress, setStdInstrumentAddress, stdReaderModel, setStdReaderModel,
-        tiInstrumentAddress, setTiInstrumentAddress, tiReaderModel, setTiReaderModel,
-        acSourceAddress, setAcSourceAddress, dcSourceAddress, setDcSourceAddress,
-        switchDriverAddress, setSwitchDriverAddress, switchDriverModel, setSwitchDriverModel,
-        amplifierAddress, setAmplifierAddress, // Added for Amplifier
+        stdInstrumentAddress, setStdInstrumentAddress, stdReaderModel, setStdReaderModel, stdReaderSN, setStdReaderSN,
+        tiInstrumentAddress, setTiInstrumentAddress, tiReaderModel, setTiReaderModel, tiReaderSN, setTiReaderSN,
+        acSourceAddress, setAcSourceAddress, acSourceSN, setAcSourceSN, dcSourceAddress, setDcSourceAddress, dcSourceSN, setDcSourceSN,
+        switchDriverAddress, setSwitchDriverAddress, switchDriverModel, setSwitchDriverModel, switchDriverSN, setSwitchDriverSN,
+        amplifierAddress, setAmplifierAddress, amplifierSN, setAmplifierSN, // Added for Amplifier
     } = useInstruments();
 
     const [isScanning, setIsScanning] = useState(false);
@@ -37,6 +38,32 @@ function InstrumentStatusPanel({ showNotification }) {
     const [localIp, setLocalIp] = useState('');
     const [editingIp, setEditingIp] = useState(null);
     const [editingName, setEditingName] = useState('');
+
+    useEffect(() => {
+        if (selectedSessionId) {
+            const savedInstruments = localStorage.getItem(`discoveredInstruments`);
+            if (savedInstruments) {
+                setDiscoveredInstruments(JSON.parse(savedInstruments));
+            } else {
+                setDiscoveredInstruments([]);
+            }
+        } else {
+            setDiscoveredInstruments([]);
+        }
+    }, [selectedSessionId, setDiscoveredInstruments]);
+
+    useEffect(() => {
+        if (discoveredInstruments.length > 0 && Object.keys(instrumentStatuses).length === 0) {
+            discoveredInstruments.forEach(inst => {
+                const modelMatch = inst.identity.match(/(\d{4}[A-Z]?)/);
+                const model = modelMatch ? modelMatch[0] : null;
+
+                if (model && inst.address && SUPPORTED_STATUS_MODELS.some(supported => model.startsWith(supported))) {
+                    getInstrumentStatus(model, inst.address);
+                }
+            });
+        }
+    }, [discoveredInstruments, getInstrumentStatus, instrumentStatuses]);
 
     const workstations = useMemo(() => {
         const wsMap = new Map();
@@ -82,19 +109,29 @@ function InstrumentStatusPanel({ showNotification }) {
     const resetInstrumentAddress = async () => {
         setStdInstrumentAddress(null);
         setStdReaderModel(null);
+        setStdReaderSN(null);
         setTiInstrumentAddress(null);
         setTiReaderModel(null);
+        setTiReaderSN(null);
+        setAcSourceSN(null);
         setAcSourceAddress(null);
+        setDcSourceSN(null);
         setDcSourceAddress(null);
+        setAmplifierSN(null);
         setAmplifierAddress(null); // Added for Amplifier
 
         const payload = {
             test_reader_model: null,
+            test_reader_serial: null,
             test_reader_address: null,
             standard_reader_model: null,
+            standard_reader_serial: null,
             standard_reader_address: null,
+            ac_source_serial: null,
             ac_source_address: null,
+            dc_source_serial: null,
             dc_source_address: null,
+            amplifier_serial: null,
             amplifier_address: null, // Added for Amplifier
         };
 
@@ -114,10 +151,10 @@ function InstrumentStatusPanel({ showNotification }) {
         try {
             const response = await axios.post(`${API_BASE_URL}/calibration_sessions/${selectedSessionId}/initialize-instruments/`);
             if (response.data.errors && response.data.errors.length > 0) {
-                 const errorMessages = response.data.errors.join('\n');
-                 showNotification(`Initialization completed with errors:\n${errorMessages}`, 'warning');
+                const errorMessages = response.data.errors.join('\n');
+                showNotification(`Initialization completed with errors:\n${errorMessages}`, 'warning');
             } else {
-                 showNotification(response.data.status, 'success');
+                showNotification(response.data.status, 'success');
             }
         } catch (error) {
             const errorMessage = error.response?.data?.detail || "An unexpected error occurred during initialization.";
@@ -170,6 +207,8 @@ function InstrumentStatusPanel({ showNotification }) {
             setLocalIp(serverIp);
             setDiscoveredInstruments(instruments);
 
+            localStorage.setItem(`discoveredInstruments`, JSON.stringify(instruments));
+
             instruments.forEach(inst => {
                 const modelMatch = inst.identity.match(/(\d{4}[A-Z]?)/);
                 const model = modelMatch ? modelMatch[0] : null;
@@ -218,6 +257,19 @@ function InstrumentStatusPanel({ showNotification }) {
         return identity.trim();
     };
 
+    const getSNFromIdentity = (identity) => {
+        if (!identity) return null;
+        const parts = identity.split(',');
+        if (parts.length > 2 && parts[1] && parts[2]) {
+            if (parts[1].trim() === "34420A") {
+                return "";
+            } else {
+                return parts[2].trim();
+            }
+        }
+        return identity.trim();
+    };
+
     const handleRoleAssignment = async (payload) => {
         if (!selectedSessionId) {
             showNotification("Please select a session before assigning roles.", "error");
@@ -234,41 +286,51 @@ function InstrumentStatusPanel({ showNotification }) {
     const handleStdTiRoleChange = (instrument, role, isChecked) => {
         const newAddress = isChecked ? instrument.address : null;
         const newModel = isChecked ? getModelFromIdentity(instrument.identity) : null;
+        const newSN = isChecked ? getSNFromIdentity(instrument.identity) : null;
         if (role === 'standard') {
             setStdInstrumentAddress(newAddress);
             setStdReaderModel(newModel);
-            handleRoleAssignment({ standard_reader_address: newAddress, standard_reader_model: newModel });
+            setStdReaderSN(newSN);
+            handleRoleAssignment({ standard_reader_address: newAddress, standard_reader_model: newModel, standard_reader_serial: newSN });
         } else if (role === 'test') {
             setTiInstrumentAddress(newAddress);
             setTiReaderModel(newModel);
-            handleRoleAssignment({ test_reader_address: newAddress, test_reader_model: newModel });
+            setTiReaderSN(newSN);
+            handleRoleAssignment({ test_reader_address: newAddress, test_reader_model: newModel, test_reader_serial: newSN });
         }
     };
-    
+
     // Added for Amplifier
     const handleAmplifierRoleChange = (instrument, isChecked) => {
         const newAddress = isChecked ? instrument.address : null;
+        const newSN = isChecked ? getSNFromIdentity(instrument.identity) : null;
         setAmplifierAddress(newAddress);
-        handleRoleAssignment({ amplifier_address: newAddress });
+        setAmplifierSN(newSN);
+        handleRoleAssignment({ amplifier_address: newAddress, amplifier_serial: newSN });
     };
 
     const handleAcDcCheckboxChange = (instrument, role, isChecked) => {
         const newAddress = isChecked ? instrument.address : null;
+        const newSN = isChecked ? getSNFromIdentity(instrument.identity) : null;
         if (role === 'ac') {
             setAcSourceAddress(newAddress);
-            handleRoleAssignment({ ac_source_address: newAddress });
+            setAcSourceSN(newSN);
+            handleRoleAssignment({ ac_source_address: newAddress, ac_source_serial: newSN });
         } else if (role === 'dc') {
             setDcSourceAddress(newAddress);
-            handleRoleAssignment({ dc_source_address: newAddress });
+            setDcSourceSN(newSN)
+            handleRoleAssignment({ dc_source_address: newAddress, dc_source_serial: newSN });
         }
     };
 
     const handleSwitchDriverRoleChange = (instrument, isChecked) => {
         const newAddress = isChecked ? instrument.address : null;
         const newModel = isChecked ? getModelFromIdentity(instrument.identity) : null;
+        const newSN = isChecked ? getSNFromIdentity(instrument.identity) : null;
         setSwitchDriverAddress(newAddress);
         setSwitchDriverModel(newModel);
-        handleRoleAssignment({ switch_driver_address: newAddress, switch_driver_model: newModel });
+        setSwitchDriverSN(newSN);
+        handleRoleAssignment({ switch_driver_address: newAddress, switch_driver_model: newModel, switch_driver_serial: newSN });
     };
 
     const activeInstruments = workstations.find(ws => ws.ip === activeWorkstationIp)?.instruments || [];
@@ -278,28 +340,28 @@ function InstrumentStatusPanel({ showNotification }) {
         <div className="content-area instrument-status-panel">
             <div className="instrument-status-header">
                 <h2>Instrument Status Overview</h2>
-                    <div className="header-buttons" style={{ display: 'flex', gap: '10px' }}>
-                        <button type="button" onClick={handleScanInstruments} className="button button-icon" disabled={isScanning}>
-                            &#128269; {isScanning ? 'Scanning...' : 'Scan for Instruments'}
-                        </button>
-                        <button 
-                            type="button" 
-                            onClick={handleInitializeInstruments} 
-                            className="button button-icon button-secondary" 
-                            disabled={isInitializing || !selectedSessionId || !hasAssignedInstruments}
-                            title="Send initialization commands to all assigned instruments"
-                        >
-                            ⚙️ {isInitializing ? 'Initializing...' : 'Initialize Instruments'}
-                        </button>
-                    </div>
+                <div className="header-buttons" style={{ display: 'flex', gap: '10px' }}>
+                    <button type="button" onClick={handleScanInstruments} className="button button-icon" disabled={isScanning}>
+                        &#128269; {isScanning ? 'Scanning...' : 'Scan for Instruments'}
+                    </button>
+                    <button
+                        type="button"
+                        onClick={handleInitializeInstruments}
+                        className="button button-icon button-secondary"
+                        disabled={isInitializing || !selectedSessionId || !hasAssignedInstruments}
+                        title="Send initialization commands to all assigned instruments"
+                    >
+                        ⚙️ {isInitializing ? 'Initializing...' : 'Initialize Instruments'}
+                    </button>
+                </div>
             </div>
             <div className="test-set-details" style={{ flexWrap: 'wrap' }}>
-                {stdInstrumentAddress && <div><strong>Standard Reader:</strong> {stdReaderModel || ''} ({stdInstrumentAddress})</div>}
-                {tiInstrumentAddress && <div><strong>Test Reader:</strong> {tiReaderModel || ''} ({tiInstrumentAddress})</div>}
-                {acSourceAddress && <div><strong>AC Source:</strong> {acSourceAddress}</div>}
-                {dcSourceAddress && <div><strong>DC Source:</strong> {dcSourceAddress}</div>}
-                {amplifierAddress && <div><strong>Amplifier:</strong> {amplifierAddress}</div>}
-                {switchDriverAddress && <div><strong>Switch Driver:</strong> {switchDriverModel || ''} ({switchDriverAddress})</div>}
+                {stdInstrumentAddress && <div><strong>Standard DMM:</strong> {stdReaderModel || ''} {stdReaderSN && `S/N ${stdReaderSN}`} ({stdInstrumentAddress})</div>}
+                {tiInstrumentAddress && <div><strong>TI DMM:</strong> {tiReaderModel || ''} {tiReaderSN && `S/N ${tiReaderSN}`} ({tiInstrumentAddress})</div>}
+                {acSourceAddress && <div><strong>AC Source:</strong> {acSourceSN && `S/N ${acSourceSN}`} ({acSourceAddress})</div>}
+                {dcSourceAddress && <div><strong>DC Source:</strong> {dcSourceSN && `S/N ${dcSourceSN}`} ({dcSourceAddress})</div>}
+                {amplifierAddress && <div><strong>Amplifier:</strong> {amplifierSN && `S/N ${amplifierSN}`} ({amplifierAddress})</div>}
+                {switchDriverAddress && <div><strong>Switch Driver:</strong> {switchDriverModel || ''} {switchDriverSN && `S/N ${switchDriverSN}`} ({switchDriverAddress})</div>}
             </div>
 
             {workstations.length > 0 && (
@@ -320,9 +382,15 @@ function InstrumentStatusPanel({ showNotification }) {
                         {editingIp === activeWorkstationIp ? (
                             <>
                                 <input type="text" value={editingName} onChange={e => setEditingName(e.target.value)} placeholder="Enter new name..." />
-                                <button className="button button-small" onClick={handleSaveName}>Save</button>
-                                <button className="button button-secondary button-small" onClick={handleResetName}>Reset</button>
-                                <button className="button button-secondary button-small" onClick={() => setEditingIp(null)}>Cancel</button>
+                                <button className="button button-small" onClick={handleSaveName}>
+                                    <FaSave /> Save
+                                </button>
+                                <button className="button button-secondary button-small" onClick={handleResetName}>
+                                    <FaUndo /> Reset
+                                </button>
+                                <button className="button button-secondary button-small" onClick={() => setEditingIp(null)}>
+                                    <FaTimes /> Cancel
+                                </button>
                             </>
                         ) : (
                             <button className="button button-secondary" onClick={handleEditName} disabled={!activeWorkstationIp}>
@@ -338,11 +406,19 @@ function InstrumentStatusPanel({ showNotification }) {
                     activeInstruments.map(inst => {
                         const status = instrumentStatuses[inst.address];
                         const isFetching = isFetchingStatuses[inst.address];
+                        let isConnected = status && status.wsConnectionState === 'Status Received' && !status.error;
                         const isAssignable = ASSIGNABLE_MODELS.some(m => inst.identity.includes(m));
                         const isAcDcAssignable = ACDC_ASSIGNABLE_MODELS.some(m => inst.identity.includes(m));
                         const isAmplifierAssignable = AMPLIFIER_MODELS.some(m => inst.identity.includes(m)); // Added for Amplifier
                         const isStatusSupported = SUPPORTED_STATUS_MODELS.some(m => inst.identity.includes(m));
                         const isSwitchDriverAssignable = SWITCH_DRIVER_MODELS.some(m => inst.identity.includes(m));
+
+                        const parts = inst.identity.split(',');
+                        const model = parts[1].trim();
+                        if (model === "34420A") {
+                            isConnected = true;
+                        }
+
                         return (
                             <div key={inst.address} className="status-card">
                                 <div className="status-card-header">
@@ -350,17 +426,20 @@ function InstrumentStatusPanel({ showNotification }) {
                                         <p className="instrument-identity">{inst.identity}</p>
                                         <p className="instrument-address">{inst.address}</p>
                                     </div>
-                                    <div className="status-badge"><span className="status-badge-icon">●</span>Connected</div>
+                                    <div className={`status-badge ${isConnected ? 'connected' : 'disconnected'}`}>
+                                        <span className="status-badge-icon">●</span>
+                                        {isConnected ? 'Connected' : 'Disconnected'}
+                                    </div>
                                 </div>
                                 {isAssignable && (
                                     <div className="role-assignment" style={{ marginTop: '10px', paddingTop: '10px', borderTop: '1px solid var(--border-color)', display: 'flex', alignItems: 'center', gap: '20px' }}>
                                         <label style={{ fontWeight: '500' }}>Assign Reader Role:</label>
                                         <div className="checkbox-group" style={{ display: 'flex', alignItems: 'center', gap: '5px' }}>
-                                            <input type="checkbox" id={`std-role-${inst.address}`} checked={stdInstrumentAddress === inst.address} onChange={(e) => handleStdTiRoleChange(inst, 'standard', e.target.checked)} disabled={!selectedSessionId || (stdInstrumentAddress && stdInstrumentAddress !== inst.address)} />
+                                            <input type="checkbox" id={`std-role-${inst.address}`} checked={stdInstrumentAddress === inst.address} onChange={(e) => handleStdTiRoleChange(inst, 'standard', e.target.checked)} disabled={!selectedSessionId || !isConnected || (stdInstrumentAddress && stdInstrumentAddress !== inst.address)} />
                                             <label htmlFor={`std-role-${inst.address}`} style={{ marginBottom: 0 }}>Standard</label>
                                         </div>
                                         <div className="checkbox-group" style={{ display: 'flex', alignItems: 'center', gap: '5px' }}>
-                                            <input type="checkbox" id={`test-role-${inst.address}`} checked={tiInstrumentAddress === inst.address} onChange={(e) => handleStdTiRoleChange(inst, 'test', e.target.checked)} disabled={!selectedSessionId || (tiInstrumentAddress && tiInstrumentAddress !== inst.address)} />
+                                            <input type="checkbox" id={`test-role-${inst.address}`} checked={tiInstrumentAddress === inst.address} onChange={(e) => handleStdTiRoleChange(inst, 'test', e.target.checked)} disabled={!selectedSessionId || !isConnected || (tiInstrumentAddress && tiInstrumentAddress !== inst.address)} />
                                             <label htmlFor={`test-role-${inst.address}`} style={{ marginBottom: 0 }}>Test Instrument</label>
                                         </div>
                                     </div>
@@ -369,31 +448,31 @@ function InstrumentStatusPanel({ showNotification }) {
                                     <div className="role-assignment" style={{ marginTop: '10px', paddingTop: '10px', borderTop: '1px solid var(--border-color)', display: 'flex', alignItems: 'center', gap: '20px' }}>
                                         <label style={{ fontWeight: '500' }}>Assign Source Function:</label>
                                         <div className="checkbox-group" style={{ display: 'flex', alignItems: 'center', gap: '5px' }}>
-                                            <input type="checkbox" id={`ac-role-${inst.address}`} checked={acSourceAddress === inst.address} onChange={(e) => handleAcDcCheckboxChange(inst, 'ac', e.target.checked)} disabled={!selectedSessionId || (acSourceAddress && acSourceAddress !== inst.address)} />
+                                            <input type="checkbox" id={`ac-role-${inst.address}`} checked={acSourceAddress === inst.address} onChange={(e) => handleAcDcCheckboxChange(inst, 'ac', e.target.checked)} disabled={!selectedSessionId || !isConnected || (acSourceAddress && acSourceAddress !== inst.address)} />
                                             <label htmlFor={`ac-role-${inst.address}`} style={{ marginBottom: 0 }}>AC Source</label>
                                         </div>
                                         <div className="checkbox-group" style={{ display: 'flex', alignItems: 'center', gap: '5px' }}>
-                                            <input type="checkbox" id={`dc-role-${inst.address}`} checked={dcSourceAddress === inst.address} onChange={(e) => handleAcDcCheckboxChange(inst, 'dc', e.target.checked)} disabled={!selectedSessionId || (dcSourceAddress && dcSourceAddress !== inst.address)} />
+                                            <input type="checkbox" id={`dc-role-${inst.address}`} checked={dcSourceAddress === inst.address} onChange={(e) => handleAcDcCheckboxChange(inst, 'dc', e.target.checked)} disabled={!selectedSessionId || !isConnected || (dcSourceAddress && dcSourceAddress !== inst.address)} />
                                             <label htmlFor={`dc-role-${inst.address}`} style={{ marginBottom: 0 }}>DC Source</label>
                                         </div>
                                     </div>
                                 )}
                                 {/* Added for Amplifier */}
                                 {isAmplifierAssignable && (
-                                     <div className="role-assignment" style={{marginTop: '10px', paddingTop: '10px', borderTop: '1px solid var(--border-color)', display: 'flex', alignItems: 'center', gap: '20px'}}>
-                                        <label style={{fontWeight: '500'}}>Assign Amplifier Role:</label>
+                                    <div className="role-assignment" style={{ marginTop: '10px', paddingTop: '10px', borderTop: '1px solid var(--border-color)', display: 'flex', alignItems: 'center', gap: '20px' }}>
+                                        <label style={{ fontWeight: '500' }}>Assign Amplifier Role:</label>
                                         <div className="checkbox-group" style={{ display: 'flex', alignItems: 'center', gap: '5px' }}>
-                                            <input type="checkbox" id={`amp-role-${inst.address}`} checked={amplifierAddress === inst.address} onChange={(e) => handleAmplifierRoleChange(inst, e.target.checked)} disabled={!selectedSessionId || (amplifierAddress && amplifierAddress !== inst.address)}/>
-                                            <label htmlFor={`amp-role-${inst.address}`} style={{marginBottom: 0}}>Amplifier</label>
+                                            <input type="checkbox" id={`amp-role-${inst.address}`} checked={amplifierAddress === inst.address} onChange={(e) => handleAmplifierRoleChange(inst, e.target.checked)} disabled={!selectedSessionId || !isConnected || (amplifierAddress && amplifierAddress !== inst.address)} />
+                                            <label htmlFor={`amp-role-${inst.address}`} style={{ marginBottom: 0 }}>Amplifier</label>
                                         </div>
                                     </div>
                                 )}
                                 {isSwitchDriverAssignable && (
-                                     <div className="role-assignment" style={{marginTop: '10px', paddingTop: '10px', borderTop: '1px solid var(--border-color)', display: 'flex', alignItems: 'center', gap: '20px'}}>
-                                        <label style={{fontWeight: '500'}}>Assign Utility Role:</label>
+                                    <div className="role-assignment" style={{ marginTop: '10px', paddingTop: '10px', borderTop: '1px solid var(--border-color)', display: 'flex', alignItems: 'center', gap: '20px' }}>
+                                        <label style={{ fontWeight: '500' }}>Assign Utility Role:</label>
                                         <div className="checkbox-group" style={{ display: 'flex', alignItems: 'center', gap: '5px' }}>
-                                            <input type="checkbox" id={`switch-driver-role-${inst.address}`} checked={switchDriverAddress === inst.address} onChange={(e) => handleSwitchDriverRoleChange(inst, e.target.checked)} disabled={!selectedSessionId || (switchDriverAddress && switchDriverAddress !== inst.address)}/>
-                                            <label htmlFor={`switch-driver-role-${inst.address}`} style={{marginBottom: 0}}>Switch Driver</label>
+                                            <input type="checkbox" id={`switch-driver-role-${inst.address}`} checked={switchDriverAddress === inst.address} onChange={(e) => handleSwitchDriverRoleChange(inst, e.target.checked)} disabled={!selectedSessionId || !isConnected || (switchDriverAddress && switchDriverAddress !== inst.address)} />
+                                            <label htmlFor={`switch-driver-role-${inst.address}`} style={{ marginBottom: 0 }}>Switch Driver</label>
                                         </div>
                                     </div>
                                 )}

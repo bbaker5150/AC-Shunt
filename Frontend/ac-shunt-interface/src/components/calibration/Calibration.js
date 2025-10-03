@@ -257,10 +257,14 @@ function Calibration({
     discoveredInstruments,
     stdInstrumentAddress,
     stdReaderModel,
+    stdReaderSN,
     tiInstrumentAddress,
     tiReaderModel,
+    tiReaderSN,
     acSourceAddress,
+    acSourceSN,
     dcSourceAddress,
+    dcSourceSN,
     isCollecting,
     collectionProgress,
     startReadingCollection,
@@ -269,8 +273,10 @@ function Calibration({
     readingWsState,
     collectionStatus,
     switchDriverAddress,
+    switchDriverSN,
     clearLiveReadings,
     amplifierAddress,
+    amplifierSN,
     lastMessage,
     sendWsCommand,
     stabilizationStatus,
@@ -311,17 +317,15 @@ function Calibration({
     isOpen: false,
     title: "",
     message: "",
-    onConfirm: () => {},
+    onConfirm: () => { },
   });
   const [amplifierModal, setAmplifierModal] = useState({
     isOpen: false,
     range: null,
-    onConfirm: () => {},
+    onConfirm: () => { },
   });
-  const [historicalReadings, setHistoricalReadings] =
-    useState(initialLiveReadings);
-  const [tiHistoricalReadings, setTiHistoricalReadings] =
-    useState(initialLiveReadings);
+  const [historicalReadings, setHistoricalReadings] = useState(initialLiveReadings);
+  const [tiHistoricalReadings, setTiHistoricalReadings] = useState(initialLiveReadings);
   const [hoveredIndex, setHoveredIndex] = useState(null);
   const [shuntsData, setShuntsData] = useState([]);
   const [tvcsData, setTvcsData] = useState([]);
@@ -472,15 +476,24 @@ function Calibration({
     }
   }, [collectionStatus, showNotification]);
 
-  const getInstrumentIdentityByAddress = (address, model) => {
-    if (!address) return "Not Assigned";
-    if (model) return `${model} (${address})`;
-    const instrument = discoveredInstruments.find(
-      (inst) => inst.address === address
-    );
-    return instrument
-      ? `${instrument.identity} (${instrument.address})`
-      : address;
+  const getInstrumentIdentityByAddress = (address, serial, model) => {
+    if (!address) {
+      return "Not Assigned";
+    }
+
+    if (model) {
+      if (serial) {
+        return `${model}, S/N ${serial} (${address})`;
+      }
+      return `${model} (${address})`;
+    }
+
+    const instrument = discoveredInstruments.find((inst) => inst.address === address);
+
+    if (instrument) {
+      return `${instrument.identity} (${instrument.address})`;
+    }
+    return address;
   };
 
   const refreshComponentData = useCallback(async () => {
@@ -1053,20 +1066,20 @@ function Calibration({
         existingResults.delta_std !== undefined
           ? existingResults.delta_std
           : tvcCorrection[0] !== null
-          ? tvcCorrection[0]
-          : "",
+            ? tvcCorrection[0]
+            : "",
       delta_ti:
         existingResults.delta_ti !== undefined
           ? existingResults.delta_ti
           : tvcCorrection[1] !== null
-          ? tvcCorrection[1]
-          : "",
+            ? tvcCorrection[1]
+            : "",
       delta_std_known:
         existingResults.delta_std_known !== undefined
           ? existingResults.delta_std_known
           : shuntCorrection !== null
-          ? shuntCorrection
-          : "",
+            ? shuntCorrection
+            : "",
     });
 
     setIsCorrectionModalOpen(true);
@@ -1301,8 +1314,7 @@ function Calibration({
           })
           .catch((error) => {
             showNotification(
-              `Operation failed: ${
-                error.message || "An unknown error occurred."
+              `Operation failed: ${error.message || "An unknown error occurred."
               }`,
               "error"
             );
@@ -1357,8 +1369,7 @@ function Calibration({
           })
           .catch((error) => {
             showNotification(
-              `Operation failed: ${
-                error.message || "An unknown error occurred."
+              `Operation failed: ${error.message || "An unknown error occurred."
               }`,
               "error"
             );
@@ -1471,8 +1482,7 @@ function Calibration({
           }
         } catch (error) {
           showNotification(
-            `Operation failed: ${
-              error.message || "An unknown error occurred."
+            `Operation failed: ${error.message || "An unknown error occurred."
             }`,
             "error"
           );
@@ -1746,11 +1756,16 @@ function Calibration({
         getInstrumentIdentity={getInstrumentIdentityByAddress}
         stdInstrumentAddress={stdInstrumentAddress}
         stdReaderModel={stdReaderModel}
+        stdReaderSN={stdReaderSN}
         tiInstrumentAddress={tiInstrumentAddress}
         tiReaderModel={tiReaderModel}
+        tiReaderSN={tiReaderSN}
         acSourceAddress={acSourceAddress}
+        acSourceSN={acSourceSN}
         dcSourceAddress={dcSourceAddress}
+        dcSourceSN={dcSourceSN}
         switchDriverAddress={switchDriverAddress}
+        switchDriverSN={switchDriverSN}
       />
       <CorrectionFactorsModal
         isOpen={isCorrectionModalOpen}
@@ -2006,11 +2021,10 @@ function Calibration({
                                         Batch Progress
                                       </span>
                                       <span className="status-value">{`Point ${bulkRunProgressFromContext.current} of ${bulkRunProgressFromContext.total}`}</span>
-                                      <span className="status-detail">{`${
-                                        formatCurrent(focusedTP?.current)
-                                      }A @ ${formatFrequency(
-                                        focusedTP?.frequency
-                                      )}`}</span>
+                                      <span className="status-detail">{`${formatCurrent(focusedTP?.current)
+                                        }A @ ${formatFrequency(
+                                          focusedTP?.frequency
+                                        )}`}</span>
                                     </div>
                                   )}
                                   <div className="status-section">
@@ -2044,11 +2058,10 @@ function Calibration({
                                   <div
                                     className="status-bar-progress"
                                     style={{
-                                      width: `${
-                                        (collectionProgress.count /
+                                      width: `${(collectionProgress.count /
                                           collectionProgress.total) *
                                         100
-                                      }%`,
+                                        }%`,
                                     }}
                                   ></div>
                                 </div>
@@ -2136,7 +2149,7 @@ function Calibration({
                               activeStage={
                                 isCurrentTPActive
                                   ? activeCollectionDetails?.stage ||
-                                    activeCollectionDetails?.readingKey
+                                  activeCollectionDetails?.readingKey
                                   : null
                               }
                             />
@@ -2160,7 +2173,7 @@ function Calibration({
                               activeStage={
                                 isCurrentTPActive
                                   ? activeCollectionDetails?.stage ||
-                                    activeCollectionDetails?.readingKey
+                                  activeCollectionDetails?.readingKey
                                   : null
                               }
                             />
@@ -2214,7 +2227,7 @@ function Calibration({
                         >
                           {focusedTP.forward?.results?.delta_uut_ppm !== null &&
                             focusedTP.forward?.results?.delta_uut_ppm !==
-                              undefined && (
+                            undefined && (
                               <div className="reading">
                                 <h4>Forward Direction</h4>
                                 <div
@@ -2241,7 +2254,7 @@ function Calibration({
 
                           {focusedTP.reverse?.results?.delta_uut_ppm !== null &&
                             focusedTP.reverse?.results?.delta_uut_ppm !==
-                              undefined && (
+                            undefined && (
                               <div className="reading">
                                 <h4>Reverse Direction</h4>
                                 <div
@@ -2270,17 +2283,17 @@ function Calibration({
                           focusedTP.forward?.results?.delta_uut_ppm ||
                           focusedTP.reverse?.results?.delta_uut_ppm
                         ) && (
-                          <div
-                            className="placeholder-content"
-                            style={{ minHeight: "200px" }}
-                          >
-                            <h3>No Results Calculated</h3>
-                            <p>
-                              Complete readings for a direction and click the
-                              "Calculate" button above.
-                            </p>
-                          </div>
-                        )}
+                            <div
+                              className="placeholder-content"
+                              style={{ minHeight: "200px" }}
+                            >
+                              <h3>No Results Calculated</h3>
+                              <p>
+                                Complete readings for a direction and click the
+                                "Calculate" button above.
+                              </p>
+                            </div>
+                          )}
                       </div>
                     )}
                   </div>

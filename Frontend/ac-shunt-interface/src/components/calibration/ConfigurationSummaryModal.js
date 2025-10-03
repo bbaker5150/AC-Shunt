@@ -11,11 +11,16 @@ const ConfigurationSummaryModal = ({
   getInstrumentIdentity,
   stdInstrumentAddress,
   stdReaderModel,
+  stdReaderSN,
   tiInstrumentAddress,
   tiReaderModel,
+  tiReaderSN,
   acSourceAddress,
+  acSourceSN,
   dcSourceAddress,
+  dcSourceSN,
   switchDriverAddress, // Add switchDriverAddress as a prop
+  switchDriverSN,
 }) => {
   if (!isOpen) return null;
 
@@ -50,24 +55,24 @@ const ConfigurationSummaryModal = ({
           <div className="summary-modal-section">
             <h4>Sources & Readers</h4>
             <div className="summary-item">
-              <strong>Standard Reader:</strong>
+              <strong>Standard DMM:</strong>
               <span>
-                {getInstrumentIdentity(stdInstrumentAddress, stdReaderModel)}
+                {getInstrumentIdentity(stdInstrumentAddress, stdReaderSN, stdReaderModel)}
               </span>
             </div>
             <div className="summary-item">
-              <strong>Test Reader:</strong>
+              <strong>TI DMM:</strong>
               <span>
-                {getInstrumentIdentity(tiInstrumentAddress, tiReaderModel)}
+                {getInstrumentIdentity(tiInstrumentAddress, tiReaderSN, tiReaderModel)}
               </span>
             </div>
             <div className="summary-item">
               <strong>AC Source:</strong>
-              <span>{getInstrumentIdentity(acSourceAddress)}</span>
+              <span>{getInstrumentIdentity(acSourceAddress, acSourceSN)}</span>
             </div>
             <div className="summary-item">
               <strong>DC Source:</strong>
-              <span>{getInstrumentIdentity(dcSourceAddress)}</span>
+              <span>{getInstrumentIdentity(dcSourceAddress, dcSourceSN)}</span>
             </div>
             {/* Conditionally render the SwitchControl if an address is provided */}
             {switchDriverAddress && (
