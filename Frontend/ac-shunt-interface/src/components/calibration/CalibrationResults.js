@@ -384,6 +384,15 @@ function CalibrationResults({
       }
     });
 
+    if (calResults?.delta_uut_ppm !== undefined) {
+      const acdcData = [
+        ["AC-DC Difference (ppm):", calResults.delta_uut_ppm.toFixed(8)]
+      ];
+
+      const acdcSheet = XLSX.utils.aoa_to_sheet(acdcData);
+      XLSX.utils.book_append_sheet(wb, acdcSheet, "AC-DC Difference");
+    }
+
     if (wb.SheetNames.length > 0) {
       XLSX.writeFile(
         wb,
