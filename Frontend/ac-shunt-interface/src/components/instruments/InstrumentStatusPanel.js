@@ -418,7 +418,7 @@ function InstrumentStatusPanel({ showNotification }) {
                         if (parts.length > 1 && parts[1]) {
                             model = parts[1].trim();
                         }
-                        if (model === "34420A") {
+                        if (model === "34420A" || model === "8100" || model === "11713C") {
                             isConnected = true;
                         }
 
