@@ -265,33 +265,34 @@ class CalibrationConsumer(AsyncWebsocketConsumer):
             print(f"VERIFY: {instrument_name} check FAILED.")
             return False
 
-    async def _perform_activate(self, test_point_data, bypass_tvc, amplifier_range, ac_source=None, dc_source=None):
-        # If test_point_data is a list (from a batch call), use the first test point for activation.
+    async def _configure_sources(self, test_point_data, bypass_tvc, amplifier_range, ac_source=None, dc_source=None):
+        """Sets the voltage/frequency on sources but does NOT enable the output."""
         if isinstance(test_point_data, list) and test_point_data:
-            activation_point = test_point_data[0]
-        # If it's a dictionary (from a single point call), use it directly.
+            config_point = test_point_data[0]
         elif isinstance(test_point_data, dict):
-            activation_point = test_point_data
+            config_point = test_point_data
         else:
-            # If data is missing or invalid, do nothing.
-            print("[ACTIVATE_FUNC] Warning: No valid test point data provided for activation. Skipping.")
+            print("[CONFIGURE_SOURCES] Warning: No valid test point data provided. Skipping.")
             return
-        
-        input_current = float(activation_point.get('current'))
-        voltage = (input_current / float(amplifier_range)) * 2 if not bypass_tvc and amplifier_range and float(amplifier_range) != 0 else input_current
-        
+
+        input_current = float(config_point.get('current'))
+        voltage = (input_current / float(amplifier_range)) * 2 if amplifier_range and float(amplifier_range) != 0 else input_current
+
         if ac_source:
-            # --- DEBUG LOG ---
-            print("[ACTIVATE 5730A] AC source provided. Activating AC source.")
-            frequency = float(activation_point.get('frequency', 0))
+            frequency = float(config_point.get('frequency', 0))
             await sync_to_async(ac_source.set_output, thread_sensitive=True)(voltage=voltage, frequency=frequency)
-            await sync_to_async(ac_source.set_operate, thread_sensitive=True)()
         
         if dc_source:
-            # --- DEBUG LOG ---
-            print("[ACTIVATE 5730A] DC source provided. Activating DC source.")
             await sync_to_async(dc_source.set_output, thread_sensitive=True)(voltage=voltage, frequency=0)
-            await sync_to_async(dc_source.set_operate, thread_sensitive=True)()
+
+    async def _activate_sources(self, ac_source=None, dc_source=None):
+        """Sets the sources to OPERATE mode."""
+        if ac_source:
+            await sync_to_async(ac_source.set_operate, thread_sensitive=True)()
+        if dc_source:
+            # If ac_source and dc_source are the same object, no need to call operate twice
+            if ac_source is not dc_source:
+                await sync_to_async(dc_source.set_operate, thread_sensitive=True)()
 
     async def _perform_warmup(self, warmup_time):
         # --- DEBUG LOG ---
@@ -501,21 +502,24 @@ class CalibrationConsumer(AsyncWebsocketConsumer):
             std_reader_instrument = await sync_to_async(std_reader_class, thread_sensitive=True)(gpib=std_addr) if std_reader_class == Instrument34420A else await sync_to_async(std_reader_class, thread_sensitive=True)(model=std_model, gpib=std_addr)
             ti_reader_instrument = await sync_to_async(ti_reader_class, thread_sensitive=True)(gpib=ti_addr) if ti_reader_class == Instrument34420A else await sync_to_async(ti_reader_class, thread_sensitive=True)(model=ti_model, gpib=ti_addr)
             
-            await self._perform_activate(
+            # 1. Configure sources (outputs are NOT on yet)
+            await self._configure_sources(
                 data.get('test_point'), 
                 data.get('bypass_tvc'), 
                 data.get('amplifier_range'), 
                 ac_source=ac_source, 
-                dc_source=dc_source)
+                dc_source=dc_source
+            )
 
+            # 2. Handle amplifier confirmation
             if session_details.get('amplifier_address'):
-                amplifier = await sync_to_async(Instrument8100, thread_sensitive=True)(model='8100', gpib=session_details.get('amplifier_address'))
-                if not await self._handle_amplifier_confirmation(amplifier, data.get('amplifier_range'), data): return
+                amplifier_instrument = await sync_to_async(Instrument8100, thread_sensitive=True)(model='8100', gpib=session_details.get('amplifier_address'))
+                if not await self._handle_amplifier_confirmation(amplifier_instrument, data.get('amplifier_range'), data): return
+
+            # 3. Activate sources
+            await self._activate_sources(ac_source=ac_source, dc_source=dc_source)
 
             warmup_time = data.get('initial_warm_up_time', 0)
-            
-            # --- DEBUG LOG ---
-            print(f"[SINGLE_POINT_RUN] Found warmup_time={warmup_time}. Preparing to call _perform_warmup.")
             
             if warmup_time > 0:
                 await self._perform_warmup(warmup_time)
@@ -583,21 +587,24 @@ class CalibrationConsumer(AsyncWebsocketConsumer):
             std_reader = await sync_to_async(std_reader_class, thread_sensitive=True)(gpib=std_addr) if std_reader_class == Instrument34420A else await sync_to_async(std_reader_class, thread_sensitive=True)(model=std_model, gpib=std_addr)
             ti_reader = await sync_to_async(ti_reader_class, thread_sensitive=True)(gpib=ti_addr) if ti_reader_class == Instrument34420A else await sync_to_async(ti_reader_class, thread_sensitive=True)(model=ti_model, gpib=ti_addr)
 
-            await self._perform_activate(
+            # 1. Configure sources
+            await self._configure_sources(
                 data.get('test_point'), 
                 data.get('bypass_tvc'), 
                 data.get('amplifier_range'), 
                 ac_source=ac_source, 
-                dc_source=dc_source)
+                dc_source=dc_source
+            )
             
+            # 2. Handle amplifier confirmation
             if session_details.get('amplifier_address'):
                 amplifier = await sync_to_async(Instrument8100, thread_sensitive=True)(model='8100', gpib=session_details.get('amplifier_address'))
                 if not await self._handle_amplifier_confirmation(amplifier, data.get('amplifier_range'), data): return
             
-            warmup_time = data.get('initial_warm_up_time', 0)
+            # 3. Activate sources
+            await self._activate_sources(ac_source=ac_source, dc_source=dc_source)
             
-            # --- DEBUG LOG ---
-            print(f"[FULL_RUN] Found warmup_time={warmup_time}. Preparing to call _perform_warmup.")
+            warmup_time = data.get('initial_warm_up_time', 0)
             
             if warmup_time > 0:
                 await self._perform_warmup(warmup_time)
@@ -678,16 +685,22 @@ class CalibrationConsumer(AsyncWebsocketConsumer):
             if session_details.get('switch_driver_address'):
                 switch_driver = await sync_to_async(Instrument11713C, thread_sensitive=True)(gpib=session_details.get('switch_driver_address'))
             
-            await self._perform_activate(
+            # 1. Configure sources
+            await self._configure_sources(
                 test_points_to_run,
                 data.get('bypass_tvc'), 
                 data.get('amplifier_range'), 
                 ac_source=ac_source, 
-                dc_source=dc_source)
+                dc_source=dc_source
+            )
             
+            # 2. Handle amplifier confirmation
             if session_details.get('amplifier_address'):
                 amplifier = await sync_to_async(Instrument8100, thread_sensitive=True)(model='8100', gpib=session_details.get('amplifier_address'))
                 if not await self._handle_amplifier_confirmation(amplifier, data.get('amplifier_range'), data): return
+            
+            # 3. Activate sources
+            await self._activate_sources(ac_source=ac_source, dc_source=dc_source)
             
             warmup_time = data.get('initial_warm_up_time', 0)
             if warmup_time > 0:
@@ -788,16 +801,22 @@ class CalibrationConsumer(AsyncWebsocketConsumer):
             std_reader = await sync_to_async(std_reader_class, thread_sensitive=True)(gpib=std_addr) if std_reader_class == Instrument34420A else await sync_to_async(std_reader_class, thread_sensitive=True)(model=std_model, gpib=std_addr)
             ti_reader = await sync_to_async(ti_reader_class, thread_sensitive=True)(gpib=ti_addr) if ti_reader_class == Instrument34420A else await sync_to_async(ti_reader_class, thread_sensitive=True)(model=ti_model, gpib=ti_addr)
 
-            await self._perform_activate(
+            # 1. Configure sources
+            await self._configure_sources(
                 test_points_to_run,
                 data.get('bypass_tvc'), 
                 data.get('amplifier_range'), 
                 ac_source=ac_source, 
-                dc_source=dc_source)
+                dc_source=dc_source
+            )
             
+            # 2. Handle amplifier confirmation
             if session_details.get('amplifier_address'):
                 amplifier = await sync_to_async(Instrument8100, thread_sensitive=True)(model='8100', gpib=session_details.get('amplifier_address'))
                 if not await self._handle_amplifier_confirmation(amplifier, data.get('amplifier_range'), data): return
+            
+            # 3. Activate sources
+            await self._activate_sources(ac_source=ac_source, dc_source=dc_source)
             
             warmup_time = data.get('initial_warm_up_time', 0)
             if warmup_time > 0:

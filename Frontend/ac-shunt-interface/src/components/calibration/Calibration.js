@@ -515,7 +515,7 @@ function Calibration({
     if (!isCollecting && !isBulkRunning) {
       refreshComponentData();
     }
-  }, [isCollecting, isBulkRunning, refreshComponentData]);
+  }, [isCollecting, isBulkRunning, refreshComponentData, orderedTestPoints]);
 
   const hasAllReadings = useCallback((point) => {
     if (!point?.readings) return false;
@@ -1546,7 +1546,7 @@ function Calibration({
     const found = AVAILABLE_CURRENTS.find(
       (c) => Math.abs(c.value - numValue) < epsilon
     );
-    return found ? found.text : `${numValue}A`;
+    return found ? found.text : `${numValue}`;
   };
 
   const handleSettingsSubmit = async (e) => {
@@ -2022,7 +2022,7 @@ function Calibration({
                                       </span>
                                       <span className="status-value">{`Point ${bulkRunProgressFromContext.current} of ${bulkRunProgressFromContext.total}`}</span>
                                       <span className="status-detail">{`${formatCurrent(focusedTP?.current)
-                                        }A @ ${formatFrequency(
+                                        } @ ${formatFrequency(
                                           focusedTP?.frequency
                                         )}`}</span>
                                     </div>
