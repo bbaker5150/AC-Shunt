@@ -94,7 +94,7 @@ const RangeResultsModal = ({ isOpen, onClose, results, rangeInfo }) => {
 
         <div className="form-section-warning" style={{ margin: "15px 0 0 0" }}>
           <p style={{ margin: 0 }}>
-            Results for <strong>{rangeInfo.typeLabel}</strong>, Samples{" "}
+            Results for: Samples{" "}
             <strong>{rangeInfo.start}</strong> to{" "}
             <strong>{rangeInfo.end}</strong>
           </p>
