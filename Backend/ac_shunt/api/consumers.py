@@ -276,7 +276,7 @@ class CalibrationConsumer(AsyncWebsocketConsumer):
             return
 
         input_current = float(config_point.get('current'))
-        voltage = (input_current / float(amplifier_range)) * 2 if amplifier_range and float(amplifier_range) != 0 else input_current
+        voltage = (input_current / float(amplifier_range)) * 2
 
         if ac_source:
             frequency = float(config_point.get('frequency', 0))
@@ -390,7 +390,7 @@ class CalibrationConsumer(AsyncWebsocketConsumer):
     async def _perform_single_measurement(self, reading_type_base, num_samples, test_point_data, bypass_tvc, amplifier_range, source_instrument, std_reader_instrument, ti_reader_instrument, amplifier_instrument=None, settling_time=0, nplc_setting=None, stability_params=None):
         is_ac_reading = 'ac' in reading_type_base
         input_current = float(test_point_data.get('current'))
-        voltage = (input_current / float(amplifier_range)) * 2 if not bypass_tvc and amplifier_range and float(amplifier_range) != 0 else input_current
+        voltage = (input_current / float(amplifier_range)) * 2
         if 'neg' in reading_type_base: voltage = -voltage
         
         config_voltage, frequency = abs(voltage), float(test_point_data.get('frequency', 0)) if is_ac_reading else 0
@@ -402,7 +402,6 @@ class CalibrationConsumer(AsyncWebsocketConsumer):
             elif isinstance(instrument, Instrument3458A): await sync_to_async(instrument.configure_measurement, thread_sensitive=True)(**{'function': 'ACV' if is_ac_reading else 'DCV', 'expected_value': config_voltage, 'frequency': frequency})
 
         await sync_to_async(source_instrument.set_output, thread_sensitive=True)(voltage=voltage, frequency=frequency)
-        await sync_to_async(source_instrument.set_operate, thread_sensitive=True)()
         
         try:
             await asyncio.sleep(1.5)
