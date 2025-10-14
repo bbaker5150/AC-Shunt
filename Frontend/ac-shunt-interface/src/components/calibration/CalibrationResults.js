@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useRef } from "react";
+import React, { useState, useEffect, useRef, useCallback } from "react";
 import * as XLSX from "xlsx";
 import { useInstruments } from "../../contexts/InstrumentContext";
 import {
@@ -11,6 +11,7 @@ import {
 } from "react-icons/fa";
 import CalibrationChart from "./CalibrationChart";
 import { useTheme } from "../../contexts/ThemeContext";
+import RangeResultsModal from "./RangeResultsModal";
 
 const READING_TYPES = [
   { label: "AC Open", value: "ac_open_readings", color: "rgb(75, 192, 192)" },
@@ -111,17 +112,19 @@ const DirectionDropdown = ({ activeDirection, setActiveDirection, point }) => {
 const FinalResultCard = ({ title, value, formula }) => {
   const isCalculated = value !== null && value !== undefined;
   return (
-    <div className="final-result-card">
-      <h4>{title}</h4>
-      <p>
-        {isCalculated ? parseFloat(value).toFixed(3) : "---"}
-        <span style={{ fontSize: "1.5rem", marginLeft: "10px", opacity: 0.8 }}>
-          PPM
-        </span>
-      </p>
-      {formula && (
-        <span style={{ opacity: 0.7, fontSize: "0.9rem" }}>{formula}</span>
-      )}
+    <div style={{ display: 'flex', justifyContent: 'center' }}>
+      <div className="final-result-card" style={{ flex: '1 1 400px', minWidth: '300px' }}>
+        <h4>{title}</h4>
+        <p>
+          {isCalculated ? parseFloat(value).toFixed(3) : "---"}
+          <span style={{ fontSize: "1.5rem", marginLeft: "10px", opacity: 0.8 }}>
+            PPM
+          </span>
+        </p>
+        {formula && (
+          <span style={{ opacity: 0.7, fontSize: "0.9rem" }}>{formula}</span>
+        )}
+      </div>
     </div>
   );
 };
@@ -251,6 +254,11 @@ function CalibrationResults({
     useState("ac_open_readings");
   const [showCalcDetails, setShowCalcDetails] = useState(false);
   const [activeDirection, setActiveDirection] = useState("Forward");
+  const [isRangeModalOpen, setIsRangeModalOpen] = useState(false);
+  const [rangeModalData, setRangeModalData] = useState({
+    results: null,
+    rangeInfo: null,
+  });
 
   useEffect(() => {
     if (window.MathJax && (showCalcDetails || activeTab === "summary")) {
@@ -304,20 +312,25 @@ function CalibrationResults({
             typeof r === "object" ? r.value : r
           );
           if (readings.length > 0) {
+            // Average calculation remains the same (average of all readings)
             const sum = readings.reduce((a, b) => a + b, 0);
             const avg = sum / readings.length;
-            const stddev =
-              readings.length > 1
-                ? Math.sqrt(
-                    readings
-                      .map((x) => Math.pow(x - avg, 2))
-                      .reduce((a, b) => a + b, 0) /
-                      (readings.length - 1)
-                  )
-                : 0;
-
             combinedResults[key.replace("_readings", "_avg")] = avg;
-            combinedResults[key.replace("_readings", "_stddev")] = stddev;
+
+            // It now averages the two individual standard deviations
+            const stddevKey = key.replace("_readings", "_stddev");
+            const stddevFwd = forward.results?.[stddevKey];
+            const stddevRev = reverse.results?.[stddevKey];
+
+            let newCombinedStddev = 0; // Default to 0 if values aren't available
+            if (
+              typeof stddevFwd === "number" &&
+              typeof stddevRev === "number"
+            ) {
+              newCombinedStddev = (stddevFwd + stddevRev) / 2;
+            }
+
+            combinedResults[stddevKey] = newCombinedStddev;
           }
         });
 
@@ -334,6 +347,150 @@ function CalibrationResults({
       setCalReadings(pointForDirection?.readings || null);
     }
   }, [focusedTP, activeDirection]);
+
+  const calculateResultsForRange = useCallback(
+    (allReadings, analysisOptions) => {
+      if (!allReadings || !analysisOptions) return null;
+
+      const { start, end } = analysisOptions;
+      const startIndex = parseInt(start, 10) - 1;
+      const endIndex = parseInt(end, 10);
+
+      if (startIndex < 0 || endIndex <= startIndex) return null;
+
+      const results = {};
+      const prefixes = ["std_", "ti_"];
+      const readingTypes = ["ac_open", "dc_pos", "dc_neg", "ac_close"];
+
+      prefixes.forEach((prefix) => {
+        readingTypes.forEach((readingType) => {
+          const key = `${prefix}${readingType}_readings`;
+          const dataset = allReadings[key];
+
+          if (dataset && dataset.length > 0) {
+            const dataSlice = dataset
+              .slice(startIndex, endIndex)
+              .map((p) => (typeof p === "object" ? p.value : p));
+
+            if (dataSlice.length > 0) {
+              const sum = dataSlice.reduce((acc, val) => acc + val, 0);
+              const mean = sum / dataSlice.length;
+
+              let stddev = 0;
+              if (dataSlice.length > 1) {
+                const variance =
+                  dataSlice.reduce(
+                    (acc, val) => acc + Math.pow(val - mean, 2),
+                    0
+                  ) /
+                  (dataSlice.length - 1);
+                stddev = Math.sqrt(variance);
+              }
+
+              results[`${prefix}${readingType}_avg`] = mean;
+              results[`${prefix}${readingType}_stddev`] = stddev;
+            }
+          }
+        });
+      });
+
+      return results;
+    },
+    []
+  );
+
+  const calculateACDCForRange = useCallback((rangeMeans, correctionFactors) => {
+    if (!rangeMeans || !correctionFactors) return null;
+
+    const V_DCSTD =
+      (Math.abs(rangeMeans.std_dc_pos_avg) +
+        Math.abs(rangeMeans.std_dc_neg_avg)) /
+      2;
+    const V_ACSTD =
+      (Math.abs(rangeMeans.std_ac_open_avg) +
+        Math.abs(rangeMeans.std_ac_close_avg)) /
+      2;
+    const V_DCUUT =
+      (Math.abs(rangeMeans.ti_dc_pos_avg) +
+        Math.abs(rangeMeans.ti_dc_neg_avg)) /
+      2;
+    const V_ACUUT =
+      (Math.abs(rangeMeans.ti_ac_open_avg) +
+        Math.abs(rangeMeans.ti_ac_close_avg)) /
+      2;
+
+    const { eta_std, eta_ti, delta_std, delta_ti, delta_std_known } =
+      correctionFactors;
+
+    if (
+      [eta_std, eta_ti, delta_std, delta_ti, delta_std_known].some(
+        (val) => val == null
+      )
+    ) {
+      return null; // Not all correction factors are available
+    }
+
+    const term_STD =
+      ((V_ACSTD - V_DCSTD) * 1e6) / (parseFloat(eta_std) * V_DCSTD);
+    const term_UUT =
+      ((V_ACUUT - V_DCUUT) * 1e6) / (parseFloat(eta_ti) * V_DCUUT);
+
+    const delta_uut_ppm =
+      parseFloat(delta_std_known) +
+      term_STD -
+      term_UUT +
+      parseFloat(delta_std) -
+      parseFloat(delta_ti);
+
+    return delta_uut_ppm;
+  }, []);
+
+  const handleRunFullAnalysis = useCallback(
+    (analysisOptions) => {
+      if (!calResults) {
+        showNotification(
+          "Cannot run analysis until readings are complete and results are calculated for this point.",
+          "error"
+        );
+        return;
+      }
+      
+      const rangeMeans = calculateResultsForRange(calReadings, analysisOptions);
+
+      // This check is now safe to perform
+      if ([calResults.eta_std, calResults.delta_std_known].some(val => val == null)) {
+          showNotification('Cannot run analysis until correction factors are calculated and saved for this point.', 'error');
+          return;
+      }
+
+      if (rangeMeans && Object.keys(rangeMeans).length > 0) {
+        const delta_uut_ppm = calculateACDCForRange(rangeMeans, calResults);
+
+        const typeLabel =
+          READING_TYPES.find((rt) =>
+            rt.value.includes(analysisOptions.type.split("_")[1])
+          )?.label || analysisOptions.type;
+        
+        setRangeModalData({
+          results: { ...rangeMeans, delta_uut_ppm },
+          rangeInfo: { ...analysisOptions, typeLabel },
+        });
+        setIsRangeModalOpen(true);
+      } else {
+        showNotification(
+          "Could not calculate results. Ensure the range is valid and data is available.",
+          "warning"
+        );
+      }
+    },
+    [
+      calReadings,
+      calResults,
+      calculateResultsForRange,
+      calculateACDCForRange,
+      showNotification,
+    ]
+  )
 
   const formatFrequency = (value) =>
     (
@@ -386,7 +543,7 @@ function CalibrationResults({
 
     if (calResults?.delta_uut_ppm !== undefined) {
       const acdcData = [
-        ["AC-DC Difference (ppm):", calResults.delta_uut_ppm.toFixed(8)]
+        ["AC-DC Difference (ppm):", calResults.delta_uut_ppm.toFixed(8)],
       ];
 
       const acdcSheet = XLSX.utils.aoa_to_sheet(acdcData);
@@ -436,12 +593,12 @@ function CalibrationResults({
   const CalculationBreakdown = ({ results }) => {
     if (
       !results ||
-      !results.delta_std_known ||
-      !results.eta_std ||
-      !results.eta_ti ||
-      !results.delta_std ||
-      !results.delta_ti ||
-      !results.delta_uut_ppm
+      results.delta_std_known == null ||
+      results.eta_std == null ||
+      results.eta_ti == null ||
+      results.delta_std == null ||
+      results.delta_ti == null ||
+      results.delta_uut_ppm == null
     ) {
       return (
         <div className="form-section-warning">
@@ -530,6 +687,12 @@ function CalibrationResults({
 
   return (
     <div className="content-area">
+      <RangeResultsModal
+        isOpen={isRangeModalOpen}
+        onClose={() => setIsRangeModalOpen(false)}
+        results={rangeModalData.results}
+        rangeInfo={rangeModalData.rangeInfo}
+      />
       {!selectedSessionId && (
         <div className="form-section-warning">
           <p>
@@ -714,6 +877,7 @@ function CalibrationResults({
                         )}
                         theme={theme}
                         chartType="line"
+                        onRunFullAnalysis={handleRunFullAnalysis}
                       />
                     </div>
                   )}

@@ -1068,6 +1068,41 @@ body.dark-mode .premium-action-button-item:hover {
   margin-top: 1.5rem;
 }
 
+.modal-result-card {
+    background: var(--background-color);
+    border: 1px solid var(--border-color);
+    color: var(--text-color);
+    box-shadow: none;
+    margin: 10px 0 25px 0;
+    text-align: center;
+    padding: 20px;
+    border-top: 4px solid var(--primary-color);
+}
+
+.modal-result-card h4 {
+    color: var(--text-color-muted);
+    font-size: 1rem;
+    font-weight: 600;
+    text-transform: none;
+    letter-spacing: 0;
+    opacity: 1;
+}
+
+.modal-result-card p {
+    color: var(--primary-color);
+    font-size: 2.5rem;
+    margin: 10px 0 0 0;
+    line-height: 1;
+    text-align: center;
+}
+
+.modal-result-card p span {
+    font-size: 1.5rem;
+    font-weight: 500;
+    margin-left: 10px;
+    opacity: 0.8;
+}
+
 /* --- Notifications & Banners --- */
 .notification-bar {
   padding: 10px 15px;
@@ -2713,7 +2748,6 @@ body.dark-mode .direction-dropdown-menu button:hover:not(:disabled) {
 .info-button {
   background-color: transparent;
   color: var(--primary-color);
-  border: 1px solid var(--border-color);
   padding: 8px 16px;
   font-size: 0.9rem;
   font-weight: 600;
@@ -3001,7 +3035,7 @@ body.dark-mode .chart-options-result {
 }
 
 .final-result-card {
-  background: linear-gradient(135deg, var(--button-primary-bg) 0%, var(--button-primary-hover) 100%);
+  /* background: linear-gradient(135deg, var(--button-primary-bg) 0%, var(--button-primary-hover) 5%); */
   color: white;
   padding: 20px 25px;
   border-radius: 8px;

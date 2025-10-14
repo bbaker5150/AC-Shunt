@@ -276,7 +276,6 @@ function Calibration({
     switchDriverSN,
     clearLiveReadings,
     amplifierAddress,
-    amplifierSN,
     lastMessage,
     sendWsCommand,
     stabilizationStatus,
@@ -317,15 +316,17 @@ function Calibration({
     isOpen: false,
     title: "",
     message: "",
-    onConfirm: () => { },
+    onConfirm: () => {},
   });
   const [amplifierModal, setAmplifierModal] = useState({
     isOpen: false,
     range: null,
-    onConfirm: () => { },
+    onConfirm: () => {},
   });
-  const [historicalReadings, setHistoricalReadings] = useState(initialLiveReadings);
-  const [tiHistoricalReadings, setTiHistoricalReadings] = useState(initialLiveReadings);
+  const [historicalReadings, setHistoricalReadings] =
+    useState(initialLiveReadings);
+  const [tiHistoricalReadings, setTiHistoricalReadings] =
+    useState(initialLiveReadings);
   const [hoveredIndex, setHoveredIndex] = useState(null);
   const [shuntsData, setShuntsData] = useState([]);
   const [tvcsData, setTvcsData] = useState([]);
@@ -338,6 +339,7 @@ function Calibration({
   const [isCalculatingAverages, setIsCalculatingAverages] = useState(false);
   const [isRunDropdownOpen, setIsRunDropdownOpen] = useState(false);
   const runDropdownRef = useRef(null);
+  const prevIsBulkRunning = useRef(isBulkRunning);
 
   const uniqueTestPoints = useMemo(
     () => orderedTestPoints,
@@ -488,7 +490,9 @@ function Calibration({
       return `${model} (${address})`;
     }
 
-    const instrument = discoveredInstruments.find((inst) => inst.address === address);
+    const instrument = discoveredInstruments.find(
+      (inst) => inst.address === address
+    );
 
     if (instrument) {
       return `${instrument.identity} (${instrument.address})`;
@@ -530,6 +534,86 @@ function Calibration({
       "ti_ac_close_readings",
     ].every((k) => point.readings[k]?.length > 0);
   }, []);
+
+  useEffect(() => {
+    prevIsBulkRunning.current = isBulkRunning;
+  }, [isBulkRunning]);
+
+  // This is the new effect for post-batch processing.
+  useEffect(() => {
+    const wasBulkRunning = prevIsBulkRunning.current;
+
+    // Only proceed if a bulk run has just finished.
+    if (wasBulkRunning && !isBulkRunning) {
+      const processCompletedPoints = async () => {
+        console.log(
+          "Post-batch processing triggered: searching for points needing average calculation."
+        );
+
+        const averagePromises = [];
+
+        uniqueTestPoints.forEach((point) => {
+          // Helper to check a direction (Forward/Reverse) of a test point
+          const checkAndQueueAvgCalc = (directionData) => {
+            if (!directionData || !directionData.id) return;
+
+            const readingsAreComplete = hasAllReadings(directionData);
+            // Check if results are missing entirely or if a key average value is null
+            const averagesAreMissing =
+              !directionData.results ||
+              directionData.results.std_ac_open_avg === null;
+
+            if (readingsAreComplete && averagesAreMissing) {
+              console.log(
+                `Queueing average calculation for Test Point ID: ${directionData.id}`
+              );
+              averagePromises.push(
+                axios.post(
+                  `${API_BASE_URL}/calibration_sessions/${selectedSessionId}/test_points/${directionData.id}/calculate-averages/`
+                )
+              );
+            }
+          };
+
+          // Check both directions for each test point
+          checkAndQueueAvgCalc(point.forward);
+          checkAndQueueAvgCalc(point.reverse);
+        });
+
+        if (averagePromises.length > 0) {
+          showNotification(
+            `Found ${averagePromises.length} new reading set(s). Calculating averages...`,
+            "info"
+          );
+          try {
+            await Promise.all(averagePromises);
+            console.log("All average calculation requests sent successfully.");
+            // IMPORTANT: Refresh the data from the parent to get the new averages.
+            // This will in turn trigger the other useEffects that perform final calculations.
+            onDataUpdate();
+          } catch (error) {
+            showNotification(
+              "An error occurred during the batch average calculation.",
+              "error"
+            );
+            console.error("Batch average calculation failed:", error);
+          }
+        } else {
+          console.log("No new points required average calculation.");
+        }
+      };
+
+      // Use a small timeout to ensure all state updates from the batch completion have settled.
+      setTimeout(processCompletedPoints, 200);
+    }
+  }, [
+    uniqueTestPoints, // This effect should re-evaluate when the points data changes
+    isBulkRunning,
+    selectedSessionId,
+    hasAllReadings,
+    onDataUpdate,
+    showNotification,
+  ]);
 
   useEffect(() => {
     if (!focusedTP || !selectedSessionId) return;
@@ -1066,20 +1150,20 @@ function Calibration({
         existingResults.delta_std !== undefined
           ? existingResults.delta_std
           : tvcCorrection[0] !== null
-            ? tvcCorrection[0]
-            : "",
+          ? tvcCorrection[0]
+          : "",
       delta_ti:
         existingResults.delta_ti !== undefined
           ? existingResults.delta_ti
           : tvcCorrection[1] !== null
-            ? tvcCorrection[1]
-            : "",
+          ? tvcCorrection[1]
+          : "",
       delta_std_known:
         existingResults.delta_std_known !== undefined
           ? existingResults.delta_std_known
           : shuntCorrection !== null
-            ? shuntCorrection
-            : "",
+          ? shuntCorrection
+          : "",
     });
 
     setIsCorrectionModalOpen(true);
@@ -1314,7 +1398,8 @@ function Calibration({
           })
           .catch((error) => {
             showNotification(
-              `Operation failed: ${error.message || "An unknown error occurred."
+              `Operation failed: ${
+                error.message || "An unknown error occurred."
               }`,
               "error"
             );
@@ -1369,7 +1454,8 @@ function Calibration({
           })
           .catch((error) => {
             showNotification(
-              `Operation failed: ${error.message || "An unknown error occurred."
+              `Operation failed: ${
+                error.message || "An unknown error occurred."
               }`,
               "error"
             );
@@ -1482,7 +1568,8 @@ function Calibration({
           }
         } catch (error) {
           showNotification(
-            `Operation failed: ${error.message || "An unknown error occurred."
+            `Operation failed: ${
+              error.message || "An unknown error occurred."
             }`,
             "error"
           );
@@ -1812,7 +1899,6 @@ function Calibration({
               title="View Configuration Details"
             >
               <FaInfoCircle />
-              <span>View Configuration</span>
             </button>
           </div>
           <div className="calibration-workflow-container">
@@ -2021,10 +2107,11 @@ function Calibration({
                                         Batch Progress
                                       </span>
                                       <span className="status-value">{`Point ${bulkRunProgressFromContext.current} of ${bulkRunProgressFromContext.total}`}</span>
-                                      <span className="status-detail">{`${formatCurrent(focusedTP?.current)
-                                        } @ ${formatFrequency(
-                                          focusedTP?.frequency
-                                        )}`}</span>
+                                      <span className="status-detail">{`${formatCurrent(
+                                        focusedTP?.current
+                                      )} @ ${formatFrequency(
+                                        focusedTP?.frequency
+                                      )}`}</span>
                                     </div>
                                   )}
                                   <div className="status-section">
@@ -2058,10 +2145,11 @@ function Calibration({
                                   <div
                                     className="status-bar-progress"
                                     style={{
-                                      width: `${(collectionProgress.count /
+                                      width: `${
+                                        (collectionProgress.count /
                                           collectionProgress.total) *
                                         100
-                                        }%`,
+                                      }%`,
                                     }}
                                   ></div>
                                 </div>
@@ -2149,7 +2237,7 @@ function Calibration({
                               activeStage={
                                 isCurrentTPActive
                                   ? activeCollectionDetails?.stage ||
-                                  activeCollectionDetails?.readingKey
+                                    activeCollectionDetails?.readingKey
                                   : null
                               }
                             />
@@ -2173,7 +2261,7 @@ function Calibration({
                               activeStage={
                                 isCurrentTPActive
                                   ? activeCollectionDetails?.stage ||
-                                  activeCollectionDetails?.readingKey
+                                    activeCollectionDetails?.readingKey
                                   : null
                               }
                             />
@@ -2227,7 +2315,7 @@ function Calibration({
                         >
                           {focusedTP.forward?.results?.delta_uut_ppm !== null &&
                             focusedTP.forward?.results?.delta_uut_ppm !==
-                            undefined && (
+                              undefined && (
                               <div className="reading">
                                 <h4>Forward Direction</h4>
                                 <div
@@ -2254,7 +2342,7 @@ function Calibration({
 
                           {focusedTP.reverse?.results?.delta_uut_ppm !== null &&
                             focusedTP.reverse?.results?.delta_uut_ppm !==
-                            undefined && (
+                              undefined && (
                               <div className="reading">
                                 <h4>Reverse Direction</h4>
                                 <div
@@ -2283,17 +2371,17 @@ function Calibration({
                           focusedTP.forward?.results?.delta_uut_ppm ||
                           focusedTP.reverse?.results?.delta_uut_ppm
                         ) && (
-                            <div
-                              className="placeholder-content"
-                              style={{ minHeight: "200px" }}
-                            >
-                              <h3>No Results Calculated</h3>
-                              <p>
-                                Complete readings for a direction and click the
-                                "Calculate" button above.
-                              </p>
-                            </div>
-                          )}
+                          <div
+                            className="placeholder-content"
+                            style={{ minHeight: "200px" }}
+                          >
+                            <h3>No Results Calculated</h3>
+                            <p>
+                              Complete readings for a direction and click the
+                              "Calculate" button above.
+                            </p>
+                          </div>
+                        )}
                       </div>
                     )}
                   </div>
