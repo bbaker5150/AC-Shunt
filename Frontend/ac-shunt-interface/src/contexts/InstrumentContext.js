@@ -57,6 +57,7 @@ export const InstrumentContextProvider = ({ children }) => {
   const [readingWsState, setReadingWsState] = useState(WebSocket.CLOSED);
   const [collectionStatus, setCollectionStatus] = useState("");
   const [stabilizationStatus, setStabilizationStatus] = useState(null);
+  const [slidingWindowStatus, setSlidingWindowStatus] = useState(null);
   const readingWs = useRef(null);
   const readingKeyRef = useRef("");
   const [activeCollectionDetails, setActiveCollectionDetails] = useState(null);
@@ -67,7 +68,6 @@ export const InstrumentContextProvider = ({ children }) => {
     label: "",
   });
 
-  // *** ADDED STATE FOR BATCH RUNS ***
   const [bulkRunProgress, setBulkRunProgress] = useState({
     current: 0,
     total: 0,
@@ -83,7 +83,6 @@ export const InstrumentContextProvider = ({ children }) => {
 
   const [lastMessage, setLastMessage] = useState(null);
 
-  // Ref for the client-side heartbeat timer
   const heartbeatTimeout = useRef(null);
 
   useEffect(() => {
@@ -179,7 +178,6 @@ export const InstrumentContextProvider = ({ children }) => {
       setReadingWsState(readingWs.current.readyState);
 
     readingWs.current.onmessage = (event) => {
-      // --- HEARTBEAT LOGIC START ---
       if (heartbeatTimeout.current) clearTimeout(heartbeatTimeout.current);
       heartbeatTimeout.current = setTimeout(() => {
         console.log(
@@ -189,7 +187,6 @@ export const InstrumentContextProvider = ({ children }) => {
           readingWs.current.close();
         }
       }, 30000);
-      // --- HEARTBEAT LOGIC END ---
 
       const data = JSON.parse(event.data);
 
@@ -244,6 +241,15 @@ export const InstrumentContextProvider = ({ children }) => {
           )} V, Stdev: ${data.stdev_ppm} PPM`
         );
         setTimerState({ isActive: false, duration: 0, label: "" });
+      } else if (data.type === "sliding_window_update") {
+        // *** THIS IS THE FIX ***
+        // When the sliding window starts, we know stabilization is over.
+        setStabilizationStatus(null); 
+        setSlidingWindowStatus(
+          data.stdev_ppm === null
+            ? null
+            : { ppm: data.stdev_ppm, is_stable: data.is_stable }
+        );
       } else if (data.type === "batch_progress_update") {
         const { test_point, current, total } = data;
         if (current > 1) {
@@ -288,11 +294,11 @@ export const InstrumentContextProvider = ({ children }) => {
           setIsCollecting(false);
           setActiveCollectionDetails(null);
           readingKeyRef.current = "";
-          // *** RESET BATCH STATE ON COMPLETION/STOP ***
           setBulkRunProgress({ current: 0, total: 0, pointKey: null });
           setFocusedTPKey(null);
         }
         setStabilizationStatus(null);
+        setSlidingWindowStatus(null);
         setTimerState({ isActive: false, duration: 0, label: "" });
       } else if (data.type === "switch_status_update") {
         setSwitchStatus({ status: data.active_source, isConnected: true });
@@ -300,7 +306,6 @@ export const InstrumentContextProvider = ({ children }) => {
     };
   }, [selectedSessionId, setSwitchStatus, clearLiveReadings]);
 
-  // *** NEW: useEffect for Page Visibility API ***
   useEffect(() => {
     const handleVisibilityChange = () => {
       if (document.visibilityState === "visible") {
@@ -338,7 +343,7 @@ export const InstrumentContextProvider = ({ children }) => {
         const timeout = setTimeout(() => {
           readingWs.current.removeEventListener("message", tempHandler);
           reject(new Error("Request to set amplifier range timed out."));
-        }, 10000); // 10-second timeout
+        }, 10000);
 
         const tempHandler = (event) => {
           const data = JSON.parse(event.data);
@@ -555,6 +560,7 @@ export const InstrumentContextProvider = ({ children }) => {
     lastMessage,
     sendWsCommand,
     stabilizationStatus,
+    slidingWindowStatus,
     timerState,
     bulkRunProgress,
     focusedTPKey,

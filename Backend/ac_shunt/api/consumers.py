@@ -315,78 +315,6 @@ class CalibrationConsumer(AsyncWebsocketConsumer):
             await self.send(text_data=json.dumps({'type': 'status_update', 'message': "Warm-up complete. Starting measurement."}))
         print("[WARMUP_FUNC] Warm-up period finished.")
 
-    async def _wait_for_stabilization(self, std_instrument, ti_instrument, window_size=5, threshold_ppm=10, max_attempts=50):
-        await self.send(text_data=json.dumps({
-            'type': 'status_update', 
-            'message': f"Waiting for readings to stabilize (Stdev < {threshold_ppm} PPM)..."
-        }))
-
-        std_readings = deque(maxlen=window_size)
-        ti_readings = deque(maxlen=window_size)
-        
-        current_stdev_ppm = float('inf')
-        
-        for i in range(max_attempts):
-            if self.stop_event.is_set():
-                return list(std_readings), list(ti_readings)
-
-            std_reading_val, ti_reading_val = await asyncio.gather(
-                self._take_one_reading(std_instrument), 
-                self._take_one_reading(ti_instrument)
-            )
-            timestamp = time.time()
-            std_readings.append({'value': std_reading_val, 'timestamp': timestamp})
-            ti_readings.append({'value': ti_reading_val, 'timestamp': timestamp})
-            
-            if len(std_readings) == window_size:
-                std_values = [r['value'] for r in std_readings]
-                try:
-                    mean_val = statistics.mean(std_values)
-                    stdev_val = statistics.stdev(std_values)
-
-                    if abs(mean_val) < 1e-9:
-                        current_stdev_ppm = float('inf')
-                    else:
-                        current_stdev_ppm = (stdev_val / abs(mean_val)) * 1_000_000
-
-                    if current_stdev_ppm < threshold_ppm:
-                        await self.send(text_data=json.dumps({
-                            'type': 'status_update',
-                            'message': f"Signal stabilized with Stdev: {current_stdev_ppm:.2f} PPM. Starting measurement."
-                        }))
-                        print(f"STABILIZED: Stdev {current_stdev_ppm:.2f} PPM < {threshold_ppm} PPM after {i+1} readings.")
-                        return list(std_readings), list(ti_readings)
-
-                except statistics.StatisticsError:
-                    current_stdev_ppm = 0.0
-                    await self.send(text_data=json.dumps({
-                        'type': 'status_update',
-                        'message': "Signal is perfectly stable. Starting measurement."
-                    }))
-                    print(f"STABILIZED: Signal perfectly stable after {i+1} readings.")
-                    return list(std_readings), list(ti_readings)
-
-            await self.send(text_data=json.dumps({
-                'type': 'stabilization_update',
-                'reading': std_reading_val,
-                'stdev_ppm': f"{current_stdev_ppm:.2f}" if current_stdev_ppm != float('inf') else "Calculating...",
-                'count': i + 1,
-                'max_attempts': max_attempts
-            }))
-            
-            try:
-                await asyncio.sleep(0.2)
-            except asyncio.CancelledError:
-                print("STABILIZATION: Stabilization wait cancelled.")
-                raise
-
-        await self.send(text_data=json.dumps({
-            'type': 'warning',
-            'message': f"Signal unstable! Proceeding with last {len(std_readings)} readings. (Stdev: {current_stdev_ppm:.2f} PPM)"
-        }))
-        print(f"STABILIZATION WARNING: Timed out after {max_attempts} attempts. Using last readings.")
-        return list(std_readings), list(ti_readings)
-    
     async def _perform_single_measurement(self, reading_type_base, num_samples, test_point_data, bypass_tvc, amplifier_range, source_instrument, std_reader_instrument, ti_reader_instrument, amplifier_instrument=None, settling_time=0, nplc_setting=None, stability_params=None):
         is_ac_reading = 'ac' in reading_type_base
         input_current = float(test_point_data.get('current'))
@@ -419,33 +347,101 @@ class CalibrationConsumer(AsyncWebsocketConsumer):
                 print("MEASUREMENT: Settling time cancelled.")
                 raise
         
+        window_size = stability_params.get('window', 5) if stability_params else 5
+        std_window = deque(maxlen=window_size)
+
         if stability_params and stability_params.get('enabled', False):
-            initial_std_readings, initial_ti_readings = await self._wait_for_stabilization(
-                std_instrument=std_reader_instrument,
-                ti_instrument=ti_reader_instrument,
-                window_size=stability_params.get('window', 5),
-                threshold_ppm=stability_params.get('threshold_ppm', 10),
-                max_attempts=stability_params.get('max_attempts', 50)
-            )
+            threshold_ppm = stability_params.get('threshold_ppm', 10)
+            max_attempts = stability_params.get('max_attempts', 50)
             
-            if len(initial_std_readings) > num_samples:
-                initial_std_readings = initial_std_readings[-num_samples:]
-                initial_ti_readings = initial_ti_readings[-num_samples:]
+            await self.send(text_data=json.dumps({
+                'type': 'status_update', 
+                'message': f"Waiting for readings to stabilize (Stdev < {threshold_ppm} PPM)..."
+            }))
+            
+            stabilized = False
+            for i in range(max_attempts):
+                if self.stop_event.is_set(): return
 
-            all_std_readings.extend(initial_std_readings)
-            all_ti_readings.extend(initial_ti_readings)
+                std_reading_val, ti_reading_val = await asyncio.gather(
+                    self._take_one_reading(std_reader_instrument), 
+                    self._take_one_reading(ti_reader_instrument)
+                )
+                timestamp = time.time()
+                std_point = {'value': std_reading_val, 'timestamp': timestamp}
+                ti_point = {'value': ti_reading_val, 'timestamp': timestamp}
+                
+                std_window.append(std_point)
+                
+                current_stdev_ppm = float('inf')
+                # --- MODIFICATION START ---
+                # Calculate stdev as soon as there are at least 2 samples
+                if len(std_window) >= 2:
+                    std_values = [r['value'] for r in std_window]
+                    try:
+                        mean_val = statistics.mean(std_values)
+                        stdev_val = statistics.stdev(std_values)
+                        current_stdev_ppm = (stdev_val / abs(mean_val)) * 1_000_000 if abs(mean_val) > 1e-9 else float('inf')
+                        
+                        # Only check for stabilization if the window is full
+                        if len(std_window) == window_size and current_stdev_ppm < threshold_ppm:
+                            stabilized = True
+                            break
+                    except statistics.StatisticsError:
+                        # This can happen if there's only one item, but our check prevents it.
+                        # If it somehow occurs, we are not stable, so we just pass.
+                        pass
+                # --- MODIFICATION END ---
 
-            for i, (std_r, ti_r) in enumerate(zip(all_std_readings, all_ti_readings)):
-                await self.send(text_data=json.dumps({'type': 'dual_reading_update', 'std_reading': std_r['value'], 'ti_reading': ti_r['value'], 'count': i + 1, 'total': num_samples, 'timestamp': std_r['timestamp'], 'stage': reading_type_base}))
+                await self.send(text_data=json.dumps({
+                    'type': 'stabilization_update',
+                    'reading': std_reading_val,
+                    'stdev_ppm': f"{current_stdev_ppm:.2f}" if current_stdev_ppm != float('inf') else "Calculating...",
+                    'count': i + 1,
+                    'max_attempts': max_attempts
+                }))
+                await asyncio.sleep(0.2)
 
-        start_index = len(all_std_readings)
-        for i in range(start_index, num_samples):
+            if not stabilized:
+                await self.send(text_data=json.dumps({
+                    'type': 'warning',
+                    'message': f"Signal unstable! Proceeding with last readings. (Stdev: {current_stdev_ppm:.2f} PPM)"
+                }))
+            else:
+                await self.send(text_data=json.dumps({
+                    'type': 'status_update',
+                    'message': f"Signal stabilized. Starting main collection."
+                }))
+
+        for i in range(num_samples):
             if self.stop_event.is_set(): return
             
             std_reading, ti_reading = await asyncio.gather(self._take_one_reading(std_reader_instrument), self._take_one_reading(ti_reader_instrument))
             timestamp = time.time()
-            all_std_readings.append({'value': std_reading, 'timestamp': timestamp})
-            all_ti_readings.append({'value': ti_reading, 'timestamp': timestamp})
+            std_point = {'value': std_reading, 'timestamp': timestamp}
+            ti_point = {'value': ti_reading, 'timestamp': timestamp}
+
+            all_std_readings.append(std_point)
+            all_ti_readings.append(ti_point)
+
+            if stability_params and stability_params.get('enabled', False):
+                std_window.append(std_point)
+                if len(std_window) == window_size:
+                    std_values = [r['value'] for r in std_window]
+                    try:
+                        mean_val = statistics.mean(std_values)
+                        stdev_val = statistics.stdev(std_values)
+                        threshold_ppm = stability_params.get('threshold_ppm', 10)
+                        current_stdev_ppm = (stdev_val / abs(mean_val)) * 1_000_000 if abs(mean_val) > 1e-9 else float('inf')
+                        
+                        await self.send(text_data=json.dumps({
+                            'type': 'sliding_window_update',
+                            'stdev_ppm': current_stdev_ppm,
+                            'is_stable': current_stdev_ppm < threshold_ppm
+                        }))
+                    except statistics.StatisticsError:
+                        pass
+
             await self.send(text_data=json.dumps({'type': 'dual_reading_update', 'std_reading': std_reading, 'ti_reading': ti_reading, 'count': i + 1, 'total': num_samples, 'timestamp': timestamp, 'stage': reading_type_base}))
             try:
                 await asyncio.sleep(0.1)
@@ -456,6 +452,8 @@ class CalibrationConsumer(AsyncWebsocketConsumer):
         await self.save_readings_to_db(f"std_{reading_type_base}", all_std_readings, test_point_data)
         await self.save_readings_to_db(f"ti_{reading_type_base}", all_ti_readings, test_point_data)
 
+        await self.send(text_data=json.dumps({'type': 'sliding_window_update', 'stdev_ppm': None, 'is_stable': None}))
+    
     async def collect_single_reading_set(self, data):
         ac_source, dc_source, std_reader_instrument, ti_reader_instrument, amplifier_instrument, switch_driver = None, None, None, None, None, None
         try:

@@ -279,6 +279,7 @@ function Calibration({
     lastMessage,
     sendWsCommand,
     stabilizationStatus,
+    slidingWindowStatus, // *** ADDED ***
     timerState,
     bulkRunProgress: bulkRunProgressFromContext,
     focusedTPKey,
@@ -520,6 +521,29 @@ function Calibration({
       refreshComponentData();
     }
   }, [isCollecting, isBulkRunning, refreshComponentData, orderedTestPoints]);
+
+  const parseStabilizationStatus = useCallback(
+    (statusString) => {
+      if (!statusString) return null;
+
+      const ppmMatch = statusString.match(/Stdev: ([\d.]+|Calculating...) PPM/);
+      const countMatch = statusString.match(/\[(\d+)\/(\d+)\]/); // Capture numerator and denominator
+
+      const ppm =
+        ppmMatch && ppmMatch[1] !== "Calculating..."
+          ? parseFloat(ppmMatch[1])
+          : null;
+      const count = countMatch ? `${countMatch[1]}/${countMatch[2]}` : "";
+
+      const isStable =
+        ppm !== null &&
+        ppm < (calibrationSettings.stability_threshold_ppm || 10);
+
+      return { ppm, count, isStable };
+    },
+    [calibrationSettings.stability_threshold_ppm]
+  );
+  const stabilizationInfo = parseStabilizationStatus(stabilizationStatus);
 
   const hasAllReadings = useCallback((point) => {
     if (!point?.readings) return false;
@@ -2114,6 +2138,7 @@ function Calibration({
                                       )}`}</span>
                                     </div>
                                   )}
+                                  {/* --- CORRECTED MAIN STATUS SECTION --- */}
                                   <div className="status-section">
                                     <span className="status-label">
                                       {timerState.isActive ? (
@@ -2122,7 +2147,7 @@ function Calibration({
                                         </>
                                       ) : stabilizationStatus ? (
                                         <>
-                                          <FaCrosshairs /> Stability
+                                          <FaCrosshairs /> Stabilizing
                                         </>
                                       ) : (
                                         <>
@@ -2136,10 +2161,58 @@ function Calibration({
                                         : getStageName()}
                                     </span>
                                     <span className="status-detail">
-                                      {stabilizationStatus ||
-                                        `${collectionProgress.count} / ${collectionProgress.total} Samples`}
+                                      {stabilizationStatus && stabilizationInfo
+                                        ? `Attempt: ${stabilizationInfo.count}`
+                                        : `${collectionProgress.count} / ${collectionProgress.total} Samples`}
                                     </span>
                                   </div>
+
+                                  {(stabilizationInfo ||
+                                    slidingWindowStatus) && (
+                                    <div className="status-section window-stability-section">
+                                      <span className="status-label">
+                                        <FaCrosshairs /> Window Stability
+                                      </span>
+                                      {stabilizationInfo ? (
+                                        <>
+                                          <span
+                                            className={`window-ppm-value ${
+                                              stabilizationInfo.isStable
+                                                ? "status-good"
+                                                : "status-bad"
+                                            }`}
+                                          >
+                                            {stabilizationInfo.ppm !== null
+                                              ? `${stabilizationInfo.ppm.toFixed(
+                                                  2
+                                                )} PPM`
+                                              : "..."}
+                                          </span>
+                                          <span className="status-detail">
+                                            {`Thresh: ${calibrationSettings.stability_threshold_ppm} PPM`}
+                                          </span>
+                                        </>
+                                      ) : (
+                                        // Display for main collection (sliding window) phase
+                                        <>
+                                          <span
+                                            className={`window-ppm-value ${
+                                              slidingWindowStatus?.is_stable
+                                                ? "status-good"
+                                                : "status-bad"
+                                            }`}
+                                          >
+                                            {`${slidingWindowStatus?.ppm.toFixed(
+                                              2
+                                            )} PPM`}
+                                          </span>
+                                          <span className="status-detail">
+                                            {`Thresh: ${calibrationSettings.stability_threshold_ppm} PPM`}
+                                          </span>
+                                        </>
+                                      )}
+                                    </div>
+                                  )}
                                 </div>
                                 <div className="status-bar-progress-container">
                                   <div

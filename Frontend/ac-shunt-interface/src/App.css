@@ -5304,6 +5304,36 @@ body.dark-mode .premium-action-button-item:hover {
   background-color: var(--background-color);
 }
 
+.window-stability-section {
+  border-left: 1px solid var(--border-color);
+  flex-shrink: 0; /* Prevents the section from shrinking too much */
+  min-width: 180px; /* Ensures it has enough space */
+}
+
+/* This makes the PPM value the hero element of the new section */
+.window-ppm-value {
+  font-size: 1.3rem; /* Larger font for emphasis */
+  font-weight: 700;
+  transition: color 0.3s ease;
+  line-height: 1;
+}
+
+/* Dynamically color the PPM value based on stability */
+.window-ppm-value.status-good {
+  color: var(--status-good);
+}
+
+.window-ppm-value.status-bad {
+  color: var(--status-bad);
+}
+
+/* Ensure border colors are correct in dark mode */
+body.dark-mode .status-section,
+body.dark-mode .window-stability-section {
+  border-right-color: var(--border-color);
+  border-left-color: var(--border-color);
+}
+
 .button-stop {
   background: none;
   border: none;
