@@ -179,19 +179,18 @@ class CalibrationReadings(models.Model):
         results, _ = CalibrationResults.objects.get_or_create(test_point=self.test_point)
         
         def calculate_stats(readings):
-            if not readings or len(readings) < 2: # Require at least 2 readings for std dev
+            if not readings:
                 return None, None
-            
-            # Extract numeric values, whether from a list of dicts or a list of floats
-            if isinstance(readings[0], dict) and 'value' in readings[0]:
-                numeric_values = [r.get('value') for r in readings]
-            else:
-                numeric_values = readings
+            stable_values = [
+                r['value'] for r in readings
+                if isinstance(r, dict) and r.get('is_stable', True)
+            ]
 
-            # **THE FIX**: Use ddof=1 to calculate the SAMPLE standard deviation (N-1)
-            mean = np.mean(numeric_values)
-            std_dev = np.std(numeric_values, ddof=1)
-            print(f"[DEBUG - Models] Calculated Mean: {mean}, StdDev: {std_dev}")
+            if len(stable_values) < 2:
+                return None, None
+
+            mean = np.mean(stable_values)
+            std_dev = np.std(stable_values, ddof=1)
             
             return mean, std_dev
 

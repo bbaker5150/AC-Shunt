@@ -2868,6 +2868,40 @@ body.dark-mode .direction-dropdown-menu button:hover:not(:disabled) {
   line-height: 1.5;
 }
 
+.chart-options-form-group.checkbox-group {
+  flex-direction: row;
+  align-items: center;
+  justify-content: flex-start;
+  gap: 12px;
+  padding: 10px;
+  border-radius: 6px;
+  cursor: pointer;
+  transition: background-color 0.2s ease-in-out;
+  margin: 0;
+}
+
+.chart-options-form-group.checkbox-group:hover {
+  background-color: var(--background-color);
+}
+
+.chart-options-form-group.checkbox-group input[type="checkbox"] {
+  width: auto;
+  margin: 0;
+  transform: scale(1.1);
+  cursor: pointer;
+}
+
+.chart-options-form-group.checkbox-group label {
+  margin: 0;
+  font-weight: 500;
+  flex-grow: 1;
+  cursor: pointer;
+}
+
+body.dark-mode .chart-options-form-group.checkbox-group:hover {
+  background-color: #4a5568;
+}
+
 /* =============================================== */
 /* ======== LIVE STATISTICS TRACKER STYLES ======= */
 /* =============================================== */

@@ -73,6 +73,7 @@ const calculateRangeStats = (originalChartData, typeLabel, start, end) => {
 
   const dataSlice = targetDataset.data
     .slice(startIndex, endIndex)
+    .filter((p) => p.is_stable !== false)
     .map((p) => p.y);
   if (dataSlice.length < 2) return null;
 
@@ -104,14 +105,11 @@ function CalibrationChart({
   const [yAxisUnit, setYAxisUnit] = useState("voltage"); // 'voltage' or 'ppm'
   const [isOptionsOpen, setIsOptionsOpen] = useState(false);
   const optionsMenuRef = useRef(null);
-
-  // State for y-axis resolution and errors
+  const [hideUnstableReadings, setHideUnstableReadings] = useState(false);
   const [voltSigFigs, setVoltSigFigs] = useState(4);
   const [voltSigFigsError, setVoltSigFigsError] = useState("");
   const [ppmDecimalPlaces, setPpmDecimalPlaces] = useState(2);
   const [ppmDecimalPlacesError, setPpmDecimalPlacesError] = useState("");
-
-  // State for the new analysis tool
   const [analysisOptions, setAnalysisOptions] = useState({
     type: "",
     start: 1,
@@ -119,7 +117,6 @@ function CalibrationChart({
   });
   const [analysisResult, setAnalysisResult] = useState(null);
 
-  // Effect to set default analysis options when data loads
   useEffect(() => {
     const primaryDataset = chartData?.datasets?.find(
       (ds) => ds.data && ds.data.length > 0
@@ -133,7 +130,6 @@ function CalibrationChart({
     }
   }, [chartData]);
 
-  // Effect to close the dropdown when clicking outside of it
   useEffect(() => {
     function handleClickOutside(event) {
       if (
@@ -149,34 +145,48 @@ function CalibrationChart({
     };
   }, [optionsMenuRef]);
 
-  // Memoize calculations for performance.
   const { processedChartData, processedComparisonData } = useMemo(() => {
     const processDatasets = (dataToProcess) => {
       if (!dataToProcess || !dataToProcess.datasets) return [];
       return dataToProcess.datasets.map((ds) => {
+        let processedData = ds.data || [];
+
+        if (hideUnstableReadings) {
+          processedData = processedData
+            .filter((point) => point.is_stable !== false)
+            // --- THIS IS THE FIX ---
+            // Re-index the x-axis values for the remaining stable points
+            .map((point, index) => ({
+              ...point,
+              x: index + 1,
+            }));
+        }
+
         if (yAxisUnit === "ppm") {
-          if (!ds.data || ds.data.length === 0) return ds;
-          const localMean =
-            ds.data.reduce((acc, curr) => acc + curr.y, 0) / ds.data.length;
+          if (processedData.length === 0) return { ...ds, data: [] };
+          const originalMean =
+            (ds.data || []).reduce((acc, curr) => acc + curr.y, 0) /
+            (ds.data.length || 1);
+
           return {
             ...ds,
-            data: ds.data.map((point) => ({
+            data: processedData.map((point) => ({
               ...point,
               y:
-                localMean === 0
+                originalMean === 0
                   ? 0
-                  : ((point.y - localMean) / Math.abs(localMean)) * 1e6,
+                  : ((point.y - originalMean) / Math.abs(originalMean)) * 1e6,
             })),
           };
         }
-        return ds;
+        return { ...ds, data: processedData };
       });
     };
 
     if (
       !chartData ||
       !chartData.datasets ||
-      chartData.datasets.every((ds) => ds.data.length === 0)
+      chartData.datasets.every((ds) => !ds.data || ds.data.length === 0)
     ) {
       return {
         processedChartData: { datasets: [] },
@@ -188,12 +198,15 @@ function CalibrationChart({
     const finalComparisonDatasets = processDatasets({
       datasets: comparisonData,
     });
+    const allXLabels = finalChartDatasets.flatMap((ds) => ds.data.map((d) => d.x));
+    const finalLabels = [...new Set(allXLabels)].sort((a, b) => a - b);
+
 
     return {
-      processedChartData: { ...chartData, datasets: finalChartDatasets },
+      processedChartData: { labels: finalLabels, datasets: finalChartDatasets },
       processedComparisonData: finalComparisonDatasets,
     };
-  }, [chartData, comparisonData, yAxisUnit]);
+  }, [chartData, comparisonData, yAxisUnit, hideUnstableReadings]);
 
   const handleVoltSigFigChange = (e) => {
     const value = e.target.value;
@@ -287,7 +300,11 @@ function CalibrationChart({
       title: { display: false },
       tooltip: {
         callbacks: {
-          title: (tooltipItems) => `Sample #${tooltipItems[0]?.raw?.x || ""}`,
+          title: (tooltipItems) => {
+            const point = tooltipItems[0]?.raw;
+            const stableText = point?.is_stable === false ? " (Unstable)" : "";
+            return `Sample #${point?.x || ""}${stableText}`;
+          },
           label: () => "",
           footer: (tooltipItems) => {
             const activePoint = tooltipItems[0];
@@ -364,6 +381,19 @@ function CalibrationChart({
       },
       crosshair: { syncedHoverIndex, color: crosshairColor },
     },
+    elements: {
+      point: {
+        radius: (context) => {
+          return context.raw?.is_stable === false ? 6 : 3;
+        },
+        pointStyle: (context) => {
+          if (context.raw?.is_stable === false) {
+            return 'crossRot';
+          }
+          return 'circle';
+        },
+      },
+    },
     scales: {
       y: {
         beginAtZero: false,
@@ -431,6 +461,15 @@ function CalibrationChart({
             <div className="chart-options-dropdown">
               <div className="chart-options-section">
                 <span className="chart-options-label">Display Options</span>
+                <div className="chart-options-form-group checkbox-group">
+                  <input
+                    id="hideUnstableInput"
+                    type="checkbox"
+                    checked={hideUnstableReadings}
+                    onChange={(e) => setHideUnstableReadings(e.target.checked)}
+                  />
+                  <label htmlFor="hideUnstableInput">Hide Unstable Readings</label>
+                </div>
                 <div className="chart-options-form-group">
                   <label>Y-Axis Unit</label>
                   <div className="unit-toggle">

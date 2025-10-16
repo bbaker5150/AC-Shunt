@@ -144,6 +144,7 @@ const DetailedReadingsTable = ({ readingsArray }) => {
           <tr>
             <th>Sample #</th>
             <th>Value</th>
+            <th>Status</th>
             <th>Timestamp</th>
           </tr>
         </thead>
@@ -151,14 +152,16 @@ const DetailedReadingsTable = ({ readingsArray }) => {
           {readingsArray.map((point, index) => {
             const isObject = typeof point === "object" && point !== null;
             const value = isObject ? point.value : point;
+            const isStable = isObject ? point.is_stable : true;
             const timestamp =
               isObject && point.timestamp
                 ? new Date(point.timestamp * 1000).toLocaleString()
                 : "N/A";
             return (
-              <tr key={index}>
+              <tr key={index} className={!isStable ? "unstable-row" : ""}>
                 <td>{index + 1}</td>
                 <td>{value?.toPrecision(8)}</td>
+                <td>{isStable ? "Stable" : "Unstable"}</td>
                 <td>{timestamp}</td>
               </tr>
             );
@@ -308,21 +311,19 @@ function CalibrationResults({
 
         const combinedResults = {};
         READING_KEY_NAMES.forEach((key) => {
-          const readings = combinedReadings[key].map((r) =>
-            typeof r === "object" ? r.value : r
-          );
+          const readings = combinedReadings[key]
+            .filter((r) => r.is_stable !== false)
+            .map((r) => (typeof r === "object" ? r.value : r));
           if (readings.length > 0) {
-            // Average calculation remains the same (average of all readings)
             const sum = readings.reduce((a, b) => a + b, 0);
             const avg = sum / readings.length;
             combinedResults[key.replace("_readings", "_avg")] = avg;
 
-            // It now averages the two individual standard deviations
             const stddevKey = key.replace("_readings", "_stddev");
             const stddevFwd = forward.results?.[stddevKey];
             const stddevRev = reverse.results?.[stddevKey];
 
-            let newCombinedStddev = 0; // Default to 0 if values aren't available
+            let newCombinedStddev = 0;
             if (
               typeof stddevFwd === "number" &&
               typeof stddevRev === "number"
@@ -370,6 +371,7 @@ function CalibrationResults({
           if (dataset && dataset.length > 0) {
             const dataSlice = dataset
               .slice(startIndex, endIndex)
+              .filter(p => p.is_stable !== false)
               .map((p) => (typeof p === "object" ? p.value : p));
 
             if (dataSlice.length > 0) {
@@ -427,7 +429,7 @@ function CalibrationResults({
         (val) => val == null
       )
     ) {
-      return null; // Not all correction factors are available
+      return null;
     }
 
     const term_STD =
@@ -457,7 +459,6 @@ function CalibrationResults({
       
       const rangeMeans = calculateResultsForRange(calReadings, analysisOptions);
 
-      // This check is now safe to perform
       if ([calResults.eta_std, calResults.delta_std_known].some(val => val == null)) {
           showNotification('Cannot run analysis until correction factors are calculated and saved for this point.', 'error');
           return;
@@ -569,18 +570,36 @@ function CalibrationResults({
     if (!calReadings) return { labels: [], datasets: [] };
     const datasets = READING_TYPES.map((rt) => {
       const key = `${prefix}${rt.value}`;
+      const baseColor = rt.color;
+      const unstableColor = "rgba(255, 99, 132, 1)";
+      const unstableBgColor = "rgba(255, 99, 132, 0.6)";
+
       return {
         label: rt.label,
-        data: (calReadings[key] || []).map((point, index) => ({
-          x: index + 1,
-          y: typeof point === "object" ? point.value : point,
-          t:
-            typeof point === "object" && point.timestamp
-              ? new Date(point.timestamp * 1000)
-              : null,
-        })),
-        borderColor: rt.color,
-        backgroundColor: rt.color.replace(")", ", 0.5)").replace("rgb", "rgba"),
+        data: (calReadings[key] || []).map((point, index) => {
+          const p =
+            typeof point === "object"
+              ? point
+              : { value: point, is_stable: true, timestamp: null };
+          return {
+            x: index + 1,
+            y: p.value,
+            t: p.timestamp ? new Date(p.timestamp * 1000) : null,
+            is_stable: p.is_stable,
+          };
+        }),
+        borderColor: (context) => {
+          if (context.raw?.is_stable === false) {
+            return unstableColor;
+          }
+          return baseColor;
+        },
+        backgroundColor: (context) => {
+          if (context.raw?.is_stable === false) {
+            return unstableBgColor;
+          }
+          return baseColor.replace(")", ", 0.5)").replace("rgb", "rgba");
+        },
         tension: 0.1,
         fill: false,
       };
@@ -722,7 +741,6 @@ function CalibrationResults({
                 </div>
                 <div className="results-header-right">
                   <div className="view-toggle icon-only-toggle">
-                    {/* Each button now gets its own tooltip container */}
                     <div className="tooltip-container">
                       <button
                         onClick={() => setActiveTab("summary")}

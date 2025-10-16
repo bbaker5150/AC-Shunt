@@ -34,6 +34,7 @@ import {
   API_BASE_URL,
 } from "../../constants/constants";
 
+// All other components (CorrectionFactorsModal, ConfirmationModal, etc.) remain unchanged...
 const CorrectionFactorsModal = ({
   isOpen,
   onClose,
@@ -279,7 +280,7 @@ function Calibration({
     lastMessage,
     sendWsCommand,
     stabilizationStatus,
-    slidingWindowStatus, // *** ADDED ***
+    slidingWindowStatus,
     timerState,
     bulkRunProgress: bulkRunProgressFromContext,
     focusedTPKey,
@@ -346,6 +347,41 @@ function Calibration({
     () => orderedTestPoints,
     [orderedTestPoints]
   );
+
+  // ===================================================================
+  // ============= START: LIVE PPM CALCULATION LOGIC =============
+  // ===================================================================
+  const livePpm = useMemo(() => {
+    if (!isCollecting || !activeCollectionDetails?.stage) {
+      return null;
+    }
+
+    // Use the live readings for the currently active collection stage
+    const currentReadings = liveReadings[activeCollectionDetails.stage];
+
+    // Need at least 2 points to calculate standard deviation
+    if (!currentReadings || currentReadings.length < 2) {
+      return null;
+    }
+
+    const values = currentReadings.map((p) => p.y);
+    const sum = values.reduce((acc, val) => acc + val, 0);
+    const mean = sum / values.length;
+
+    // Avoid division by zero for PPM calculation
+    if (Math.abs(mean) < 1e-9) return 0;
+
+    const variance =
+      values.reduce((acc, val) => acc + Math.pow(val - mean, 2), 0) /
+      (values.length - 1);
+    const stdDev = Math.sqrt(variance);
+    const ppm = (stdDev / Math.abs(mean)) * 1e6;
+
+    return ppm;
+  }, [liveReadings, isCollecting, activeCollectionDetails]);
+  // ===================================================================
+  // ============== END: LIVE PPM CALCULATION LOGIC ==============
+  // ===================================================================
 
   useEffect(() => {
     const handleClickOutside = (event) => {
@@ -805,14 +841,17 @@ function Calibration({
   useEffect(() => {
     const formatReadingsForChart = (readingsArray) => {
       if (!readingsArray) return [];
-      return readingsArray.map((point, index) => ({
-        x: index + 1,
-        y: typeof point === "object" ? point.value : point,
-        t:
-          typeof point === "object" && point.timestamp
-            ? new Date(point.timestamp * 1000)
-            : null,
-      }));
+      return readingsArray.map((point, index) => {
+        if (typeof point !== "object" || point === null) {
+          return { x: index + 1, y: point, t: null, is_stable: true };
+        }
+        return {
+          ...point,
+          x: index + 1,
+          y: point.value,
+          t: point.timestamp ? new Date(point.timestamp * 1000) : null,
+        };
+      });
     };
 
     const defaultSettings = {
@@ -1633,14 +1672,36 @@ function Calibration({
         )
       ),
     ].sort((a, b) => a - b),
-    datasets: READING_TYPES.map((type) => ({
-      label: type.label,
-      data: readings[type.key],
-      borderColor: type.color,
-      backgroundColor: type.color.replace(")", ", 0.5)").replace("rgb", "rgba"),
-      tension: 0.1,
-      fill: false,
-    })),
+    datasets: READING_TYPES.map((type) => {
+      const baseColor = type.color;
+      const unstableColor = "rgba(255, 0, 0, 1)";
+      const unstableBgColor = "rgba(255, 0, 0, 1)";
+
+      return {
+        label: type.label,
+        data: readings[type.key],
+        borderColor: (context) => {
+          if (context.raw?.is_stable === false) {
+            return unstableColor;
+          }
+          return baseColor;
+        },
+        backgroundColor: (context) => {
+          if (context.raw?.is_stable === false) {
+            return unstableBgColor;
+          }
+          return baseColor.replace(")", ", 0.5)").replace("rgb", "rgba");
+        },
+        tension: 0.1,
+        fill: false,
+        // segment: {
+        //   borderColor: (ctx) =>
+        //     ctx.p0.raw.is_stable === false || ctx.p1.raw.is_stable === false
+        //       ? unstableColor
+        //       : baseColor,
+        // },
+      };
+    }),
   });
 
   const formatFrequency = useCallback((value) => {
@@ -1855,6 +1916,32 @@ function Calibration({
     selectedTPs.size,
     handleCollectReadingsRequest,
     handleRunSingleStageOnSelected,
+  ]);
+
+  const displayPpm = slidingWindowStatus?.ppm ?? livePpm;
+
+  const isWindowMature =
+    collectionProgress.count >= calibrationSettings.stability_window;
+
+  const currentFillCount =
+    collectionProgress.count % calibrationSettings.stability_window;
+  const displayFillCount =
+    currentFillCount === 0 && collectionProgress.count > 0
+      ? calibrationSettings.stability_window
+      : currentFillCount;
+
+  const isStableNow = useMemo(() => {
+    if (slidingWindowStatus) {
+      return slidingWindowStatus.is_stable;
+    }
+    if (livePpm !== null) {
+      return livePpm < calibrationSettings.stability_threshold_ppm;
+    }
+    return true;
+  }, [
+    slidingWindowStatus,
+    livePpm,
+    calibrationSettings.stability_threshold_ppm,
   ]);
 
   return (
@@ -2138,7 +2225,6 @@ function Calibration({
                                       )}`}</span>
                                     </div>
                                   )}
-                                  {/* --- CORRECTED MAIN STATUS SECTION --- */}
                                   <div className="status-section">
                                     <span className="status-label">
                                       {timerState.isActive ? (
@@ -2167,50 +2253,27 @@ function Calibration({
                                     </span>
                                   </div>
 
-                                  {(stabilizationInfo ||
-                                    slidingWindowStatus) && (
+                                  {!timerState.isActive && (
                                     <div className="status-section window-stability-section">
                                       <span className="status-label">
                                         <FaCrosshairs /> Window Stability
                                       </span>
-                                      {stabilizationInfo ? (
-                                        <>
-                                          <span
-                                            className={`window-ppm-value ${
-                                              stabilizationInfo.isStable
-                                                ? "status-good"
-                                                : "status-bad"
-                                            }`}
-                                          >
-                                            {stabilizationInfo.ppm !== null
-                                              ? `${stabilizationInfo.ppm.toFixed(
-                                                  2
-                                                )} PPM`
-                                              : "..."}
-                                          </span>
-                                          <span className="status-detail">
-                                            {`Thresh: ${calibrationSettings.stability_threshold_ppm} PPM`}
-                                          </span>
-                                        </>
-                                      ) : (
-                                        // Display for main collection (sliding window) phase
-                                        <>
-                                          <span
-                                            className={`window-ppm-value ${
-                                              slidingWindowStatus?.is_stable
-                                                ? "status-good"
-                                                : "status-bad"
-                                            }`}
-                                          >
-                                            {`${slidingWindowStatus?.ppm.toFixed(
-                                              2
-                                            )} PPM`}
-                                          </span>
-                                          <span className="status-detail">
-                                            {`Thresh: ${calibrationSettings.stability_threshold_ppm} PPM`}
-                                          </span>
-                                        </>
-                                      )}
+                                      <span
+                                        className={`window-ppm-value ${
+                                          isStableNow
+                                            ? "status-good"
+                                            : "status-bad"
+                                        }`}
+                                      >
+                                        {displayPpm != null
+                                          ? `${displayPpm.toFixed(2)} PPM`
+                                          : "..."}
+                                      </span>
+                                      <span className="status-detail">
+                                        {isWindowMature
+                                          ? `Threshold: ${calibrationSettings.stability_threshold_ppm} PPM`
+                                          : `${displayFillCount} / ${calibrationSettings.stability_window} Samples`}
+                                      </span>
                                     </div>
                                   )}
                                 </div>

@@ -337,92 +337,116 @@ class CalibrationConsumer(AsyncWebsocketConsumer):
                 raise
 
         max_retries = stability_params.get('max_attempts', 50) if stability_params else 50
-        retry_count = 0
-        collection_successful = False
+        instability_events = 0
         window_size = stability_params.get('window', 5) if stability_params else 5
         threshold_ppm = stability_params.get('threshold_ppm', 10) if stability_params else 10
 
-        while retry_count < max_retries and not self.stop_event.is_set():
-            all_std_readings, all_ti_readings = [], []
-            std_window = deque(maxlen=window_size)
-            instability_detected_in_loop = False
+        all_std_readings = []
+        all_ti_readings = []
+        stable_candidate_std = []
+        stable_candidate_ti = []
+        std_window = deque(maxlen=window_size)
+        
+        await self.send(text_data=json.dumps({
+            'type': 'status_update',
+            'message': f"Collecting {num_samples} stable samples..."
+        }))
 
-            await self.send(text_data=json.dumps({
-                'type': 'status_update',
-                'message': f"Collecting samples... (Attempt {retry_count + 1}/{max_retries})"
-            }))
-
-            for i in range(num_samples):
-                if self.stop_event.is_set(): return
-
-                std_reading_val, ti_reading_val = await asyncio.gather(
-                    self._take_one_reading(std_reader_instrument),
-                    self._take_one_reading(ti_reader_instrument)
-                )
-                timestamp = time.time()
-                std_point = {'value': std_reading_val, 'timestamp': timestamp}
-                ti_point = {'value': ti_reading_val, 'timestamp': timestamp}
-
-                all_std_readings.append(std_point)
-                all_ti_readings.append(ti_point)
-                std_window.append(std_point)
-                
+        while len(stable_candidate_std) < num_samples and not self.stop_event.is_set():
+            if instability_events >= max_retries:
                 await self.send(text_data=json.dumps({
-                    'type': 'dual_reading_update',
-                    'std_reading': std_reading_val,
-                    'ti_reading': ti_reading_val,
-                    'count': i + 1,
-                    'total': num_samples,
-                    'timestamp': timestamp,
-                    'stage': reading_type_base
+                    'type': 'error',
+                    'message': f"Measurement failed after {max_retries} instability events."
                 }))
-
-                if stability_params and stability_params.get('enabled', False) and len(std_window) >= 2:
-                    std_values = [p['value'] for p in std_window]
-                    try:
-                        mean_val = statistics.mean(std_values)
-                        stdev_val = statistics.stdev(std_values)
-                        current_stdev_ppm = (stdev_val / abs(mean_val)) * 1_000_000 if abs(mean_val) > 1e-9 else float('inf')
-                        is_stable = current_stdev_ppm < threshold_ppm
-                        
-                        await self.send(text_data=json.dumps({
-                            'type': 'sliding_window_update',
-                            'stdev_ppm': current_stdev_ppm,
-                            'is_stable': is_stable
-                        }))
-
-                        if len(std_window) == window_size and not is_stable:
-                            instability_detected_in_loop = True
-                            break
-                    except statistics.StatisticsError:
-                        pass # Not enough points in window to calculate stdev
-
-                try:
-                    await asyncio.sleep(0.1)
-                except asyncio.CancelledError:
-                    raise
-
-            if instability_detected_in_loop:
-                retry_count += 1
-                if retry_count < max_retries:
-                    await self.send(text_data=json.dumps({
-                        'type': 'warning',
-                        'message': f"Instability detected! Resetting samples. Retrying..."
-                    }))
-                    await asyncio.sleep(1.5) # Brief pause before next attempt
-                continue
-            else:
-                collection_successful = True
                 break
 
-        if collection_successful:
+            std_reading_val, ti_reading_val = await asyncio.gather(
+                self._take_one_reading(std_reader_instrument),
+                self._take_one_reading(ti_reader_instrument)
+            )
+            timestamp = time.time()
+            
+            std_point = {'value': std_reading_val, 'timestamp': timestamp, 'is_stable': True}
+            ti_point = {'value': ti_reading_val, 'timestamp': timestamp, 'is_stable': True}
+
+            all_std_readings.append(std_point)
+            all_ti_readings.append(ti_point)
+            stable_candidate_std.append(std_point)
+            stable_candidate_ti.append(ti_point)
+            std_window.append(std_point['value'])
+            
+            current_total_sample_count = len(all_std_readings)
+
+
+            await self.send(text_data=json.dumps({
+                'type': 'dual_reading_update',
+                'std_reading': std_point,
+                'ti_reading': ti_point,
+                'count': current_total_sample_count,
+                'stable_count': len(stable_candidate_std),
+                'total': num_samples,
+                'stage': reading_type_base
+            }))
+
+            is_currently_stable = True
+            if stability_params and stability_params.get('enabled', False) and len(std_window) == window_size:
+                try:
+                    mean_val = statistics.mean(std_window)
+                    stdev_val = statistics.stdev(std_window)
+                    current_stdev_ppm = (stdev_val / abs(mean_val)) * 1_000_000 if abs(mean_val) > 1e-9 else float('inf')
+                    is_currently_stable = current_stdev_ppm < threshold_ppm
+                    
+                    await self.send(text_data=json.dumps({
+                        'type': 'sliding_window_update',
+                        'stdev_ppm': current_stdev_ppm,
+                        'is_stable': is_currently_stable
+                    }))
+                except statistics.StatisticsError:
+                    is_currently_stable = True
+
+            if not is_currently_stable:
+                instability_events += 1
+                await self.send(text_data=json.dumps({
+                    'type': 'warning',
+                    'message': f"Instability detected! Resetting stable sample count. (Event {instability_events}/{max_retries})"
+                }))
+                
+                unstable_std_points = stable_candidate_std[-window_size:]
+                unstable_ti_points = stable_candidate_ti[-window_size:]
+
+                for std_point, ti_point in zip(unstable_std_points, unstable_ti_points):
+                    std_point['is_stable'] = False
+                    ti_point['is_stable'] = False
+                    
+                    try:
+                        # Find the original index to send the correct 'count' in the update.
+                        original_index = all_std_readings.index(std_point)
+                        await self.send(text_data=json.dumps({
+                            'type': 'dual_reading_update',
+                            'std_reading': std_point,
+                            'ti_reading': ti_point,
+                            'count': original_index + 1,
+                            'stable_count': 0, # The stable count is being reset.
+                            'total': num_samples,
+                            'stage': reading_type_base
+                        }))
+                    except ValueError:
+                        print(f"Warning: Could not find point in all_std_readings to send update.")
+                
+                # Now, remove only those unstable points from the candidate lists.
+                del stable_candidate_std[-window_size:]
+                del stable_candidate_ti[-window_size:]
+                
+                await asyncio.sleep(1.5)
+
+            try:
+                await asyncio.sleep(0.1)
+            except asyncio.CancelledError:
+                raise
+        
+        if all_std_readings:
             await self.save_readings_to_db(f"std_{reading_type_base}", all_std_readings, test_point_data)
             await self.save_readings_to_db(f"ti_{reading_type_base}", all_ti_readings, test_point_data)
-        elif not self.stop_event.is_set():
-            await self.send(text_data=json.dumps({
-                'type': 'error',
-                'message': f"Measurement failed after {max_retries} attempts due to persistent instability."
-            }))
         
         await self.send(text_data=json.dumps({'type': 'sliding_window_update', 'stdev_ppm': None, 'is_stable': None}))
     

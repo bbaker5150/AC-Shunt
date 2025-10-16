@@ -212,27 +212,41 @@ export const InstrumentContextProvider = ({ children }) => {
       } else if (data.type === "dual_reading_update") {
         const key = data.stage;
         if (key) {
+          const stdReadingData = data.std_reading;
+          const tiReadingData = data.ti_reading;
+
           const stdPoint = {
             x: data.count,
-            y: data.std_reading,
-            t: new Date(data.timestamp * 1000),
+            y: stdReadingData.value,
+            t: new Date(stdReadingData.timestamp * 1000),
+            is_stable: stdReadingData.is_stable,
           };
           const tiPoint = {
             x: data.count,
-            y: data.ti_reading,
-            t: new Date(data.timestamp * 1000),
+            y: tiReadingData.value,
+            t: new Date(tiReadingData.timestamp * 1000),
+            is_stable: tiReadingData.is_stable,
           };
-          setLiveReadings((readings) => ({
-            ...readings,
-            [key]: [...(readings[key] || []), stdPoint],
-          }));
-          setTiLiveReadings((readings) => ({
-            ...readings,
-            [key]: [...(readings[key] || []), tiPoint],
-          }));
+          
+          const updateReadings = (prevReadings, point) => {
+              const newReadings = [...(prevReadings[key] || [])];
+              const existingIndex = newReadings.findIndex(p => p.x === point.x);
+              if (existingIndex > -1) {
+                  newReadings[existingIndex] = point;
+              } else {
+                  newReadings.push(point);
+              }
+              return { ...prevReadings, [key]: newReadings };
+          };
+          
+          setLiveReadings(readings => updateReadings(readings, stdPoint));
+          setTiLiveReadings(readings => updateReadings(readings, tiPoint));
         }
 
-        setCollectionProgress({ count: data.count, total: data.total });
+        setCollectionProgress({
+          count: data.stable_count !== undefined ? data.stable_count : data.count,
+          total: data.total
+        });
         setTimerState({ isActive: false, duration: 0, label: "" });
       } else if (data.type === "stabilization_update") {
         setStabilizationStatus(
@@ -242,8 +256,6 @@ export const InstrumentContextProvider = ({ children }) => {
         );
         setTimerState({ isActive: false, duration: 0, label: "" });
       } else if (data.type === "sliding_window_update") {
-        // *** THIS IS THE FIX ***
-        // When the sliding window starts, we know stabilization is over.
         setStabilizationStatus(null); 
         setSlidingWindowStatus(
           data.stdev_ppm === null
