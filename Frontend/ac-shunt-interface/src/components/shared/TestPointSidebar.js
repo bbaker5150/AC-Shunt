@@ -16,6 +16,7 @@ import {
   FaCalculator,
   FaEye,
 } from "react-icons/fa";
+import { IoDocumentText } from "react-icons/io5";
 import { FaRegSquare } from "react-icons/fa6";
 import {
   AVAILABLE_FREQUENCIES,
@@ -405,7 +406,7 @@ function TestPointSidebar({
             disabled={isBulkRunning || isCollecting || !selectedSessionId}
             title="View Corrections Data"
           >
-            <FaCalculator />
+            <IoDocumentText />
           </button>
         </div>
       </div>

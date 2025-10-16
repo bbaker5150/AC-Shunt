@@ -21,6 +21,7 @@ import {
   FaChevronDown,
   FaLayerGroup,
 } from "react-icons/fa";
+import { LuSaveAll } from "react-icons/lu";
 import { useInstruments } from "../../contexts/InstrumentContext";
 import { useTheme } from "../../contexts/ThemeContext";
 import CalibrationChart from "./CalibrationChart";
@@ -2190,7 +2191,7 @@ function Calibration({
                             className="sidebar-action-button"
                             title="Apply to All Test Points"
                           >
-                            <FaLayerGroup />
+                            <LuSaveAll />
                           </button>
                           <button
                             type="submit"
