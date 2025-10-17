@@ -454,6 +454,7 @@ class CalibrationConsumer(AsyncWebsocketConsumer):
                     outliers.append((std_point, ti_point))
             
             if outliers:
+                await asyncio.sleep(1)
                 await self.send(text_data=json.dumps({ 'type': 'warning', 'message': f"{len(outliers)} outliers detected by IQR filter." }))
                 for std_outlier, ti_outlier in outliers:
                     std_outlier['is_stable'] = False
@@ -476,7 +477,8 @@ class CalibrationConsumer(AsyncWebsocketConsumer):
             await self.save_readings_to_db(f"std_{reading_type_base}", all_std_readings, test_point_data)
             await self.save_readings_to_db(f"ti_{reading_type_base}", all_ti_readings, test_point_data)
         
-        await self.send(text_data=json.dumps({'type': 'sliding_window_update', 'stdev_ppm': None, 'is_stable': None}))
+        if stability_method == 'sliding_window':
+            await self.send(text_data=json.dumps({'type': 'sliding_window_update', 'stdev_ppm': None, 'is_stable': None}))
     
     async def collect_single_reading_set(self, data):
         ac_source, dc_source, std_reader_instrument, ti_reader_instrument, amplifier_instrument, switch_driver = None, None, None, None, None, None

@@ -17,7 +17,6 @@ import { FaRightLeft } from "react-icons/fa6";
 import { BsFiletypePng } from "react-icons/bs";
 import { TbZoomReset } from "react-icons/tb";
 
-// Custom plugin to draw a vertical crosshair line
 const crosshairPlugin = {
   id: "crosshair",
   afterDraw: (chart, args, options) => {
@@ -30,7 +29,7 @@ const crosshairPlugin = {
       chartArea: { top, bottom, left, right },
       scales: { x },
     } = chart;
-    const xCoord = x.getPixelForValue(syncedHoverIndex); // Use the 0-based index
+    const xCoord = x.getPixelForValue(syncedHoverIndex);
 
     if (xCoord >= left && xCoord <= right) {
       ctx.save();
@@ -58,7 +57,6 @@ ChartJS.register(
   crosshairPlugin
 );
 
-// Reusable Accordion Component for the dropdown
 const Accordion = ({ title, children, initialOpen = false }) => {
     const [isOpen, setIsOpen] = useState(initialOpen);
     return (
@@ -72,7 +70,6 @@ const Accordion = ({ title, children, initialOpen = false }) => {
     );
   };
 
-// Function to calculate stats for a specific range
 const calculateRangeStats = (originalChartData, typeLabel, start, end) => {
   if (!originalChartData || !typeLabel || start > end || start < 1) return null;
 
@@ -81,9 +78,8 @@ const calculateRangeStats = (originalChartData, typeLabel, start, end) => {
   );
   if (!targetDataset || !targetDataset.data) return null;
 
-  // User inputs are 1-based, array is 0-based
   const startIndex = start - 1;
-  const endIndex = end; // slice is exclusive of the end index
+  const endIndex = end;
 
   if (startIndex < 0 || endIndex > targetDataset.data.length) return null;
 
@@ -118,7 +114,7 @@ function CalibrationChart({
   onRunFullAnalysis = null,
 }) {
   const chartRef = useRef(null);
-  const [yAxisUnit, setYAxisUnit] = useState("voltage"); // 'voltage' or 'ppm'
+  const [yAxisUnit, setYAxisUnit] = useState("voltage");
   const [isOptionsOpen, setIsOptionsOpen] = useState(false);
   const optionsMenuRef = useRef(null);
   const [hideUnstableReadings, setHideUnstableReadings] = useState(false);
@@ -212,7 +208,9 @@ function CalibrationChart({
     const finalComparisonDatasets = processDatasets({
       datasets: comparisonData,
     });
-    const allXLabels = finalChartDatasets.flatMap((ds) => ds.data.map((d) => d.x));
+    const allXLabels = finalChartDatasets.flatMap((ds) =>
+      ds.data.map((d) => d.x)
+    );
     const finalLabels = [...new Set(allXLabels)].sort((a, b) => a - b);
 
 
@@ -300,6 +298,9 @@ function CalibrationChart({
     ? "rgba(255, 255, 255, 0.5)"
     : "rgba(0, 0, 0, 0.5)";
 
+  const unstableColor = "rgba(255, 0, 0, 1)";
+  const unstableBgColor = "rgba(255, 0, 0, 1)";
+
   const options = {
     responsive: true,
     maintainAspectRatio: false,
@@ -310,7 +311,16 @@ function CalibrationChart({
       }
     },
     plugins: {
-      legend: { position: "top", labels: { color: textColor } },
+      legend: {
+        position: "bottom",
+        labels: {
+          color: textColor,
+          usePointStyle: true,
+          pointStyle: 'circle',
+          boxWidth: 80,
+          padding: 30,
+        },
+      },
       title: { display: false },
       tooltip: {
         callbacks: {
@@ -402,10 +412,22 @@ function CalibrationChart({
         },
         pointStyle: (context) => {
           if (context.raw?.is_stable === false) {
-            return 'crossRot';
+            return "crossRot";
           }
-          return 'circle';
+          return "circle";
         },
+        borderColor: (context) => {
+          if (context.raw?.is_stable === false) {
+            return unstableColor;
+          }
+          return context.dataset.borderColor; 
+        },
+        backgroundColor: (context) => {
+          if (context.raw?.is_stable === false) {
+            return unstableBgColor;
+          }
+          return context.dataset.backgroundColor;
+        }
       },
     },
     scales: {
@@ -424,13 +446,13 @@ function CalibrationChart({
               if (!ppmDecimalPlacesError && !isNaN(decimals)) {
                 return value.toFixed(decimals);
               }
-              return value.toFixed(2); // Default
+              return value.toFixed(2);
             } else {
               const sigFigs = parseInt(voltSigFigs, 10);
               if (!voltSigFigsError && !isNaN(sigFigs)) {
                 return value.toPrecision(sigFigs);
               }
-              return value.toPrecision(4); // Default
+              return value.toPrecision(4);
             }
           },
         },
@@ -480,9 +502,13 @@ function CalibrationChart({
                       id="hideUnstableInput"
                       type="checkbox"
                       checked={hideUnstableReadings}
-                      onChange={(e) => setHideUnstableReadings(e.target.checked)}
+                      onChange={(e) =>
+                        setHideUnstableReadings(e.target.checked)
+                      }
                     />
-                    <label htmlFor="hideUnstableInput">Hide Unstable Readings</label>
+                    <label htmlFor="hideUnstableInput">
+                      Hide Unstable Readings
+                    </label>
                   </div>
                   <div className="chart-options-form-group">
                     <label>Y-Axis Unit</label>
@@ -504,7 +530,9 @@ function CalibrationChart({
                   <div className="chart-options-form-group">
                     {yAxisUnit === "voltage" ? (
                       <>
-                        <label htmlFor="voltSigFigsInput">Y-Axis Sig Figs (Volts)</label>
+                        <label htmlFor="voltSigFigsInput">
+                          Y-Axis Sig Figs (Volts)
+                        </label>
                         <input
                           id="voltSigFigsInput"
                           name="voltSigFigs"
@@ -514,14 +542,23 @@ function CalibrationChart({
                           placeholder="e.g., 4"
                         />
                         {voltSigFigsError && (
-                          <small className="error-text" style={{ color: "var(--status-bad)", display: "block", marginTop: "4px" }}>
+                          <small
+                            className="error-text"
+                            style={{
+                              color: "var(--status-bad)",
+                              display: "block",
+                              marginTop: "4px",
+                            }}
+                          >
                             {voltSigFigsError}
                           </small>
                         )}
                       </>
                     ) : (
                       <>
-                        <label htmlFor="ppmDecimalInput">Y-Axis Decimals (PPM)</label>
+                        <label htmlFor="ppmDecimalInput">
+                          Y-Axis Decimals (PPM)
+                        </label>
                         <input
                           id="ppmDecimalInput"
                           name="ppmDecimals"
@@ -531,7 +568,14 @@ function CalibrationChart({
                           placeholder="e.g., 2"
                         />
                         {ppmDecimalPlacesError && (
-                          <small className="error-text" style={{ color: "var(--status-bad)", display: "block", marginTop: "4px" }}>
+                          <small
+                            className="error-text"
+                            style={{
+                              color: "var(--status-bad)",
+                              display: "block",
+                              marginTop: "4px",
+                            }}
+                          >
                             {ppmDecimalPlacesError}
                           </small>
                         )}
@@ -561,29 +605,57 @@ function CalibrationChart({
                 <div className="chart-options-section">
                   <div className="chart-options-form-group">
                     <label>Measurement Type</label>
-                    <select name="type" value={analysisOptions.type} onChange={handleAnalysisInputChange}>
+                    <select
+                      name="type"
+                      value={analysisOptions.type}
+                      onChange={handleAnalysisInputChange}
+                    >
                       {availableMeasurementTypes.map((label) => (
-                        <option key={label} value={label}>{label}</option>
+                        <option key={label} value={label}>
+                          {label}
+                        </option>
                       ))}
                     </select>
                   </div>
                   <div className="chart-options-range-inputs">
                     <div className="chart-options-form-group">
                       <label>Start Sample</label>
-                      <input name="start" type="number" value={analysisOptions.start} onChange={handleAnalysisInputChange} />
+                      <input
+                        name="start"
+                        type="number"
+                        value={analysisOptions.start}
+                        onChange={handleAnalysisInputChange}
+                      />
                     </div>
                     <div className="chart-options-form-group">
                       <label>End Sample</label>
-                      <input name="end" type="number" value={analysisOptions.end} onChange={handleAnalysisInputChange} />
+                      <input
+                        name="end"
+                        type="number"
+                        value={analysisOptions.end}
+                        onChange={handleAnalysisInputChange}
+                      />
                     </div>
                   </div>
-                  <div className="chart-options-form-group" style={{ display: "flex", gap: "8px" }}>
-                    <button className="button button-secondary button-small" onClick={handleCalculateRange} style={{ flex: 1 }}>
+                  <div
+                    className="chart-options-form-group"
+                    style={{ display: "flex", gap: "8px" }}
+                  >
+                    <button
+                      className="button button-secondary button-small"
+                      onClick={handleCalculateRange}
+                      style={{ flex: 1 }}
+                    >
                       <FaCalculator style={{ marginRight: "8px" }} />
                       Calculate
                     </button>
                     {onRunFullAnalysis && (
-                      <button className="button button-primary button-small" onClick={() => onRunFullAnalysis(analysisOptions)} style={{ flex: 1 }} title="Run a full analysis on the selected range and view detailed results in a new window.">
+                      <button
+                        className="button button-primary button-small"
+                        onClick={() => onRunFullAnalysis(analysisOptions)}
+                        style={{ flex: 1 }}
+                        title="Run a full analysis on the selected range and view detailed results in a new window."
+                      >
                         <FaRightLeft style={{ marginRight: "8px" }} />
                         Analyze
                       </button>
@@ -591,9 +663,12 @@ function CalibrationChart({
                   </div>
                   {analysisResult && (
                     <div className="chart-options-result">
-                      <strong>Std Dev:</strong> {analysisResult.stdDevVolts.toPrecision(4)} V ({analysisResult.stdDevPpm.toFixed(2)} PPM)
+                      <strong>Std Dev:</strong>{" "}
+                      {analysisResult.stdDevVolts.toPrecision(4)} V (
+                      {analysisResult.stdDevPpm.toFixed(2)} PPM)
                       <br />
-                      <strong>Mean:</strong> {analysisResult.mean.toPrecision(8)} V
+                      <strong>Mean:</strong>{" "}
+                      {analysisResult.mean.toPrecision(8)} V
                     </div>
                   )}
                 </div>
