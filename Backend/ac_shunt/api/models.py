@@ -140,6 +140,16 @@ class CalibrationSettings(models.Model):
         null=True,
         blank=True
     )
+    STABILITY_CHOICES = [
+        ('sliding_window', 'Sliding Window'),
+        ('iqr_filter', 'IQR Filter'),
+    ]
+    stability_check_method = models.CharField(
+        max_length=20,
+        choices=STABILITY_CHOICES,
+        default='sliding_window'
+    )
+    
     initial_warm_up_time = models.IntegerField(null=True, blank=True)
     num_samples = models.IntegerField(default=8, null=True, blank=True)
     settling_time = models.IntegerField(default=5, null=True, blank=True)
@@ -147,6 +157,8 @@ class CalibrationSettings(models.Model):
     stability_window = models.IntegerField(default=5, null=True, blank=True)
     stability_threshold_ppm = models.FloatField(default=10, null=True, blank=True)
     stability_max_attempts = models.IntegerField(default=50, null=True, blank=True)
+    iqr_filter_enabled = models.BooleanField(default=False)
+    iqr_filter_ppm_threshold = models.FloatField(default=15.0, null=True, blank=True)
 
 class CalibrationReadings(models.Model):
 

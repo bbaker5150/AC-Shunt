@@ -19,7 +19,6 @@ import {
   FaInfoCircle,
   FaSave,
   FaChevronDown,
-  FaLayerGroup,
 } from "react-icons/fa";
 import { LuSaveAll } from "react-icons/lu";
 import { useInstruments } from "../../contexts/InstrumentContext";
@@ -35,7 +34,6 @@ import {
   API_BASE_URL,
 } from "../../constants/constants";
 
-// All other components (CorrectionFactorsModal, ConfirmationModal, etc.) remain unchanged...
 const CorrectionFactorsModal = ({
   isOpen,
   onClose,
@@ -300,9 +298,11 @@ function Calibration({
     num_samples: 8,
     settling_time: 5,
     nplc: 20,
+    stability_check_method: 'sliding_window',
     stability_window: 5,
     stability_threshold_ppm: 10,
     stability_max_attempts: 50,
+    iqr_filter_ppm_threshold: 15,
   });
   const [correctionInputs, setCorrectionInputs] = useState({
     eta_std: "",
@@ -349,40 +349,25 @@ function Calibration({
     [orderedTestPoints]
   );
 
-  // ===================================================================
-  // ============= START: LIVE PPM CALCULATION LOGIC =============
-  // ===================================================================
   const livePpm = useMemo(() => {
     if (!isCollecting || !activeCollectionDetails?.stage) {
       return null;
     }
-
-    // Use the live readings for the currently active collection stage
     const currentReadings = liveReadings[activeCollectionDetails.stage];
-
-    // Need at least 2 points to calculate standard deviation
     if (!currentReadings || currentReadings.length < 2) {
       return null;
     }
-
     const values = currentReadings.map((p) => p.y);
     const sum = values.reduce((acc, val) => acc + val, 0);
     const mean = sum / values.length;
-
-    // Avoid division by zero for PPM calculation
     if (Math.abs(mean) < 1e-9) return 0;
-
     const variance =
       values.reduce((acc, val) => acc + Math.pow(val - mean, 2), 0) /
       (values.length - 1);
     const stdDev = Math.sqrt(variance);
     const ppm = (stdDev / Math.abs(mean)) * 1e6;
-
     return ppm;
   }, [liveReadings, isCollecting, activeCollectionDetails]);
-  // ===================================================================
-  // ============== END: LIVE PPM CALCULATION LOGIC ==============
-  // ===================================================================
 
   useEffect(() => {
     const handleClickOutside = (event) => {
@@ -403,17 +388,13 @@ function Calibration({
     if (timerInterval.current) {
       clearInterval(timerInterval.current);
     }
-
     if (timerState.isActive) {
       timerStartTime.current = Date.now();
       const totalDurationInMs = timerState.duration * 1000;
-
       setCountdown(Math.ceil(timerState.duration));
-
       timerInterval.current = setInterval(() => {
         const elapsedTime = Date.now() - timerStartTime.current;
         const remainingTime = totalDurationInMs - elapsedTime;
-
         if (remainingTime <= 0) {
           clearInterval(timerInterval.current);
           setCountdown(0);
@@ -425,7 +406,6 @@ function Calibration({
       setCountdown(0);
       timerStartTime.current = null;
     }
-
     return () => {
       if (timerInterval.current) {
         clearInterval(timerInterval.current);
@@ -520,18 +500,15 @@ function Calibration({
     if (!address) {
       return "Not Assigned";
     }
-
     if (model) {
       if (serial) {
         return `${model}, S/N ${serial} (${address})`;
       }
       return `${model} (${address})`;
     }
-
     const instrument = discoveredInstruments.find(
       (inst) => inst.address === address
     );
-
     if (instrument) {
       return `${instrument.identity} (${instrument.address})`;
     }
@@ -562,20 +539,16 @@ function Calibration({
   const parseStabilizationStatus = useCallback(
     (statusString) => {
       if (!statusString) return null;
-
       const ppmMatch = statusString.match(/Stdev: ([\d.]+|Calculating...) PPM/);
-      const countMatch = statusString.match(/\[(\d+)\/(\d+)\]/); // Capture numerator and denominator
-
+      const countMatch = statusString.match(/\[(\d+)\/(\d+)\]/);
       const ppm =
         ppmMatch && ppmMatch[1] !== "Calculating..."
           ? parseFloat(ppmMatch[1])
           : null;
       const count = countMatch ? `${countMatch[1]}/${countMatch[2]}` : "";
-
       const isStable =
         ppm !== null &&
         ppm < (calibrationSettings.stability_threshold_ppm || 10);
-
       return { ppm, count, isStable };
     },
     [calibrationSettings.stability_threshold_ppm]
@@ -600,30 +573,21 @@ function Calibration({
     prevIsBulkRunning.current = isBulkRunning;
   }, [isBulkRunning]);
 
-  // This is the new effect for post-batch processing.
   useEffect(() => {
     const wasBulkRunning = prevIsBulkRunning.current;
-
-    // Only proceed if a bulk run has just finished.
     if (wasBulkRunning && !isBulkRunning) {
       const processCompletedPoints = async () => {
         console.log(
           "Post-batch processing triggered: searching for points needing average calculation."
         );
-
         const averagePromises = [];
-
         uniqueTestPoints.forEach((point) => {
-          // Helper to check a direction (Forward/Reverse) of a test point
           const checkAndQueueAvgCalc = (directionData) => {
             if (!directionData || !directionData.id) return;
-
             const readingsAreComplete = hasAllReadings(directionData);
-            // Check if results are missing entirely or if a key average value is null
             const averagesAreMissing =
               !directionData.results ||
               directionData.results.std_ac_open_avg === null;
-
             if (readingsAreComplete && averagesAreMissing) {
               console.log(
                 `Queueing average calculation for Test Point ID: ${directionData.id}`
@@ -635,12 +599,9 @@ function Calibration({
               );
             }
           };
-
-          // Check both directions for each test point
           checkAndQueueAvgCalc(point.forward);
           checkAndQueueAvgCalc(point.reverse);
         });
-
         if (averagePromises.length > 0) {
           showNotification(
             `Found ${averagePromises.length} new reading set(s). Calculating averages...`,
@@ -649,8 +610,6 @@ function Calibration({
           try {
             await Promise.all(averagePromises);
             console.log("All average calculation requests sent successfully.");
-            // IMPORTANT: Refresh the data from the parent to get the new averages.
-            // This will in turn trigger the other useEffects that perform final calculations.
             onDataUpdate();
           } catch (error) {
             showNotification(
@@ -663,12 +622,10 @@ function Calibration({
           console.log("No new points required average calculation.");
         }
       };
-
-      // Use a small timeout to ensure all state updates from the batch completion have settled.
       setTimeout(processCompletedPoints, 200);
     }
   }, [
-    uniqueTestPoints, // This effect should re-evaluate when the points data changes
+    uniqueTestPoints,
     isBulkRunning,
     selectedSessionId,
     hasAllReadings,
@@ -678,15 +635,12 @@ function Calibration({
 
   useEffect(() => {
     if (!focusedTP || !selectedSessionId) return;
-
     const triggerAverageCalculationIfNeeded = async (pointDirection) => {
       if (!pointDirection || !pointDirection.id) return;
-
       const readingsAreComplete = hasAllReadings(pointDirection);
       const averagesAreMissing =
         !pointDirection.results ||
         pointDirection.results.std_ac_open_avg === null;
-
       if (readingsAreComplete && averagesAreMissing) {
         try {
           setIsCalculatingAverages(true);
@@ -704,7 +658,6 @@ function Calibration({
         }
       }
     };
-
     triggerAverageCalculationIfNeeded(focusedTP.forward);
     triggerAverageCalculationIfNeeded(focusedTP.reverse);
   }, [
@@ -731,24 +684,19 @@ function Calibration({
     ) {
       return null;
     }
-
     const range = parseFloat(calibrationConfigurations.ac_shunt_range);
     const current = parseFloat(focusedTP.current);
     const frequency = parseFloat(focusedTP.frequency);
-
     const relevantShunt = shuntsData.find(
       (s) =>
         s.serial_number === String(standardInstrumentSerial) &&
         parseFloat(s.range) === range &&
         parseFloat(s.current) === current
     );
-
     if (!relevantShunt) return null;
-
     const correctionEntry = relevantShunt.corrections.find(
       (c) => parseFloat(c.frequency) === frequency
     );
-
     return correctionEntry ? correctionEntry.correction : null;
   }, [
     focusedTP,
@@ -759,16 +707,12 @@ function Calibration({
 
   const getTVCCorrection = useCallback(() => {
     if (!focusedTP || tvcsData.length === 0) return [null, null];
-
     const targetFreq = parseFloat(focusedTP.frequency);
-
     const findCorrectionForSerial = (serial) => {
       if (!serial) return null;
-
       const relevantTvc = tvcsData.find(
         (t) => String(t.serial_number) === String(serial)
       );
-
       if (
         !relevantTvc ||
         !Array.isArray(relevantTvc.corrections) ||
@@ -776,24 +720,19 @@ function Calibration({
       ) {
         return null;
       }
-
       const sorted = [...relevantTvc.corrections].sort(
         (a, b) => a.frequency - b.frequency
       );
-
       const exactMatch = sorted.find((m) => m.frequency === targetFreq);
       if (exactMatch) {
         return exactMatch.ac_dc_difference;
       }
-
       if (targetFreq < 1000) {
         const next = sorted.find((m) => m.frequency > targetFreq);
         return next ? next.ac_dc_difference : null;
       }
-
       let lower = null;
       let upper = null;
-
       for (let i = 0; i < sorted.length - 1; i++) {
         if (
           sorted[i].frequency < targetFreq &&
@@ -804,7 +743,6 @@ function Calibration({
           break;
         }
       }
-
       if (lower && upper) {
         const { frequency: f1, ac_dc_difference: d1 } = lower;
         const { frequency: f2, ac_dc_difference: d2 } = upper;
@@ -829,13 +767,10 @@ function Calibration({
           }
         }
       }
-
       return null;
     };
-
     const stdCorrection = findCorrectionForSerial(standardTvcSerial);
     const testCorrection = findCorrectionForSerial(testTvcSerial);
-
     return [stdCorrection, testCorrection];
   }, [focusedTP, tvcsData, standardTvcSerial, testTvcSerial]);
 
@@ -860,9 +795,11 @@ function Calibration({
       num_samples: 8,
       settling_time: 5,
       nplc: 20,
+      stability_check_method: 'sliding_window',
       stability_window: 5,
       stability_threshold_ppm: 10,
       stability_max_attempts: 50,
+      iqr_filter_ppm_threshold: 15,
     };
 
     setHistoricalReadings(initialLiveReadings);
@@ -1331,11 +1268,12 @@ function Calibration({
       Object.assign(params, {
         nplc: parseFloat(runSettings.nplc),
         initial_warm_up_time: parseFloat(runSettings.initial_warm_up_time),
-        stability_params: {
-          enabled: true,
-          window: parseInt(runSettings.stability_window, 10),
-          threshold_ppm: parseFloat(runSettings.stability_threshold_ppm),
-          max_attempts: parseInt(runSettings.stability_max_attempts, 10),
+        measurement_params: {
+            stability_check_method: runSettings.stability_check_method,
+            window: parseInt(runSettings.stability_window, 10),
+            threshold_ppm: parseFloat(runSettings.stability_threshold_ppm),
+            max_attempts: parseInt(runSettings.stability_max_attempts, 10),
+            ppm_threshold: parseFloat(runSettings.iqr_filter_ppm_threshold),
         },
         test_point: {
           current: testPointToRun.current,
@@ -1439,11 +1377,12 @@ function Calibration({
         initial_warm_up_time: parseFloat(
           firstPointSettings.initial_warm_up_time
         ),
-        stability_params: {
-          enabled: true,
-          window: parseInt(firstPointSettings.stability_window, 10),
-          threshold_ppm: parseFloat(firstPointSettings.stability_threshold_ppm),
-          max_attempts: parseInt(firstPointSettings.stability_max_attempts, 10),
+        measurement_params: {
+            stability_check_method: firstPointSettings.stability_check_method,
+            window: parseInt(firstPointSettings.stability_window, 10),
+            threshold_ppm: parseFloat(firstPointSettings.stability_threshold_ppm),
+            max_attempts: parseInt(firstPointSettings.stability_max_attempts, 10),
+            ppm_threshold: parseFloat(firstPointSettings.iqr_filter_ppm_threshold),
         },
         std_reader_model: stdReaderModel,
         ti_reader_model: tiReaderModel,
@@ -1611,11 +1550,12 @@ function Calibration({
         num_samples: parseInt(firstPointSettings.num_samples, 10),
         settling_time: parseFloat(firstPointSettings.settling_time),
         nplc: parseFloat(firstPointSettings.nplc),
-        stability_params: {
-          enabled: true,
-          window: parseInt(firstPointSettings.stability_window, 10),
-          threshold_ppm: parseFloat(firstPointSettings.stability_threshold_ppm),
-          max_attempts: parseInt(firstPointSettings.stability_max_attempts, 10),
+        measurement_params: {
+            stability_check_method: firstPointSettings.stability_check_method,
+            window: parseInt(firstPointSettings.stability_window, 10),
+            threshold_ppm: parseFloat(firstPointSettings.stability_threshold_ppm),
+            max_attempts: parseInt(firstPointSettings.stability_max_attempts, 10),
+            ppm_threshold: parseFloat(firstPointSettings.iqr_filter_ppm_threshold),
         },
         std_reader_model: stdReaderModel,
         ti_reader_model: tiReaderModel,
@@ -1695,12 +1635,6 @@ function Calibration({
         },
         tension: 0.1,
         fill: false,
-        // segment: {
-        //   borderColor: (ctx) =>
-        //     ctx.p0.raw.is_stable === false || ctx.p1.raw.is_stable === false
-        //       ? unstableColor
-        //       : baseColor,
-        // },
       };
     }),
   });
@@ -1734,11 +1668,13 @@ function Calibration({
       num_samples: parseInt(calibrationSettings.num_samples, 10) || 8,
       settling_time: parseFloat(calibrationSettings.settling_time) || 5,
       nplc: parseFloat(calibrationSettings.nplc) || 20,
+      stability_check_method: calibrationSettings.stability_check_method,
       stability_window: parseInt(calibrationSettings.stability_window, 10) || 5,
       stability_threshold_ppm:
         parseFloat(calibrationSettings.stability_threshold_ppm) || 10,
       stability_max_attempts:
         parseInt(calibrationSettings.stability_max_attempts, 10) || 50,
+      iqr_filter_ppm_threshold: parseFloat(calibrationSettings.iqr_filter_ppm_threshold) || 15,
     };
 
     let pointToUpdate =
@@ -1791,12 +1727,14 @@ function Calibration({
         num_samples: parseInt(calibrationSettings.num_samples, 10) || 8,
         settling_time: parseFloat(calibrationSettings.settling_time) || 5,
         nplc: parseFloat(calibrationSettings.nplc) || 20,
+        stability_check_method: calibrationSettings.stability_check_method,
         stability_window:
           parseInt(calibrationSettings.stability_window, 10) || 5,
         stability_threshold_ppm:
           parseFloat(calibrationSettings.stability_threshold_ppm) || 10,
         stability_max_attempts:
           parseInt(calibrationSettings.stability_max_attempts, 10) || 50,
+        iqr_filter_ppm_threshold: parseFloat(calibrationSettings.iqr_filter_ppm_threshold) || 15,
       };
 
       try {
@@ -2120,69 +2058,112 @@ function Calibration({
                             </div>
                           )}
                           <div className="form-section">
-                            <label htmlFor="stability_window">
-                              Stability Window (# Samples)
-                            </label>
-                            <input
-                              type="number"
-                              id="stability_window"
-                              name="stability_window"
-                              value={calibrationSettings.stability_window || 5}
-                              onChange={(e) =>
-                                setCalibrationSettings((prev) => ({
-                                  ...prev,
-                                  stability_window: parseInt(
-                                    e.target.value,
-                                    10
-                                  ),
-                                }))
-                              }
-                            />
+                            <label htmlFor="stability_check_method">Stability Check Method</label>
+                            <select
+                                id="stability_check_method"
+                                name="stability_check_method"
+                                value={calibrationSettings.stability_check_method}
+                                onChange={(e) =>
+                                    setCalibrationSettings((prev) => ({
+                                    ...prev,
+                                    stability_check_method: e.target.value,
+                                    }))
+                                }
+                            >
+                                <option value="sliding_window">Sliding Window</option>
+                                <option value="iqr_filter">IQR Filter</option>
+                            </select>
                           </div>
-                          <div className="form-section">
-                            <label htmlFor="stability_threshold_ppm">
-                              Stability Threshold (PPM)
-                            </label>
-                            <input
-                              type="number"
-                              step="any"
-                              id="stability_threshold_ppm"
-                              name="stability_threshold_ppm"
-                              placeholder="e.g., 10"
-                              value={
-                                calibrationSettings.stability_threshold_ppm ||
-                                ""
-                              }
-                              onChange={(e) =>
-                                setCalibrationSettings((prev) => ({
-                                  ...prev,
-                                  stability_threshold_ppm: e.target.value,
-                                }))
-                              }
-                            />
-                          </div>
-                          <div className="form-section">
-                            <label htmlFor="stability_max_attempts">
-                              Max Stability Attempts
-                            </label>
-                            <input
-                              type="number"
-                              id="stability_max_attempts"
-                              name="stability_max_attempts"
-                              value={
-                                calibrationSettings.stability_max_attempts || 50
-                              }
-                              onChange={(e) =>
-                                setCalibrationSettings((prev) => ({
-                                  ...prev,
-                                  stability_max_attempts: parseInt(
-                                    e.target.value,
-                                    10
-                                  ),
-                                }))
-                              }
-                            />
-                          </div>
+                          
+                          {calibrationSettings.stability_check_method === 'sliding_window' && (
+                            <>
+                                <div className="form-section">
+                                <label htmlFor="stability_window">
+                                  Stability Window (# Samples)
+                                </label>
+                                <input
+                                  type="number"
+                                  id="stability_window"
+                                  name="stability_window"
+                                  value={calibrationSettings.stability_window || 5}
+                                  onChange={(e) =>
+                                    setCalibrationSettings((prev) => ({
+                                      ...prev,
+                                      stability_window: parseInt(
+                                        e.target.value,
+                                        10
+                                      ),
+                                    }))
+                                  }
+                                />
+                              </div>
+                              <div className="form-section">
+                                <label htmlFor="stability_threshold_ppm">
+                                  Stability Threshold (PPM)
+                                </label>
+                                <input
+                                  type="number"
+                                  step="any"
+                                  id="stability_threshold_ppm"
+                                  name="stability_threshold_ppm"
+                                  placeholder="e.g., 10"
+                                  value={
+                                    calibrationSettings.stability_threshold_ppm ||
+                                    ""
+                                  }
+                                  onChange={(e) =>
+                                    setCalibrationSettings((prev) => ({
+                                      ...prev,
+                                      stability_threshold_ppm: e.target.value,
+                                    }))
+                                  }
+                                />
+                              </div>
+                              <div className="form-section">
+                                <label htmlFor="stability_max_attempts">
+                                  Max Stability Attempts
+                                </label>
+                                <input
+                                  type="number"
+                                  id="stability_max_attempts"
+                                  name="stability_max_attempts"
+                                  value={
+                                    calibrationSettings.stability_max_attempts || 50
+                                  }
+                                  onChange={(e) =>
+                                    setCalibrationSettings((prev) => ({
+                                      ...prev,
+                                      stability_max_attempts: parseInt(
+                                        e.target.value,
+                                        10
+                                      ),
+                                    }))
+                                  }
+                                />
+                              </div>
+                            </>
+                          )}
+
+                          {calibrationSettings.stability_check_method === 'iqr_filter' && (
+                            <div className="form-section">
+                                <label htmlFor="iqr_filter_ppm_threshold">
+                                IQR Filter Threshold (PPM)
+                                </label>
+                                <input
+                                type="number"
+                                step="any"
+                                id="iqr_filter_ppm_threshold"
+                                name="iqr_filter_ppm_threshold"
+                                value={calibrationSettings.iqr_filter_ppm_threshold || 15}
+                                onChange={(e) =>
+                                    setCalibrationSettings((prev) => ({
+                                    ...prev,
+                                    iqr_filter_ppm_threshold: e.target.value,
+                                    }))
+                                }
+                                />
+                            </div>
+                          )}
                         </div>
                         <div className="form-section-action-icons">
                           <button
@@ -2254,7 +2235,7 @@ function Calibration({
                                     </span>
                                   </div>
 
-                                  {!timerState.isActive && (
+                                  {!timerState.isActive && calibrationSettings.stability_check_method === 'sliding_window' && (
                                     <div className="status-section window-stability-section">
                                       <span className="status-label">
                                         <FaCrosshairs /> Window Stability
