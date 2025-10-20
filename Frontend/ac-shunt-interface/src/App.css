@@ -3029,13 +3029,11 @@ body.dark-mode .chart-options-form-group.checkbox-group:hover {
   border-left: 4px solid var(--border-color);
   text-align: left;
   transition: all 0.3s ease;
-  opacity: 0.6;
 }
 
 .stat-card.active {
   border-left-color: var(--primary-color);
   box-shadow: 0 4px 12px rgba(0, 123, 255, 0.1);
-  opacity: 1.0;
   transform: scale(1.02);
 }
 

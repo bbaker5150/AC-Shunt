@@ -268,19 +268,19 @@ function CalibrationResults({
     }
   }, [showCalcDetails, calResults, activeTab, activeDirection]);
 
-  useEffect(() => {
-    if (focusedTP) {
-      const hasCombinedData =
-        focusedTP.forward?.results && focusedTP.reverse?.results;
-      if (hasCombinedData) {
-        setActiveDirection("Combined");
-      } else if (focusedTP.forward?.results) {
-        setActiveDirection("Forward");
-      } else {
-        setActiveDirection("Reverse");
-      }
-    }
-  }, [focusedTP]);
+  // useEffect(() => {
+  //   if (focusedTP) {
+  //     const hasCombinedData =
+  //       focusedTP.forward?.results && focusedTP.reverse?.results;
+  //     if (hasCombinedData) {
+  //       setActiveDirection("Combined");
+  //     } else if (focusedTP.forward?.results) {
+  //       setActiveDirection("Forward");
+  //     } else {
+  //       setActiveDirection("Reverse");
+  //     }
+  //   }
+  // }, [focusedTP]);
 
   useEffect(() => {
     if (!focusedTP) {
@@ -504,20 +504,18 @@ function CalibrationResults({
             is_stable: p.is_stable,
           };
         }),
-        borderColor: (context) => {
-          if (context.raw?.is_stable === false) {
-            return unstableColor;
-          }
-          return baseColor;
-        },
-        backgroundColor: (context) => {
-          if (context.raw?.is_stable === false) {
-            return unstableBgColor;
-          }
-          return baseColor.replace(")", ", 0.5)").replace("rgb", "rgba");
-        },
+        borderColor: baseColor,
+        backgroundColor: baseColor.replace(")", ", 0.5)").replace("rgb", "rgba"),
         tension: 0.1,
         fill: false,
+        segment: {
+          borderDash: (ctx) => {
+            if (ctx.p0.raw?.is_stable === false || ctx.p1.raw?.is_stable === false) {
+              return [6, 6];
+            }
+            return undefined;
+          },
+        }
       };
     });
     const allXLabels = datasets.flatMap((ds) => ds.data.map((d) => d.x));

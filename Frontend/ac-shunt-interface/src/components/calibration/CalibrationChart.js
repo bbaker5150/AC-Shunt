@@ -15,6 +15,7 @@ import zoomPlugin from "chartjs-plugin-zoom";
 import { FaCog, FaChevronDown, FaCheck } from "react-icons/fa";
 import { BsFiletypePng } from "react-icons/bs";
 import { TbZoomReset } from "react-icons/tb";
+import { FiActivity } from "react-icons/fi";
 
 const crosshairPlugin = {
   id: "crosshair",
@@ -57,17 +58,17 @@ ChartJS.register(
 );
 
 const Accordion = ({ title, children, initialOpen = false }) => {
-    const [isOpen, setIsOpen] = useState(initialOpen);
-    return (
-      <div className="accordion-card">
-        <div className="accordion-header" onClick={() => setIsOpen(!isOpen)}>
-          <h3>{title}</h3>
-          <FaChevronDown className={`accordion-icon ${isOpen ? "open" : ""}`} />
-        </div>
-        {isOpen && <div className="accordion-content">{children}</div>}
+  const [isOpen, setIsOpen] = useState(initialOpen);
+  return (
+    <div className="accordion-card">
+      <div className="accordion-header" onClick={() => setIsOpen(!isOpen)}>
+        <h3>{title}</h3>
+        <FaChevronDown className={`accordion-icon ${isOpen ? "open" : ""}`} />
       </div>
-    );
-  };
+      {isOpen && <div className="accordion-content">{children}</div>}
+    </div>
+  );
+};
 
 function CalibrationChart({
   title,
@@ -79,12 +80,14 @@ function CalibrationChart({
   comparisonData,
   onRunFullAnalysis = null,
   onMarkStability = null,
-  instrumentType = null
+  instrumentType = null,
 }) {
   const chartRef = useRef(null);
   const [yAxisUnit, setYAxisUnit] = useState("voltage");
   const [isOptionsOpen, setIsOptionsOpen] = useState(false);
   const optionsMenuRef = useRef(null);
+  const [isStabilityOpen, setIsStabilityOpen] = useState(false);
+  const stabilityMenuRef = useRef(null);
   const [hideUnstableReadings, setHideUnstableReadings] = useState(false);
   const [voltSigFigs, setVoltSigFigs] = useState(4);
   const [voltSigFigsError, setVoltSigFigsError] = useState("");
@@ -120,12 +123,18 @@ function CalibrationChart({
       ) {
         setIsOptionsOpen(false);
       }
+      if (
+        stabilityMenuRef.current &&
+        !stabilityMenuRef.current.contains(event.target)
+      ) {
+        setIsStabilityOpen(false);
+      }
     }
     document.addEventListener("mousedown", handleClickOutside);
     return () => {
       document.removeEventListener("mousedown", handleClickOutside);
     };
-  }, [optionsMenuRef]);
+  }, [optionsMenuRef, stabilityMenuRef]);
 
   const { processedChartData, processedComparisonData } = useMemo(() => {
     const processDatasets = (dataToProcess) => {
@@ -182,7 +191,6 @@ function CalibrationChart({
       ds.data.map((d) => d.x)
     );
     const finalLabels = [...new Set(allXLabels)].sort((a, b) => a - b);
-
 
     return {
       processedChartData: { labels: finalLabels, datasets: finalChartDatasets },
@@ -281,7 +289,7 @@ function CalibrationChart({
         labels: {
           color: textColor,
           usePointStyle: true,
-          pointStyle: 'circle',
+          pointStyle: "circle",
           boxWidth: 80, // Using boxWidth for spacing
           padding: 30,
         },
@@ -392,7 +400,7 @@ function CalibrationChart({
             return unstableBgColor;
           }
           return context.dataset.backgroundColor;
-        }
+        },
       },
     },
     scales: {
@@ -450,8 +458,107 @@ function CalibrationChart({
     <div>
       <div className="summary-table-header" style={{ paddingBottom: "15px" }}>
         <h4 style={{ color: textColor }}>{title}</h4>
-        
+
         <div className="chart-header-actions">
+          {onMarkStability && (
+            <div className="chart-options-container" ref={stabilityMenuRef}>
+              <button
+                title="Update Reading Stability"
+                className="chart-action-icon-button"
+                onClick={() => setIsStabilityOpen((prev) => !prev)}
+              >
+                <FiActivity />
+              </button>
+              {isStabilityOpen && (
+                <div className="chart-options-dropdown">
+                  <Accordion
+                    title="Update Reading Stability"
+                    initialOpen={true}
+                  >
+                    <div className="chart-options-section">
+                      <div className="chart-options-form-group checkbox-group">
+                        <input
+                          id="hideUnstableInput"
+                          type="checkbox"
+                          checked={hideUnstableReadings}
+                          onChange={(e) =>
+                            setHideUnstableReadings(e.target.checked)
+                          }
+                        />
+                        <label htmlFor="hideUnstableInput">
+                          Hide Unstable Readings
+                        </label>
+                      </div>
+                      <div className="chart-options-form-group">
+                        <label>Measurement Type</label>
+                        <select
+                          name="type"
+                          value={stabilityRange.type}
+                          onChange={handleStabilityInputChange}
+                        >
+                          {availableMeasurementTypes.map((label) => (
+                            <option key={label} value={label}>
+                              {label}
+                            </option>
+                          ))}
+                        </select>
+                      </div>
+                      <div className="chart-options-range-inputs">
+                        <div className="chart-options-form-group">
+                          <label>Start Sample</label>
+                          <input
+                            name="start"
+                            type="number"
+                            min="1"
+                            value={stabilityRange.start}
+                            onChange={handleStabilityInputChange}
+                          />
+                        </div>
+                        <div className="chart-options-form-group">
+                          <label>End Sample</label>
+                          <input
+                            name="end"
+                            type="number"
+                            min="1"
+                            value={stabilityRange.end}
+                            onChange={handleStabilityInputChange}
+                          />
+                        </div>
+                      </div>
+                      <div className="chart-options-form-group">
+                        <label>Mark As</label>
+                        <select
+                          name="mark_as"
+                          value={stabilityRange.mark_as}
+                          onChange={handleStabilityInputChange}
+                        >
+                          <option value="unstable">Unstable</option>
+                          <option value="stable">Stable</option>
+                        </select>
+                      </div>
+                      <div
+                        className="chart-options-form-group"
+                        style={{ display: "flex", gap: "8px" }}
+                      >
+                        <button
+                          className="button button-primary button-small"
+                          onClick={() => {
+                            handleMarkStability();
+                            setIsStabilityOpen(false); // Close menu on apply
+                          }}
+                          style={{ flex: 1 }}
+                        >
+                          <FaCheck style={{ marginRight: "8px" }} />
+                          Apply
+                        </button>
+                      </div>
+                    </div>
+                  </Accordion>
+                </div>
+              )}
+            </div>
+          )}
+
           <button
             title="Reset Zoom"
             className="chart-action-icon-button"
@@ -466,7 +573,7 @@ function CalibrationChart({
           >
             <BsFiletypePng />
           </button>
-          
+
           <div className="chart-options-container" ref={optionsMenuRef}>
             <button
               title="Chart Options"
@@ -479,19 +586,6 @@ function CalibrationChart({
               <div className="chart-options-dropdown">
                 <Accordion title="Display Options" initialOpen={true}>
                   <div className="chart-options-section">
-                    <div className="chart-options-form-group checkbox-group">
-                      <input
-                        id="hideUnstableInput"
-                        type="checkbox"
-                        checked={hideUnstableReadings}
-                        onChange={(e) =>
-                          setHideUnstableReadings(e.target.checked)
-                        }
-                      />
-                      <label htmlFor="hideUnstableInput">
-                        Hide Unstable Readings
-                      </label>
-                    </div>
                     <div className="chart-options-form-group">
                       <label>Y-Axis Unit</label>
                       <div className="unit-toggle">
@@ -566,73 +660,6 @@ function CalibrationChart({
                     </div>
                   </div>
                 </Accordion>
-  
-                {onMarkStability && (
-                  <Accordion title="Update Reading Stability">
-                    <div className="chart-options-section">
-                      <div className="chart-options-form-group">
-                        <label>Measurement Type</label>
-                        <select
-                          name="type"
-                          value={stabilityRange.type}
-                          onChange={handleStabilityInputChange}
-                        >
-                          {availableMeasurementTypes.map((label) => (
-                            <option key={label} value={label}>
-                              {label}
-                            </option>
-                          ))}
-                        </select>
-                      </div>
-                      <div className="chart-options-range-inputs">
-                        <div className="chart-options-form-group">
-                          <label>Start Sample</label>
-                          <input
-                            name="start"
-                            type="number"
-                            min="1"
-                            value={stabilityRange.start}
-                            onChange={handleStabilityInputChange}
-                          />
-                        </div>
-                        <div className="chart-options-form-group">
-                          <label>End Sample</label>
-                          <input
-                            name="end"
-                            type="number"
-                            min="1"
-                            value={stabilityRange.end}
-                            onChange={handleStabilityInputChange}
-                          />
-                        </div>
-                      </div>
-                      <div className="chart-options-form-group">
-                        <label>Mark As</label>
-                        <select
-                          name="mark_as"
-                          value={stabilityRange.mark_as}
-                          onChange={handleStabilityInputChange}
-                        >
-                          <option value="unstable">Unstable</option>
-                          <option value="stable">Stable</option>
-                        </select>
-                      </div>
-                      <div
-                        className="chart-options-form-group"
-                        style={{ display: "flex", gap: "8px" }}
-                      >
-                        <button
-                          className="button button-primary button-small"
-                          onClick={handleMarkStability}
-                          style={{ flex: 1 }}
-                        >
-                          <FaCheck style={{ marginRight: "8px" }} />
-                          Apply
-                        </button>
-                      </div>
-                    </div>
-                  </Accordion>
-                )}
               </div>
             )}
           </div>
