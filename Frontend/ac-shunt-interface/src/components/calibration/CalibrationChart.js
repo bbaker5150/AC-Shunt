@@ -317,7 +317,7 @@ function CalibrationChart({
           color: textColor,
           usePointStyle: true,
           pointStyle: 'circle',
-          boxWidth: 80,
+          boxWidth: 80, // Using boxWidth for spacing
           padding: 30,
         },
       },
@@ -420,7 +420,7 @@ function CalibrationChart({
           if (context.raw?.is_stable === false) {
             return unstableColor;
           }
-          return context.dataset.borderColor; 
+          return context.dataset.borderColor;
         },
         backgroundColor: (context) => {
           if (context.raw?.is_stable === false) {
@@ -485,196 +485,198 @@ function CalibrationChart({
     <div>
       <div className="summary-table-header" style={{ paddingBottom: "15px" }}>
         <h4 style={{ color: textColor }}>{title}</h4>
-        <div className="chart-options-container" ref={optionsMenuRef}>
+        
+        <div className="chart-header-actions">
           <button
-            title="Chart Options"
-            className="chart-options-button"
-            onClick={() => setIsOptionsOpen((prev) => !prev)}
+            title="Reset Zoom"
+            className="chart-action-icon-button"
+            onClick={handleResetZoom}
           >
-            <FaCog />
+            <TbZoomReset />
           </button>
-          {isOptionsOpen && (
-            <div className="chart-options-dropdown">
-              <Accordion title="Display Options" initialOpen={true}>
-                <div className="chart-options-section">
-                  <div className="chart-options-form-group checkbox-group">
-                    <input
-                      id="hideUnstableInput"
-                      type="checkbox"
-                      checked={hideUnstableReadings}
-                      onChange={(e) =>
-                        setHideUnstableReadings(e.target.checked)
-                      }
-                    />
-                    <label htmlFor="hideUnstableInput">
-                      Hide Unstable Readings
-                    </label>
-                  </div>
-                  <div className="chart-options-form-group">
-                    <label>Y-Axis Unit</label>
-                    <div className="unit-toggle">
-                      <button
-                        className={yAxisUnit === "voltage" ? "active" : ""}
-                        onClick={() => setYAxisUnit("voltage")}
-                      >
-                        Volts
-                      </button>
-                      <button
-                        className={yAxisUnit === "ppm" ? "active" : ""}
-                        onClick={() => setYAxisUnit("ppm")}
-                      >
-                        PPM
-                      </button>
-                    </div>
-                  </div>
-                  <div className="chart-options-form-group">
-                    {yAxisUnit === "voltage" ? (
-                      <>
-                        <label htmlFor="voltSigFigsInput">
-                          Y-Axis Sig Figs (Volts)
-                        </label>
-                        <input
-                          id="voltSigFigsInput"
-                          name="voltSigFigs"
-                          type="number"
-                          value={voltSigFigs}
-                          onChange={handleVoltSigFigChange}
-                          placeholder="e.g., 4"
-                        />
-                        {voltSigFigsError && (
-                          <small
-                            className="error-text"
-                            style={{
-                              color: "var(--status-bad)",
-                              display: "block",
-                              marginTop: "4px",
-                            }}
-                          >
-                            {voltSigFigsError}
-                          </small>
-                        )}
-                      </>
-                    ) : (
-                      <>
-                        <label htmlFor="ppmDecimalInput">
-                          Y-Axis Decimals (PPM)
-                        </label>
-                        <input
-                          id="ppmDecimalInput"
-                          name="ppmDecimals"
-                          type="number"
-                          value={ppmDecimalPlaces}
-                          onChange={handlePpmDecimalChange}
-                          placeholder="e.g., 2"
-                        />
-                        {ppmDecimalPlacesError && (
-                          <small
-                            className="error-text"
-                            style={{
-                              color: "var(--status-bad)",
-                              display: "block",
-                              marginTop: "4px",
-                            }}
-                          >
-                            {ppmDecimalPlacesError}
-                          </small>
-                        )}
-                      </>
-                    )}
-                  </div>
-                  <div className="chart-options-action-icons">
-                    <button
-                      title="Reset Zoom"
-                      className="chart-action-icon-button"
-                      onClick={handleResetZoom}
-                    >
-                      <TbZoomReset />
-                    </button>
-                    <button
-                      title="Export as PNG"
-                      className="chart-action-icon-button"
-                      onClick={handleExportChart}
-                    >
-                      <BsFiletypePng />
-                    </button>
-                  </div>
-                </div>
-              </Accordion>
-
-              <Accordion title="Range Analysis">
-                <div className="chart-options-section">
-                  <div className="chart-options-form-group">
-                    <label>Measurement Type</label>
-                    <select
-                      name="type"
-                      value={analysisOptions.type}
-                      onChange={handleAnalysisInputChange}
-                    >
-                      {availableMeasurementTypes.map((label) => (
-                        <option key={label} value={label}>
-                          {label}
-                        </option>
-                      ))}
-                    </select>
-                  </div>
-                  <div className="chart-options-range-inputs">
-                    <div className="chart-options-form-group">
-                      <label>Start Sample</label>
+          <button
+            title="Export as PNG"
+            className="chart-action-icon-button"
+            onClick={handleExportChart}
+          >
+            <BsFiletypePng />
+          </button>
+          
+          <div className="chart-options-container" ref={optionsMenuRef}>
+            <button
+              title="Chart Options"
+              className="chart-options-button"
+              onClick={() => setIsOptionsOpen((prev) => !prev)}
+            >
+              <FaCog />
+            </button>
+            {isOptionsOpen && (
+              <div className="chart-options-dropdown">
+                <Accordion title="Display Options" initialOpen={true}>
+                  <div className="chart-options-section">
+                    <div className="chart-options-form-group checkbox-group">
                       <input
-                        name="start"
-                        type="number"
-                        value={analysisOptions.start}
-                        onChange={handleAnalysisInputChange}
+                        id="hideUnstableInput"
+                        type="checkbox"
+                        checked={hideUnstableReadings}
+                        onChange={(e) =>
+                          setHideUnstableReadings(e.target.checked)
+                        }
                       />
+                      <label htmlFor="hideUnstableInput">
+                        Hide Unstable Readings
+                      </label>
                     </div>
                     <div className="chart-options-form-group">
-                      <label>End Sample</label>
-                      <input
-                        name="end"
-                        type="number"
-                        value={analysisOptions.end}
-                        onChange={handleAnalysisInputChange}
-                      />
+                      <label>Y-Axis Unit</label>
+                      <div className="unit-toggle">
+                        <button
+                          className={yAxisUnit === "voltage" ? "active" : ""}
+                          onClick={() => setYAxisUnit("voltage")}
+                        >
+                          Volts
+                        </button>
+                        <button
+                          className={yAxisUnit === "ppm" ? "active" : ""}
+                          onClick={() => setYAxisUnit("ppm")}
+                        >
+                          PPM
+                        </button>
+                      </div>
+                    </div>
+                    <div className="chart-options-form-group">
+                      {yAxisUnit === "voltage" ? (
+                        <>
+                          <label htmlFor="voltSigFigsInput">
+                            Y-Axis Sig Figs (Volts)
+                          </label>
+                          <input
+                            id="voltSigFigsInput"
+                            name="voltSigFigs"
+                            type="number"
+                            value={voltSigFigs}
+                            onChange={handleVoltSigFigChange}
+                            placeholder="e.g., 4"
+                          />
+                          {voltSigFigsError && (
+                            <small
+                              className="error-text"
+                              style={{
+                                color: "var(--status-bad)",
+                                display: "block",
+                                marginTop: "4px",
+                              }}
+                            >
+                              {voltSigFigsError}
+                            </small>
+                          )}
+                        </>
+                      ) : (
+                        <>
+                          <label htmlFor="ppmDecimalInput">
+                            Y-Axis Decimals (PPM)
+                          </label>
+                          <input
+                            id="ppmDecimalInput"
+                            name="ppmDecimals"
+                            type="number"
+                            value={ppmDecimalPlaces}
+                            onChange={handlePpmDecimalChange}
+                            placeholder="e.g., 2"
+                          />
+                          {ppmDecimalPlacesError && (
+                            <small
+                              className="error-text"
+                              style={{
+                                color: "var(--status-bad)",
+                                display: "block",
+                                marginTop: "4px",
+                              }}
+                            >
+                              {ppmDecimalPlacesError}
+                            </small>
+                          )}
+                        </>
+                      )}
                     </div>
                   </div>
-                  <div
-                    className="chart-options-form-group"
-                    style={{ display: "flex", gap: "8px" }}
-                  >
-                    <button
-                      className="button button-secondary button-small"
-                      onClick={handleCalculateRange}
-                      style={{ flex: 1 }}
+                </Accordion>
+  
+                <Accordion title="Range Analysis">
+                  <div className="chart-options-section">
+                    <div className="chart-options-form-group">
+                      <label>Measurement Type</label>
+                      <select
+                        name="type"
+                        value={analysisOptions.type}
+                        onChange={handleAnalysisInputChange}
+                      >
+                        {availableMeasurementTypes.map((label) => (
+                          <option key={label} value={label}>
+                            {label}
+                          </option>
+                        ))}
+                      </select>
+                    </div>
+                    <div className="chart-options-range-inputs">
+                      <div className="chart-options-form-group">
+                        <label>Start Sample</label>
+                        <input
+                          name="start"
+                          type="number"
+                          value={analysisOptions.start}
+                          onChange={handleAnalysisInputChange}
+                        />
+                      </div>
+                      <div className="chart-options-form-group">
+                        <label>End Sample</label>
+                        <input
+                          name="end"
+                          type="number"
+                          value={analysisOptions.end}
+                          onChange={handleAnalysisInputChange}
+                        />
+                      </div>
+                    </div>
+                    <div
+                      className="chart-options-form-group"
+                      style={{ display: "flex", gap: "8px" }}
                     >
-                      <FaCalculator style={{ marginRight: "8px" }} />
-                      Calculate
-                    </button>
-                    {onRunFullAnalysis && (
                       <button
-                        className="button button-primary button-small"
-                        onClick={() => onRunFullAnalysis(analysisOptions)}
+                        className="button button-secondary button-small"
+                        onClick={handleCalculateRange}
                         style={{ flex: 1 }}
-                        title="Run a full analysis on the selected range and view detailed results in a new window."
                       >
-                        <FaRightLeft style={{ marginRight: "8px" }} />
-                        Analyze
+                        <FaCalculator style={{ marginRight: "8px" }} />
+                        Calculate
                       </button>
+                      {onRunFullAnalysis && (
+                        <button
+                          className="button button-primary button-small"
+                          onClick={() => onRunFullAnalysis(analysisOptions)}
+                          style={{ flex: 1 }}
+                          title="Run a full analysis on the selected range and view detailed results in a new window."
+                        >
+                          <FaRightLeft style={{ marginRight: "8px" }} />
+                          Analyze
+                        </button>
+                      )}
+                    </div>
+                    {analysisResult && (
+                      <div className="chart-options-result">
+                        <strong>Std Dev:</strong>{" "}
+                        {analysisResult.stdDevVolts.toPrecision(4)} V (
+                        {analysisResult.stdDevPpm.toFixed(2)} PPM)
+                        <br />
+                        <strong>Mean:</strong>{" "}
+                        {analysisResult.mean.toPrecision(8)} V
+                      </div>
                     )}
                   </div>
-                  {analysisResult && (
-                    <div className="chart-options-result">
-                      <strong>Std Dev:</strong>{" "}
-                      {analysisResult.stdDevVolts.toPrecision(4)} V (
-                      {analysisResult.stdDevPpm.toFixed(2)} PPM)
-                      <br />
-                      <strong>Mean:</strong>{" "}
-                      {analysisResult.mean.toPrecision(8)} V
-                    </div>
-                  )}
-                </div>
-              </Accordion>
-            </div>
-          )}
+                </Accordion>
+              </div>
+            )}
+          </div>
         </div>
       </div>
 

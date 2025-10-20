@@ -417,7 +417,7 @@ body.dark-mode .tooltip-content strong {
   justify-content: center;
   gap: 25px;
   width: 100%;
-  border-bottom: 1px solid var(--border-color);
+  /* border-bottom: 1px solid var(--border-color); */
 }
 
 .tab-button {
@@ -2728,6 +2728,17 @@ body.dark-mode .direction-dropdown-menu button:hover:not(:disabled) {
   margin-bottom: 15px;
 }
 
+.chart-header-actions {
+  position: absolute;
+  right: 0;
+  top: 50%;
+  transform: translateY(-50%);
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  z-index: 10;
+}
+
 .chart-header h5 {
   margin: 0;
 }
@@ -2767,10 +2778,7 @@ body.dark-mode .direction-dropdown-menu button:hover:not(:disabled) {
 /* =============================================== */
 
 .chart-options-container {
-  position: absolute;
-  right: 0;
-  top: 50%;
-  transform: translateY(-50%);
+  position: relative;
 }
 
 .chart-options-button {
@@ -2806,7 +2814,7 @@ body.dark-mode .direction-dropdown-menu button:hover:not(:disabled) {
   border: 1px solid var(--border-color);
   border-radius: 8px;
   box-shadow: 0 5px 15px rgba(0, 0, 0, 0.1);
-  z-index: 100;
+  z-index: 1010;
   padding: 0px;
   display: flex;
   flex-direction: column;
@@ -2945,20 +2953,16 @@ body.dark-mode .direction-dropdown-menu button:hover:not(:disabled) {
 }
 
 .chart-options-action-icons {
-  display: flex;
-  justify-content: flex-end;
-  align-items: center;
-  gap: 10px;
-  padding-top: 10px;
-  margin-top: 10px;
-  border-top: 1px solid var(--border-color);
+  border-top: none;
+  margin-top: 0;
+  padding-top: 0;
 }
 
 .chart-action-icon-button {
   background: none;
   border: none;
   color: var(--text-color-muted);
-  font-size: 1.3rem;
+  font-size: 1.2rem; /* Adjusted size slightly */
   padding: 6px;
   margin: 0;
   cursor: pointer;
@@ -4767,8 +4771,8 @@ body.dark-mode .tvc-corrections-no-data-message {
   background-color: #e9ecef;
   border-radius: 6px;
   padding: 3px;
-  transform: scale(0.9);
-  transform-origin: right;
+  /* transform: scale(0.9);
+  transform-origin: right; */
 }
 
 .unit-toggle button {
