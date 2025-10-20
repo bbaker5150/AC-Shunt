@@ -11,7 +11,8 @@ import {
 } from "react-icons/fa";
 import CalibrationChart from "./CalibrationChart";
 import { useTheme } from "../../contexts/ThemeContext";
-import RangeResultsModal from "./RangeResultsModal";
+import { API_BASE_URL } from "../../constants/constants";
+import axios from "axios"
 
 const READING_TYPES = [
   { label: "AC Open", value: "ac_open_readings", color: "rgb(75, 192, 192)" },
@@ -244,6 +245,7 @@ const SummaryTable = ({ results, prefix }) => {
 function CalibrationResults({
   showNotification,
   sharedFocusedTestPoint: focusedTP,
+  onDataUpdate
 }) {
   const { selectedSessionId } = useInstruments();
   const { theme } = useTheme();
@@ -257,11 +259,6 @@ function CalibrationResults({
     useState("ac_open_readings");
   const [showCalcDetails, setShowCalcDetails] = useState(false);
   const [activeDirection, setActiveDirection] = useState("Forward");
-  const [isRangeModalOpen, setIsRangeModalOpen] = useState(false);
-  const [rangeModalData, setRangeModalData] = useState({
-    results: null,
-    rangeInfo: null,
-  });
 
   useEffect(() => {
     if (window.MathJax && (showCalcDetails || activeTab === "summary")) {
@@ -349,149 +346,68 @@ function CalibrationResults({
     }
   }, [focusedTP, activeDirection]);
 
-  const calculateResultsForRange = useCallback(
-    (allReadings, analysisOptions) => {
-      if (!allReadings || !analysisOptions) return null;
-
-      const { start, end } = analysisOptions;
-      const startIndex = parseInt(start, 10) - 1;
-      const endIndex = parseInt(end, 10);
-
-      if (startIndex < 0 || endIndex <= startIndex) return null;
-
-      const results = {};
-      const prefixes = ["std_", "ti_"];
-      const readingTypes = ["ac_open", "dc_pos", "dc_neg", "ac_close"];
-
-      prefixes.forEach((prefix) => {
-        readingTypes.forEach((readingType) => {
-          const key = `${prefix}${readingType}_readings`;
-          const dataset = allReadings[key];
-
-          if (dataset && dataset.length > 0) {
-            const dataSlice = dataset
-              .slice(startIndex, endIndex)
-              .filter(p => p.is_stable !== false)
-              .map((p) => (typeof p === "object" ? p.value : p));
-
-            if (dataSlice.length > 0) {
-              const sum = dataSlice.reduce((acc, val) => acc + val, 0);
-              const mean = sum / dataSlice.length;
-
-              let stddev = 0;
-              if (dataSlice.length > 1) {
-                const variance =
-                  dataSlice.reduce(
-                    (acc, val) => acc + Math.pow(val - mean, 2),
-                    0
-                  ) /
-                  (dataSlice.length - 1);
-                stddev = Math.sqrt(variance);
-              }
-
-              results[`${prefix}${readingType}_avg`] = mean;
-              results[`${prefix}${readingType}_stddev`] = stddev;
-            }
-          }
-        });
-      });
-
-      return results;
-    },
-    []
-  );
-
-  const calculateACDCForRange = useCallback((rangeMeans, correctionFactors) => {
-    if (!rangeMeans || !correctionFactors) return null;
-
-    const V_DCSTD =
-      (Math.abs(rangeMeans.std_dc_pos_avg) +
-        Math.abs(rangeMeans.std_dc_neg_avg)) /
-      2;
-    const V_ACSTD =
-      (Math.abs(rangeMeans.std_ac_open_avg) +
-        Math.abs(rangeMeans.std_ac_close_avg)) /
-      2;
-    const V_DCUUT =
-      (Math.abs(rangeMeans.ti_dc_pos_avg) +
-        Math.abs(rangeMeans.ti_dc_neg_avg)) /
-      2;
-    const V_ACUUT =
-      (Math.abs(rangeMeans.ti_ac_open_avg) +
-        Math.abs(rangeMeans.ti_ac_close_avg)) /
-      2;
-
-    const { eta_std, eta_ti, delta_std, delta_ti, delta_std_known } =
-      correctionFactors;
-
-    if (
-      [eta_std, eta_ti, delta_std, delta_ti, delta_std_known].some(
-        (val) => val == null
-      )
-    ) {
-      return null;
-    }
-
-    const term_STD =
-      ((V_ACSTD - V_DCSTD) * 1e6) / (parseFloat(eta_std) * V_DCSTD);
-    const term_UUT =
-      ((V_ACUUT - V_DCUUT) * 1e6) / (parseFloat(eta_ti) * V_DCUUT);
-
-    const delta_uut_ppm =
-      parseFloat(delta_std_known) +
-      term_STD -
-      term_UUT +
-      parseFloat(delta_std) -
-      parseFloat(delta_ti);
-
-    return delta_uut_ppm;
-  }, []);
-
-  const handleRunFullAnalysis = useCallback(
-    (analysisOptions) => {
-      if (!calResults) {
-        showNotification(
-          "Cannot run analysis until readings are complete and results are calculated for this point.",
-          "error"
-        );
+  const handleMarkStability = useCallback(async (stabilityData) => {
+      if (!focusedTP || !selectedSessionId) {
+        showNotification("No focused test point selected.", "error");
         return;
       }
       
-      const rangeMeans = calculateResultsForRange(calReadings, analysisOptions);
-
-      if ([calResults.eta_std, calResults.delta_std_known].some(val => val == null)) {
-          showNotification('Cannot run analysis until correction factors are calculated and saved for this point.', 'error');
-          return;
-      }
-
-      if (rangeMeans && Object.keys(rangeMeans).length > 0) {
-        const delta_uut_ppm = calculateACDCForRange(rangeMeans, calResults);
-
-        const typeLabel =
-          READING_TYPES.find((rt) =>
-            rt.value.includes(analysisOptions.type.split("_")[1])
-          )?.label || analysisOptions.type;
+      const pointForDirection = activeDirection === "Forward" 
+        ? focusedTP.forward 
+        : activeDirection === "Reverse"
+        ? focusedTP.reverse
+        : focusedTP.forward; // Default to forward for "Combined"
         
-        setRangeModalData({
-          results: { ...rangeMeans, delta_uut_ppm },
-          rangeInfo: { ...analysisOptions, typeLabel },
-        });
-        setIsRangeModalOpen(true);
-      } else {
-        showNotification(
-          "Could not calculate results. Ensure the range is valid and data is available.",
-          "warning"
-        );
+      if (!pointForDirection || !pointForDirection.id) {
+        showNotification("No valid test point selected for this direction.", "error");
+        return;
       }
-    },
-    [
-      calReadings,
-      calResults,
-      calculateResultsForRange,
-      calculateACDCForRange,
-      showNotification,
-    ]
-  )
+      
+      // In this component, `activeInstrument` state tracks std/ti
+      const prefix = activeInstrument === "std" ? "std_" : "ti_"; 
+      const readingType = READING_TYPES.find(rt => rt.label === stabilityData.type);
+      
+      if (!readingType) {
+         showNotification("Invalid reading type selected.", "error");
+         return;
+      }
+      
+      const reading_key = `${prefix}${readingType.value}`;
+      
+      const payload = {
+        reading_key: reading_key,
+        start_index: parseInt(stabilityData.start, 10),
+        end_index: parseInt(stabilityData.end, 10),
+        is_stable: stabilityData.mark_as === 'stable'
+      };
+      
+      // Special case: If "Combined" is active, we must update both directions
+      let testPointIdsToUpdate = [pointForDirection.id];
+      if (activeDirection === "Combined" && focusedTP.reverse && focusedTP.reverse.id !== pointForDirection.id) {
+          testPointIdsToUpdate.push(focusedTP.reverse.id);
+      }
+
+      try {
+        for (const tpId of testPointIdsToUpdate) {
+            await axios.post(
+              `${API_BASE_URL}/calibration_sessions/${selectedSessionId}/test_points/${tpId}/mark-readings-stability/`,
+              payload
+            );
+        }
+        
+        let successMessage = `Readings ${payload.start_index}-${payload.end_index} for ${activeInstrument.toUpperCase()} ${readingType.label} marked as ${stabilityData.mark_as}. Averages recalculated.`;
+        if (activeDirection === "Combined" && testPointIdsToUpdate.length > 1) {
+            successMessage = `Updated stability for Forward and Reverse directions. Averages recalculated.`;
+        }
+
+        showNotification(successMessage, "success");
+        await onDataUpdate(); // This will refresh all data
+      } catch (error) {
+        const errorMsg = error.response?.data?.detail || "Failed to update reading stability.";
+        showNotification(errorMsg, "error");
+        console.error(error);
+      }
+  }, [focusedTP, selectedSessionId, activeDirection, activeInstrument, onDataUpdate, showNotification]);
 
   const formatFrequency = (value) =>
     (
@@ -706,12 +622,6 @@ function CalibrationResults({
 
   return (
     <div className="content-area">
-      <RangeResultsModal
-        isOpen={isRangeModalOpen}
-        onClose={() => setIsRangeModalOpen(false)}
-        results={rangeModalData.results}
-        rangeInfo={rangeModalData.rangeInfo}
-      />
       {!selectedSessionId && (
         <div className="form-section-warning">
           <p>
@@ -895,7 +805,8 @@ function CalibrationResults({
                         )}
                         theme={theme}
                         chartType="line"
-                        onRunFullAnalysis={handleRunFullAnalysis}
+                        onMarkStability={handleMarkStability}
+                        instrumentType={activeInstrument}
                       />
                     </div>
                   )}

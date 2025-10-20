@@ -530,6 +530,52 @@ function Calibration({
     }
   }, [selectedSessionId, showNotification]);
 
+  const handleMarkStability = useCallback(async (stabilityData, instrumentType) => {
+      if (!focusedTP || !selectedSessionId) {
+        showNotification("No focused test point selected.", "error");
+        return;
+      }
+
+      const pointForDirection = activeDirection === "Forward" 
+        ? focusedTP.forward 
+        : focusedTP.reverse;
+
+      if (!pointForDirection || !pointForDirection.id) {
+        showNotification("No valid test point created for this direction.", "error");
+        return;
+      }
+
+      const prefix = instrumentType === "std" ? "std_" : "ti_";
+      const readingType = READING_TYPES.find(rt => rt.label === stabilityData.type);
+      
+      if (!readingType) {
+         showNotification("Invalid reading type selected.", "error");
+         return;
+      }
+      
+      const reading_key = `${prefix}${readingType.key}_readings`;
+      
+      const payload = {
+        reading_key: reading_key,
+        start_index: parseInt(stabilityData.start, 10),
+        end_index: parseInt(stabilityData.end, 10),
+        is_stable: stabilityData.mark_as === 'stable'
+      };
+
+      try {
+        await axios.post(
+          `${API_BASE_URL}/calibration_sessions/${selectedSessionId}/test_points/${pointForDirection.id}/mark-readings-stability/`,
+          payload
+        );
+        showNotification(`Readings ${payload.start_index}-${payload.end_index} marked as ${stabilityData.mark_as}. Averages recalculated.`, "success");
+        await onDataUpdate();
+      } catch (error) {
+        const errorMsg = error.response?.data?.detail || "Failed to update reading stability.";
+        showNotification(errorMsg, "error");
+        console.error(error);
+      }
+  }, [focusedTP, selectedSessionId, activeDirection, onDataUpdate, showNotification, READING_TYPES]);
+
   useEffect(() => {
     if (!isCollecting && !isBulkRunning) {
       refreshComponentData();
@@ -2346,6 +2392,8 @@ function Calibration({
                               onHover={setHoveredIndex}
                               syncedHoverIndex={hoveredIndex}
                               comparisonData={tiChartData.datasets}
+                              instrumentType="std"
+                              onMarkStability={handleMarkStability}
                             />
                             <LiveStatisticsTracker
                               title="Standard Instrument Statistics"
@@ -2370,6 +2418,8 @@ function Calibration({
                               onHover={setHoveredIndex}
                               syncedHoverIndex={hoveredIndex}
                               comparisonData={stdChartData.datasets}
+                              instrumentType="ti"
+                              onMarkStability={handleMarkStability}
                             />
                             <LiveStatisticsTracker
                               title="Test Instrument Statistics"

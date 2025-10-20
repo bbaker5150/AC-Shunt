@@ -765,6 +765,7 @@ function AppContent() {
               showNotification={showNotification}
               sharedFocusedTestPoint={focusedTestPoint}
               uniqueTestPoints={uniqueTestPoints}
+              onDataUpdate={fetchSessionData}
             />
           )}
           {activeTab === "uncertaintyAnalysis" && (

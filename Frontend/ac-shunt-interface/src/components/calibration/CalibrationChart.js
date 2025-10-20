@@ -12,8 +12,7 @@ import {
   Legend,
 } from "chart.js";
 import zoomPlugin from "chartjs-plugin-zoom";
-import { FaCog, FaCalculator, FaChevronDown } from "react-icons/fa";
-import { FaRightLeft } from "react-icons/fa6";
+import { FaCog, FaChevronDown, FaCheck } from "react-icons/fa";
 import { BsFiletypePng } from "react-icons/bs";
 import { TbZoomReset } from "react-icons/tb";
 
@@ -70,39 +69,6 @@ const Accordion = ({ title, children, initialOpen = false }) => {
     );
   };
 
-const calculateRangeStats = (originalChartData, typeLabel, start, end) => {
-  if (!originalChartData || !typeLabel || start > end || start < 1) return null;
-
-  const targetDataset = originalChartData.datasets.find(
-    (ds) => ds.label === typeLabel
-  );
-  if (!targetDataset || !targetDataset.data) return null;
-
-  const startIndex = start - 1;
-  const endIndex = end;
-
-  if (startIndex < 0 || endIndex > targetDataset.data.length) return null;
-
-  const dataSlice = targetDataset.data
-    .slice(startIndex, endIndex)
-    .filter((p) => p.is_stable !== false)
-    .map((p) => p.y);
-  if (dataSlice.length < 2) return null;
-
-  const sum = dataSlice.reduce((acc, val) => acc + val, 0);
-  const mean = sum / dataSlice.length;
-
-  const sumSqDiff = dataSlice.reduce(
-    (acc, val) => acc + Math.pow(val - mean, 2),
-    0
-  );
-  const variance = sumSqDiff / (dataSlice.length - 1);
-  const stdDevVolts = Math.sqrt(variance);
-  const stdDevPpm = mean === 0 ? 0 : (stdDevVolts / Math.abs(mean)) * 1e6;
-
-  return { stdDevVolts, stdDevPpm, mean };
-};
-
 function CalibrationChart({
   title,
   chartData,
@@ -112,6 +78,8 @@ function CalibrationChart({
   syncedHoverIndex,
   comparisonData,
   onRunFullAnalysis = null,
+  onMarkStability = null,
+  instrumentType = null
 }) {
   const chartRef = useRef(null);
   const [yAxisUnit, setYAxisUnit] = useState("voltage");
@@ -122,23 +90,25 @@ function CalibrationChart({
   const [voltSigFigsError, setVoltSigFigsError] = useState("");
   const [ppmDecimalPlaces, setPpmDecimalPlaces] = useState(2);
   const [ppmDecimalPlacesError, setPpmDecimalPlacesError] = useState("");
-  const [analysisOptions, setAnalysisOptions] = useState({
+
+  const [stabilityRange, setStabilityRange] = useState({
     type: "",
     start: 1,
     end: 1,
+    mark_as: "unstable",
   });
-  const [analysisResult, setAnalysisResult] = useState(null);
 
   useEffect(() => {
     const primaryDataset = chartData?.datasets?.find(
       (ds) => ds.data && ds.data.length > 0
     );
     if (primaryDataset) {
-      setAnalysisOptions({
+      setStabilityRange((prev) => ({
+        ...prev,
         type: primaryDataset.label,
         start: 1,
         end: primaryDataset.data.length,
-      });
+      }));
     }
   }, [chartData]);
 
@@ -260,21 +230,16 @@ function CalibrationChart({
     }
   };
 
-  const handleAnalysisInputChange = (e) => {
+  const handleStabilityInputChange = (e) => {
     const { name, value } = e.target;
-    setAnalysisOptions((prev) => ({ ...prev, [name]: value }));
-    setAnalysisResult(null);
+    setStabilityRange((prev) => ({ ...prev, [name]: value }));
   };
 
-  const handleCalculateRange = () => {
-    const { type, start, end } = analysisOptions;
-    const result = calculateRangeStats(
-      chartData,
-      type,
-      parseInt(start, 10),
-      parseInt(end, 10)
-    );
-    setAnalysisResult(result);
+  const handleMarkStability = () => {
+    if (onMarkStability) {
+      onMarkStability(stabilityRange, instrumentType);
+      setIsOptionsOpen(false);
+    }
   };
 
   if (
@@ -602,78 +567,72 @@ function CalibrationChart({
                   </div>
                 </Accordion>
   
-                <Accordion title="Range Analysis">
-                  <div className="chart-options-section">
-                    <div className="chart-options-form-group">
-                      <label>Measurement Type</label>
-                      <select
-                        name="type"
-                        value={analysisOptions.type}
-                        onChange={handleAnalysisInputChange}
-                      >
-                        {availableMeasurementTypes.map((label) => (
-                          <option key={label} value={label}>
-                            {label}
-                          </option>
-                        ))}
-                      </select>
-                    </div>
-                    <div className="chart-options-range-inputs">
+                {onMarkStability && (
+                  <Accordion title="Update Reading Stability">
+                    <div className="chart-options-section">
                       <div className="chart-options-form-group">
-                        <label>Start Sample</label>
-                        <input
-                          name="start"
-                          type="number"
-                          value={analysisOptions.start}
-                          onChange={handleAnalysisInputChange}
-                        />
+                        <label>Measurement Type</label>
+                        <select
+                          name="type"
+                          value={stabilityRange.type}
+                          onChange={handleStabilityInputChange}
+                        >
+                          {availableMeasurementTypes.map((label) => (
+                            <option key={label} value={label}>
+                              {label}
+                            </option>
+                          ))}
+                        </select>
+                      </div>
+                      <div className="chart-options-range-inputs">
+                        <div className="chart-options-form-group">
+                          <label>Start Sample</label>
+                          <input
+                            name="start"
+                            type="number"
+                            min="1"
+                            value={stabilityRange.start}
+                            onChange={handleStabilityInputChange}
+                          />
+                        </div>
+                        <div className="chart-options-form-group">
+                          <label>End Sample</label>
+                          <input
+                            name="end"
+                            type="number"
+                            min="1"
+                            value={stabilityRange.end}
+                            onChange={handleStabilityInputChange}
+                          />
+                        </div>
                       </div>
                       <div className="chart-options-form-group">
-                        <label>End Sample</label>
-                        <input
-                          name="end"
-                          type="number"
-                          value={analysisOptions.end}
-                          onChange={handleAnalysisInputChange}
-                        />
+                        <label>Mark As</label>
+                        <select
+                          name="mark_as"
+                          value={stabilityRange.mark_as}
+                          onChange={handleStabilityInputChange}
+                        >
+                          <option value="unstable">Unstable</option>
+                          <option value="stable">Stable</option>
+                        </select>
                       </div>
-                    </div>
-                    <div
-                      className="chart-options-form-group"
-                      style={{ display: "flex", gap: "8px" }}
-                    >
-                      <button
-                        className="button button-secondary button-small"
-                        onClick={handleCalculateRange}
-                        style={{ flex: 1 }}
+                      <div
+                        className="chart-options-form-group"
+                        style={{ display: "flex", gap: "8px" }}
                       >
-                        <FaCalculator style={{ marginRight: "8px" }} />
-                        Calculate
-                      </button>
-                      {onRunFullAnalysis && (
                         <button
                           className="button button-primary button-small"
-                          onClick={() => onRunFullAnalysis(analysisOptions)}
+                          onClick={handleMarkStability}
                           style={{ flex: 1 }}
-                          title="Run a full analysis on the selected range and view detailed results in a new window."
                         >
-                          <FaRightLeft style={{ marginRight: "8px" }} />
-                          Analyze
+                          <FaCheck style={{ marginRight: "8px" }} />
+                          Apply
                         </button>
-                      )}
-                    </div>
-                    {analysisResult && (
-                      <div className="chart-options-result">
-                        <strong>Std Dev:</strong>{" "}
-                        {analysisResult.stdDevVolts.toPrecision(4)} V (
-                        {analysisResult.stdDevPpm.toFixed(2)} PPM)
-                        <br />
-                        <strong>Mean:</strong>{" "}
-                        {analysisResult.mean.toPrecision(8)} V
                       </div>
-                    )}
-                  </div>
-                </Accordion>
+                    </div>
+                  </Accordion>
+                )}
               </div>
             )}
           </div>

@@ -429,6 +429,7 @@ class CalibrationConsumer(AsyncWebsocketConsumer):
                 
                 del stable_candidate_std[-window_size:]
                 del stable_candidate_ti[-window_size:]
+                std_window.clear()
                 await asyncio.sleep(1.5)
 
             try:
