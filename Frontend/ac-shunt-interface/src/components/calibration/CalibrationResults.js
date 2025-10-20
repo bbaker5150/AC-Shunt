@@ -487,8 +487,6 @@ function CalibrationResults({
     const datasets = READING_TYPES.map((rt) => {
       const key = `${prefix}${rt.value}`;
       const baseColor = rt.color;
-      const unstableColor = "rgba(255, 99, 132, 1)";
-      const unstableBgColor = "rgba(255, 99, 132, 0.6)";
 
       return {
         label: rt.label,

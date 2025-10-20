@@ -574,7 +574,7 @@ function Calibration({
         showNotification(errorMsg, "error");
         console.error(error);
       }
-  }, [focusedTP, selectedSessionId, activeDirection, onDataUpdate, showNotification, READING_TYPES]);
+  }, [focusedTP, selectedSessionId, activeDirection, onDataUpdate, showNotification]);
 
   useEffect(() => {
     if (!isCollecting && !isBulkRunning) {
@@ -1891,7 +1891,7 @@ function Calibration({
     } else {
       return READING_TYPES.map(({ key, label }) => ({
         key: key,
-        label: `Take ${label} Readings (Focused)`,
+        label: `Take ${label} Readings`,
         onClick: () => handleCollectReadingsRequest(key),
       }));
     }

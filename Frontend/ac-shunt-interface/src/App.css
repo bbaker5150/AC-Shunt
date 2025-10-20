@@ -904,8 +904,9 @@ select:focus {
 .premium-action-button-menu {
   position: absolute;
   top: calc(100% + 5px);
-  left: 0;
   right: 0;
+  min-width: 280px;
+  width: max-content;
   background-color: var(--content-background);
   border: 1px solid var(--border-color);
   border-radius: 5px;
@@ -929,6 +930,7 @@ select:focus {
   margin: 0;
   padding: 10px 15px;
   border-radius: 4px;
+  white-space: nowrap;
 }
 
 .premium-action-button-item:hover {
