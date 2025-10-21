@@ -5462,9 +5462,26 @@ body.dark-mode .window-stability-section {
 
 .status-bar-progress {
   height: 100%;
-  background-color: var(--primary-color);
-  transition: width 0.3s ease-in-out;
   border-radius: 0 2px 2px 0;
+  transition: width 0.3s ease-in-out;
+  
+  /* --- New "Alive" Effect --- */
+  background-image: linear-gradient(
+    to right,
+    var(--primary-color) 0%,
+    var(--button-primary-hover) 50%, /* Uses your existing hover color for the shine */
+    var(--primary-color) 100%
+  );
+  background-size: 200% 100%; /* Makes the gradient wide for movement */
+  animation: animateShimmer 2s linear infinite;
+}
+@keyframes animateShimmer {
+  0% {
+    background-position: 100% 0;
+  }
+  100% {
+    background-position: -100% 0;
+  }
 }
 
 .button-stop {
