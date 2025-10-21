@@ -5279,13 +5279,16 @@ body.dark-mode .pfr-card .risk-value {
   display: flex;
   align-items: stretch;
   background-color: var(--background-color-offset);
-  border: 1px solid var(--border-color);
   border-radius: 8px;
   overflow: visible;
   width: 100%;
-  min-height: 70px;
+  max-width: 1400px;
+  min-height: 80px;
   box-shadow: 0 2px 4px rgba(0, 0, 0, 0.05);
   position: relative;
+  z-index: 1;
+  margin-left: auto;
+  margin-right: auto;
   margin-bottom: 25px;
 }
 
