@@ -13,7 +13,6 @@ import {
   FaMinusSquare,
   FaTrashAlt,
   FaPlus,
-  FaCalculator,
   FaEye,
 } from "react-icons/fa";
 import { IoDocumentText } from "react-icons/io5";
@@ -23,8 +22,9 @@ import {
   AVAILABLE_CURRENTS,
 } from "../../constants/constants";
 import { useInstruments } from "../../contexts/InstrumentContext";
+import DirectionToggle from '../shared/DirectionToggle'; // <-- Ensure this is imported
 
-// Helper functions (getShuntCorrectionForPoint, getTVCCorrectionForPoint, etc.) remain unchanged.
+// Helper functions (getShuntCorrectionForPoint, getTVCCorrectionForPoint, etc.)
 const getShuntCorrectionForPoint = (point, shuntRangeInAmps, shuntsData) => {
   if (!point || !shuntRangeInAmps || !shuntsData || shuntsData.length === 0) {
     return { correction: "N/A", uncertainty: "N/A" };
@@ -92,13 +92,13 @@ const formatCurrent = (value) => {
   return found ? found.text : `${numValue}A`;
 };
 
-// Context Menu Component (Updated)
+// Context Menu Component
 const ContextMenu = ({
   menuState,
   onClose,
   onDelete,
   onClearReadings,
-  onViewCorrections, // New prop
+  onViewCorrections,
 }) => {
   const menuRef = useRef(null);
 
@@ -116,7 +116,7 @@ const ContextMenu = ({
 
   if (!menuState.isOpen) return null;
 
-  const { x, y, point, hasCorrections } = menuState; // Destructure hasCorrections
+  const { x, y, point, hasCorrections } = menuState;
   const hasReadingsForward = onClearReadings.hasAnyReadings(point.forward);
   const hasReadingsReverse = onClearReadings.hasAnyReadings(point.reverse);
 
@@ -128,7 +128,7 @@ const ContextMenu = ({
     >
       <button
         className="context-menu-item"
-        disabled={!hasCorrections} // Disable if no corrections exist
+        disabled={!hasCorrections}
         onClick={() => {
           onViewCorrections(point);
           onClose();
@@ -175,7 +175,7 @@ const ContextMenu = ({
   );
 };
 
-// Sortable Test Point Item Component (Updated)
+// Sortable Test Point Item Component
 const SortableTestPointItem = ({
   point,
   isFocused,
@@ -251,7 +251,7 @@ const SortableTestPointItem = ({
   );
 };
 
-// Test Point Sidebar Component (Updated)
+// Test Point Sidebar Component
 function TestPointSidebar({
   orderedTestPoints,
   uniqueTestPoints,
@@ -263,6 +263,7 @@ function TestPointSidebar({
   activeCollectionDetails,
   bulkRunProgress,
   activeDirection,
+  setActiveDirection,
   onFocus,
   onToggleSelect,
   onToggleSelectAll,
@@ -272,7 +273,7 @@ function TestPointSidebar({
   onDeleteSelected,
   onAddTestPoints,
   onViewCorrections,
-  onViewPointCorrections, // New prop from App.js
+  onViewPointCorrections,
 }) {
   const { selectedSessionId, standardTvcSn, testTvcSn } = useInstruments();
   const [contextMenu, setContextMenu] = useState({
@@ -320,7 +321,6 @@ function TestPointSidebar({
     setContextMenu({ isOpen: false, x: 0, y: 0, point: null, hasCorrections: false });
   }, []);
 
-  // hasAllReadings and hasAnyReadings remain the same.
   const hasAllReadings = useCallback(
     (point) =>
       point?.readings &&
@@ -371,45 +371,54 @@ function TestPointSidebar({
   return (
     <div className="test-point-sidebar-content">
       <div className="sidebar-header">
-        <h4>Test Points</h4>
-        <div className="sidebar-header-actions">
-          <button
-            onClick={onToggleSelectAll}
-            className="sidebar-action-button"
-            disabled={
-              isBulkRunning || isCollecting || uniqueTestPoints.length === 0
-            }
-            title={selectAllTooltip}
-          >
-            <SelectAllIcon />
-          </button>
-          <button
-            onClick={onDeleteSelected}
-            className="sidebar-action-button"
-            disabled={isBulkRunning || isCollecting || selectedTPs.size === 0}
-            title="Delete Selected"
-          >
-            <FaTrashAlt />
-          </button>
-          <button
-            onClick={onAddTestPoints}
-            className="sidebar-action-button"
-            disabled={isBulkRunning || isCollecting || !selectedSessionId}
-            title="Add New Test Points"
-          >
-            <FaPlus />
-          </button>
-          <div style={{ flexGrow: 1 }} />
-          <button
-            onClick={onViewCorrections}
-            className="sidebar-action-button"
-            disabled={isBulkRunning || isCollecting || !selectedSessionId}
-            title="View Corrections Data"
-          >
-            <IoDocumentText />
-          </button>
-        </div>
+        <h4>{activeDirection === 'Forward' ? 'Forward' : 'Reverse'} Test Points</h4>
+        <DirectionToggle
+          activeDirection={activeDirection}
+          setActiveDirection={setActiveDirection}
+        />
       </div>
+
+      {/* Actions Bar Below Header */}
+      <div className="sidebar-actions-bar">
+        <button
+          onClick={onToggleSelectAll}
+          className="sidebar-action-button"
+          disabled={
+            isBulkRunning || isCollecting || uniqueTestPoints.length === 0
+          }
+          title={selectAllTooltip}
+        >
+          <SelectAllIcon />
+        </button>
+        <button
+          onClick={onDeleteSelected}
+          className="sidebar-action-button"
+          disabled={isBulkRunning || isCollecting || selectedTPs.size === 0}
+          title="Delete Selected"
+        >
+          <FaTrashAlt />
+        </button>
+        <button
+          onClick={onAddTestPoints}
+          className="sidebar-action-button"
+          disabled={isBulkRunning || isCollecting || !selectedSessionId}
+          title="Add New Test Points"
+        >
+          <FaPlus />
+        </button>
+        {/* Spacer */}
+        <div style={{ flexGrow: 1 }} />
+        <button
+          onClick={onViewCorrections}
+          className="sidebar-action-button"
+          disabled={isBulkRunning || isCollecting || !selectedSessionId}
+          title="View Corrections Data"
+        >
+          <IoDocumentText />
+        </button>
+      </div>
+      {/* End Actions Bar */}
+
       <DndContext collisionDetection={closestCenter} onDragEnd={onDragEnd}>
         <SortableContext
           items={orderedTestPoints.map((p) => p.key)}

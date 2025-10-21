@@ -1,3 +1,4 @@
+@import url('https://fonts.googleapis.com/css2?family=Inter:wght@400;600&family=Roboto+Mono:wght@500;700&display=swap');
 /* =================================================================== */
 /*
  * APP.CSS - Main Stylesheet
@@ -41,12 +42,12 @@
 /* =================================================================== */
 /* 1. :ROOT & THEME VARIABLES                                          */
 /* =================================================================== */
+
 :root {
   --background-color: #f4f7f6;
   --primary-color-dark: #3182ce;
   --text-color: #333;
   --text-color-muted: #6c757d;
-  /* ADDED */
   --header-background: #ffffff;
   --content-background: #ffffff;
   --border-color: #e0e0e0;
@@ -187,8 +188,6 @@ body {
   padding: 0;
 }
 
-/* --- Shared Test Point Item Styles (ADD THIS NEW SECTION) --- */
-
 .test-point-item-selectable {
   display: flex;
   align-items: center;
@@ -210,23 +209,18 @@ body {
   border-color: var(--primary-color);
 }
 
-.test-point-item-selectable.completed {
-  background-color: var(--success-color-light);
-}
-
-.test-point-item-selectable.completed .test-point-name {
+/* .test-point-item-selectable.completed .test-point-name {
   color: var(--success-text-color);
-  text-decoration: line-through;
   opacity: 0.7;
-}
+} */
 
 .test-point-item-selectable.partially-completed {
   border-left-color: var(--status-warning);
 }
 
-body.dark-mode .test-point-item-selectable.completed .test-point-name {
+/* body.dark-mode .test-point-item-selectable.completed .test-point-name {
   color: var(--text-color);
-}
+} */
 
 .drag-handle {
   color: var(--text-color-muted);
@@ -654,6 +648,65 @@ select:focus {
   border: 1px solid var(--border-color);
 }
 
+.calibration-content-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  margin-bottom: 20px;
+  padding: 12px 0; /* Reduced padding for a tighter look */
+  border-bottom: 1px solid #e0e0e0; /* Softer border color */
+}
+
+.calibration-content-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  margin-bottom: 20px;
+  padding: 10px 0;
+  border-bottom: 1px solid #333;
+  position: relative;
+}
+
+.readout-display {
+  position: absolute;
+  left: 50%;
+  transform: translateX(-50%);
+  display: flex;
+  align-items: baseline;
+  gap: 12px;
+}
+
+.readout-value {
+  font-family: 'Roboto Mono', 'Consolas', 'Menlo', monospace;
+  font-size: 2rem;
+  font-weight: 600;
+  
+  color: #29e008;
+  
+  text-shadow: 0 0 8px rgba(57, 255, 20, 0.6),
+               0 0 15px rgba(57, 255, 20, 0.4),
+               0 0 25px rgba(57, 255, 20, 0.2);
+}
+
+.readout-separator {
+  font-family: 'Roboto Mono', monospace;
+  font-size: 1.25rem;
+  font-weight: 400;
+  color: #888;
+  opacity: 0.7;
+}
+
+body.dark-mode .readout-value {
+  color: #63ff42;
+  text-shadow: 0 0 10px rgba(99, 255, 66, 0.8),
+               0 0 20px rgba(99, 255, 66, 0.6),
+               0 0 30px rgba(99, 255, 66, 0.4);
+}
+
+body.dark-mode .calibration-content-header {
+  border-bottom: 1px solid #555;
+}
+
 .checkbox-container input[type="checkbox"] {
   width: auto;
   margin: 0;
@@ -772,10 +825,54 @@ select:focus {
   cursor: not-allowed;
 }
 
-.sidebar-header-actions {
+.sidebar-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  padding-bottom: 10px;
+  border-bottom: 1px solid var(--border-color);
+  margin-bottom: 15px;
+  gap: 15px;
+}
+
+.sidebar-header h4 {
+  margin: 0;
+  color: var(--text-color);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  flex-shrink: 1;
+  min-width: 0;
+}
+
+.sidebar-actions-bar {
   display: flex;
   align-items: center;
-  gap: 8px;
+  gap: 8px; /* Spacing between buttons */
+  margin-bottom: 15px; /* Space below the actions bar */
+  padding: 5px 0; /* Optional vertical padding */
+}
+
+.sidebar-actions-bar .sidebar-action-button {
+  margin: 0;
+}
+
+.direction-toggle-container {
+  display: flex;
+  align-items: center;
+  gap: 8px; /* <-- Adjust this value */
+}
+
+.direction-toggle-icon {
+  font-size: 1rem; /* Adjust size as needed */
+  color: var(--text-color-muted);
+  line-height: 1; /* Helps with vertical alignment */
+  display: absolute; /* Helps center the icon if needed */
+  align-items: center;
+}
+
+.direction-toggle-switch {
+  margin: 0;
 }
 
 .config-header {
@@ -2005,14 +2102,12 @@ body.dark-mode .custom-dropdown-trigger.open {
   font-weight: 600;
 }
 
-/* --- Style adjustments for the Forward/Reverse toggle --- */
 .view-toggle {
   transform: scale(0.95);
-  transform-origin: right; /* Keeps it aligned to the right on resize */
-  margin: 0; /* Remove default margin */
+  transform-origin: right;
+  margin: 0;
 }
 
-/* --- New styles for the icon-only buttons on the Settings tab --- */
 .form-section-action-icons {
   display: flex;
   justify-content: flex-end;
@@ -2122,7 +2217,6 @@ body.dark-mode .custom-dropdown-trigger.open {
   gap: 8px;
 }
 
-/* MODIFIED: Replaced .test-point-item with a container for checkbox and label */
 .test-point-item-selectable {
   display: flex;
   align-items: center;
@@ -2165,12 +2259,6 @@ body.dark-mode .custom-dropdown-trigger.open {
 body.dark-mode .test-point-item-selectable.completed .test-point-name {
   color: var(--text-color);
 }
-
-.test-point-item-selectable.active.completed {
-  background-color: var(--success-color-light);
-  border-color: var(--success-color);
-}
-
 
 .test-point-item {
   display: flex;
@@ -2611,6 +2699,25 @@ body.dark-mode .direction-dropdown-menu button:hover:not(:disabled) {
     background-color: var(--button-primary-bg);
 }
 
+.direction-toggle-switch {
+  width: 50px; /* Match theme switcher width */
+  height: 28px; /* Match theme switcher height */
+  margin: 0;
+}
+
+/* Ensure the slider pseudo-element (the circle) matches */
+.direction-toggle-slider:before {
+  height: 20px;
+  width: 20px;
+  left: 4px;
+  bottom: 4px;
+}
+
+/* Use the exact same transform distance for the checked state */
+.direction-toggle-switch input:checked + .direction-toggle-slider:before {
+  transform: translateX(22px); /* Match theme switcher transform */
+}
+
 /* --- Calibration Workflow Page --- */
 
 .calibration-summary-bar {
@@ -2772,7 +2879,7 @@ body.dark-mode .direction-dropdown-menu button:hover:not(:disabled) {
   background-color: var(--background-color);
   border-color: var(--primary-color);
   box-shadow: none;
-  transform: none;
+  transform: translateY(-2px);
 }
 
 /* =============================================== */
@@ -3604,6 +3711,10 @@ body.dark-mode .uncertainty-budget-table tfoot td {
   gap: 16px;
 }
 
+.role-assignment .checkbox-group input[type="checkbox"] {
+  transform: scale(1.5);
+  margin-right: 10px;
+}
 .status-card {
   background-color: var(--content-background);
   padding: 16px;
@@ -5486,24 +5597,18 @@ body.dark-mode .window-stability-section {
   border-radius: 0 2px 2px 0;
 }
 
-/* --- STYLES FOR DRAGGABLE TEST POINTS --- */
 .test-point-item-selectable {
   display: flex;
-  /* Use flexbox to align handle, checkbox, and label */
   align-items: center;
-  /* Vertically center all items */
-  gap: 10px;
-  /* Space between items */
-  padding: 8px;
+  gap: 15px;
+  padding: 12px;
   border-radius: 6px;
   border: 1px solid transparent;
   transition: background-color 0.2s ease-in-out;
   cursor: pointer;
-  /* Change cursor back to pointer for selection */
   user-select: none;
 }
 
-/* Add a new rule for the drag handle */
 .drag-handle {
   color: var(--text-color-muted);
   padding: 4px;
@@ -5523,20 +5628,16 @@ body.dark-mode .window-stability-section {
   cursor: grabbing;
 }
 
-/* Style for when an item is actively being dragged (this rule already exists) */
 .test-point-item-selectable.dragging {
   opacity: 0.5;
   box-shadow: 0 4px 12px rgba(0, 0, 0, 0.15);
   background-color: var(--background-color);
 }
 
-/* This rule already exists, just ensure it's there */
 .test-point-item-selectable:active {
   cursor: pointer;
-  /* Ensure this doesn't change to grabbing */
 }
 
-/* The .test-point-item-selectable:hover rule should remain as is */
 .test-point-item-selectable:hover {
   background-color: var(--background-color);
 }

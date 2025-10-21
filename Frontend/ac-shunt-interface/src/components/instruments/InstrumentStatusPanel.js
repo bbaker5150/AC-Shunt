@@ -351,7 +351,7 @@ function InstrumentStatusPanel({ showNotification }) {
                         disabled={isInitializing || !selectedSessionId || !hasAssignedInstruments}
                         title="Send initialization commands to all assigned instruments"
                     >
-                        ⚙️ {isInitializing ? 'Initializing...' : 'Initialize Instruments'}
+                        💡 {isInitializing ? 'Initializing...' : 'Initialize Instruments'}
                     </button>
                 </div>
             </div>
@@ -393,8 +393,8 @@ function InstrumentStatusPanel({ showNotification }) {
                                 </button>
                             </>
                         ) : (
-                            <button className="button button-secondary" onClick={handleEditName} disabled={!activeWorkstationIp}>
-                                Rename Workstation
+                            <button  onClick={handleEditName} disabled={!activeWorkstationIp}>
+                                ✏️ Rename Workstation
                             </button>
                         )}
                     </div>

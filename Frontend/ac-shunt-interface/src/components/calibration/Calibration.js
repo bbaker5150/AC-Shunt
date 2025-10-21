@@ -16,7 +16,6 @@ import {
   FaHourglassHalf,
   FaCrosshairs,
   FaStream,
-  FaInfoCircle,
   FaSave,
   FaChevronDown,
 } from "react-icons/fa";
@@ -224,22 +223,7 @@ const SubNav = ({ activeTab, setActiveTab }) => (
   </div>
 );
 
-const DirectionToggle = ({ activeDirection, setActiveDirection }) => (
-  <div className="view-toggle">
-    <button
-      className={activeDirection === "Forward" ? "active" : ""}
-      onClick={() => setActiveDirection("Forward")}
-    >
-      Forward
-    </button>
-    <button
-      className={activeDirection === "Reverse" ? "active" : ""}
-      onClick={() => setActiveDirection("Reverse")}
-    >
-      Reverse
-    </button>
-  </div>
-);
+// DirectionToggle component definition removed
 
 function Calibration({
   showNotification,
@@ -248,6 +232,7 @@ function Calibration({
   setSharedFocusedTestPoint: setFocusedTP,
   sharedSelectedTPs: selectedTPs,
   onDataUpdate,
+  activeDirection, // Receive as prop now
 }) {
   const {
     selectedSessionId,
@@ -313,7 +298,7 @@ function Calibration({
   });
   const [averagedPpmDifference, setAveragedPpmDifference] = useState(null);
   const [isBulkRunning, setIsBulkRunning] = useState(false);
-  const [activeDirection, setActiveDirection] = useState("Forward");
+  // activeDirection state removed
   const [lastCollectionDirection, setLastCollectionDirection] = useState(null);
   const [confirmationModal, setConfirmationModal] = useState({
     isOpen: false,
@@ -536,8 +521,8 @@ function Calibration({
         return;
       }
 
-      const pointForDirection = activeDirection === "Forward" 
-        ? focusedTP.forward 
+      const pointForDirection = activeDirection === "Forward"
+        ? focusedTP.forward
         : focusedTP.reverse;
 
       if (!pointForDirection || !pointForDirection.id) {
@@ -547,14 +532,14 @@ function Calibration({
 
       const prefix = instrumentType === "std" ? "std_" : "ti_";
       const readingType = READING_TYPES.find(rt => rt.label === stabilityData.type);
-      
+
       if (!readingType) {
          showNotification("Invalid reading type selected.", "error");
          return;
       }
-      
-      const reading_key = `${prefix}${readingType.key}_readings`;
-      
+
+      const reading_key = `${prefix}${readingType.key}_readings`; // Fixed key name
+
       const payload = {
         reading_key: reading_key,
         start_index: parseInt(stabilityData.start, 10),
@@ -1985,16 +1970,6 @@ function Calibration({
         </div>
       ) : (
         <div className="content-area">
-          <div className="header-with-info-button">
-            <h2>Calibration Workflow</h2>
-            <button
-              className="info-button"
-              onClick={() => setIsSummaryModalOpen(true)}
-              title="View Configuration Details"
-            >
-              <FaInfoCircle />
-            </button>
-          </div>
           <div className="calibration-workflow-container">
             <div className="test-point-content">
               {!focusedTP ? (
@@ -2008,14 +1983,15 @@ function Calibration({
               ) : (
                 <>
                   <div className="calibration-content-header">
-                    <h4>
-                      {formatCurrent(focusedTP.current)} @{" "}
-                      {formatFrequency(focusedTP.frequency)}
-                    </h4>
-                    <DirectionToggle
-                      activeDirection={activeDirection}
-                      setActiveDirection={setActiveDirection}
-                    />
+                    <div className="readout-display">
+                      <span className="readout-value">
+                        {formatCurrent(focusedTP.current)}
+                      </span>
+                      <span className="readout-separator"> </span>
+                      <span className="readout-value">
+                        {formatFrequency(focusedTP.frequency)}
+                      </span>
+                    </div>
                   </div>
 
                   <SubNav activeTab={activeTab} setActiveTab={setActiveTab} />
@@ -2102,26 +2078,31 @@ function Calibration({
                             </div>
                           )}
                           <div className="form-section">
-                            <label htmlFor="stability_check_method">Stability Check Method</label>
+                            <label htmlFor="stability_check_method">
+                              Stability Check Method
+                            </label>
                             <select
-                                id="stability_check_method"
-                                name="stability_check_method"
-                                value={calibrationSettings.stability_check_method}
-                                onChange={(e) =>
-                                    setCalibrationSettings((prev) => ({
-                                    ...prev,
-                                    stability_check_method: e.target.value,
-                                    }))
-                                }
+                              id="stability_check_method"
+                              name="stability_check_method"
+                              value={calibrationSettings.stability_check_method}
+                              onChange={(e) =>
+                                setCalibrationSettings((prev) => ({
+                                  ...prev,
+                                  stability_check_method: e.target.value,
+                                }))
+                              }
                             >
-                                <option value="sliding_window">Sliding Window</option>
-                                <option value="iqr_filter">IQR Filter</option>
+                              <option value="sliding_window">
+                                Sliding Window
+                              </option>
+                              <option value="iqr_filter">IQR Filter</option>
                             </select>
                           </div>
-                          
-                          {calibrationSettings.stability_check_method === 'sliding_window' && (
+
+                          {calibrationSettings.stability_check_method ===
+                            "sliding_window" && (
                             <>
-                                <div className="form-section">
+                              <div className="form-section">
                                 <label htmlFor="stability_window">
                                   Stability Window (# Samples)
                                 </label>
@@ -2129,7 +2110,9 @@ function Calibration({
                                   type="number"
                                   id="stability_window"
                                   name="stability_window"
-                                  value={calibrationSettings.stability_window || 5}
+                                  value={
+                                    calibrationSettings.stability_window || 5
+                                  }
                                   onChange={(e) =>
                                     setCalibrationSettings((prev) => ({
                                       ...prev,
@@ -2172,7 +2155,8 @@ function Calibration({
                                   id="stability_max_attempts"
                                   name="stability_max_attempts"
                                   value={
-                                    calibrationSettings.stability_max_attempts || 50
+                                    calibrationSettings.stability_max_attempts ||
+                                    50
                                   }
                                   onChange={(e) =>
                                     setCalibrationSettings((prev) => ({
@@ -2188,24 +2172,28 @@ function Calibration({
                             </>
                           )}
 
-                          {calibrationSettings.stability_check_method === 'iqr_filter' && (
+                          {calibrationSettings.stability_check_method ===
+                            "iqr_filter" && (
                             <div className="form-section">
-                                <label htmlFor="iqr_filter_ppm_threshold">
+                              <label htmlFor="iqr_filter_ppm_threshold">
                                 IQR Filter Threshold (PPM)
-                                </label>
-                                <input
+                              </label>
+                              <input
                                 type="number"
                                 step="any"
                                 id="iqr_filter_ppm_threshold"
                                 name="iqr_filter_ppm_threshold"
-                                value={calibrationSettings.iqr_filter_ppm_threshold || 15}
+                                value={
+                                  calibrationSettings.iqr_filter_ppm_threshold ||
+                                  15
+                                }
                                 onChange={(e) =>
-                                    setCalibrationSettings((prev) => ({
+                                  setCalibrationSettings((prev) => ({
                                     ...prev,
                                     iqr_filter_ppm_threshold: e.target.value,
-                                    }))
+                                  }))
                                 }
-                                />
+                              />
                             </div>
                           )}
                         </div>
@@ -2279,29 +2267,31 @@ function Calibration({
                                     </span>
                                   </div>
 
-                                  {!timerState.isActive && calibrationSettings.stability_check_method === 'sliding_window' && (
-                                    <div className="status-section window-stability-section">
-                                      <span className="status-label">
-                                        <FaCrosshairs /> Window Stability
-                                      </span>
-                                      <span
-                                        className={`window-ppm-value ${
-                                          isStableNow
-                                            ? "status-good"
-                                            : "status-bad"
-                                        }`}
-                                      >
-                                        {displayPpm != null
-                                          ? `${displayPpm.toFixed(2)} PPM`
-                                          : "..."}
-                                      </span>
-                                      <span className="status-detail">
-                                        {isWindowMature
-                                          ? `Threshold: ${calibrationSettings.stability_threshold_ppm} PPM`
-                                          : `${displayFillCount} / ${calibrationSettings.stability_window} Samples`}
-                                      </span>
-                                    </div>
-                                  )}
+                                  {!timerState.isActive &&
+                                    calibrationSettings.stability_check_method ===
+                                      "sliding_window" && (
+                                      <div className="status-section window-stability-section">
+                                        <span className="status-label">
+                                          <FaCrosshairs /> Window Stability
+                                        </span>
+                                        <span
+                                          className={`window-ppm-value ${
+                                            isStableNow
+                                              ? "status-good"
+                                              : "status-bad"
+                                          }`}
+                                        >
+                                          {displayPpm != null
+                                            ? `${displayPpm.toFixed(2)} PPM`
+                                            : "..."}
+                                        </span>
+                                        <span className="status-detail">
+                                          {isWindowMature
+                                            ? `Threshold: ${calibrationSettings.stability_threshold_ppm} PPM`
+                                            : `${displayFillCount} / ${calibrationSettings.stability_window} Samples`}
+                                        </span>
+                                      </div>
+                                    )}
                                 </div>
                                 <div className="status-bar-progress-container">
                                   <div
