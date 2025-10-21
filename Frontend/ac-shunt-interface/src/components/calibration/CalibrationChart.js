@@ -410,6 +410,10 @@ function CalibrationChart({
           display: true,
           text: yAxisUnit === "voltage" ? "Voltage (V)" : "Difference (PPM)",
           color: textColor,
+          font: {
+            size: 16,
+            weight: 'bold'
+          }
         },
         ticks: {
           color: textColor,

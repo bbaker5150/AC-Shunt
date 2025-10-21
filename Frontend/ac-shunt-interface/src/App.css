@@ -296,7 +296,7 @@ body {
 .content-area {
   background-color: var(--content-background);
   border: 1px solid var(--border-color);
-  padding: 25px;
+  padding: 0px;
   border-radius: 8px;
   box-shadow: 0 4px 8px rgba(0, 0, 0, 0.08);
   margin-bottom: 20px;
@@ -443,29 +443,47 @@ body.dark-mode .tooltip-content strong {
 
 .sub-nav {
   display: flex;
-  justify-content: center;
-  margin-bottom: 25px;
-  background-color: #f8f9fa;
-  border-radius: 8px;
-  padding: 5px;
+  justify-content: flex-start;
+  margin-bottom: 25px; /* This is correct, it separates nav from status-bar */
+  padding-left: 0px;
+  padding-top: 0; /* Remove top padding */
+  border-bottom: 1px solid var(--border-color);
+  position: static; /* Reset position */
+  z-index: auto; /* Reset z-index */
 }
 
 .sub-nav button {
-  flex-grow: 1;
   margin: 0;
-  border: none;
+  border: none; /* No borders on the button itself */
   background-color: transparent;
-  padding: 10px 15px;
+  padding: 12px 20px;
   font-weight: 600;
-  color: #6c757d;
-  border-radius: 6px;
+  color: var(--text-color-muted);
+  border-radius: 0;
+  /* This 3px transparent border reserves space for the active-state border */
+  border-bottom: 3px solid transparent; 
   transition: all 0.2s ease;
+  position: static; /* Reset position */
+  margin-bottom: -1px; /* Pulls the button's bottom border over the nav's bottom border */
+  margin-right: none;
+}
+
+.sub-nav button:hover {
+  color: var(--primary-color);
 }
 
 .sub-nav button.active {
-  background-color: var(--content-background);
+  background-color: transparent;
   color: var(--primary-color);
-  box-shadow: 0 2px 5px rgba(0, 0, 0, 0.1);
+  border-bottom: 3px solid var(--primary-color); /* Highlights the active tab */
+  z-index: auto; /* Reset z-index */
+  /* No margin-bottom or border-color tricks needed */
+}
+
+.sub-tab-content {
+  padding: 25px;
+  position: static; /* Reset position */
+  z-index: auto; /* Reset z-index */
 }
 
 /* =================================================================== */
@@ -665,42 +683,6 @@ select:focus {
   padding: 10px 0;
   border-bottom: 1px solid #333;
   position: relative;
-}
-
-.readout-display {
-  position: absolute;
-  left: 50%;
-  transform: translateX(-50%);
-  display: flex;
-  align-items: baseline;
-  gap: 12px;
-}
-
-.readout-value {
-  font-family: 'Roboto Mono', 'Consolas', 'Menlo', monospace;
-  font-size: 2rem;
-  font-weight: 600;
-  
-  color: #29e008;
-  
-  text-shadow: 0 0 8px rgba(57, 255, 20, 0.6),
-               0 0 15px rgba(57, 255, 20, 0.4),
-               0 0 25px rgba(57, 255, 20, 0.2);
-}
-
-.readout-separator {
-  font-family: 'Roboto Mono', monospace;
-  font-size: 1.25rem;
-  font-weight: 400;
-  color: #888;
-  opacity: 0.7;
-}
-
-body.dark-mode .readout-value {
-  color: #63ff42;
-  text-shadow: 0 0 10px rgba(99, 255, 66, 0.8),
-               0 0 20px rgba(99, 255, 66, 0.6),
-               0 0 30px rgba(99, 255, 66, 0.4);
 }
 
 body.dark-mode .calibration-content-header {
@@ -943,21 +925,20 @@ body.dark-mode .calibration-content-header {
   box-shadow: none;
 }
 
-/* --- Styles for the new premium dropdown action button --- */
 .premium-action-button-container {
   position: relative;
   display: inline-block;
   grid-column: 1 / -1;
   justify-self: center;
-  z-index: 1; /* This new line is the fix */
+  z-index: 25;
 }
 
 .premium-action-button-wrapper {
   display: flex;
-  border: 1px solid var(--button-primary-hover);
+  border: none;
   border-radius: 6px;
   overflow: hidden;
-  box-shadow: 0 4px 10px rgba(0, 123, 255, 0.2);
+  box-shadow: none; /* Remove the floating shadow */
   transition: all 0.2s ease-in-out;
 }
 
@@ -970,14 +951,16 @@ body.dark-mode .calibration-content-header {
   border: none;
   border-radius: 0;
   box-shadow: none;
-  background: var(--button-primary-bg);
+  background: var(--content-background);
+  color: var(--primary-color);
   transition: background-color 0.2s ease;
 }
 
 .premium-action-button-wrapper .button:hover:not(:disabled) {
-  background: var(--button-primary-hover);
+  background: var(--background-color);
   transform: none;
   box-shadow: none;
+  color: var(--primary-color);
 }
 
 .premium-action-button-primary {
@@ -992,7 +975,7 @@ body.dark-mode .calibration-content-header {
 }
 
 .premium-action-button-caret {
-  border-left: 1px solid rgba(255, 255, 255, 0.2);
+  border-left: none;
   padding-left: 14px;
   padding-right: 14px;
   font-size: 0.9rem;
@@ -1037,10 +1020,8 @@ body.dark-mode .calibration-content-header {
   box-shadow: none;
 }
 
-/* Dark Mode Overrides for the new button */
 body.dark-mode .premium-action-button-wrapper {
-  border-color: #2b6cb0;
-  box-shadow: 0 4px 10px rgba(66, 153, 225, 0.2);
+  box-shadow: none;
 }
 
 body.dark-mode .premium-action-button-wrapper:hover:not(:disabled) {
@@ -4331,11 +4312,13 @@ body.dark-mode .tab-button.active {
 }
 
 body.dark-mode .sub-nav {
-  background-color: #1a202c;
+  border-bottom-color: var(--border-color);
 }
 
 body.dark-mode .sub-nav button {
-  color: #a0aec0;
+  background-color: transparent;
+  border-color: transparent;
+  color: var(--text-color-muted);
 }
 
 body.dark-mode .sub-nav button:hover {
@@ -4343,8 +4326,9 @@ body.dark-mode .sub-nav button:hover {
 }
 
 body.dark-mode .sub-nav button.active {
-  background-color: var(--content-background);
+  background-color: transparent;
   color: var(--primary-color);
+  border-bottom-color: var(--primary-color);
 }
 
 /* --- Components --- */
@@ -5287,208 +5271,29 @@ body.dark-mode .pfr-card .risk-value {
   /* Allows buttons to share space equally */
 }
 
-/* --- Action Dropdown Button --- */
-.action-dropdown-container {
-  position: relative;
-  display: inline-block;
-  grid-column: 1 / -1;
-  /* Ensures it takes the full width in your grid */
-}
-
-.action-dropdown-wrapper {
-  display: flex;
-  box-shadow: 0 2px 4px rgba(0, 0, 0, 0.1);
-  border-radius: 5px;
-  overflow: hidden;
-}
-
-.action-dropdown-wrapper .button {
-  margin: 0;
-  border-radius: 0;
-  box-shadow: none;
-  border-right: 1px solid rgba(255, 255, 255, 0.2);
-}
-
-.action-dropdown-primary {
-  flex-grow: 1;
-}
-
-.action-dropdown-caret {
-  padding-left: 12px;
-  padding-right: 12px;
-}
-
-.action-dropdown-menu {
-  position: absolute;
-  top: calc(100% + 5px);
-  left: 0;
-  right: 0;
-  background-color: var(--content-background);
-  border: 1px solid var(--border-color);
-  border-radius: 5px;
-  box-shadow: 0 4px 12px rgba(0, 0, 0, 0.1);
-  z-index: 100;
-  padding: 5px;
-  display: flex;
-  flex-direction: column;
-  gap: 3px;
-}
-
-.action-dropdown-item {
-  width: 100%;
-  text-align: left;
-  background-color: transparent;
-  color: var(--text-color);
-  font-weight: 500;
-  border: none;
-  box-shadow: none;
-  margin: 0;
-  padding: 10px 15px;
-}
-
-.action-dropdown-item:hover {
-  background-color: var(--primary-color);
-  color: white;
-  transform: none;
-  box-shadow: none;
-}
-
-/* Dark Mode Overrides */
-body.dark-mode .action-dropdown-item:hover {
-  background-color: var(--button-primary-bg);
-  color: white;
-}
-
-/* --- Premium Action Dropdown Button --- */
-.premium-action-button-container {
-  position: relative;
-  display: inline-block;
-  grid-column: 1 / -1;
-  /* Ensures it takes the full width in your grid */
-  justify-self: center;
-  /* Centers the button within the grid container */
-}
-
-.premium-action-button-wrapper {
-  display: flex;
-  border: 1px solid var(--button-primary-hover);
-  border-radius: 6px;
-  overflow: hidden;
-  box-shadow: 0 4px 10px rgba(0, 123, 255, 0.2);
-  transition: all 0.2s ease-in-out;
-}
-
-.premium-action-button-wrapper:hover:not(:disabled) {
-  box-shadow: 0 6px 15px rgba(0, 123, 255, 0.3);
-}
-
-.premium-action-button-wrapper .button {
-  margin: 0;
-  border: none;
-  border-radius: 0;
-  box-shadow: none;
-  background: var(--button-primary-bg);
-  transition: background-color 0.2s ease;
-}
-
-.premium-action-button-wrapper .button:hover:not(:disabled) {
-  background: var(--button-primary-hover);
-  transform: none;
-  box-shadow: none;
-}
-
-.premium-action-button-primary {
-  flex-grow: 1;
-  font-size: 1.1rem;
-  font-weight: 600;
-  padding: 12px 20px;
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  gap: 10px;
-}
-
-.premium-action-button-caret {
-  border-left: 1px solid rgba(255, 255, 255, 0.2);
-  padding-left: 12px;
-  padding-right: 12px;
-}
-
-.premium-action-button-menu {
-  position: absolute;
-  top: calc(100% + 5px);
-  left: 0;
-  right: 0;
-  background-color: var(--content-background);
-  border: 1px solid var(--border-color);
-  border-radius: 5px;
-  box-shadow: 0 4px 12px rgba(0, 0, 0, 0.1);
-  z-index: 1010;
-  padding: 5px;
-  display: flex;
-  flex-direction: column;
-  gap: 3px;
-  animation: fadeIn 0.15s ease-out;
-}
-
-.premium-action-button-item {
-  width: 100%;
-  text-align: left;
-  background-color: transparent;
-  color: var(--text-color);
-  font-weight: 500;
-  border: none;
-  box-shadow: none;
-  margin: 0;
-  padding: 10px 15px;
-  border-radius: 4px;
-}
-
-.premium-action-button-item:hover {
-  background-color: var(--primary-color);
-  color: white;
-  transform: none;
-  box-shadow: none;
-}
-
-/* Dark Mode Overrides */
-body.dark-mode .premium-action-button-wrapper {
-  border-color: #2b6cb0;
-  box-shadow: 0 4px 10px rgba(66, 153, 225, 0.2);
-}
-
-body.dark-mode .premium-action-button-wrapper:hover:not(:disabled) {
-  box-shadow: 0 6px 15px rgba(66, 153, 225, 0.3);
-}
-
-body.dark-mode .premium-action-button-item:hover {
-  background-color: var(--button-primary-bg);
-  color: white;
-}
-
 /* =================================== */
 /* == Professional Status Bar Styles == */
 /* =================================== */
 
 .status-bar {
-  grid-column: 1 / -1;
   display: flex;
   align-items: stretch;
   background-color: var(--background-color-offset);
   border: 1px solid var(--border-color);
   border-radius: 8px;
-  overflow: hidden;
+  overflow: visible;
   width: 100%;
   min-height: 70px;
   box-shadow: 0 2px 4px rgba(0, 0, 0, 0.05);
   position: relative;
-  /* This is the required fix */
+  margin-bottom: 25px;
 }
 
 .status-bar-content {
   flex-grow: 1;
   display: flex;
   padding: 10px 15px;
+  align-items: center;
 }
 
 .status-section {
@@ -5496,7 +5301,47 @@ body.dark-mode .premium-action-button-item:hover {
   flex-direction: column;
   justify-content: center;
   padding: 0 15px;
+  border-right: 1px solid var(--border-color); /* Added border */
+  min-height: 50px; /* Ensure sections have some height */
+}
+
+/* Remove border from the last dynamic section before the action button */
+.status-bar-content .status-section:last-of-type {
+  border-right: none;
+}
+
+/* Specific styling for the new live readout section */
+.live-readout-section {
+  border-left: 1px solid var(--border-color); /* Add left border */
+  flex-shrink: 0;
+  min-width: 180px; /* Give it some space */
+}
+/* Ensure border colors are correct in dark mode */
+body.dark-mode .live-readout-section {
+    border-left-color: var(--border-color);
+}
+/* Reduce font size slightly for live readings to fit better */
+.live-readout-section .status-value,
+.live-readout-section .status-detail {
+  font-size: 0.95rem; /* Adjusted font size */
+  line-height: 1.3;
+}
+.live-readout-section .status-detail {
+  font-size: 0.8rem; /* Smaller detail font */
+}
+
+
+body.dark-mode .status-section {
+  border-right-color: var(--border-color);
+}
+
+.readout-section {
+  padding: 0 15px; /* Make padding consistent */
   border-right: 1px solid var(--border-color);
+}
+
+body.dark-mode .readout-section {
+  border-right-color: var(--border-color);
 }
 
 .status-bar-content .status-section:last-child {
@@ -5515,23 +5360,41 @@ body.dark-mode .premium-action-button-item:hover {
 }
 
 .status-value {
-  font-size: 1.1rem;
+  font-size: 1.1rem; /* Reduced slightly */
   font-weight: 700;
   color: var(--primary-color);
+  line-height: 1.2; /* Added line-height */
 }
 
 .status-detail {
   font-size: 0.85rem;
-  color: var(--text-color-light);
+  color: var(--text-color-light); /* Ensure this variable exists or replace */
+  line-height: 1.2; /* Added line-height */
 }
 
 .status-bar-action {
   display: flex;
   align-items: center;
   justify-content: center;
-  padding: 0 20px;
-  background-color: var(--background-color);
+  padding: 0 15px; /* Adjusted padding */
+  /* background-color: var(--background-color); */ /* Removed background */
+  margin-left: auto; /* Push action button to the far right */
 }
+
+.status-bar-action .premium-action-button-primary {
+  padding: 10px 15px; /* Slightly reduced padding */
+  font-size: 1.1rem;
+}
+.status-bar-action .premium-action-button-caret {
+  padding: 10px 12px; /* Slightly reduced padding */
+}
+/* Ensure dropdown menu appears correctly */
+.status-bar-action .premium-action-button-menu {
+    top: calc(100% + 2px); /* Adjust positioning relative to smaller button */
+    right: 0;
+    left: auto; /* Align to the right */
+}
+
 
 .window-stability-section {
   border-left: 1px solid var(--border-color);
@@ -5564,6 +5427,44 @@ body.dark-mode .window-stability-section {
 }
 
 .button-stop {
+  background: var(--content-background);
+  border: 1px solid var(--border-color);
+  color: var(--status-bad);
+  font-size: 1.1rem;
+  cursor: pointer;
+  transition: background-color 0.2s ease, color 0.2s ease;
+  padding: 10px 15px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: auto;
+  height: auto;
+  border-radius: 6px;
+}
+
+.button-stop:hover {
+  background-color: var(--status-bad-bg);
+  color: var(--status-bad);
+  transform: none;
+}
+
+.status-bar-progress-container {
+  position: absolute;
+  bottom: 0;
+  left: 0;
+  width: 100%;
+  height: 4px;
+  background-color: var(--border-color);
+}
+
+.status-bar-progress {
+  height: 100%;
+  background-color: var(--primary-color);
+  transition: width 0.3s ease-in-out;
+  border-radius: 0 2px 2px 0;
+}
+
+.button-stop {
   background: none;
   border: none;
   color: #dc3545;
@@ -5579,6 +5480,17 @@ body.dark-mode .window-stability-section {
 .button-stop:hover {
   color: #a71d2a;
   transform: scale(1.15);
+}
+
+body.dark-mode .button-stop {
+  background: var(--content-background);
+  border-color: var(--border-color);
+  color: var(--status-bad);
+}
+
+body.dark-mode .button-stop:hover {
+  background-color: var(--status-bad-bg);
+  color: var(--status-bad);
 }
 
 .status-bar-progress-container {
