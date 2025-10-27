@@ -720,6 +720,7 @@ function AppContent() {
             activeCollectionDetails={activeCollectionDetails}
             bulkRunProgress={bulkRunProgress}
             activeDirection={activeDirection}
+            setActiveDirection={setActiveDirection}
             onFocus={setFocusedTestPoint}
             onToggleSelect={handleToggleSelect}
             onToggleSelectAll={handleToggleSelectAll}
@@ -757,7 +758,6 @@ function AppContent() {
               sharedSelectedTPs={selectedTPs}
               onDataUpdate={fetchSessionData}
               activeDirection={activeDirection}
-              setActiveDirection={setActiveDirection}
             />
           )}
           {activeTab === "calibrationResults" && (
@@ -765,6 +765,7 @@ function AppContent() {
               showNotification={showNotification}
               sharedFocusedTestPoint={focusedTestPoint}
               uniqueTestPoints={uniqueTestPoints}
+              onDataUpdate={fetchSessionData}
             />
           )}
           {activeTab === "uncertaintyAnalysis" && (

@@ -1012,7 +1012,7 @@ function Analysis({
   const toPpm = useCallback((val) => val * 1e6, []);
   const allUncertaintyComponents = useMemo(() => {
     const typeAComponents = READING_KEYS.map((item) => {
-      const readingsArray = readings[`${item.key}_readings`] || [];
+      const readingsArray = (readings[`${item.key}_readings`] || []).filter(r => r.is_stable !== false);
       const avg = results[`${item.key}_avg`];
       const stddev = results[`${item.key}_stddev`];
       const n = readingsArray.length;
@@ -1890,9 +1890,11 @@ function UncertaintyAnalysis({
       const combinedResults = {};
 
       READING_KEY_NAMES.forEach((key) => {
-        const readings = combinedReadings[key].map((r) =>
-          typeof r === "object" ? r.value : r
-        );
+        const readings = combinedReadings[key]
+          .filter(r => r.is_stable !== false)
+          .map((r) =>
+            typeof r === "object" ? r.value : r
+          );
         if (readings.length > 0) {
           const sum = readings.reduce((a, b) => a + b, 0);
           const avg = sum / readings.length;

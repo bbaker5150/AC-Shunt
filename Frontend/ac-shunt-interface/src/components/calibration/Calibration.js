@@ -16,11 +16,10 @@ import {
   FaHourglassHalf,
   FaCrosshairs,
   FaStream,
-  FaInfoCircle,
   FaSave,
   FaChevronDown,
-  FaLayerGroup,
 } from "react-icons/fa";
+import { LuSaveAll } from "react-icons/lu";
 import { useInstruments } from "../../contexts/InstrumentContext";
 import { useTheme } from "../../contexts/ThemeContext";
 import CalibrationChart from "./CalibrationChart";
@@ -213,33 +212,18 @@ const SubNav = ({ activeTab, setActiveTab }) => (
       onClick={() => setActiveTab("readings")}
       className={activeTab === "readings" ? "active" : ""}
     >
-      Run Calibration
+      Readings
     </button>
     <button
       onClick={() => setActiveTab("calculate")}
       className={activeTab === "calculate" ? "active" : ""}
     >
-      Calculate Results
+      Calculations
     </button>
   </div>
 );
 
-const DirectionToggle = ({ activeDirection, setActiveDirection }) => (
-  <div className="view-toggle">
-    <button
-      className={activeDirection === "Forward" ? "active" : ""}
-      onClick={() => setActiveDirection("Forward")}
-    >
-      Forward
-    </button>
-    <button
-      className={activeDirection === "Reverse" ? "active" : ""}
-      onClick={() => setActiveDirection("Reverse")}
-    >
-      Reverse
-    </button>
-  </div>
-);
+// DirectionToggle component definition removed
 
 function Calibration({
   showNotification,
@@ -248,6 +232,7 @@ function Calibration({
   setSharedFocusedTestPoint: setFocusedTP,
   sharedSelectedTPs: selectedTPs,
   onDataUpdate,
+  activeDirection, // Receive as prop now
 }) {
   const {
     selectedSessionId,
@@ -276,10 +261,10 @@ function Calibration({
     switchDriverSN,
     clearLiveReadings,
     amplifierAddress,
-    amplifierSN,
     lastMessage,
     sendWsCommand,
     stabilizationStatus,
+    slidingWindowStatus,
     timerState,
     bulkRunProgress: bulkRunProgressFromContext,
     focusedTPKey,
@@ -298,9 +283,11 @@ function Calibration({
     num_samples: 8,
     settling_time: 5,
     nplc: 20,
+    stability_check_method: 'sliding_window',
     stability_window: 5,
     stability_threshold_ppm: 10,
     stability_max_attempts: 50,
+    iqr_filter_ppm_threshold: 15,
   });
   const [correctionInputs, setCorrectionInputs] = useState({
     eta_std: "",
@@ -311,21 +298,23 @@ function Calibration({
   });
   const [averagedPpmDifference, setAveragedPpmDifference] = useState(null);
   const [isBulkRunning, setIsBulkRunning] = useState(false);
-  const [activeDirection, setActiveDirection] = useState("Forward");
+  // activeDirection state removed
   const [lastCollectionDirection, setLastCollectionDirection] = useState(null);
   const [confirmationModal, setConfirmationModal] = useState({
     isOpen: false,
     title: "",
     message: "",
-    onConfirm: () => { },
+    onConfirm: () => {},
   });
   const [amplifierModal, setAmplifierModal] = useState({
     isOpen: false,
     range: null,
-    onConfirm: () => { },
+    onConfirm: () => {},
   });
-  const [historicalReadings, setHistoricalReadings] = useState(initialLiveReadings);
-  const [tiHistoricalReadings, setTiHistoricalReadings] = useState(initialLiveReadings);
+  const [historicalReadings, setHistoricalReadings] =
+    useState(initialLiveReadings);
+  const [tiHistoricalReadings, setTiHistoricalReadings] =
+    useState(initialLiveReadings);
   const [hoveredIndex, setHoveredIndex] = useState(null);
   const [shuntsData, setShuntsData] = useState([]);
   const [tvcsData, setTvcsData] = useState([]);
@@ -338,11 +327,46 @@ function Calibration({
   const [isCalculatingAverages, setIsCalculatingAverages] = useState(false);
   const [isRunDropdownOpen, setIsRunDropdownOpen] = useState(false);
   const runDropdownRef = useRef(null);
+  const prevIsBulkRunning = useRef(isBulkRunning);
 
   const uniqueTestPoints = useMemo(
     () => orderedTestPoints,
     [orderedTestPoints]
   );
+
+  const livePpm = useMemo(() => {
+    if (!isCollecting || !activeCollectionDetails?.stage) {
+      return null;
+    }
+    const currentReadings = liveReadings[activeCollectionDetails.stage];
+    if (!currentReadings || currentReadings.length < 2) {
+      return null;
+    }
+    const values = currentReadings.map((p) => p.y);
+    const sum = values.reduce((acc, val) => acc + val, 0);
+    const mean = sum / values.length;
+    if (Math.abs(mean) < 1e-9) return 0;
+    const variance =
+      values.reduce((acc, val) => acc + Math.pow(val - mean, 2), 0) /
+      (values.length - 1);
+    const stdDev = Math.sqrt(variance);
+    const ppm = (stdDev / Math.abs(mean)) * 1e6;
+    return ppm;
+  }, [liveReadings, isCollecting, activeCollectionDetails]);
+
+  const latestStdReading = useMemo(() => {
+    if (!isCollecting || !activeCollectionDetails?.stage) return null;
+    const stageReadings = liveReadings[activeCollectionDetails.stage];
+    if (!stageReadings || stageReadings.length === 0) return null;
+    return stageReadings[stageReadings.length - 1];
+  }, [liveReadings, isCollecting, activeCollectionDetails]);
+
+  const latestTiReading = useMemo(() => {
+    if (!isCollecting || !activeCollectionDetails?.stage) return null;
+    const stageReadings = tiLiveReadings[activeCollectionDetails.stage];
+    if (!stageReadings || stageReadings.length === 0) return null;
+    return stageReadings[stageReadings.length - 1];
+  }, [tiLiveReadings, isCollecting, activeCollectionDetails]);
 
   useEffect(() => {
     const handleClickOutside = (event) => {
@@ -363,17 +387,13 @@ function Calibration({
     if (timerInterval.current) {
       clearInterval(timerInterval.current);
     }
-
     if (timerState.isActive) {
       timerStartTime.current = Date.now();
       const totalDurationInMs = timerState.duration * 1000;
-
       setCountdown(Math.ceil(timerState.duration));
-
       timerInterval.current = setInterval(() => {
         const elapsedTime = Date.now() - timerStartTime.current;
         const remainingTime = totalDurationInMs - elapsedTime;
-
         if (remainingTime <= 0) {
           clearInterval(timerInterval.current);
           setCountdown(0);
@@ -385,7 +405,6 @@ function Calibration({
       setCountdown(0);
       timerStartTime.current = null;
     }
-
     return () => {
       if (timerInterval.current) {
         clearInterval(timerInterval.current);
@@ -480,16 +499,15 @@ function Calibration({
     if (!address) {
       return "Not Assigned";
     }
-
     if (model) {
       if (serial) {
         return `${model}, S/N ${serial} (${address})`;
       }
       return `${model} (${address})`;
     }
-
-    const instrument = discoveredInstruments.find((inst) => inst.address === address);
-
+    const instrument = discoveredInstruments.find(
+      (inst) => inst.address === address
+    );
     if (instrument) {
       return `${instrument.identity} (${instrument.address})`;
     }
@@ -511,11 +529,76 @@ function Calibration({
     }
   }, [selectedSessionId, showNotification]);
 
+  const handleMarkStability = useCallback(async (stabilityData, instrumentType) => {
+      if (!focusedTP || !selectedSessionId) {
+        showNotification("No focused test point selected.", "error");
+        return;
+      }
+
+      const pointForDirection = activeDirection === "Forward"
+        ? focusedTP.forward
+        : focusedTP.reverse;
+
+      if (!pointForDirection || !pointForDirection.id) {
+        showNotification("No valid test point created for this direction.", "error");
+        return;
+      }
+
+      const prefix = instrumentType === "std" ? "std_" : "ti_";
+      const readingType = READING_TYPES.find(rt => rt.label === stabilityData.type);
+
+      if (!readingType) {
+         showNotification("Invalid reading type selected.", "error");
+         return;
+      }
+
+      const reading_key = `${prefix}${readingType.key}_readings`; // Fixed key name
+
+      const payload = {
+        reading_key: reading_key,
+        start_index: parseInt(stabilityData.start, 10),
+        end_index: parseInt(stabilityData.end, 10),
+        is_stable: stabilityData.mark_as === 'stable'
+      };
+
+      try {
+        await axios.post(
+          `${API_BASE_URL}/calibration_sessions/${selectedSessionId}/test_points/${pointForDirection.id}/mark-readings-stability/`,
+          payload
+        );
+        showNotification(`Readings ${payload.start_index}-${payload.end_index} marked as ${stabilityData.mark_as}. Averages recalculated.`, "success");
+        await onDataUpdate();
+      } catch (error) {
+        const errorMsg = error.response?.data?.detail || "Failed to update reading stability.";
+        showNotification(errorMsg, "error");
+        console.error(error);
+      }
+  }, [focusedTP, selectedSessionId, activeDirection, onDataUpdate, showNotification]);
+
   useEffect(() => {
     if (!isCollecting && !isBulkRunning) {
       refreshComponentData();
     }
-  }, [isCollecting, isBulkRunning, refreshComponentData]);
+  }, [isCollecting, isBulkRunning, refreshComponentData, orderedTestPoints]);
+
+  const parseStabilizationStatus = useCallback(
+    (statusString) => {
+      if (!statusString) return null;
+      const ppmMatch = statusString.match(/Stdev: ([\d.]+|Calculating...) PPM/);
+      const countMatch = statusString.match(/\[(\d+)\/(\d+)\]/);
+      const ppm =
+        ppmMatch && ppmMatch[1] !== "Calculating..."
+          ? parseFloat(ppmMatch[1])
+          : null;
+      const count = countMatch ? `${countMatch[1]}/${countMatch[2]}` : "";
+      const isStable =
+        ppm !== null &&
+        ppm < (calibrationSettings.stability_threshold_ppm || 10);
+      return { ppm, count, isStable };
+    },
+    [calibrationSettings.stability_threshold_ppm]
+  );
+  const stabilizationInfo = parseStabilizationStatus(stabilizationStatus);
 
   const hasAllReadings = useCallback((point) => {
     if (!point?.readings) return false;
@@ -532,17 +615,78 @@ function Calibration({
   }, []);
 
   useEffect(() => {
-    if (!focusedTP || !selectedSessionId) return;
+    prevIsBulkRunning.current = isBulkRunning;
+  }, [isBulkRunning]);
 
+  useEffect(() => {
+    const wasBulkRunning = prevIsBulkRunning.current;
+    if (wasBulkRunning && !isBulkRunning) {
+      const processCompletedPoints = async () => {
+        console.log(
+          "Post-batch processing triggered: searching for points needing average calculation."
+        );
+        const averagePromises = [];
+        uniqueTestPoints.forEach((point) => {
+          const checkAndQueueAvgCalc = (directionData) => {
+            if (!directionData || !directionData.id) return;
+            const readingsAreComplete = hasAllReadings(directionData);
+            const averagesAreMissing =
+              !directionData.results ||
+              directionData.results.std_ac_open_avg === null;
+            if (readingsAreComplete && averagesAreMissing) {
+              console.log(
+                `Queueing average calculation for Test Point ID: ${directionData.id}`
+              );
+              averagePromises.push(
+                axios.post(
+                  `${API_BASE_URL}/calibration_sessions/${selectedSessionId}/test_points/${directionData.id}/calculate-averages/`
+                )
+              );
+            }
+          };
+          checkAndQueueAvgCalc(point.forward);
+          checkAndQueueAvgCalc(point.reverse);
+        });
+        if (averagePromises.length > 0) {
+          showNotification(
+            `Found ${averagePromises.length} new reading set(s). Calculating averages...`,
+            "info"
+          );
+          try {
+            await Promise.all(averagePromises);
+            console.log("All average calculation requests sent successfully.");
+            onDataUpdate();
+          } catch (error) {
+            showNotification(
+              "An error occurred during the batch average calculation.",
+              "error"
+            );
+            console.error("Batch average calculation failed:", error);
+          }
+        } else {
+          console.log("No new points required average calculation.");
+        }
+      };
+      setTimeout(processCompletedPoints, 200);
+    }
+  }, [
+    uniqueTestPoints,
+    isBulkRunning,
+    selectedSessionId,
+    hasAllReadings,
+    onDataUpdate,
+    showNotification,
+  ]);
+
+  useEffect(() => {
+    if (!focusedTP || !selectedSessionId) return;
     const triggerAverageCalculationIfNeeded = async (pointDirection) => {
       if (!pointDirection || !pointDirection.id) return;
-
       const readingsAreComplete = hasAllReadings(pointDirection);
       const averagesAreMissing =
         !pointDirection.results ||
         pointDirection.results.std_ac_open_avg === null;
-
-      if (readingsAreComplete && averagesAreMissing) {
+      if (readingsAreComplete && averagesAreMissing && !isCalculatingAverages) {
         try {
           setIsCalculatingAverages(true);
           await axios.post(
@@ -559,7 +703,6 @@ function Calibration({
         }
       }
     };
-
     triggerAverageCalculationIfNeeded(focusedTP.forward);
     triggerAverageCalculationIfNeeded(focusedTP.reverse);
   }, [
@@ -568,6 +711,7 @@ function Calibration({
     hasAllReadings,
     onDataUpdate,
     showNotification,
+    isCalculatingAverages
   ]);
 
   const allForwardPointsComplete = useMemo(() => {
@@ -586,24 +730,19 @@ function Calibration({
     ) {
       return null;
     }
-
     const range = parseFloat(calibrationConfigurations.ac_shunt_range);
     const current = parseFloat(focusedTP.current);
     const frequency = parseFloat(focusedTP.frequency);
-
     const relevantShunt = shuntsData.find(
       (s) =>
         s.serial_number === String(standardInstrumentSerial) &&
         parseFloat(s.range) === range &&
         parseFloat(s.current) === current
     );
-
     if (!relevantShunt) return null;
-
     const correctionEntry = relevantShunt.corrections.find(
       (c) => parseFloat(c.frequency) === frequency
     );
-
     return correctionEntry ? correctionEntry.correction : null;
   }, [
     focusedTP,
@@ -614,16 +753,12 @@ function Calibration({
 
   const getTVCCorrection = useCallback(() => {
     if (!focusedTP || tvcsData.length === 0) return [null, null];
-
     const targetFreq = parseFloat(focusedTP.frequency);
-
     const findCorrectionForSerial = (serial) => {
       if (!serial) return null;
-
       const relevantTvc = tvcsData.find(
         (t) => String(t.serial_number) === String(serial)
       );
-
       if (
         !relevantTvc ||
         !Array.isArray(relevantTvc.corrections) ||
@@ -631,24 +766,19 @@ function Calibration({
       ) {
         return null;
       }
-
       const sorted = [...relevantTvc.corrections].sort(
         (a, b) => a.frequency - b.frequency
       );
-
       const exactMatch = sorted.find((m) => m.frequency === targetFreq);
       if (exactMatch) {
         return exactMatch.ac_dc_difference;
       }
-
       if (targetFreq < 1000) {
         const next = sorted.find((m) => m.frequency > targetFreq);
         return next ? next.ac_dc_difference : null;
       }
-
       let lower = null;
       let upper = null;
-
       for (let i = 0; i < sorted.length - 1; i++) {
         if (
           sorted[i].frequency < targetFreq &&
@@ -659,7 +789,6 @@ function Calibration({
           break;
         }
       }
-
       if (lower && upper) {
         const { frequency: f1, ac_dc_difference: d1 } = lower;
         const { frequency: f2, ac_dc_difference: d2 } = upper;
@@ -684,27 +813,27 @@ function Calibration({
           }
         }
       }
-
       return null;
     };
-
     const stdCorrection = findCorrectionForSerial(standardTvcSerial);
     const testCorrection = findCorrectionForSerial(testTvcSerial);
-
     return [stdCorrection, testCorrection];
   }, [focusedTP, tvcsData, standardTvcSerial, testTvcSerial]);
 
   useEffect(() => {
     const formatReadingsForChart = (readingsArray) => {
       if (!readingsArray) return [];
-      return readingsArray.map((point, index) => ({
-        x: index + 1,
-        y: typeof point === "object" ? point.value : point,
-        t:
-          typeof point === "object" && point.timestamp
-            ? new Date(point.timestamp * 1000)
-            : null,
-      }));
+      return readingsArray.map((point, index) => {
+        if (typeof point !== "object" || point === null) {
+          return { x: index + 1, y: point, t: null, is_stable: true };
+        }
+        return {
+          ...point,
+          x: index + 1,
+          y: point.value,
+          t: point.timestamp ? new Date(point.timestamp * 1000) : null,
+        };
+      });
     };
 
     const defaultSettings = {
@@ -712,9 +841,11 @@ function Calibration({
       num_samples: 8,
       settling_time: 5,
       nplc: 20,
+      stability_check_method: 'sliding_window',
       stability_window: 5,
       stability_threshold_ppm: 10,
       stability_max_attempts: 50,
+      iqr_filter_ppm_threshold: 15,
     };
 
     setHistoricalReadings(initialLiveReadings);
@@ -1066,20 +1197,20 @@ function Calibration({
         existingResults.delta_std !== undefined
           ? existingResults.delta_std
           : tvcCorrection[0] !== null
-            ? tvcCorrection[0]
-            : "",
+          ? tvcCorrection[0]
+          : "",
       delta_ti:
         existingResults.delta_ti !== undefined
           ? existingResults.delta_ti
           : tvcCorrection[1] !== null
-            ? tvcCorrection[1]
-            : "",
+          ? tvcCorrection[1]
+          : "",
       delta_std_known:
         existingResults.delta_std_known !== undefined
           ? existingResults.delta_std_known
           : shuntCorrection !== null
-            ? shuntCorrection
-            : "",
+          ? shuntCorrection
+          : "",
     });
 
     setIsCorrectionModalOpen(true);
@@ -1183,11 +1314,12 @@ function Calibration({
       Object.assign(params, {
         nplc: parseFloat(runSettings.nplc),
         initial_warm_up_time: parseFloat(runSettings.initial_warm_up_time),
-        stability_params: {
-          enabled: true,
-          window: parseInt(runSettings.stability_window, 10),
-          threshold_ppm: parseFloat(runSettings.stability_threshold_ppm),
-          max_attempts: parseInt(runSettings.stability_max_attempts, 10),
+        measurement_params: {
+            stability_check_method: runSettings.stability_check_method,
+            window: parseInt(runSettings.stability_window, 10),
+            threshold_ppm: parseFloat(runSettings.stability_threshold_ppm),
+            max_attempts: parseInt(runSettings.stability_max_attempts, 10),
+            ppm_threshold: parseFloat(runSettings.iqr_filter_ppm_threshold),
         },
         test_point: {
           current: testPointToRun.current,
@@ -1197,6 +1329,7 @@ function Calibration({
         test_point_id: pointData.id,
         std_reader_model: stdReaderModel,
         ti_reader_model: tiReaderModel,
+        amplifier_range: ampRange,
       });
 
       if (amplifierAddress) {
@@ -1291,11 +1424,12 @@ function Calibration({
         initial_warm_up_time: parseFloat(
           firstPointSettings.initial_warm_up_time
         ),
-        stability_params: {
-          enabled: true,
-          window: parseInt(firstPointSettings.stability_window, 10),
-          threshold_ppm: parseFloat(firstPointSettings.stability_threshold_ppm),
-          max_attempts: parseInt(firstPointSettings.stability_max_attempts, 10),
+        measurement_params: {
+            stability_check_method: firstPointSettings.stability_check_method,
+            window: parseInt(firstPointSettings.stability_window, 10),
+            threshold_ppm: parseFloat(firstPointSettings.stability_threshold_ppm),
+            max_attempts: parseInt(firstPointSettings.stability_max_attempts, 10),
+            ppm_threshold: parseFloat(firstPointSettings.iqr_filter_ppm_threshold),
         },
         std_reader_model: stdReaderModel,
         ti_reader_model: tiReaderModel,
@@ -1314,7 +1448,8 @@ function Calibration({
           })
           .catch((error) => {
             showNotification(
-              `Operation failed: ${error.message || "An unknown error occurred."
+              `Operation failed: ${
+                error.message || "An unknown error occurred."
               }`,
               "error"
             );
@@ -1369,7 +1504,8 @@ function Calibration({
           })
           .catch((error) => {
             showNotification(
-              `Operation failed: ${error.message || "An unknown error occurred."
+              `Operation failed: ${
+                error.message || "An unknown error occurred."
               }`,
               "error"
             );
@@ -1461,11 +1597,12 @@ function Calibration({
         num_samples: parseInt(firstPointSettings.num_samples, 10),
         settling_time: parseFloat(firstPointSettings.settling_time),
         nplc: parseFloat(firstPointSettings.nplc),
-        stability_params: {
-          enabled: true,
-          window: parseInt(firstPointSettings.stability_window, 10),
-          threshold_ppm: parseFloat(firstPointSettings.stability_threshold_ppm),
-          max_attempts: parseInt(firstPointSettings.stability_max_attempts, 10),
+        measurement_params: {
+            stability_check_method: firstPointSettings.stability_check_method,
+            window: parseInt(firstPointSettings.stability_window, 10),
+            threshold_ppm: parseFloat(firstPointSettings.stability_threshold_ppm),
+            max_attempts: parseInt(firstPointSettings.stability_max_attempts, 10),
+            ppm_threshold: parseFloat(firstPointSettings.iqr_filter_ppm_threshold),
         },
         std_reader_model: stdReaderModel,
         ti_reader_model: tiReaderModel,
@@ -1482,7 +1619,8 @@ function Calibration({
           }
         } catch (error) {
           showNotification(
-            `Operation failed: ${error.message || "An unknown error occurred."
+            `Operation failed: ${
+              error.message || "An unknown error occurred."
             }`,
             "error"
           );
@@ -1522,14 +1660,27 @@ function Calibration({
         )
       ),
     ].sort((a, b) => a - b),
-    datasets: READING_TYPES.map((type) => ({
-      label: type.label,
-      data: readings[type.key],
-      borderColor: type.color,
-      backgroundColor: type.color.replace(")", ", 0.5)").replace("rgb", "rgba"),
-      tension: 0.1,
-      fill: false,
-    })),
+    datasets: READING_TYPES.map((type) => {
+      const baseColor = type.color;
+
+      return {
+        label: type.label,
+        data: readings[type.key],
+        borderColor: baseColor,
+        backgroundColor: baseColor.replace(")", ", 0.5)").replace("rgb", "rgba"),
+        tension: 0.1,
+        fill: false,
+        segment: {
+          borderDash: (ctx) => {
+
+            if (ctx.p0.raw?.is_stable === false || ctx.p1.raw?.is_stable === false) {
+              return [6, 6];
+            }
+            return undefined;
+          },
+        },
+      };
+    }),
   });
 
   const formatFrequency = useCallback((value) => {
@@ -1546,7 +1697,7 @@ function Calibration({
     const found = AVAILABLE_CURRENTS.find(
       (c) => Math.abs(c.value - numValue) < epsilon
     );
-    return found ? found.text : `${numValue}A`;
+    return found ? found.text : `${numValue}`;
   };
 
   const handleSettingsSubmit = async (e) => {
@@ -1561,11 +1712,13 @@ function Calibration({
       num_samples: parseInt(calibrationSettings.num_samples, 10) || 8,
       settling_time: parseFloat(calibrationSettings.settling_time) || 5,
       nplc: parseFloat(calibrationSettings.nplc) || 20,
+      stability_check_method: calibrationSettings.stability_check_method,
       stability_window: parseInt(calibrationSettings.stability_window, 10) || 5,
       stability_threshold_ppm:
         parseFloat(calibrationSettings.stability_threshold_ppm) || 10,
       stability_max_attempts:
         parseInt(calibrationSettings.stability_max_attempts, 10) || 50,
+      iqr_filter_ppm_threshold: parseFloat(calibrationSettings.iqr_filter_ppm_threshold) || 15,
     };
 
     let pointToUpdate =
@@ -1618,12 +1771,14 @@ function Calibration({
         num_samples: parseInt(calibrationSettings.num_samples, 10) || 8,
         settling_time: parseFloat(calibrationSettings.settling_time) || 5,
         nplc: parseFloat(calibrationSettings.nplc) || 20,
+        stability_check_method: calibrationSettings.stability_check_method,
         stability_window:
           parseInt(calibrationSettings.stability_window, 10) || 5,
         stability_threshold_ppm:
           parseFloat(calibrationSettings.stability_threshold_ppm) || 10,
         stability_max_attempts:
           parseInt(calibrationSettings.stability_max_attempts, 10) || 50,
+        iqr_filter_ppm_threshold: parseFloat(calibrationSettings.iqr_filter_ppm_threshold) || 15,
       };
 
       try {
@@ -1736,7 +1891,7 @@ function Calibration({
     } else {
       return READING_TYPES.map(({ key, label }) => ({
         key: key,
-        label: `Take ${label} Readings (Focused)`,
+        label: `Take ${label} Readings`,
         onClick: () => handleCollectReadingsRequest(key),
       }));
     }
@@ -1744,6 +1899,32 @@ function Calibration({
     selectedTPs.size,
     handleCollectReadingsRequest,
     handleRunSingleStageOnSelected,
+  ]);
+
+  const displayPpm = slidingWindowStatus?.ppm ?? livePpm;
+
+  const isWindowMature =
+    collectionProgress.count >= calibrationSettings.stability_window;
+
+  const currentFillCount =
+    collectionProgress.count % calibrationSettings.stability_window;
+  const displayFillCount =
+    currentFillCount === 0 && collectionProgress.count > 0
+      ? calibrationSettings.stability_window
+      : currentFillCount;
+
+  const isStableNow = useMemo(() => {
+    if (slidingWindowStatus) {
+      return slidingWindowStatus.is_stable;
+    }
+    if (livePpm !== null) {
+      return livePpm < calibrationSettings.stability_threshold_ppm;
+    }
+    return true;
+  }, [
+    slidingWindowStatus,
+    livePpm,
+    calibrationSettings.stability_threshold_ppm,
   ]);
 
   return (
@@ -1786,10 +1967,10 @@ function Calibration({
       <ConfirmationModal
         isOpen={amplifierModal.isOpen}
         title="Confirm Amplifier Range"
-        message={`Please ensure the 8100 Amplifier range is set to ${amplifierModal.range} A.\n\nIncorrect range may damage the equipment. Once verified, set 8100 to operate.`}
+        message={`Please ensure the 8100 Amplifier range is set to ${amplifierModal.range} A. Incorrect range setting may damage the equipment.\n\nVerify 5730A calibrators voltage output are correct. Once verified, set the 8100 to operate and click Proceed.`}
         onConfirm={amplifierModal.onConfirm}
         onCancel={amplifierModal.onCancel}
-        confirmText="Range is Set"
+        confirmText="Proceed"
       />
       {!selectedSessionId ? (
         <div className="content-area form-section-warning">
@@ -1804,17 +1985,6 @@ function Calibration({
         </div>
       ) : (
         <div className="content-area">
-          <div className="header-with-info-button">
-            <h2>Calibration Workflow</h2>
-            <button
-              className="info-button"
-              onClick={() => setIsSummaryModalOpen(true)}
-              title="View Configuration Details"
-            >
-              <FaInfoCircle />
-              <span>View Configuration</span>
-            </button>
-          </div>
           <div className="calibration-workflow-container">
             <div className="test-point-content">
               {!focusedTP ? (
@@ -1827,481 +1997,604 @@ function Calibration({
                 </div>
               ) : (
                 <>
-                  <div className="calibration-content-header">
-                    <h4>
-                      {formatCurrent(focusedTP.current)} @{" "}
-                      {formatFrequency(focusedTP.frequency)}
-                    </h4>
-                    <DirectionToggle
-                      activeDirection={activeDirection}
-                      setActiveDirection={setActiveDirection}
-                    />
-                  </div>
-
+                  {/* SubNav comes BEFORE the status bar */}
                   <SubNav activeTab={activeTab} setActiveTab={setActiveTab} />
+
+                  {/* --- STATUS BAR NOW PERMANENT & AT THE TOP --- */}
+                  <div className="status-bar">
+                    <div className="status-bar-content">
+                      {/* --- NEW READOUT SECTION --- */}
+                      <div className="status-section readout-section">
+                        <span className="status-label">Test Point</span>
+                        <span className="status-value">
+                          {formatCurrent(focusedTP.current)}
+                        </span>
+                        <span className="status-detail">
+                          {formatFrequency(focusedTP.frequency)}
+                        </span>
+                      </div>
+                      <div style={{ flexGrow: 1 }}></div>
+
+                      {/* --- DYNAMIC SECTIONS (Only show when collecting/running) --- */}
+                      {(isCollecting || isBulkRunning) && (
+                        <>
+                          {isBulkRunning && (
+                            <div
+                              className="status-section"
+                              style={{ flexGrow: 1.5, borderRight: '1px solid var(--border-color)' }} // Added border here
+                            >
+                              <span className="status-label">
+                                Batch Progress
+                              </span>
+                              <span className="status-value">{`Point ${bulkRunProgressFromContext.current} of ${bulkRunProgressFromContext.total}`}</span>
+                              <span className="status-detail">{`${formatCurrent(
+                                focusedTP?.current
+                              )} @ ${formatFrequency(
+                                focusedTP?.frequency
+                              )}`}</span>
+                            </div>
+                          )}
+                          <div className="status-section">
+                            <span className="status-label">
+                              {timerState.isActive ? (
+                                <>
+                                  <FaHourglassHalf /> {timerState.label}
+                                </>
+                              ) : stabilizationStatus ? (
+                                <>
+                                  <FaCrosshairs /> Stabilizing
+                                </>
+                              ) : (
+                                <>
+                                  <FaStream /> Collecting
+                                </>
+                              )}
+                            </span>
+                            <span className="status-value">
+                              {timerState.isActive
+                                ? `${countdown}s`
+                                : getStageName()}
+                            </span>
+                            <span className="status-detail">
+                              {stabilizationStatus && stabilizationInfo
+                                ? `Attempt: ${stabilizationInfo.count}`
+                                : `${collectionProgress.count} / ${collectionProgress.total} Samples`}
+                            </span>
+                          </div>
+
+                          {/* --- NEW LIVE READINGS SECTION --- */}
+                          {!timerState.isActive && (latestStdReading || latestTiReading) && (
+                            <div className="status-section live-readout-section">
+                              <span className="status-label">
+                                <FaStream /> Live Readings
+                              </span>
+                              <span className="status-value">
+                                {latestStdReading
+                                  ? `STD: ${latestStdReading.y.toPrecision(7)} V`
+                                  : "STD: ..."}
+                              </span>
+                              <span className="status-detail">
+                                {latestTiReading
+                                  ? `TI: ${latestTiReading.y.toPrecision(7)} V`
+                                  : "TI: ..."}
+                              </span>
+                            </div>
+                          )}
+                          {/* --- END NEW LIVE READINGS SECTION --- */}
+
+                          {!timerState.isActive &&
+                            calibrationSettings.stability_check_method ===
+                              "sliding_window" && (
+                              <div className="status-section window-stability-section">
+                                <span className="status-label">
+                                  <FaCrosshairs /> Window Stability
+                                </span>
+                                <span
+                                  className={`window-ppm-value ${
+                                    isStableNow
+                                      ? "status-good"
+                                      : "status-bad"
+                                  }`}
+                                >
+                                  {displayPpm != null
+                                    ? `${displayPpm.toFixed(2)} PPM`
+                                    : "..."}
+                                </span>
+                                <span className="status-detail">
+                                  {isWindowMature
+                                    ? `Threshold: ${calibrationSettings.stability_threshold_ppm} PPM`
+                                    : `${displayFillCount} / ${calibrationSettings.stability_window} Samples`}
+                                </span>
+                              </div>
+                            )}
+                        </>
+                      )}
+                      {/* --- END DYNAMIC SECTIONS --- */}
+                    </div>
+
+                    {/* --- CONDITIONAL PROGRESS BAR, STOP BUTTON, OR PLAY BUTTON --- */}
+                    {(isCollecting || isBulkRunning) ? (
+                      <>
+                        <div className="status-bar-progress-container">
+                          <div
+                            className="status-bar-progress"
+                            style={{
+                              width: `${
+                                collectionProgress.total > 0 ? (collectionProgress.count / collectionProgress.total) * 100 : 0
+                              }%`,
+                            }}
+                          ></div>
+                        </div>
+                        <div className="status-bar-action">
+                          <button
+                            onClick={stopReadingCollection}
+                            className="button-stop"
+                            title="Stop Collection"
+                          >
+                            <FaStop />
+                          </button>
+                        </div>
+                      </>
+                    ) : (
+                      <div className="status-bar-action">
+                        <div
+                          className="premium-action-button-container"
+                          ref={runDropdownRef}
+                        >
+                          <div className="premium-action-button-wrapper">
+                            <button
+                              className="button premium-action-button-primary"
+                              onClick={handleRunSelectedPoints}
+                              disabled={
+                                !focusedTP ||
+                                readingWsState !== WebSocket.OPEN ||
+                                selectedTPs.size === 0
+                              }
+                              title={
+                                selectedTPs.size > 0
+                                  ? `Run ${selectedTPs.size} Selected Point(s) (Full)`
+                                  : "Select points to run"
+                              }
+                            >
+                              <FaPlay />
+                            </button>
+                            <button
+                              className="button premium-action-button-caret"
+                              onClick={() =>
+                                setIsRunDropdownOpen((prev) => !prev)
+                              }
+                              disabled={
+                                !focusedTP ||
+                                readingWsState !== WebSocket.OPEN
+                              }
+                              title="More run options"
+                            >
+                              <FaChevronDown />
+                            </button>
+                          </div>
+                          {isRunDropdownOpen && (
+                            <div className="premium-action-button-menu">
+                              {dropdownOptions.map((opt) => (
+                                <button
+                                  key={opt.key}
+                                  onClick={() => {
+                                    opt.onClick();
+                                    setIsRunDropdownOpen(false);
+                                  }}
+                                  className="premium-action-button-item"
+                                >
+                                  {opt.label}
+                                </button>
+                              ))}
+                            </div>
+                          )}
+                        </div>
+                      </div>
+                    )}
+                    {/* --- END CONDITIONAL ELEMENTS --- */}
+                  </div>
+                  {/* --- END STATUS BAR --- */}
+
+                  {/* Sub-tab content comes AFTER SubNav */}
                   <div className="sub-tab-content">
-                    {activeTab === "settings" && (
-                      <form onSubmit={handleSettingsSubmit}>
-                        <h4>Calibration Settings</h4>
-                        <div className="config-grid">
-                          <div className="form-section">
-                            <label htmlFor="initial_warm_up_time">
-                              Initial Warm-up Wait (sec)
-                            </label>
-                            <input
-                              type="number"
-                              id="initial_warm_up_time"
-                              name="initial_warm_up_time"
-                              value={
-                                calibrationSettings.initial_warm_up_time || 0
-                              }
-                              onChange={(e) =>
-                                setCalibrationSettings((prev) => ({
-                                  ...prev,
-                                  initial_warm_up_time: e.target.value,
-                                }))
-                              }
-                            />
-                          </div>
-                          <div className="form-section">
-                            <label htmlFor="num_samples"># of Samples</label>
-                            <input
-                              type="number"
-                              id="num_samples"
-                              name="num_samples"
-                              required
-                              value={calibrationSettings.num_samples || 8}
-                              onChange={(e) =>
-                                setCalibrationSettings((prev) => ({
-                                  ...prev,
-                                  num_samples: e.target.value,
-                                }))
-                              }
-                            />
-                          </div>
-                          <div className="form-section">
-                            <label htmlFor="settling_time">
-                              Settling Time (sec)
-                            </label>
-                            <input
-                              type="number"
-                              id="settling_time"
-                              name="settling_time"
-                              required
-                              value={calibrationSettings.settling_time || 5}
-                              onChange={(e) =>
-                                setCalibrationSettings((prev) => ({
-                                  ...prev,
-                                  settling_time: e.target.value,
-                                }))
-                              }
-                            />
-                          </div>
-                          {isNplcInstrumentInUse && (
+                     {activeTab === "settings" && (
+                       <form onSubmit={handleSettingsSubmit}>
+                         <h4>Calibration Settings</h4>
+                         <div className="config-grid">
                             <div className="form-section">
-                              <label htmlFor="nplc">
-                                Reader Integration (NPLC)
+                              <label htmlFor="initial_warm_up_time">
+                                Initial Warm-up Wait (sec)
                               </label>
-                              <select
-                                id="nplc"
-                                name="nplc"
-                                value={calibrationSettings.nplc || 20}
+                              <input
+                                type="number"
+                                id="initial_warm_up_time"
+                                name="initial_warm_up_time"
+                                value={
+                                  calibrationSettings.initial_warm_up_time || 0
+                                }
                                 onChange={(e) =>
                                   setCalibrationSettings((prev) => ({
                                     ...prev,
-                                    nplc: parseFloat(e.target.value),
+                                    initial_warm_up_time: e.target.value,
+                                  }))
+                                }
+                              />
+                            </div>
+                            <div className="form-section">
+                              <label htmlFor="num_samples"># of Samples</label>
+                              <input
+                                type="number"
+                                id="num_samples"
+                                name="num_samples"
+                                required
+                                value={calibrationSettings.num_samples || 8}
+                                onChange={(e) =>
+                                  setCalibrationSettings((prev) => ({
+                                    ...prev,
+                                    num_samples: e.target.value,
+                                  }))
+                                }
+                              />
+                            </div>
+                            <div className="form-section">
+                              <label htmlFor="settling_time">
+                                Settling Time (sec)
+                              </label>
+                              <input
+                                type="number"
+                                id="settling_time"
+                                name="settling_time"
+                                required
+                                value={calibrationSettings.settling_time || 5}
+                                onChange={(e) =>
+                                  setCalibrationSettings((prev) => ({
+                                    ...prev,
+                                    settling_time: e.target.value,
+                                  }))
+                                }
+                              />
+                            </div>
+                            {isNplcInstrumentInUse && (
+                              <div className="form-section">
+                                <label htmlFor="nplc">
+                                  Reader Integration (NPLC)
+                                </label>
+                                <select
+                                  id="nplc"
+                                  name="nplc"
+                                  value={calibrationSettings.nplc || 20}
+                                  onChange={(e) =>
+                                    setCalibrationSettings((prev) => ({
+                                      ...prev,
+                                      nplc: parseFloat(e.target.value),
+                                    }))
+                                  }
+                                >
+                                  {NPLC_OPTIONS.map((val) => (
+                                    <option key={val} value={val}>
+                                      {val} PLC
+                                    </option>
+                                  ))}
+                                </select>
+                              </div>
+                            )}
+                            <div className="form-section">
+                              <label htmlFor="stability_check_method">
+                                Stability Check Method
+                              </label>
+                              <select
+                                id="stability_check_method"
+                                name="stability_check_method"
+                                value={calibrationSettings.stability_check_method}
+                                onChange={(e) =>
+                                  setCalibrationSettings((prev) => ({
+                                    ...prev,
+                                    stability_check_method: e.target.value,
                                   }))
                                 }
                               >
-                                {NPLC_OPTIONS.map((val) => (
-                                  <option key={val} value={val}>
-                                    {val} PLC
-                                  </option>
-                                ))}
+                                <option value="sliding_window">
+                                  Sliding Window
+                                </option>
+                                <option value="iqr_filter">IQR Filter</option>
                               </select>
                             </div>
-                          )}
-                          <div className="form-section">
-                            <label htmlFor="stability_window">
-                              Stability Window (# Samples)
-                            </label>
-                            <input
-                              type="number"
-                              id="stability_window"
-                              name="stability_window"
-                              value={calibrationSettings.stability_window || 5}
-                              onChange={(e) =>
-                                setCalibrationSettings((prev) => ({
-                                  ...prev,
-                                  stability_window: parseInt(
-                                    e.target.value,
-                                    10
-                                  ),
-                                }))
-                              }
-                            />
-                          </div>
-                          <div className="form-section">
-                            <label htmlFor="stability_threshold_ppm">
-                              Stability Threshold (PPM)
-                            </label>
-                            <input
-                              type="number"
-                              step="any"
-                              id="stability_threshold_ppm"
-                              name="stability_threshold_ppm"
-                              placeholder="e.g., 10"
-                              value={
-                                calibrationSettings.stability_threshold_ppm ||
-                                ""
-                              }
-                              onChange={(e) =>
-                                setCalibrationSettings((prev) => ({
-                                  ...prev,
-                                  stability_threshold_ppm: e.target.value,
-                                }))
-                              }
-                            />
-                          </div>
-                          <div className="form-section">
-                            <label htmlFor="stability_max_attempts">
-                              Max Stability Attempts
-                            </label>
-                            <input
-                              type="number"
-                              id="stability_max_attempts"
-                              name="stability_max_attempts"
-                              value={
-                                calibrationSettings.stability_max_attempts || 50
-                              }
-                              onChange={(e) =>
-                                setCalibrationSettings((prev) => ({
-                                  ...prev,
-                                  stability_max_attempts: parseInt(
-                                    e.target.value,
-                                    10
-                                  ),
-                                }))
-                              }
-                            />
-                          </div>
-                        </div>
-                        <div className="form-section-action-icons">
-                          <button
-                            type="button"
-                            onClick={handleApplySettingsToAll}
-                            className="sidebar-action-button"
-                            title="Apply to All Test Points"
-                          >
-                            <FaLayerGroup />
-                          </button>
-                          <button
-                            type="submit"
-                            className="sidebar-action-button"
-                            title="Save Settings for This Point"
-                          >
-                            <FaSave />
-                          </button>
-                        </div>
-                      </form>
-                    )}
-                    {activeTab === "readings" && (
-                      <>
-                        <div className="form-section">
-                          <div className="readings-grid">
-                            {isCollecting || isBulkRunning ? (
-                              <div className="status-bar">
-                                <div className="status-bar-content">
-                                  {isBulkRunning && (
-                                    <div
-                                      className="status-section"
-                                      style={{ flexGrow: 1.5 }}
-                                    >
-                                      <span className="status-label">
-                                        Batch Progress
-                                      </span>
-                                      <span className="status-value">{`Point ${bulkRunProgressFromContext.current} of ${bulkRunProgressFromContext.total}`}</span>
-                                      <span className="status-detail">{`${formatCurrent(focusedTP?.current)
-                                        }A @ ${formatFrequency(
-                                          focusedTP?.frequency
-                                        )}`}</span>
-                                    </div>
-                                  )}
-                                  <div className="status-section">
-                                    <span className="status-label">
-                                      {timerState.isActive ? (
-                                        <>
-                                          <FaHourglassHalf /> {timerState.label}
-                                        </>
-                                      ) : stabilizationStatus ? (
-                                        <>
-                                          <FaCrosshairs /> Stability
-                                        </>
-                                      ) : (
-                                        <>
-                                          <FaStream /> Collecting
-                                        </>
-                                      )}
-                                    </span>
-                                    <span className="status-value">
-                                      {timerState.isActive
-                                        ? `${countdown}s`
-                                        : getStageName()}
-                                    </span>
-                                    <span className="status-detail">
-                                      {stabilizationStatus ||
-                                        `${collectionProgress.count} / ${collectionProgress.total} Samples`}
-                                    </span>
-                                  </div>
-                                </div>
-                                <div className="status-bar-progress-container">
-                                  <div
-                                    className="status-bar-progress"
-                                    style={{
-                                      width: `${(collectionProgress.count /
-                                          collectionProgress.total) *
-                                        100
-                                        }%`,
-                                    }}
-                                  ></div>
-                                </div>
-                                <div className="status-bar-action">
-                                  <button
-                                    onClick={stopReadingCollection}
-                                    className="button-stop"
-                                    title="Stop Collection"
-                                  >
-                                    <FaStop />
-                                  </button>
-                                </div>
-                              </div>
-                            ) : (
-                              <div
-                                className="premium-action-button-container"
-                                ref={runDropdownRef}
-                              >
-                                <div className="premium-action-button-wrapper">
-                                  <button
-                                    className="button premium-action-button-primary"
-                                    onClick={handleRunSelectedPoints}
-                                    disabled={
-                                      !focusedTP ||
-                                      readingWsState !== WebSocket.OPEN ||
-                                      selectedTPs.size === 0
+
+                            {calibrationSettings.stability_check_method ===
+                              "sliding_window" && (
+                              <>
+                                <div className="form-section">
+                                  <label htmlFor="stability_window">
+                                    Stability Window (# Samples)
+                                  </label>
+                                  <input
+                                    type="number"
+                                    id="stability_window"
+                                    name="stability_window"
+                                    value={
+                                      calibrationSettings.stability_window || 5
                                     }
-                                    title={
-                                      selectedTPs.size > 0
-                                        ? `Run ${selectedTPs.size} Selected Point(s) (Full)`
-                                        : "Select points to run"
+                                    onChange={(e) =>
+                                      setCalibrationSettings((prev) => ({
+                                        ...prev,
+                                        stability_window: parseInt(
+                                          e.target.value,
+                                          10
+                                        ),
+                                      }))
                                     }
-                                  >
-                                    <FaPlay />
-                                  </button>
-                                  <button
-                                    className="button premium-action-button-caret"
-                                    onClick={() =>
-                                      setIsRunDropdownOpen((prev) => !prev)
-                                    }
-                                    disabled={
-                                      !focusedTP ||
-                                      readingWsState !== WebSocket.OPEN
-                                    }
-                                    title="More run options"
-                                  >
-                                    <FaChevronDown />
-                                  </button>
+                                  />
                                 </div>
-                                {isRunDropdownOpen && (
-                                  <div className="premium-action-button-menu">
-                                    {dropdownOptions.map((opt) => (
-                                      <button
-                                        key={opt.key}
-                                        onClick={() => {
-                                          opt.onClick();
-                                          setIsRunDropdownOpen(false);
-                                        }}
-                                        className="premium-action-button-item"
-                                      >
-                                        {opt.label}
-                                      </button>
-                                    ))}
-                                  </div>
-                                )}
+                                <div className="form-section">
+                                  <label htmlFor="stability_threshold_ppm">
+                                    Stability Threshold (PPM)
+                                  </label>
+                                  <input
+                                    type="number"
+                                    step="any"
+                                    id="stability_threshold_ppm"
+                                    name="stability_threshold_ppm"
+                                    placeholder="e.g., 10"
+                                    value={
+                                      calibrationSettings.stability_threshold_ppm ||
+                                      ""
+                                    }
+                                    onChange={(e) =>
+                                      setCalibrationSettings((prev) => ({
+                                        ...prev,
+                                        stability_threshold_ppm: e.target.value,
+                                      }))
+                                    }
+                                  />
+                                </div>
+                                <div className="form-section">
+                                  <label htmlFor="stability_max_attempts">
+                                    Max Stability Attempts
+                                  </label>
+                                  <input
+                                    type="number"
+                                    id="stability_max_attempts"
+                                    name="stability_max_attempts"
+                                    value={
+                                      calibrationSettings.stability_max_attempts ||
+                                      50
+                                    }
+                                    onChange={(e) =>
+                                      setCalibrationSettings((prev) => ({
+                                        ...prev,
+                                        stability_max_attempts: parseInt(
+                                          e.target.value,
+                                          10
+                                        ),
+                                      }))
+                                    }
+                                  />
+                                </div>
+                              </>
+                            )}
+
+                            {calibrationSettings.stability_check_method ===
+                              "iqr_filter" && (
+                              <div className="form-section">
+                                <label htmlFor="iqr_filter_ppm_threshold">
+                                  IQR Filter Threshold (PPM)
+                                </label>
+                                <input
+                                  type="number"
+                                  step="any"
+                                  id="iqr_filter_ppm_threshold"
+                                  name="iqr_filter_ppm_threshold"
+                                  value={
+                                    calibrationSettings.iqr_filter_ppm_threshold ||
+                                    15
+                                  }
+                                  onChange={(e) =>
+                                    setCalibrationSettings((prev) => ({
+                                      ...prev,
+                                      iqr_filter_ppm_threshold: e.target.value,
+                                    }))
+                                  }
+                                />
                               </div>
                             )}
-                          </div>
-                        </div>
-
-                        {showStdChart && (
-                          <div className="chart-container">
-                            <CalibrationChart
-                              title="Standard Instrument Readings"
-                              chartData={stdChartData}
-                              chartType="line"
-                              theme={theme}
-                              onHover={setHoveredIndex}
-                              syncedHoverIndex={hoveredIndex}
-                              comparisonData={tiChartData.datasets}
-                            />
-                            <LiveStatisticsTracker
-                              title="Standard Instrument Statistics"
-                              readings={stdChartDataSource}
-                              activeStage={
+                         </div>
+                         <div className="form-section-action-icons">
+                           <button
+                             type="button"
+                             onClick={handleApplySettingsToAll}
+                             className="sidebar-action-button"
+                             title="Apply to All Test Points"
+                           >
+                             <LuSaveAll />
+                           </button>
+                           <button
+                             type="submit"
+                             className="sidebar-action-button"
+                             title="Save Settings for This Point"
+                           >
+                             <FaSave />
+                           </button>
+                         </div>
+                       </form>
+                     )}
+                     {activeTab === "readings" && (
+                       <>
+                         {/* --- RUN BUTTONS MOVED TO STATUS BAR --- */}
+                         
+                         {/* Chart and Stats sections remain */}
+                         {showStdChart && (
+                           <div className="chart-container">
+                             <CalibrationChart
+                               title="Standard Instrument Readings"
+                               chartData={stdChartData}
+                               theme={theme}
+                               chartType="line"
+                               onHover={setHoveredIndex}
+                               syncedHoverIndex={hoveredIndex}
+                               comparisonData={tiChartData.datasets}
+                               instrumentType="std"
+                               onMarkStability={handleMarkStability}
+                             />
+                             <LiveStatisticsTracker
+                               title="Standard Instrument Statistics"
+                               readings={stdChartDataSource}
+                               activeStage={
                                 isCurrentTPActive
                                   ? activeCollectionDetails?.stage ||
-                                  activeCollectionDetails?.readingKey
+                                    activeCollectionDetails?.readingKey
                                   : null
-                              }
-                            />
-                          </div>
-                        )}
-
-                        {showTiChart && (
+                               }
+                             />
+                           </div>
+                         )}
+                         {showTiChart && (
                           <div className="chart-container">
-                            <CalibrationChart
-                              title="Test Instrument Readings"
-                              chartData={tiChartData}
-                              chartType="line"
-                              theme={theme}
-                              onHover={setHoveredIndex}
-                              syncedHoverIndex={hoveredIndex}
-                              comparisonData={stdChartData.datasets}
-                            />
-                            <LiveStatisticsTracker
-                              title="Test Instrument Statistics"
-                              readings={tiChartDataSource}
-                              activeStage={
+                             <CalibrationChart
+                               title="Test Instrument Readings"
+                               chartData={tiChartData}
+                               theme={theme}
+                               chartType="line"
+                               onHover={setHoveredIndex}
+                               syncedHoverIndex={hoveredIndex}
+                               comparisonData={stdChartData.datasets}
+                               instrumentType="ti"
+                               onMarkStability={handleMarkStability}
+                             />
+                             <LiveStatisticsTracker
+                               title="Test Instrument Statistics"
+                               readings={tiChartDataSource}
+                               activeStage={
                                 isCurrentTPActive
                                   ? activeCollectionDetails?.stage ||
-                                  activeCollectionDetails?.readingKey
+                                    activeCollectionDetails?.readingKey
                                   : null
-                              }
-                            />
-                          </div>
-                        )}
-                      </>
-                    )}
+                               }
+                             />
+                           </div>
+                         )}
+                       </>
+                     )}
                     {activeTab === "calculate" && (
-                      <div className="results-container">
-                        <div
-                          className="form-section"
-                          style={{
-                            textAlign: "center",
-                            paddingBottom: "20px",
-                            borderBottom: "1px solid var(--border-color)",
-                          }}
-                        >
-                          <button
-                            onClick={handleOpenCorrectionModal}
-                            disabled={
-                              isCollecting ||
-                              isCalculatingAverages ||
-                              !isCalculationReady
-                            }
-                            className="button button-success button-icon-only"
-                            title="Calculate AC-DC Difference"
-                          >
-                            <FaCalculator />
-                          </button>
-                        </div>
-
-                        {averagedPpmDifference && (
+                       <div className="results-container">
                           <div
-                            className="final-result-card"
-                            style={{
-                              marginBottom: "20px",
-                              background: "var(--success-color)",
-                            }}
-                          >
-                            <h4>Final Averaged AC-DC Difference</h4>
-                            <p>{averagedPpmDifference} PPM</p>
-                          </div>
-                        )}
+                             className="form-section"
+                             style={{
+                               textAlign: "center",
+                               paddingBottom: "20px",
+                               borderBottom: "1px solid var(--border-color)",
+                             }}
+                           >
+                             <button
+                               onClick={handleOpenCorrectionModal}
+                               disabled={
+                                 isCollecting ||
+                                 isCalculatingAverages ||
+                                 !isCalculationReady
+                               }
+                               className="button button-success button-icon-only"
+                               title="Calculate AC-DC Difference"
+                             >
+                               <FaCalculator />
+                             </button>
+                           </div>
 
-                        <div
-                          className="reading-group"
-                          style={{
-                            gridTemplateColumns: "1fr 1fr",
-                            alignItems: "start",
-                          }}
-                        >
-                          {focusedTP.forward?.results?.delta_uut_ppm !== null &&
-                            focusedTP.forward?.results?.delta_uut_ppm !==
-                            undefined && (
-                              <div className="reading">
-                                <h4>Forward Direction</h4>
-                                <div
-                                  className="reading-group"
-                                  style={{ gridTemplateColumns: "1fr" }}
-                                >
-                                  <div className="reading">
-                                    <h3>δ UUT (PPM):</h3>
-                                    <p
-                                      style={{
-                                        fontSize: "1.5em",
-                                        fontWeight: "bold",
-                                        color: "var(--primary-color)",
-                                      }}
-                                    >
-                                      {parseFloat(
-                                        focusedTP.forward.results.delta_uut_ppm
-                                      ).toFixed(3)}
-                                    </p>
-                                  </div>
-                                </div>
-                              </div>
-                            )}
+                           {averagedPpmDifference && (
+                             <div
+                               className="final-result-card"
+                               style={{
+                                 marginBottom: "20px",
+                                 background: "var(--success-color)",
+                               }}
+                             >
+                               <h4>Final Averaged AC-DC Difference</h4>
+                               <p>{averagedPpmDifference} PPM</p>
+                             </div>
+                           )}
 
-                          {focusedTP.reverse?.results?.delta_uut_ppm !== null &&
-                            focusedTP.reverse?.results?.delta_uut_ppm !==
-                            undefined && (
-                              <div className="reading">
-                                <h4>Reverse Direction</h4>
-                                <div
-                                  className="reading-group"
-                                  style={{ gridTemplateColumns: "1fr" }}
-                                >
-                                  <div className="reading">
-                                    <h3>δ UUT (PPM):</h3>
-                                    <p
-                                      style={{
-                                        fontSize: "1.5em",
-                                        fontWeight: "bold",
-                                        color: "var(--primary-color)",
-                                      }}
-                                    >
-                                      {parseFloat(
-                                        focusedTP.reverse.results.delta_uut_ppm
-                                      ).toFixed(3)}
-                                    </p>
-                                  </div>
-                                </div>
-                              </div>
-                            )}
-                        </div>
-                        {!(
-                          focusedTP.forward?.results?.delta_uut_ppm ||
-                          focusedTP.reverse?.results?.delta_uut_ppm
-                        ) && (
-                            <div
-                              className="placeholder-content"
-                              style={{ minHeight: "200px" }}
-                            >
-                              <h3>No Results Calculated</h3>
-                              <p>
-                                Complete readings for a direction and click the
-                                "Calculate" button above.
-                              </p>
-                            </div>
-                          )}
-                      </div>
+                           <div
+                             className="reading-group"
+                             style={{
+                               gridTemplateColumns: "1fr 1fr",
+                               alignItems: "start",
+                             }}
+                           >
+                             {focusedTP.forward?.results?.delta_uut_ppm !== null &&
+                               focusedTP.forward?.results?.delta_uut_ppm !==
+                                 undefined && (
+                                 <div className="reading">
+                                   <h4>Forward Direction</h4>
+                                   <div
+                                     className="reading-group"
+                                     style={{ gridTemplateColumns: "1fr" }}
+                                   >
+                                     <div className="reading">
+                                       <h3>δ UUT (PPM):</h3>
+                                       <p
+                                         style={{
+                                           fontSize: "1.5em",
+                                           fontWeight: "bold",
+                                           color: "var(--primary-color)",
+                                         }}
+                                       >
+                                         {parseFloat(
+                                           focusedTP.forward.results.delta_uut_ppm
+                                         ).toFixed(3)}
+                                       </p>
+                                     </div>
+                                   </div>
+                                 </div>
+                               )}
+
+                             {focusedTP.reverse?.results?.delta_uut_ppm !== null &&
+                               focusedTP.reverse?.results?.delta_uut_ppm !==
+                                 undefined && (
+                                 <div className="reading">
+                                   <h4>Reverse Direction</h4>
+                                   <div
+                                     className="reading-group"
+                                     style={{ gridTemplateColumns: "1fr" }}
+                                   >
+                                     <div className="reading">
+                                       <h3>δ UUT (PPM):</h3>
+                                       <p
+                                         style={{
+                                           fontSize: "1.5em",
+                                           fontWeight: "bold",
+                                           color: "var(--primary-color)",
+                                         }}
+                                       >
+                                         {parseFloat(
+                                           focusedTP.reverse.results.delta_uut_ppm
+                                         ).toFixed(3)}
+                                       </p>
+                                     </div>
+                                   </div>
+                                 </div>
+                               )}
+                           </div>
+                           {!(
+                             focusedTP.forward?.results?.delta_uut_ppm ||
+                             focusedTP.reverse?.results?.delta_uut_ppm
+                           ) && (
+                             <div
+                               className="placeholder-content"
+                               style={{ minHeight: "200px" }}
+                             >
+                               <h3>No Results Calculated</h3>
+                               <p>
+                                 Complete readings for a direction and click the
+                                 "Calculate" button above.
+                               </p>
+                             </div>
+                           )}
+                       </div>
                     )}
                   </div>
                 </>
-              )}
-            </div>
-          </div>
-        </div>
+              )} {/* Closing tag for the focusedTP check */}
+            </div> {/* Closing tag for test-point-content */}
+          </div> {/* Closing tag for calibration-workflow-container */}
+        </div> /* Closing tag for content-area */
       )}
     </>
   );

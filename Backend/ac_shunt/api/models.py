@@ -140,6 +140,16 @@ class CalibrationSettings(models.Model):
         null=True,
         blank=True
     )
+    STABILITY_CHOICES = [
+        ('sliding_window', 'Sliding Window'),
+        ('iqr_filter', 'IQR Filter'),
+    ]
+    stability_check_method = models.CharField(
+        max_length=20,
+        choices=STABILITY_CHOICES,
+        default='sliding_window'
+    )
+    
     initial_warm_up_time = models.IntegerField(null=True, blank=True)
     num_samples = models.IntegerField(default=8, null=True, blank=True)
     settling_time = models.IntegerField(default=5, null=True, blank=True)
@@ -147,6 +157,8 @@ class CalibrationSettings(models.Model):
     stability_window = models.IntegerField(default=5, null=True, blank=True)
     stability_threshold_ppm = models.FloatField(default=10, null=True, blank=True)
     stability_max_attempts = models.IntegerField(default=50, null=True, blank=True)
+    iqr_filter_enabled = models.BooleanField(default=False)
+    iqr_filter_ppm_threshold = models.FloatField(default=15.0, null=True, blank=True)
 
 class CalibrationReadings(models.Model):
 
@@ -179,19 +191,26 @@ class CalibrationReadings(models.Model):
         results, _ = CalibrationResults.objects.get_or_create(test_point=self.test_point)
         
         def calculate_stats(readings):
-            if not readings or len(readings) < 2: # Require at least 2 readings for std dev
+            if not readings:
                 return None, None
-            
-            # Extract numeric values, whether from a list of dicts or a list of floats
-            if isinstance(readings[0], dict) and 'value' in readings[0]:
-                numeric_values = [r.get('value') for r in readings]
-            else:
-                numeric_values = readings
+            stable_values = [
+                r['value'] for r in readings
+                if isinstance(r, dict) and r.get('is_stable', True)
+            ]
 
-            # **THE FIX**: Use ddof=1 to calculate the SAMPLE standard deviation (N-1)
-            mean = np.mean(numeric_values)
-            std_dev = np.std(numeric_values, ddof=1)
-            print(f"[DEBUG - Models] Calculated Mean: {mean}, StdDev: {std_dev}")
+            if len(stable_values) < 2:
+                print(f"[DEBUG - Models] No stable readings found. Using all {len(readings)} readings as fallback.")
+                all_values = [r['value'] for r in readings if isinstance(r, dict) and 'value' in r]
+                
+                if len(all_values) < 2:
+                    return None, None
+                
+                mean = np.mean(all_values)
+                std_dev = np.std(all_values, ddof=1)
+                return mean, std_dev
+
+            mean = np.mean(stable_values)
+            std_dev = np.std(stable_values, ddof=1)
             
             return mean, std_dev
 
