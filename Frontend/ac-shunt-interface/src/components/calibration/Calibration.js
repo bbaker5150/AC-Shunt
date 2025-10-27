@@ -686,7 +686,7 @@ function Calibration({
       const averagesAreMissing =
         !pointDirection.results ||
         pointDirection.results.std_ac_open_avg === null;
-      if (readingsAreComplete && averagesAreMissing) {
+      if (readingsAreComplete && averagesAreMissing && !isCalculatingAverages) {
         try {
           setIsCalculatingAverages(true);
           await axios.post(
@@ -711,6 +711,7 @@ function Calibration({
     hasAllReadings,
     onDataUpdate,
     showNotification,
+    isCalculatingAverages
   ]);
 
   const allForwardPointsComplete = useMemo(() => {

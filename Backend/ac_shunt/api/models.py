@@ -199,7 +199,15 @@ class CalibrationReadings(models.Model):
             ]
 
             if len(stable_values) < 2:
-                return None, None
+                print(f"[DEBUG - Models] No stable readings found. Using all {len(readings)} readings as fallback.")
+                all_values = [r['value'] for r in readings if isinstance(r, dict) and 'value' in r]
+                
+                if len(all_values) < 2:
+                    return None, None
+                
+                mean = np.mean(all_values)
+                std_dev = np.std(all_values, ddof=1)
+                return mean, std_dev
 
             mean = np.mean(stable_values)
             std_dev = np.std(stable_values, ddof=1)

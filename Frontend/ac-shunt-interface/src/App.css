@@ -296,7 +296,7 @@ body {
 .content-area {
   background-color: var(--content-background);
   border: 1px solid var(--border-color);
-  padding: 0px;
+  padding: 10px;
   border-radius: 8px;
   box-shadow: 0 4px 8px rgba(0, 0, 0, 0.08);
   margin-bottom: 20px;
@@ -447,7 +447,6 @@ body.dark-mode .tooltip-content strong {
   margin-bottom: 25px; /* This is correct, it separates nav from status-bar */
   padding-left: 0px;
   padding-top: 0; /* Remove top padding */
-  border-bottom: 1px solid var(--border-color);
   position: static; /* Reset position */
   z-index: auto; /* Reset z-index */
 }
@@ -460,16 +459,16 @@ body.dark-mode .tooltip-content strong {
   font-weight: 600;
   color: var(--text-color-muted);
   border-radius: 0;
-  /* This 3px transparent border reserves space for the active-state border */
   border-bottom: 3px solid transparent; 
   transition: all 0.2s ease;
-  position: static; /* Reset position */
-  margin-bottom: -1px; /* Pulls the button's bottom border over the nav's bottom border */
+  position: static;
+  margin-bottom: -1px;
   margin-right: none;
 }
 
 .sub-nav button:hover {
   color: var(--primary-color);
+  background-color: transparent;
 }
 
 .sub-nav button.active {
@@ -2826,7 +2825,7 @@ body.dark-mode .direction-dropdown-menu button:hover:not(:disabled) {
   display: flex;
   align-items: center;
   gap: 8px;
-  z-index: 10;
+  z-index: 0;
 }
 
 .chart-header h5 {
