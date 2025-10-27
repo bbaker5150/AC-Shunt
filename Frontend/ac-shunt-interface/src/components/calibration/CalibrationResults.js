@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useRef } from "react";
+import React, { useState, useEffect, useRef, useCallback } from "react";
 import * as XLSX from "xlsx";
 import { useInstruments } from "../../contexts/InstrumentContext";
 import {
@@ -11,6 +11,8 @@ import {
 } from "react-icons/fa";
 import CalibrationChart from "./CalibrationChart";
 import { useTheme } from "../../contexts/ThemeContext";
+import { API_BASE_URL } from "../../constants/constants";
+import axios from "axios"
 
 const READING_TYPES = [
   { label: "AC Open", value: "ac_open_readings", color: "rgb(75, 192, 192)" },
@@ -111,17 +113,19 @@ const DirectionDropdown = ({ activeDirection, setActiveDirection, point }) => {
 const FinalResultCard = ({ title, value, formula }) => {
   const isCalculated = value !== null && value !== undefined;
   return (
-    <div className="final-result-card">
-      <h4>{title}</h4>
-      <p>
-        {isCalculated ? parseFloat(value).toFixed(3) : "---"}
-        <span style={{ fontSize: "1.5rem", marginLeft: "10px", opacity: 0.8 }}>
-          PPM
-        </span>
-      </p>
-      {formula && (
-        <span style={{ opacity: 0.7, fontSize: "0.9rem" }}>{formula}</span>
-      )}
+    <div style={{ display: 'flex', justifyContent: 'center' }}>
+      <div className="final-result-card" style={{ flex: '1 1 400px', minWidth: '300px' }}>
+        <h4>{title}</h4>
+        <p>
+          {isCalculated ? parseFloat(value).toFixed(3) : "---"}
+          <span style={{ fontSize: "1.5rem", marginLeft: "10px", opacity: 0.8 }}>
+            PPM
+          </span>
+        </p>
+        {formula && (
+          <span style={{ opacity: 0.7, fontSize: "0.9rem" }}>{formula}</span>
+        )}
+      </div>
     </div>
   );
 };
@@ -141,6 +145,7 @@ const DetailedReadingsTable = ({ readingsArray }) => {
           <tr>
             <th>Sample #</th>
             <th>Value</th>
+            <th>Status</th>
             <th>Timestamp</th>
           </tr>
         </thead>
@@ -148,14 +153,16 @@ const DetailedReadingsTable = ({ readingsArray }) => {
           {readingsArray.map((point, index) => {
             const isObject = typeof point === "object" && point !== null;
             const value = isObject ? point.value : point;
+            const isStable = isObject ? point.is_stable : true;
             const timestamp =
               isObject && point.timestamp
                 ? new Date(point.timestamp * 1000).toLocaleString()
                 : "N/A";
             return (
-              <tr key={index}>
+              <tr key={index} className={!isStable ? "unstable-row" : ""}>
                 <td>{index + 1}</td>
                 <td>{value?.toPrecision(8)}</td>
+                <td>{isStable ? "Stable" : "Unstable"}</td>
                 <td>{timestamp}</td>
               </tr>
             );
@@ -238,6 +245,7 @@ const SummaryTable = ({ results, prefix }) => {
 function CalibrationResults({
   showNotification,
   sharedFocusedTestPoint: focusedTP,
+  onDataUpdate
 }) {
   const { selectedSessionId } = useInstruments();
   const { theme } = useTheme();
@@ -260,19 +268,19 @@ function CalibrationResults({
     }
   }, [showCalcDetails, calResults, activeTab, activeDirection]);
 
-  useEffect(() => {
-    if (focusedTP) {
-      const hasCombinedData =
-        focusedTP.forward?.results && focusedTP.reverse?.results;
-      if (hasCombinedData) {
-        setActiveDirection("Combined");
-      } else if (focusedTP.forward?.results) {
-        setActiveDirection("Forward");
-      } else {
-        setActiveDirection("Reverse");
-      }
-    }
-  }, [focusedTP]);
+  // useEffect(() => {
+  //   if (focusedTP) {
+  //     const hasCombinedData =
+  //       focusedTP.forward?.results && focusedTP.reverse?.results;
+  //     if (hasCombinedData) {
+  //       setActiveDirection("Combined");
+  //     } else if (focusedTP.forward?.results) {
+  //       setActiveDirection("Forward");
+  //     } else {
+  //       setActiveDirection("Reverse");
+  //     }
+  //   }
+  // }, [focusedTP]);
 
   useEffect(() => {
     if (!focusedTP) {
@@ -300,24 +308,27 @@ function CalibrationResults({
 
         const combinedResults = {};
         READING_KEY_NAMES.forEach((key) => {
-          const readings = combinedReadings[key].map((r) =>
-            typeof r === "object" ? r.value : r
-          );
+          const readings = combinedReadings[key]
+            .filter((r) => r.is_stable !== false)
+            .map((r) => (typeof r === "object" ? r.value : r));
           if (readings.length > 0) {
             const sum = readings.reduce((a, b) => a + b, 0);
             const avg = sum / readings.length;
-            const stddev =
-              readings.length > 1
-                ? Math.sqrt(
-                    readings
-                      .map((x) => Math.pow(x - avg, 2))
-                      .reduce((a, b) => a + b, 0) /
-                      (readings.length - 1)
-                  )
-                : 0;
-
             combinedResults[key.replace("_readings", "_avg")] = avg;
-            combinedResults[key.replace("_readings", "_stddev")] = stddev;
+
+            const stddevKey = key.replace("_readings", "_stddev");
+            const stddevFwd = forward.results?.[stddevKey];
+            const stddevRev = reverse.results?.[stddevKey];
+
+            let newCombinedStddev = 0;
+            if (
+              typeof stddevFwd === "number" &&
+              typeof stddevRev === "number"
+            ) {
+              newCombinedStddev = (stddevFwd + stddevRev) / 2;
+            }
+
+            combinedResults[stddevKey] = newCombinedStddev;
           }
         });
 
@@ -334,6 +345,69 @@ function CalibrationResults({
       setCalReadings(pointForDirection?.readings || null);
     }
   }, [focusedTP, activeDirection]);
+
+  const handleMarkStability = useCallback(async (stabilityData) => {
+      if (!focusedTP || !selectedSessionId) {
+        showNotification("No focused test point selected.", "error");
+        return;
+      }
+      
+      const pointForDirection = activeDirection === "Forward" 
+        ? focusedTP.forward 
+        : activeDirection === "Reverse"
+        ? focusedTP.reverse
+        : focusedTP.forward; // Default to forward for "Combined"
+        
+      if (!pointForDirection || !pointForDirection.id) {
+        showNotification("No valid test point selected for this direction.", "error");
+        return;
+      }
+      
+      // In this component, `activeInstrument` state tracks std/ti
+      const prefix = activeInstrument === "std" ? "std_" : "ti_"; 
+      const readingType = READING_TYPES.find(rt => rt.label === stabilityData.type);
+      
+      if (!readingType) {
+         showNotification("Invalid reading type selected.", "error");
+         return;
+      }
+      
+      const reading_key = `${prefix}${readingType.value}`;
+      
+      const payload = {
+        reading_key: reading_key,
+        start_index: parseInt(stabilityData.start, 10),
+        end_index: parseInt(stabilityData.end, 10),
+        is_stable: stabilityData.mark_as === 'stable'
+      };
+      
+      // Special case: If "Combined" is active, we must update both directions
+      let testPointIdsToUpdate = [pointForDirection.id];
+      if (activeDirection === "Combined" && focusedTP.reverse && focusedTP.reverse.id !== pointForDirection.id) {
+          testPointIdsToUpdate.push(focusedTP.reverse.id);
+      }
+
+      try {
+        for (const tpId of testPointIdsToUpdate) {
+            await axios.post(
+              `${API_BASE_URL}/calibration_sessions/${selectedSessionId}/test_points/${tpId}/mark-readings-stability/`,
+              payload
+            );
+        }
+        
+        let successMessage = `Readings ${payload.start_index}-${payload.end_index} for ${activeInstrument.toUpperCase()} ${readingType.label} marked as ${stabilityData.mark_as}. Averages recalculated.`;
+        if (activeDirection === "Combined" && testPointIdsToUpdate.length > 1) {
+            successMessage = `Updated stability for Forward and Reverse directions. Averages recalculated.`;
+        }
+
+        showNotification(successMessage, "success");
+        await onDataUpdate(); // This will refresh all data
+      } catch (error) {
+        const errorMsg = error.response?.data?.detail || "Failed to update reading stability.";
+        showNotification(errorMsg, "error");
+        console.error(error);
+      }
+  }, [focusedTP, selectedSessionId, activeDirection, activeInstrument, onDataUpdate, showNotification]);
 
   const formatFrequency = (value) =>
     (
@@ -384,6 +458,15 @@ function CalibrationResults({
       }
     });
 
+    if (calResults?.delta_uut_ppm !== undefined) {
+      const acdcData = [
+        ["AC-DC Difference (ppm):", calResults.delta_uut_ppm.toFixed(8)],
+      ];
+
+      const acdcSheet = XLSX.utils.aoa_to_sheet(acdcData);
+      XLSX.utils.book_append_sheet(wb, acdcSheet, "AC-DC Difference");
+    }
+
     if (wb.SheetNames.length > 0) {
       XLSX.writeFile(
         wb,
@@ -403,20 +486,34 @@ function CalibrationResults({
     if (!calReadings) return { labels: [], datasets: [] };
     const datasets = READING_TYPES.map((rt) => {
       const key = `${prefix}${rt.value}`;
+      const baseColor = rt.color;
+
       return {
         label: rt.label,
-        data: (calReadings[key] || []).map((point, index) => ({
-          x: index + 1,
-          y: typeof point === "object" ? point.value : point,
-          t:
-            typeof point === "object" && point.timestamp
-              ? new Date(point.timestamp * 1000)
-              : null,
-        })),
-        borderColor: rt.color,
-        backgroundColor: rt.color.replace(")", ", 0.5)").replace("rgb", "rgba"),
+        data: (calReadings[key] || []).map((point, index) => {
+          const p =
+            typeof point === "object"
+              ? point
+              : { value: point, is_stable: true, timestamp: null };
+          return {
+            x: index + 1,
+            y: p.value,
+            t: p.timestamp ? new Date(p.timestamp * 1000) : null,
+            is_stable: p.is_stable,
+          };
+        }),
+        borderColor: baseColor,
+        backgroundColor: baseColor.replace(")", ", 0.5)").replace("rgb", "rgba"),
         tension: 0.1,
         fill: false,
+        segment: {
+          borderDash: (ctx) => {
+            if (ctx.p0.raw?.is_stable === false || ctx.p1.raw?.is_stable === false) {
+              return [6, 6];
+            }
+            return undefined;
+          },
+        }
       };
     });
     const allXLabels = datasets.flatMap((ds) => ds.data.map((d) => d.x));
@@ -427,12 +524,12 @@ function CalibrationResults({
   const CalculationBreakdown = ({ results }) => {
     if (
       !results ||
-      !results.delta_std_known ||
-      !results.eta_std ||
-      !results.eta_ti ||
-      !results.delta_std ||
-      !results.delta_ti ||
-      !results.delta_uut_ppm
+      results.delta_std_known == null ||
+      results.eta_std == null ||
+      results.eta_ti == null ||
+      results.delta_std == null ||
+      results.delta_ti == null ||
+      results.delta_uut_ppm == null
     ) {
       return (
         <div className="form-section-warning">
@@ -550,7 +647,6 @@ function CalibrationResults({
                 </div>
                 <div className="results-header-right">
                   <div className="view-toggle icon-only-toggle">
-                    {/* Each button now gets its own tooltip container */}
                     <div className="tooltip-container">
                       <button
                         onClick={() => setActiveTab("summary")}
@@ -705,6 +801,8 @@ function CalibrationResults({
                         )}
                         theme={theme}
                         chartType="line"
+                        onMarkStability={handleMarkStability}
+                        instrumentType={activeInstrument}
                       />
                     </div>
                   )}

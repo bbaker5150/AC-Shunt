@@ -1,3 +1,5 @@
+# api/serializers.py
+
 import re
 from rest_framework import serializers
 from .models import (
@@ -108,7 +110,19 @@ class CalibrationSettingsSerializer(serializers.ModelSerializer):
     test_point = serializers.PrimaryKeyRelatedField(read_only=True)
     class Meta:
         model = CalibrationSettings
-        exclude = ['id']
+        fields = [
+            'test_point',
+            'initial_warm_up_time',
+            'num_samples',
+            'settling_time',
+            'nplc',
+            'stability_check_method',
+            'stability_window',
+            'stability_threshold_ppm',
+            'stability_max_attempts',
+            'iqr_filter_enabled',
+            'iqr_filter_ppm_threshold',
+        ]
 
 class FormattedReadingsField(serializers.Field):
     """ Custom serializer field to add a human-readable timestamp. """

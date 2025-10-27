@@ -84,9 +84,6 @@ const ConfigurationSummaryModal = ({
           </div>
         </div>
         <div className="modal-actions" style={{ justifyContent: "flex-end" }}>
-          <button onClick={onClose} className="button button-secondary">
-            Close
-          </button>
         </div>
       </div>
     </div>
