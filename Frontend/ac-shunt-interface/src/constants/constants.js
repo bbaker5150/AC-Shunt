@@ -25,7 +25,7 @@ const AVAILABLE_CURRENTS = [
   { text: "2 A", value: 2 },
   { text: "3 A", value: 3 },
   { text: "5 A", value: 5 },
-  { text: "6.9 A", value: 6 },
+  { text: "6.9 A", value: 6.9 },
   { text: "10 A", value: 10 },
   { text: "18 A", value: 18 },
   { text: "20 A", value: 20 },
