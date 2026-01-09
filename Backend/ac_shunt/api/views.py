@@ -716,14 +716,14 @@ class TestPointViewSet(viewsets.ModelViewSet):
         try:
             test_point_set = TestPointSet.objects.get(session_id=session_pk)
             
-            # Identify the focused point to determine its current/frequency pair
+            # Identify the focused point to determine its current/frequency pair AND direction
             focused_point = test_point_set.points.get(pk=focused_tp_id)
             focused_key = (focused_point.current, focused_point.frequency)
 
-            # Settings payload for the specific focused 'Forward' point
+            # Settings payload for the specific focused point (contains the user-defined warm-up time)
             full_warmup_settings = full_settings_data.copy()
 
-            # Common settings payload for all other points (warm-up is 0)
+            # Common settings payload for all other points (force warm-up to 0)
             common_settings_data = full_settings_data.copy()
             common_settings_data['initial_warm_up_time'] = 0
 
@@ -737,8 +737,18 @@ class TestPointViewSet(viewsets.ModelViewSet):
                     
                     is_focused_pair = (current, frequency) == focused_key
 
-                    # 1. Handle the 'Forward' direction for the current pair
-                    forward_settings = full_warmup_settings if is_focused_pair else common_settings_data
+                    # Default both directions to use the "0s warmup" settings
+                    forward_settings = common_settings_data
+                    reverse_settings = common_settings_data
+
+                    # If this is the pair the user is editing, apply the full warmup to the CORRECT direction
+                    if is_focused_pair:
+                        if focused_point.direction == 'Forward':
+                            forward_settings = full_warmup_settings
+                        elif focused_point.direction == 'Reverse':
+                            reverse_settings = full_warmup_settings
+
+                    # 1. Handle the 'Forward' direction
                     forward_point_obj, _ = TestPoint.objects.get_or_create(
                         test_point_set=test_point_set,
                         current=current,
@@ -750,7 +760,7 @@ class TestPointViewSet(viewsets.ModelViewSet):
                         defaults=forward_settings
                     )
 
-                    # 2. Handle the 'Reverse' direction (always gets zero warm-up)
+                    # 2. Handle the 'Reverse' direction
                     reverse_point_obj, _ = TestPoint.objects.get_or_create(
                         test_point_set=test_point_set,
                         current=current,
@@ -759,7 +769,7 @@ class TestPointViewSet(viewsets.ModelViewSet):
                     )
                     CalibrationSettings.objects.update_or_create(
                         test_point=reverse_point_obj,
-                        defaults=common_settings_data
+                        defaults=reverse_settings
                     )
             
             return Response({"message": "Settings successfully applied to all test points and directions."}, status=status.HTTP_200_OK)
