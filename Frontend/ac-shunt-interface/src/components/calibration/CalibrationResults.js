@@ -247,7 +247,7 @@ function CalibrationResults({
   sharedFocusedTestPoint: focusedTP,
   onDataUpdate
 }) {
-  const { selectedSessionId } = useInstruments();
+  const { selectedSessionId, dataRefreshTrigger } = useInstruments();
   const { theme } = useTheme();
 
   const [calResults, setCalResults] = useState(null);
@@ -267,6 +267,13 @@ function CalibrationResults({
       );
     }
   }, [showCalcDetails, calResults, activeTab, activeDirection]);
+
+  // Refetch data when the WebSocket sends a 'connection_sync' signal
+  useEffect(() => {
+    if (onDataUpdate) {
+      onDataUpdate();
+    }
+  }, [dataRefreshTrigger, onDataUpdate]);
 
   // useEffect(() => {
   //   if (focusedTP) {

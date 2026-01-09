@@ -110,8 +110,36 @@ class CalibrationConsumer(AsyncWebsocketConsumer):
         self.session_group_name = f'session_{self.session_id}'
         await self.channel_layer.group_add(self.session_group_name, self.channel_name)
         await self.accept()
+
+        # [NEW] Send sync status immediately upon connection
+        await self.send_session_sync_status()
+
         print(f"[HEARTBEAT] Starting for client {self.channel_name}")
         self.heartbeat_task = asyncio.create_task(self.send_heartbeat())
+
+    # [NEW] Helper to send session status
+    async def send_session_sync_status(self):
+        try:
+            session_data = await self.get_session_sync_data(self.session_id)
+            if session_data:
+                await self.send(text_data=json.dumps({
+                    'type': 'connection_sync',
+                    'is_complete': session_data['is_complete'],
+                    'message': 'Session state synchronized.'
+                }))
+        except Exception as e:
+            print(f"Error sending sync status: {e}")
+
+    # [NEW] Database Accessor for session status
+    @database_sync_to_async
+    def get_session_sync_data(self, session_id):
+        try:
+            session = CalibrationSession.objects.get(pk=session_id)
+            return {
+                'is_complete': getattr(session, 'is_complete', False) 
+            }
+        except Exception:
+            return None
 
     async def disconnect(self, close_code):
         if self.collection_task:

@@ -83,6 +83,9 @@ export const InstrumentContextProvider = ({ children }) => {
 
   const [lastMessage, setLastMessage] = useState(null);
 
+  // [NEW] Trigger to force data refresh
+  const [dataRefreshTrigger, setDataRefreshTrigger] = useState(0);
+
   const heartbeatTimeout = useRef(null);
 
   useEffect(() => {
@@ -179,19 +182,31 @@ export const InstrumentContextProvider = ({ children }) => {
 
     readingWs.current.onmessage = (event) => {
       if (heartbeatTimeout.current) clearTimeout(heartbeatTimeout.current);
+      // Increased timeout to help with background tab throttling
       heartbeatTimeout.current = setTimeout(() => {
         console.log(
-          "Heartbeat timeout: No message received in 30s. Reconnecting."
+          "Heartbeat timeout: No message received in 75s. Reconnecting."
         );
         if (readingWs.current) {
           readingWs.current.close();
         }
-      }, 30000);
+      }, 75000);
 
       const data = JSON.parse(event.data);
 
       if (data.type === "ping") {
         return;
+      }
+
+      // [NEW] Handle Sync Message
+      if (data.type === "connection_sync") {
+        console.log("Received connection sync. Status:", data);
+        setDataRefreshTrigger((prev) => prev + 1);
+        if (data.is_complete) {
+            setIsCollecting(false);
+            setCollectionStatus("collection_finished");
+        }
+        return; 
       }
 
       setLastMessage(data);
@@ -584,6 +599,8 @@ export const InstrumentContextProvider = ({ children }) => {
     setStandardInstrumentSerial,
     testInstrumentSerial,
     setTestInstrumentSerial,
+    // [NEW] Export dataRefreshTrigger
+    dataRefreshTrigger,
   };
 
   return (
