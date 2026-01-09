@@ -387,30 +387,38 @@ function Calibration({
     if (timerInterval.current) {
       clearInterval(timerInterval.current);
     }
-    if (timerState.isActive) {
-      timerStartTime.current = Date.now();
-      const totalDurationInMs = timerState.duration * 1000;
-      setCountdown(Math.ceil(timerState.duration));
-      timerInterval.current = setInterval(() => {
-        const elapsedTime = Date.now() - timerStartTime.current;
-        const remainingTime = totalDurationInMs - elapsedTime;
-        if (remainingTime <= 0) {
-          clearInterval(timerInterval.current);
+
+    if (timerState.isActive && timerState.targetTime) {
+      
+      // Define the calculation logic
+      const updateTimer = () => {
+        const now = Date.now();
+        const remainingMs = timerState.targetTime - now;
+        const remainingSec = Math.ceil(remainingMs / 1000);
+
+        if (remainingSec <= 0) {
           setCountdown(0);
+          clearInterval(timerInterval.current);
         } else {
-          setCountdown(Math.ceil(remainingTime / 1000));
+          setCountdown(remainingSec);
         }
-      }, 1000);
+      };
+
+      // Run once immediately so we don't see a flash of '0s' or old time
+      updateTimer();
+
+      // Start the interval
+      timerInterval.current = setInterval(updateTimer, 500); // Check every 500ms for smoother updates
     } else {
       setCountdown(0);
-      timerStartTime.current = null;
     }
+
     return () => {
       if (timerInterval.current) {
         clearInterval(timerInterval.current);
       }
     };
-  }, [timerState.isActive, timerState.duration]);
+  }, [timerState.isActive, timerState.targetTime]);
 
   useEffect(() => {
     if (focusedTPKey) {

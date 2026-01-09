@@ -288,26 +288,32 @@ export const InstrumentContextProvider = ({ children }) => {
           setBulkRunProgress({ current, total, pointKey });
         }
       } else if (data.type === "status_update") {
-        const message = data.message;
-        let match;
+          const message = data.message;
+          let match;
 
-        if (
-          (match = message.match(
-            /Initial warm-up period started for (\d+\.?\d*)s/
-          ))
-        ) {
-          setTimerState({
-            isActive: true,
-            duration: parseFloat(match[1]),
-            label: "Warm-up",
-          });
-        } else if ((match = message.match(/Settling for (\d+\.?\d*)s/))) {
-          setTimerState({
-            isActive: true,
-            duration: parseFloat(match[1]),
-            label: "Settling",
-          });
-        }
+          if ((match = message.match(/Initial warm-up period started for (\d+\.?\d*)s/))) {
+            const duration = parseFloat(match[1]);
+            
+            // [FIX] Calculate the absolute finish time
+            const targetTime = Date.now() + (duration * 1000); 
+
+            setTimerState({
+              isActive: true,
+              duration: duration,
+              targetTime: targetTime, // <--- Add this field
+              label: "Warm-up",
+            });
+          } else if ((match = message.match(/Settling for (\d+\.?\d*)s/))) {
+            const duration = parseFloat(match[1]);
+            const targetTime = Date.now() + (duration * 1000); // [FIX]
+
+            setTimerState({
+              isActive: true,
+              duration: duration,
+              targetTime: targetTime, // <--- Add this field
+              label: "Settling",
+            });
+          }
       } else if (
         [
           "collection_finished",
