@@ -271,6 +271,7 @@ function Calibration({
     standardInstrumentSerial,
     standardTvcSn: standardTvcSerial,
     testTvcSn: testTvcSerial,
+    dataRefreshTrigger,
   } = useInstruments();
   const { theme } = useTheme();
 
@@ -536,6 +537,16 @@ function Calibration({
       );
     }
   }, [selectedSessionId, showNotification]);
+
+  useEffect(() => {
+    if (dataRefreshTrigger > 0) {
+      console.log("WebSocket sync received. Refreshing data...");
+      refreshComponentData();
+      if (onDataUpdate) {
+        onDataUpdate();
+      }
+    }
+  }, [dataRefreshTrigger, refreshComponentData, onDataUpdate]);
 
   const handleMarkStability = useCallback(async (stabilityData, instrumentType) => {
       if (!focusedTP || !selectedSessionId) {
