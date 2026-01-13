@@ -1866,8 +1866,26 @@ function Calibration({
       ? focusedTP.forward
       : focusedTP.reverse
     : null;
-  const isCurrentTPActive =
-    isCollecting && activeCollectionDetails?.tpId === pointForDirection?.id;
+
+  // [FIX] Convert both IDs to strings to prevent type mismatches (e.g. 123 vs "123")
+  const isCurrentTPActive = 
+    isCollecting && 
+    String(activeCollectionDetails?.tpId) === String(pointForDirection?.id);
+
+  // [DEBUG] Add this effect to see exactly why it locks or unlocks
+  useEffect(() => {
+    if (isCollecting) {
+      console.log("[DEBUG_UI_LOCK] Check:", {
+        collecting: isCollecting,
+        activeTpId: activeCollectionDetails?.tpId,
+        activeTpIdType: typeof activeCollectionDetails?.tpId,
+        currentPointId: pointForDirection?.id,
+        currentPointIdType: typeof pointForDirection?.id,
+        MATCH: isCurrentTPActive
+      });
+    }
+  }, [isCollecting, activeCollectionDetails, pointForDirection, isCurrentTPActive]);
+
   const stdChartDataSource = isCurrentTPActive
     ? { ...historicalReadings, ...liveReadings }
     : historicalReadings;
