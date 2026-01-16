@@ -404,7 +404,6 @@ export const InstrumentContextProvider = ({ children }) => {
       }
 
       ws.onopen = () => {
-         console.log(`[WebSocket ${gpibAddress}] Connected/Open. Sending initial status query.`);
          ws.send(JSON.stringify({ command: "get_instrument_status" }));
       };
       
@@ -416,12 +415,9 @@ export const InstrumentContextProvider = ({ children }) => {
       ws.onmessage = (event) => {
         setIsFetchingStatuses((prev) => ({ ...prev, [gpibAddress]: false }));
         const message = JSON.parse(event.data);
-        
-        console.log(`[WebSocket ${gpibAddress}] Received:`, message); // <--- LOGGING
 
         // --- HANDLE ZERO CAL MESSAGES ---
         if (message.type === 'zero_cal_started') {
-            console.log(`[WebSocket ${gpibAddress}] Zero Cal STARTED confirmed.`); // <--- LOGGING
             setZeroingInstruments(prev => ({ ...prev, [gpibAddress]: true }));
             setInstrumentStatuses((prev) => ({
                 ...prev,
