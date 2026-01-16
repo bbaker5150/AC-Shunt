@@ -10,7 +10,7 @@ import { FaSave, FaUndo, FaTimes } from 'react-icons/fa';
 const API_BASE_URL = process.env.REACT_APP_API_BASE_URL;
 const ASSIGNABLE_MODELS = ['34420A', '3458A', '5790B'];
 const ACDC_ASSIGNABLE_MODELS = ['5730A'];
-const AMPLIFIER_MODELS = ['8100']; // Added for the 8100 Amplifier
+const AMPLIFIER_MODELS = ['8100']; 
 const SUPPORTED_STATUS_MODELS = ['5730', '5790'];
 const SWITCH_DRIVER_MODELS = ['11713C'];
 
@@ -23,7 +23,8 @@ const statusBitDescriptions = {
 
 function InstrumentStatusPanel({ showNotification }) {
     const {
-        selectedSessionId, instrumentStatuses, isFetchingStatuses, getInstrumentStatus, runZeroCal,
+        selectedSessionId, instrumentStatuses, isFetchingStatuses, getInstrumentStatus, 
+        runZeroCal, // Destructure runZeroCal
         discoveredInstruments, setDiscoveredInstruments,
         stdInstrumentAddress, setStdInstrumentAddress, stdReaderModel, setStdReaderModel, stdReaderSN, setStdReaderSN,
         tiInstrumentAddress, setTiInstrumentAddress, tiReaderModel, setTiReaderModel, tiReaderSN, setTiReaderSN,
@@ -118,7 +119,7 @@ function InstrumentStatusPanel({ showNotification }) {
         setDcSourceSN(null);
         setDcSourceAddress(null);
         setAmplifierSN(null);
-        setAmplifierAddress(null); // Added for Amplifier
+        setAmplifierAddress(null);
 
         const payload = {
             test_reader_model: null,
@@ -132,7 +133,7 @@ function InstrumentStatusPanel({ showNotification }) {
             dc_source_serial: null,
             dc_source_address: null,
             amplifier_serial: null,
-            amplifier_address: null, // Added for Amplifier
+            amplifier_address: null,
         };
 
         try {
@@ -252,7 +253,7 @@ function InstrumentStatusPanel({ showNotification }) {
         if (!identity) return null;
         const parts = identity.split(',');
         if (parts.length > 1 && parts[1]) return parts[1].trim();
-        const allKnownModels = [...ASSIGNABLE_MODELS, ...ACDC_ASSIGNABLE_MODELS, ...AMPLIFIER_MODELS]; // Added Amplifier
+        const allKnownModels = [...ASSIGNABLE_MODELS, ...ACDC_ASSIGNABLE_MODELS, ...AMPLIFIER_MODELS]; 
         for (const model of allKnownModels) if (identity.includes(model)) return model;
         return identity.trim();
     };
@@ -300,7 +301,6 @@ function InstrumentStatusPanel({ showNotification }) {
         }
     };
 
-    // Added for Amplifier
     const handleAmplifierRoleChange = (instrument, isChecked) => {
         const newAddress = isChecked ? instrument.address : null;
         const newSN = isChecked ? getSNFromIdentity(instrument.identity) : null;
@@ -393,7 +393,7 @@ function InstrumentStatusPanel({ showNotification }) {
                                 </button>
                             </>
                         ) : (
-                            <button onClick={handleEditName} disabled={!activeWorkstationIp}>
+                            <button  onClick={handleEditName} disabled={!activeWorkstationIp}>
                                 ✏️ Rename Workstation
                             </button>
                         )}
@@ -409,7 +409,7 @@ function InstrumentStatusPanel({ showNotification }) {
                         let isConnected = status && status.wsConnectionState === 'Status Received' && !status.error;
                         const isAssignable = ASSIGNABLE_MODELS.some(m => inst.identity.includes(m));
                         const isAcDcAssignable = ACDC_ASSIGNABLE_MODELS.some(m => inst.identity.includes(m));
-                        const isAmplifierAssignable = AMPLIFIER_MODELS.some(m => inst.identity.includes(m)); // Added for Amplifier
+                        const isAmplifierAssignable = AMPLIFIER_MODELS.some(m => inst.identity.includes(m)); 
                         const isStatusSupported = SUPPORTED_STATUS_MODELS.some(m => inst.identity.includes(m));
                         const isSwitchDriverAssignable = SWITCH_DRIVER_MODELS.some(m => inst.identity.includes(m));
 
@@ -424,6 +424,10 @@ function InstrumentStatusPanel({ showNotification }) {
 
                         // Determine if it is a 5730A for the Zero Cal button
                         const is5730A = model.includes('5730');
+                        
+                        // Check if this specific instrument is zeroing based on status string
+                        const isZeroing = instrumentStatuses[inst.address]?.wsConnectionState === "Zeroing in Progress..." 
+                                          || instrumentStatuses[inst.address]?.wsConnectionState?.includes("Zeroing");
 
                         return (
                             <div key={inst.address} className="status-card">
@@ -463,7 +467,6 @@ function InstrumentStatusPanel({ showNotification }) {
                                         </div>
                                     </div>
                                 )}
-                                {/* Added for Amplifier */}
                                 {isAmplifierAssignable && (
                                     <div className="role-assignment" style={{ marginTop: '10px', paddingTop: '10px', borderTop: '1px solid var(--border-color)', display: 'flex', alignItems: 'center', gap: '20px' }}>
                                         <label style={{ fontWeight: '500' }}>Assign Amplifier Role:</label>
@@ -488,28 +491,46 @@ function InstrumentStatusPanel({ showNotification }) {
                                             <div style={{ marginBottom: '10px' }}>
                                                 <button
                                                     className="button button-small button-secondary"
-                                                    onClick={() => runZeroCal && runZeroCal(model, inst.address)}
-                                                    disabled={!isConnected}
+                                                    onClick={() => runZeroCal(model, inst.address)}
+                                                    disabled={!isConnected || isZeroing}
+                                                    style={isZeroing ? { backgroundColor: '#e6a800', cursor: 'wait' } : {}}
                                                     title="Performs internal zero calibration (CAL_ZERO)"
                                                 >
-                                                    Zero Cal
+                                                     {isZeroing ? (
+                                                        <>
+                                                            <span className="spinner-border spinner-border-sm" role="status" aria-hidden="true" style={{marginRight: '5px'}}></span>
+                                                            Zeroing...
+                                                        </>
+                                                    ) : "Zero Cal"}
                                                 </button>
                                             </div>
                                         )}
-                                        {isFetching && <p>Fetching status details...</p>}
-                                        {status?.decoded && !status.error && (
+                                        
+                                        {/* Overlay message during zeroing to prevent user confusion and hide stale flags */}
+                                        {isZeroing ? (
+                                            <div className="zeroing-message" style={{padding: '15px', backgroundColor: '#fff3cd', borderRadius: '4px', color: '#856404', border: '1px solid #ffeeba', textAlign: 'center'}}>
+                                                <strong>Zero Calibration in Progress</strong>
+                                                <br/>
+                                                <small>This process may take several minutes. Please wait.</small>
+                                            </div>
+                                        ) : (
                                             <>
-                                                <h4 style={{ marginTop: 0, marginBottom: '10px' }}>Active Status Flags</h4>
-                                                <ul className="status-flags-list">
-                                                    {Object.entries(status.decoded).filter(([, value]) => value === true).length > 0 ?
-                                                        Object.entries(status.decoded).filter(([, value]) => value === true).map(([key]) => (
-                                                            <li key={key}><span className="status-flag-icon">●</span>{statusBitDescriptions[key] || key}</li>
-                                                        )) : <li>No active status flags.</li>
-                                                    }
-                                                </ul>
+                                                {isFetching && <p>Fetching status details...</p>}
+                                                {status?.decoded && !status.error && (
+                                                    <>
+                                                        <h4 style={{ marginTop: 0, marginBottom: '10px' }}>Active Status Flags</h4>
+                                                        <ul className="status-flags-list">
+                                                            {Object.entries(status.decoded).filter(([, value]) => value === true).length > 0 ?
+                                                                Object.entries(status.decoded).filter(([, value]) => value === true).map(([key]) => (
+                                                                    <li key={key}><span className="status-flag-icon">●</span>{statusBitDescriptions[key] || key}</li>
+                                                                )) : <li>No active status flags.</li>
+                                                            }
+                                                        </ul>
+                                                    </>
+                                                )}
+                                                {status?.error && <p>Could not retrieve status flags.</p>}
                                             </>
                                         )}
-                                        {status?.error && <p>Could not retrieve status flags.</p>}
                                     </div>
                                 )}
                             </div>

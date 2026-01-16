@@ -82,8 +82,26 @@ class Instrument5730A(FlukeInstrument):
 
     def run_zero_cal(self):
         """Performs internal zeros calibration (CAL_ZERO)."""
-        # Triggers the internal zero calibration routine
-        self.resource.write('CAL_ZERO;*WAI')
+        print(f"[Instrument5730A] Sending 'CAL_ZERO;*OPC?' to {self.resource}...")
+        
+        # Save original timeout
+        original_timeout = self.resource.timeout
+        
+        try:
+            # Set timeout to 5 minutes (300,000 ms) because Zero Cal takes time
+            self.resource.timeout = 300000 
+            
+            # Send command and WAIT for '1' response indicating completion
+            # This blocks this thread until the instrument is actually done
+            self.resource.query('CAL_ZERO;*OPC?')
+            
+            print(f"[Instrument5730A] Zero Cal returned successfully.")
+        except Exception as e:
+             print(f"[Instrument5730A] VISA Error sending CAL_ZERO: {e}")
+             raise e
+        finally:
+            # Always restore the original timeout, even if it fails
+            self.resource.timeout = original_timeout
 
     def get_instrument_status(self):
         """Get the Instrument Status Register (ISR) value of the 5730A.

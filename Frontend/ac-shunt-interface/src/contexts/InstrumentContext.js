@@ -25,6 +25,8 @@ export const InstrumentContextProvider = ({ children }) => {
   const [selectedSessionId, setSelectedSessionId] = useState(null);
   const [selectedSessionName, setSelectedSessionName] = useState("");
   const [discoveredInstruments, setDiscoveredInstruments] = useState([]);
+  
+  // Instrument Role States
   const [stdInstrumentAddress, setStdInstrumentAddress] = useState(null);
   const [stdReaderModel, setStdReaderModel] = useState(null);
   const [stdReaderSN, setStdReaderSN] = useState(null);
@@ -40,13 +42,19 @@ export const InstrumentContextProvider = ({ children }) => {
   const [switchDriverSN, setSwitchDriverSN] = useState(null);
   const [amplifierAddress, setAmplifierAddress] = useState(null);
   const [amplifierSN, setAmplifierSN] = useState(null);
+  
   const [standardTvcSn, setStandardTvcSn] = useState(null);
   const [testTvcSn, setTestTvcSn] = useState(null);
   const [standardInstrumentSerial, setStandardInstrumentSerial] = useState(null);
   const [testInstrumentSerial, setTestInstrumentSerial] = useState(null);
+  
+  // Status & Zeroing States
   const [instrumentStatuses, setInstrumentStatuses] = useState({});
   const [isFetchingStatuses, setIsFetchingStatuses] = useState({});
+  const [zeroingInstruments, setZeroingInstruments] = useState({});
   const statusWs = useRef({});
+
+  // Collection States
   const [isCollecting, setIsCollecting] = useState(false);
   const [collectionProgress, setCollectionProgress] = useState({
     count: 0,
@@ -82,12 +90,10 @@ export const InstrumentContextProvider = ({ children }) => {
   });
 
   const [lastMessage, setLastMessage] = useState(null);
-
-  // [NEW] Trigger to force data refresh
   const [dataRefreshTrigger, setDataRefreshTrigger] = useState(0);
-
   const heartbeatTimeout = useRef(null);
 
+  // --- Switch Driver WebSocket Logic ---
   useEffect(() => {
     if (switchDriverAddress && switchDriverModel) {
       const socketUrl = `${WS_BASE_URL}/switch/${switchDriverModel}/${encodeURIComponent(
@@ -148,6 +154,7 @@ export const InstrumentContextProvider = ({ children }) => {
     [switchDriverAddress]
   );
 
+  // --- Collection WebSocket Logic ---
   const clearLiveReadings = useCallback(() => {
     setLiveReadings(initialLiveReadings);
     setTiLiveReadings(initialLiveReadings);
@@ -182,7 +189,6 @@ export const InstrumentContextProvider = ({ children }) => {
 
     readingWs.current.onmessage = (event) => {
       if (heartbeatTimeout.current) clearTimeout(heartbeatTimeout.current);
-      // Increased timeout to help with background tab throttling
       heartbeatTimeout.current = setTimeout(() => {
         console.log(
           "Heartbeat timeout: No message received in 75s. Reconnecting."
@@ -194,11 +200,8 @@ export const InstrumentContextProvider = ({ children }) => {
 
       const data = JSON.parse(event.data);
 
-      if (data.type === "ping") {
-        return;
-      }
+      if (data.type === "ping") return;
 
-      // [NEW] Handle Sync Message
       if (data.type === "connection_sync") {
         console.log("Received connection sync. Status:", data);
         setDataRefreshTrigger((prev) => prev + 1);
@@ -213,16 +216,11 @@ export const InstrumentContextProvider = ({ children }) => {
 
       if (data.type === "calibration_stage_update") {
         const updates = { stage: data.stage };
-        if (data.tpId) {
-          updates.tpId = data.tpId;
-        }
+        if (data.tpId) updates.tpId = data.tpId;
         setActiveCollectionDetails((prev) => ({ ...prev, ...updates }));
-
-        if (data.total !== undefined)
-          setCollectionProgress({ count: 0, total: data.total });
+        if (data.total !== undefined) setCollectionProgress({ count: 0, total: data.total });
         setLiveReadings((prev) => ({ ...prev, [data.stage]: [] }));
         setTiLiveReadings((prev) => ({ ...prev, [data.stage]: [] }));
-
         setTimerState({ isActive: false, duration: 0, label: "" });
       } else if (data.type === "dual_reading_update") {
         const key = data.stage;
@@ -279,9 +277,7 @@ export const InstrumentContextProvider = ({ children }) => {
         );
       } else if (data.type === "batch_progress_update") {
         const { test_point, current, total } = data;
-        if (current > 1) {
-          clearLiveReadings();
-        }
+        if (current > 1) clearLiveReadings();
         if (test_point) {
           const pointKey = `${test_point.current}-${test_point.frequency}`;
           setFocusedTPKey(pointKey);
@@ -293,24 +289,12 @@ export const InstrumentContextProvider = ({ children }) => {
 
           if ((match = message.match(/Initial warm-up period started for (\d+\.?\d*)s/))) {
             const duration = parseFloat(match[1]);
-            
             const targetTime = Date.now() + (duration * 1000); 
-
-            setTimerState({
-              isActive: true,
-              duration: duration,
-              targetTime: targetTime,
-              label: "Warm-up",
-            });
+            setTimerState({ isActive: true, duration: duration, targetTime: targetTime, label: "Warm-up" });
           } else if ((match = message.match(/Settling for (\d+\.?\d*)s/))) {
             const duration = parseFloat(match[1]);
             const targetTime = Date.now() + (duration * 1000);
-            setTimerState({
-              isActive: true,
-              duration: duration,
-              targetTime: targetTime,
-              label: "Settling",
-            });
+            setTimerState({ isActive: true, duration: duration, targetTime: targetTime, label: "Settling" });
           }
       } else if (
         [
@@ -340,13 +324,11 @@ export const InstrumentContextProvider = ({ children }) => {
   useEffect(() => {
     const handleVisibilityChange = () => {
       if (document.visibilityState === "visible") {
-        console.log("Tab is now visible. Checking WebSocket connection...");
         if (
           selectedSessionId &&
           (!readingWs.current ||
             readingWs.current.readyState === WebSocket.CLOSED)
         ) {
-          console.log("WebSocket is closed. Attempting to reconnect.");
           connectWebSocket();
         }
       }
@@ -367,6 +349,167 @@ export const InstrumentContextProvider = ({ children }) => {
       }
     };
   }, [selectedSessionId, connectWebSocket]);
+
+  // --- Instrument Status & Control Logic ---
+  
+  const decodeInstrumentStatus = (model, isrString) => {
+    if (!isrString || typeof isrString !== "string")
+      return { error: "Invalid ISR string." };
+    const bits = isrString
+      .padStart(16, "0")
+      .split("")
+      .map((bit) => bit === "1");
+    return {
+      OPER: bits[0], EXTGARD: bits[1], EXTSENS: bits[2], BOOST: bits[3],
+      RCOMP: bits[4], RLOCK: bits[5], PSHIFT: bits[6], PLOCK: bits[7],
+      OFFSET: bits[8], SCALE: bits[9], WBND: bits[10], REMOTE: bits[11],
+      SETTLED: bits[12], ZERO_CAL: bits[13], AC_XFER: bits[14], UNUSED_15: bits[15],
+    };
+  };
+
+  const getInstrumentStatus = useCallback(
+    async (instrumentModel, gpibAddress) => {
+      if (zeroingInstruments[gpibAddress]) {
+        console.log(`Skipping status poll for ${gpibAddress} (Zeroing in progress)`);
+        return;
+      }
+
+      if (
+        !instrumentModel ||
+        !gpibAddress ||
+        isFetchingStatuses[gpibAddress] ||
+        (statusWs.current[gpibAddress] &&
+          statusWs.current[gpibAddress].readyState === WebSocket.CONNECTING)
+      )
+        return;
+
+      setIsFetchingStatuses((prev) => ({ ...prev, [gpibAddress]: true }));
+
+      const socketUrl = `${WS_BASE_URL}/status/${instrumentModel}/${encodeURIComponent(
+        gpibAddress
+      )}/`;
+
+      if (statusWs.current[gpibAddress] && statusWs.current[gpibAddress].readyState !== WebSocket.OPEN) {
+          statusWs.current[gpibAddress].close();
+      }
+      
+      let ws = statusWs.current[gpibAddress];
+      if (!ws || ws.readyState !== WebSocket.OPEN) {
+        setInstrumentStatuses((prev) => ({
+            ...prev,
+            [gpibAddress]: { error: null, wsConnectionState: "Connecting..." },
+        }));
+        ws = new WebSocket(socketUrl);
+        statusWs.current[gpibAddress] = ws;
+      }
+
+      ws.onopen = () => {
+         console.log(`[WebSocket ${gpibAddress}] Connected/Open. Sending initial status query.`);
+         ws.send(JSON.stringify({ command: "get_instrument_status" }));
+      };
+      
+      if (ws.readyState === WebSocket.OPEN) {
+          ws.send(JSON.stringify({ command: "get_instrument_status" }));
+      }
+
+      // [DIAGNOSIS LOGGING ADDED HERE]
+      ws.onmessage = (event) => {
+        setIsFetchingStatuses((prev) => ({ ...prev, [gpibAddress]: false }));
+        const message = JSON.parse(event.data);
+        
+        console.log(`[WebSocket ${gpibAddress}] Received:`, message); // <--- LOGGING
+
+        // --- HANDLE ZERO CAL MESSAGES ---
+        if (message.type === 'zero_cal_started') {
+            console.log(`[WebSocket ${gpibAddress}] Zero Cal STARTED confirmed.`); // <--- LOGGING
+            setZeroingInstruments(prev => ({ ...prev, [gpibAddress]: true }));
+            setInstrumentStatuses((prev) => ({
+                ...prev,
+                [gpibAddress]: {
+                  ...prev[gpibAddress],
+                  wsConnectionState: "Zeroing in Progress...",
+                },
+            }));
+            return;
+        }
+        
+        if (message.type === 'zero_cal_complete') {
+            console.log(`[WebSocket ${gpibAddress}] Zero Cal COMPLETE confirmed.`); // <--- LOGGING
+            setZeroingInstruments(prev => ({ ...prev, [gpibAddress]: false }));
+            setInstrumentStatuses((prev) => ({
+                ...prev,
+                [gpibAddress]: {
+                  ...prev[gpibAddress],
+                  wsConnectionState: "Status Received",
+                },
+            }));
+            ws.send(JSON.stringify({ command: "get_instrument_status" }));
+            return;
+        }
+
+        if (message.type === 'error' && message.message_text && message.message_text.includes("Zero")) {
+             console.error(`[WebSocket ${gpibAddress}] Zero Cal ERROR:`, message.message_text); // <--- LOGGING
+             setZeroingInstruments(prev => ({ ...prev, [gpibAddress]: false }));
+        }
+        // --------------------------------
+
+        if (message.status_report === "ok") {
+          setInstrumentStatuses((prev) => ({
+            ...prev,
+            [gpibAddress]: {
+              raw: message.raw_isr,
+              decoded: decodeInstrumentStatus(instrumentModel, message.raw_isr),
+              error: null,
+              lastCheck: new Date(
+                message.timestamp * 1000
+              ).toLocaleTimeString(),
+              wsConnectionState: "Status Received",
+            },
+          }));
+        } else if (message.status_report === "error") {
+          if (!zeroingInstruments[gpibAddress]) {
+               setInstrumentStatuses((prev) => ({
+                ...prev,
+                [gpibAddress]: {
+                  ...prev[gpibAddress],
+                  error: message.error_message || "Error fetching status.",
+                  wsConnectionState: "Error (Fetching)",
+                },
+              }));
+          }
+        }
+      };
+
+      ws.onerror = (e) => {
+        console.error(`[WebSocket ${gpibAddress}] ERROR:`, e); // <--- LOGGING
+        setIsFetchingStatuses((prev) => ({ ...prev, [gpibAddress]: false }));
+      };
+      
+      ws.onclose = (e) => {
+         console.warn(`[WebSocket ${gpibAddress}] CLOSED. Code: ${e.code}, Reason: ${e.reason}`); // <--- LOGGING
+         setIsFetchingStatuses((prev) => ({ ...prev, [gpibAddress]: false }));
+      }
+    },
+    [isFetchingStatuses, zeroingInstruments]
+  );
+
+  const runZeroCal = useCallback((instrumentModel, gpibAddress) => {
+    const ws = statusWs.current[gpibAddress];
+    if (ws && ws.readyState === WebSocket.OPEN) {
+      console.log(`Sending Zero Cal command to ${gpibAddress}`);
+      setZeroingInstruments(prev => ({ ...prev, [gpibAddress]: true }));
+      setInstrumentStatuses((prev) => ({
+            ...prev,
+            [gpibAddress]: {
+              ...prev[gpibAddress],
+              wsConnectionState: "Zeroing in Progress...",
+            },
+      }));
+      ws.send(JSON.stringify({ command: "run_zero_cal" }));
+    } else {
+      console.error(`Cannot send Zero Cal: WebSocket not open for ${gpibAddress}`);
+    }
+  }, []);
 
   const setAmplifierRange = (range) => {
     return new Promise((resolve, reject) => {
@@ -403,93 +546,6 @@ export const InstrumentContextProvider = ({ children }) => {
         reject(new Error("WebSocket is not connected."));
       }
     });
-  };
-
-  const getInstrumentStatus = useCallback(
-    async (instrumentModel, gpibAddress) => {
-      if (
-        !instrumentModel ||
-        !gpibAddress ||
-        isFetchingStatuses[gpibAddress] ||
-        (statusWs.current[gpibAddress] &&
-          statusWs.current[gpibAddress].readyState === WebSocket.CONNECTING)
-      )
-        return;
-      setIsFetchingStatuses((prev) => ({ ...prev, [gpibAddress]: true }));
-
-      const socketUrl = `${WS_BASE_URL}/status/${instrumentModel}/${encodeURIComponent(
-        gpibAddress
-      )}/`;
-
-      if (statusWs.current[gpibAddress]) statusWs.current[gpibAddress].close();
-      setInstrumentStatuses((prev) => ({
-        ...prev,
-        [gpibAddress]: { error: null, wsConnectionState: "Connecting..." },
-      }));
-      const ws = new WebSocket(socketUrl);
-      statusWs.current[gpibAddress] = ws;
-      ws.onopen = () =>
-        ws.send(JSON.stringify({ command: "get_instrument_status" }));
-      ws.onmessage = (event) => {
-        setIsFetchingStatuses((prev) => ({ ...prev, [gpibAddress]: false }));
-        const message = JSON.parse(event.data);
-        if (message.status_report === "ok") {
-          setInstrumentStatuses((prev) => ({
-            ...prev,
-            [gpibAddress]: {
-              raw: message.raw_isr,
-              decoded: decodeInstrumentStatus(instrumentModel, message.raw_isr),
-              error: null,
-              lastCheck: new Date(
-                message.timestamp * 1000
-              ).toLocaleTimeString(),
-              wsConnectionState: "Status Received",
-            },
-          }));
-        } else {
-          setInstrumentStatuses((prev) => ({
-            ...prev,
-            [gpibAddress]: {
-              ...prev[gpibAddress],
-              error: message.error_message || "Error fetching status.",
-              wsConnectionState: "Error (Fetching)",
-            },
-          }));
-        }
-      };
-      ws.onerror = () =>
-        setIsFetchingStatuses((prev) => ({ ...prev, [gpibAddress]: false }));
-      ws.onclose = () =>
-        setIsFetchingStatuses((prev) => ({ ...prev, [gpibAddress]: false }));
-    },
-    [isFetchingStatuses]
-  );
-
-  const decodeInstrumentStatus = (model, isrString) => {
-    if (!isrString || typeof isrString !== "string")
-      return { error: "Invalid ISR string." };
-    const bits = isrString
-      .padStart(16, "0")
-      .split("")
-      .map((bit) => bit === "1");
-    return {
-      OPER: bits[0],
-      EXTGARD: bits[1],
-      EXTSENS: bits[2],
-      BOOST: bits[3],
-      RCOMP: bits[4],
-      RLOCK: bits[5],
-      PSHIFT: bits[6],
-      PLOCK: bits[7],
-      OFFSET: bits[8],
-      SCALE: bits[9],
-      WBND: bits[10],
-      REMOTE: bits[11],
-      SETTLED: bits[12],
-      ZERO_CAL: bits[13],
-      AC_XFER: bits[14],
-      UNUSED_15: bits[15],
-    };
   };
 
   const startReadingCollection = (params) => {
@@ -532,16 +588,6 @@ export const InstrumentContextProvider = ({ children }) => {
     return false;
   }, []);
 
-  const runZeroCal = useCallback((instrumentModel, gpibAddress) => {
-    const ws = statusWs.current[gpibAddress];
-    if (ws && ws.readyState === WebSocket.OPEN) {
-      console.log(`Sending Zero Cal command to ${gpibAddress}`);
-      ws.send(JSON.stringify({ command: "run_zero_cal" }));
-    } else {
-      console.error(`Cannot send Zero Cal: WebSocket not open for ${gpibAddress}`);
-    }
-  }, []);
-
   const contextValue = {
     selectedSessionId,
     setSelectedSessionId,
@@ -582,6 +628,8 @@ export const InstrumentContextProvider = ({ children }) => {
     setAmplifierSN,
     isFetchingStatuses,
     getInstrumentStatus,
+    runZeroCal,
+    zeroingInstruments,
     liveReadings,
     setLiveReadings,
     tiLiveReadings,
@@ -614,7 +662,6 @@ export const InstrumentContextProvider = ({ children }) => {
     testInstrumentSerial,
     setTestInstrumentSerial,
     dataRefreshTrigger,
-    runZeroCal,
   };
 
   return (
