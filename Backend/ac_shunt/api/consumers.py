@@ -59,6 +59,10 @@ class InstrumentStatusConsumer(AsyncWebsocketConsumer):
             status_result = await self.get_status_sync()
             payload = {'instrument_model': self.instrument_model, 'gpib_address': self.gpib_address, 'timestamp': time.time(), **status_result}
             await self.send(text_data=json.dumps(payload))
+        elif command == 'run_zero_cal':
+            await self.send(text_data=json.dumps({'type': 'status_update', 'message': 'Starting Zero Cal...'}))
+            await self.run_zero_cal_sync()
+            await self.send(text_data=json.dumps({'type': 'status_update', 'message': 'Zero Cal Command Sent'}))
         else:
             await self.send(text_data=json.dumps({'error': 'Unknown command'}))
 
@@ -93,6 +97,14 @@ class InstrumentStatusConsumer(AsyncWebsocketConsumer):
                 return {'status_report': 'ok', 'raw_isr': 'N/A'}
         except Exception as e:
             return {'status_report': 'error', 'error_message': str(e)}
+
+    @sync_to_async(thread_sensitive=True)
+    def run_zero_cal_sync(self):
+        if self.instrument_instance and hasattr(self.instrument_instance, 'run_zero_cal'):
+            try:
+                self.instrument_instance.run_zero_cal()
+            except Exception as e:
+                print(f"Error running zero cal: {e}")
 
 
 class CalibrationConsumer(AsyncWebsocketConsumer):

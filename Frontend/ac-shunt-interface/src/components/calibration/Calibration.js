@@ -324,7 +324,6 @@ function Calibration({
   const [isSummaryModalOpen, setIsSummaryModalOpen] = useState(false);
   const [countdown, setCountdown] = useState(0);
   const timerInterval = useRef(null);
-  const timerStartTime = useRef(null);
   const [isCalculatingAverages, setIsCalculatingAverages] = useState(false);
   const [isRunDropdownOpen, setIsRunDropdownOpen] = useState(false);
   const runDropdownRef = useRef(null);

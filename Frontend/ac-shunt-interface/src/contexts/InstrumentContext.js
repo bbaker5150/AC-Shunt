@@ -532,6 +532,16 @@ export const InstrumentContextProvider = ({ children }) => {
     return false;
   }, []);
 
+  const runZeroCal = useCallback((instrumentModel, gpibAddress) => {
+    const ws = statusWs.current[gpibAddress];
+    if (ws && ws.readyState === WebSocket.OPEN) {
+      console.log(`Sending Zero Cal command to ${gpibAddress}`);
+      ws.send(JSON.stringify({ command: "run_zero_cal" }));
+    } else {
+      console.error(`Cannot send Zero Cal: WebSocket not open for ${gpibAddress}`);
+    }
+  }, []);
+
   const contextValue = {
     selectedSessionId,
     setSelectedSessionId,
@@ -603,8 +613,8 @@ export const InstrumentContextProvider = ({ children }) => {
     setStandardInstrumentSerial,
     testInstrumentSerial,
     setTestInstrumentSerial,
-    // [NEW] Export dataRefreshTrigger
     dataRefreshTrigger,
+    runZeroCal,
   };
 
   return (

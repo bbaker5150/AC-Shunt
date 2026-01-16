@@ -80,6 +80,11 @@ class Instrument5730A(FlukeInstrument):
         """Set the 5730A to the wideband calibration setting"""
         self.resource.write("WBAND ON")
 
+    def run_zero_cal(self):
+        """Performs internal zeros calibration (CAL_ZERO)."""
+        # Triggers the internal zero calibration routine
+        self.resource.write('CAL_ZERO;*WAI')
+
     def get_instrument_status(self):
         """Get the Instrument Status Register (ISR) value of the 5730A.
         

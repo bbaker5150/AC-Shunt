@@ -23,13 +23,13 @@ const statusBitDescriptions = {
 
 function InstrumentStatusPanel({ showNotification }) {
     const {
-        selectedSessionId, instrumentStatuses, isFetchingStatuses, getInstrumentStatus,
+        selectedSessionId, instrumentStatuses, isFetchingStatuses, getInstrumentStatus, runZeroCal,
         discoveredInstruments, setDiscoveredInstruments,
         stdInstrumentAddress, setStdInstrumentAddress, stdReaderModel, setStdReaderModel, stdReaderSN, setStdReaderSN,
         tiInstrumentAddress, setTiInstrumentAddress, tiReaderModel, setTiReaderModel, tiReaderSN, setTiReaderSN,
         acSourceAddress, setAcSourceAddress, acSourceSN, setAcSourceSN, dcSourceAddress, setDcSourceAddress, dcSourceSN, setDcSourceSN,
         switchDriverAddress, setSwitchDriverAddress, switchDriverModel, setSwitchDriverModel, switchDriverSN, setSwitchDriverSN,
-        amplifierAddress, setAmplifierAddress, amplifierSN, setAmplifierSN, // Added for Amplifier
+        amplifierAddress, setAmplifierAddress, amplifierSN, setAmplifierSN,
     } = useInstruments();
 
     const [isScanning, setIsScanning] = useState(false);
@@ -393,7 +393,7 @@ function InstrumentStatusPanel({ showNotification }) {
                                 </button>
                             </>
                         ) : (
-                            <button  onClick={handleEditName} disabled={!activeWorkstationIp}>
+                            <button onClick={handleEditName} disabled={!activeWorkstationIp}>
                                 ✏️ Rename Workstation
                             </button>
                         )}
@@ -421,6 +421,9 @@ function InstrumentStatusPanel({ showNotification }) {
                         if (model === "34420A" || model === "8100" || model === "11713C") {
                             isConnected = true;
                         }
+
+                        // Determine if it is a 5730A for the Zero Cal button
+                        const is5730A = model.includes('5730');
 
                         return (
                             <div key={inst.address} className="status-card">
@@ -481,6 +484,18 @@ function InstrumentStatusPanel({ showNotification }) {
                                 )}
                                 {isStatusSupported && (
                                     <div className="status-card-body">
+                                        {is5730A && (
+                                            <div style={{ marginBottom: '10px' }}>
+                                                <button
+                                                    className="button button-small button-secondary"
+                                                    onClick={() => runZeroCal && runZeroCal(model, inst.address)}
+                                                    disabled={!isConnected}
+                                                    title="Performs internal zero calibration (CAL_ZERO)"
+                                                >
+                                                    Zero Cal
+                                                </button>
+                                            </div>
+                                        )}
                                         {isFetching && <p>Fetching status details...</p>}
                                         {status?.decoded && !status.error && (
                                             <>
