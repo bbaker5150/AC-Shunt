@@ -294,23 +294,21 @@ export const InstrumentContextProvider = ({ children }) => {
           if ((match = message.match(/Initial warm-up period started for (\d+\.?\d*)s/))) {
             const duration = parseFloat(match[1]);
             
-            // [FIX] Calculate the absolute finish time
             const targetTime = Date.now() + (duration * 1000); 
 
             setTimerState({
               isActive: true,
               duration: duration,
-              targetTime: targetTime, // <--- Add this field
+              targetTime: targetTime,
               label: "Warm-up",
             });
           } else if ((match = message.match(/Settling for (\d+\.?\d*)s/))) {
             const duration = parseFloat(match[1]);
-            const targetTime = Date.now() + (duration * 1000); // [FIX]
-
+            const targetTime = Date.now() + (duration * 1000);
             setTimerState({
               isActive: true,
               duration: duration,
-              targetTime: targetTime, // <--- Add this field
+              targetTime: targetTime,
               label: "Settling",
             });
           }
