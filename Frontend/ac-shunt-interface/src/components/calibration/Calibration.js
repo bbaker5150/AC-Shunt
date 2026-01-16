@@ -538,6 +538,54 @@ function Calibration({
   }, [selectedSessionId, showNotification]);
 
   useEffect(() => {
+    // The master refresh function
+    const handleWakeUp = () => {   
+      if (document.visibilityState === "visible" && navigator.onLine) {
+        console.log("System wake/focus detected. Refreshing data...");
+        
+        // Small delay to allow network stack to stabilize
+        setTimeout(() => {
+            refreshComponentData();
+            if (onDataUpdate) onDataUpdate();
+        }, 1000);
+      }
+    };
+
+    // --- EVENT LISTENERS ---
+    document.addEventListener("visibilitychange", handleWakeUp);
+    window.addEventListener("focus", handleWakeUp);
+    window.addEventListener("pageshow", handleWakeUp); // Handle bfcache
+    window.addEventListener("online", handleWakeUp);   // Handle network recovery
+
+    // --- HEARTBEAT CHECK (FAILSAFE) ---
+    // Checks for "time jumps" indicating the CPU was suspended
+    const HEARTBEAT_INTERVAL = 2000; // Check every 2 seconds
+    const SLEEP_THRESHOLD = 5000;    // If >5 seconds passed, we slept
+    let lastTick = Date.now();
+
+    const heartbeat = setInterval(() => {
+      const now = Date.now();
+      const delta = now - lastTick;
+      
+      if (delta > SLEEP_THRESHOLD) {
+        console.log(`Sleep detected (Time drift: ${delta}ms). Triggering wake-up...`);
+        handleWakeUp();
+      }
+      
+      lastTick = now;
+    }, HEARTBEAT_INTERVAL);
+
+    // Cleanup
+    return () => {
+      document.removeEventListener("visibilitychange", handleWakeUp);
+      window.removeEventListener("focus", handleWakeUp);
+      window.removeEventListener("pageshow", handleWakeUp);
+      window.removeEventListener("online", handleWakeUp);
+      clearInterval(heartbeat);
+    };
+  }, [refreshComponentData, onDataUpdate]);
+
+  useEffect(() => {
     if (dataRefreshTrigger > 0) {
       console.log("WebSocket sync received. Refreshing data...");
       refreshComponentData();

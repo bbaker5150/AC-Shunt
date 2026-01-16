@@ -83,7 +83,6 @@ class InstrumentStatusConsumer(AsyncWebsocketConsumer):
                     'type': 'error', 
                     'message_text': 'Zero Calibration Failed or Timed Out.'
                 }))
-            await self.run_zero_cal_sync()
             await self.send(text_data=json.dumps({'type': 'status_update', 'message': 'Zero Cal Command Sent'}))
         else:
             await self.send(text_data=json.dumps({'error': 'Unknown command'}))
@@ -126,9 +125,6 @@ class InstrumentStatusConsumer(AsyncWebsocketConsumer):
             try:
                 print(f"[StatusConsumer] Calling .run_zero_cal() on instance: {self.instrument_instance}")
                 self.instrument_instance.run_zero_cal()
-                
-                # CRITICAL FIX: You must explicitly return True here!
-                # If this is missing, it returns None, which causes the "FAILED" error.
                 return True 
                 
             except Exception as e:
