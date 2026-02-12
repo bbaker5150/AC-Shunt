@@ -1625,11 +1625,6 @@ input:checked+.slider:before {
   margin-top: 0;
 }
 
-/* --- Custom Dropdown (Professional) --- */
-.custom-dropdown-container {
-  position: relative;
-}
-
 .custom-dropdown-container label {
   display: block;
   margin-bottom: 6px;
@@ -1654,6 +1649,7 @@ input:checked+.slider:before {
 
 .custom-dropdown-trigger:hover {
   border-color: var(--primary-color);
+  background-color: transparent;
 }
 
 .custom-dropdown-trigger.open {

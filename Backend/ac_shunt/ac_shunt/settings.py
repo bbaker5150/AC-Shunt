@@ -9,7 +9,8 @@ https://docs.djangoproject.com/en/5.2/topics/settings/
 For the full list of settings and their values, see
 https://docs.djangoproject.com/en/5.2/ref/settings/
 """
-
+from django.contrib import messages
+import os, getpass
 from pathlib import Path
 
 # Build paths inside the project like this: BASE_DIR / 'subdir'.
@@ -81,16 +82,35 @@ TEMPLATES = [
 # WSGI_APPLICATION = 'ac_shunt.wsgi.application'
 ASGI_APPLICATION = 'ac_shunt.asgi.application'
 
+with open(f'C:/Users/{getpass.getuser()}/Documents/Portal/SQLUSER.txt') as f:
+    user = f.read().strip()
+
+with open(f'C:/Users/{getpass.getuser()}/Documents/Portal/SQLPASS.txt') as f:
+    pw = f.read().strip()
+
+with open(f'C:/Users/{getpass.getuser()}/Documents/Portal/SQLHOST.txt') as f:
+    host = f.read().strip()
+
+with open(f'C:/Users/{getpass.getuser()}/Documents/Portal/SQLNAME2.txt') as f:
+    name = f.read().strip()
 
 # Database
 # https://docs.djangoproject.com/en/5.2/ref/settings/#databases
 
 DATABASES = {
     'default': {
-        'ENGINE': 'django.db.backends.sqlite3',
-        'NAME': BASE_DIR / 'db.sqlite3',
+        'ENGINE': 'mssql',
+        'NAME': name,
+        'HOST': host,
+        'USER': user,
+        'PASSWORD': pw,
+
+        'OPTIONS': {
+            'driver': 'ODBC Driver 17 for SQL Server',
+        },
     }
 }
+
 
 
 # Password validation

@@ -5,7 +5,7 @@ import SessionSetup from "./components/session/SessionSetup";
 import InstrumentStatusTab from "./components/session/InstrumentStatusTab";
 import Calibration from "./components/calibration/Calibration";
 import CalibrationResults from "./components/calibration/CalibrationResults";
-import UncertaintyAnalysis from "./components/analysis/UncertaintyAnalysis";
+// import UncertaintyAnalysis from "./components/analysis/UncertaintyAnalysis";
 import TestPointSidebar from "./components/shared/TestPointSidebar";
 import ConfigurationModal from "./components/shared/ConfigurationModal";
 import CorrectionsModal from "./components/calibration/CorrectionsModal";
@@ -690,7 +690,7 @@ function AppContent() {
           >
             Results
           </button>
-          <button
+          {/* <button
             onClick={() => setActiveTab("uncertaintyAnalysis")}
             className={
               activeTab === "uncertaintyAnalysis"
@@ -699,7 +699,7 @@ function AppContent() {
             }
           >
             Analysis
-          </button>
+          </button> */}
         </nav>
       </header>
 
@@ -768,7 +768,7 @@ function AppContent() {
               onDataUpdate={fetchSessionData}
             />
           )}
-          {activeTab === "uncertaintyAnalysis" && (
+          {/* {activeTab === "uncertaintyAnalysis" && (
             <UncertaintyAnalysis
               showNotification={showNotification}
               sharedFocusedTestPoint={focusedTestPoint}
@@ -776,7 +776,7 @@ function AppContent() {
               orderedTestPoints={orderedTestPoints}
               onDataUpdate={fetchSessionData}
             />
-          )}
+          )} */}
         </main>
       </div>
     </div>
