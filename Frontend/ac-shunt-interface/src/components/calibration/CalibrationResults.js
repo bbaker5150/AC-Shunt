@@ -249,7 +249,7 @@ function CalibrationResults({
   uniqueTestPoints,
   onDataUpdate
 }) {
-  const { selectedSessionId, dataRefreshTrigger } = useInstruments();
+  const { selectedSessionId, selectedSessionName, dataRefreshTrigger } = useInstruments();
   const { theme } = useTheme();
 
   const [calResults, setCalResults] = useState(null);
@@ -509,21 +509,32 @@ function CalibrationResults({
     const tiSheetData = [[...headers]];
     const stdSheetData = [[...headers]];
 
-    // Helper to calculate the raw measured difference for the Standard instrument
-    const calcMeasuredDiff = (results, prefix) => {
+    // --- Fully Corrected Standard Calculation ---
+    // Matches the metrology depth of the TI's delta_uut_ppm
+    // Calculates the True AC-DC Difference of the applied signal
+    const calcFullyCorrectedStandard = (results) => {
       if (!results) return null;
-      const dcPos = results[`${prefix}_dc_pos_avg`];
-      const dcNeg = results[`${prefix}_dc_neg_avg`];
-      const acOpen = results[`${prefix}_ac_open_avg`];
-      const acClose = results[`${prefix}_ac_close_avg`];
-      const eta = results[`eta_${prefix}`] || 1;
-
+      
+      const dcPos = results.std_dc_pos_avg;
+      const dcNeg = results.std_dc_neg_avg;
+      const acOpen = results.std_ac_open_avg;
+      const acClose = results.std_ac_close_avg;
+      
+      // Ensure we have all voltage readings to proceed
       if (dcPos == null || dcNeg == null || acOpen == null || acClose == null) return null;
 
       const vDc = (Math.abs(dcPos) + Math.abs(dcNeg)) / 2;
       const vAc = (Math.abs(acOpen) + Math.abs(acClose)) / 2;
+      
+      const eta = results.eta_std || 1;
+      const delta_std_known = results.delta_std_known != null ? Number(results.delta_std_known) : 0;
+      const delta_std_tvc = results.delta_std != null ? Number(results.delta_std) : 0;
 
-      return (((vAc - vDc) * 1000000) / (eta * vDc));
+      // term_STD calculation identical to the CalculationBreakdown
+      const term_STD = (((vAc - vDc) * 1000000) / (eta * vDc));
+
+      // Standard True AC-DC Difference = Known Error + Measured Error + TVC Error
+      return term_STD + delta_std_known + delta_std_tvc;
     };
 
     uniqueTestPoints.forEach((pt) => {
@@ -541,8 +552,8 @@ function CalibrationResults({
       ]);
 
       // --- Standard Instrument Data ---
-      const stdFwdVal = calcMeasuredDiff(pt.forward?.results, 'std');
-      const stdRevVal = calcMeasuredDiff(pt.reverse?.results, 'std');
+      const stdFwdVal = calcFullyCorrectedStandard(pt.forward?.results);
+      const stdRevVal = calcFullyCorrectedStandard(pt.reverse?.results);
       
       let stdCombVal = null;
       if (stdFwdVal !== null && stdRevVal !== null) {
@@ -564,7 +575,19 @@ function CalibrationResults({
     XLSX.utils.book_append_sheet(wb, tiWs, "Test Instrument");
     XLSX.utils.book_append_sheet(wb, stdWs, "Standard");
 
-    triggerBrowserDownload(wb, "All_AC_DC_Diff_Data.xlsx");
+    // --- Dynamic Filename Generation ---
+    const now = new Date();
+    // Format: YYYY-MM-DD_HH-MM-SS
+    const timestamp = now.toISOString().replace(/T/, '_').replace(/\..+/, '').replace(/:/g, '-');
+    
+    // Sanitize session name to be safe for filenames
+    const safeSessionName = selectedSessionName 
+      ? selectedSessionName.replace(/[^a-z0-9]/gi, '_') 
+      : 'Session';
+
+    const filename = `${safeSessionName}_${timestamp}.xlsx`;
+
+    triggerBrowserDownload(wb, filename);
   };
 
   const buildRawReadingsChartData = (prefix) => {
