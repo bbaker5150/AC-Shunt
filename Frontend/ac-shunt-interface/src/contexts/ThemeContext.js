@@ -15,6 +15,16 @@ export const ThemeProvider = ({ children }) => {
         document.body.classList.remove('light-mode', 'dark-mode');
         document.body.classList.add(`${theme}-mode`);
         localStorage.setItem('theme', theme);
+
+        // Tell Electron to update the native window theme (title bar, dialogs, etc.)
+        if (window.require) {
+            try {
+                const { ipcRenderer } = window.require('electron');
+                ipcRenderer.send('theme-changed', theme);
+            } catch (error) {
+                console.error("Failed to sync theme with Electron:", error);
+            }
+        }
     }, [theme]);
 
     const toggleTheme = () => {

@@ -1,3 +1,4 @@
+// src/components/calibration/CalibrationResults.js
 import React, { useState, useEffect, useRef, useCallback } from "react";
 import * as XLSX from "xlsx";
 import { useInstruments } from "../../contexts/InstrumentContext";
@@ -12,7 +13,7 @@ import {
 import CalibrationChart from "./CalibrationChart";
 import { useTheme } from "../../contexts/ThemeContext";
 import { API_BASE_URL } from "../../constants/constants";
-import axios from "axios"
+import axios from "axios";
 
 const READING_TYPES = [
   { label: "AC Open", value: "ac_open_readings", color: "rgb(75, 192, 192)" },
@@ -245,6 +246,7 @@ const SummaryTable = ({ results, prefix }) => {
 function CalibrationResults({
   showNotification,
   sharedFocusedTestPoint: focusedTP,
+  uniqueTestPoints,
   onDataUpdate
 }) {
   const { selectedSessionId, dataRefreshTrigger } = useInstruments();
@@ -259,7 +261,7 @@ function CalibrationResults({
     useState("ac_open_readings");
   const [showCalcDetails, setShowCalcDetails] = useState(false);
   const [activeDirection, setActiveDirection] = useState("Forward");
-
+  
   useEffect(() => {
     if (window.MathJax && (showCalcDetails || activeTab === "summary")) {
       window.MathJax.typesetPromise?.().catch((err) =>
@@ -274,20 +276,6 @@ function CalibrationResults({
       onDataUpdate();
     }
   }, [dataRefreshTrigger, onDataUpdate]);
-
-  // useEffect(() => {
-  //   if (focusedTP) {
-  //     const hasCombinedData =
-  //       focusedTP.forward?.results && focusedTP.reverse?.results;
-  //     if (hasCombinedData) {
-  //       setActiveDirection("Combined");
-  //     } else if (focusedTP.forward?.results) {
-  //       setActiveDirection("Forward");
-  //     } else {
-  //       setActiveDirection("Reverse");
-  //     }
-  //   }
-  // }, [focusedTP]);
 
   useEffect(() => {
     if (!focusedTP) {
@@ -370,7 +358,6 @@ function CalibrationResults({
         return;
       }
       
-      // In this component, `activeInstrument` state tracks std/ti
       const prefix = activeInstrument === "std" ? "std_" : "ti_"; 
       const readingType = READING_TYPES.find(rt => rt.label === stabilityData.type);
       
@@ -388,7 +375,6 @@ function CalibrationResults({
         is_stable: stabilityData.mark_as === 'stable'
       };
       
-      // Special case: If "Combined" is active, we must update both directions
       let testPointIdsToUpdate = [pointForDirection.id];
       if (activeDirection === "Combined" && focusedTP.reverse && focusedTP.reverse.id !== pointForDirection.id) {
           testPointIdsToUpdate.push(focusedTP.reverse.id);
@@ -408,7 +394,7 @@ function CalibrationResults({
         }
 
         showNotification(successMessage, "success");
-        await onDataUpdate(); // This will refresh all data
+        await onDataUpdate(); 
       } catch (error) {
         const errorMsg = error.response?.data?.detail || "Failed to update reading stability.";
         showNotification(errorMsg, "error");
@@ -422,6 +408,20 @@ function CalibrationResults({
         text: `${value}Hz`,
       }
     ).text;
+
+  // Helper function to force Electron to trigger the native save dialog
+  const triggerBrowserDownload = (wb, filename) => {
+    const wbout = XLSX.write(wb, { bookType: "xlsx", type: "array" });
+    const blob = new Blob([wbout], { type: "application/octet-stream" });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement("a");
+    a.href = url;
+    a.download = filename;
+    document.body.appendChild(a);
+    a.click();
+    document.body.removeChild(a);
+    URL.revokeObjectURL(url);
+  };
 
   const exportReadingsToXLSX = (instrumentType) => {
     if (!calReadings || !calResults) {
@@ -475,7 +475,7 @@ function CalibrationResults({
     }
 
     if (wb.SheetNames.length > 0) {
-      XLSX.writeFile(
+      triggerBrowserDownload(
         wb,
         `${instrumentName}_Readings_${focusedTP.current}A_${formatFrequency(
           focusedTP.frequency
@@ -487,6 +487,84 @@ function CalibrationResults({
         "warning"
       );
     }
+  };
+
+  const exportSummaryToXLSX = () => {
+    if (!uniqueTestPoints || uniqueTestPoints.length === 0) {
+      showNotification("No test points available to export.", "warning");
+      return;
+    }
+
+    const wb = XLSX.utils.book_new();
+    
+    // Updated headers without Standard Deviation
+    const headers = [
+      "Current (A)",
+      "Frequency (Hz)",
+      "Forward AC-DC Diff",
+      "Reverse AC-DC Diff",
+      "Combined AC-DC Diff",
+    ];
+
+    const tiSheetData = [[...headers]];
+    const stdSheetData = [[...headers]];
+
+    // Helper to calculate the raw measured difference for the Standard instrument
+    const calcMeasuredDiff = (results, prefix) => {
+      if (!results) return null;
+      const dcPos = results[`${prefix}_dc_pos_avg`];
+      const dcNeg = results[`${prefix}_dc_neg_avg`];
+      const acOpen = results[`${prefix}_ac_open_avg`];
+      const acClose = results[`${prefix}_ac_close_avg`];
+      const eta = results[`eta_${prefix}`] || 1;
+
+      if (dcPos == null || dcNeg == null || acOpen == null || acClose == null) return null;
+
+      const vDc = (Math.abs(dcPos) + Math.abs(dcNeg)) / 2;
+      const vAc = (Math.abs(acOpen) + Math.abs(acClose)) / 2;
+
+      return (((vAc - vDc) * 1000000) / (eta * vDc));
+    };
+
+    uniqueTestPoints.forEach((pt) => {
+      // --- Test Instrument Data ---
+      const tiFwdPpm = pt.forward?.results?.delta_uut_ppm;
+      const tiRevPpm = pt.reverse?.results?.delta_uut_ppm;
+      const tiCombPpm = pt.forward?.results?.delta_uut_ppm_avg;
+
+      tiSheetData.push([
+        pt.current,
+        formatFrequency(pt.frequency).replace("Hz", ""),
+        tiFwdPpm != null ? parseFloat(tiFwdPpm).toFixed(3) : "N/A",
+        tiRevPpm != null ? parseFloat(tiRevPpm).toFixed(3) : "N/A",
+        tiCombPpm != null ? parseFloat(tiCombPpm).toFixed(3) : "N/A",
+      ]);
+
+      // --- Standard Instrument Data ---
+      const stdFwdVal = calcMeasuredDiff(pt.forward?.results, 'std');
+      const stdRevVal = calcMeasuredDiff(pt.reverse?.results, 'std');
+      
+      let stdCombVal = null;
+      if (stdFwdVal !== null && stdRevVal !== null) {
+          stdCombVal = (stdFwdVal + stdRevVal) / 2;
+      }
+
+      stdSheetData.push([
+        pt.current,
+        formatFrequency(pt.frequency).replace("Hz", ""),
+        stdFwdVal !== null ? stdFwdVal.toFixed(3) : "N/A",
+        stdRevVal !== null ? stdRevVal.toFixed(3) : "N/A",
+        stdCombVal !== null ? stdCombVal.toFixed(3) : "N/A",
+      ]);
+    });
+
+    const tiWs = XLSX.utils.aoa_to_sheet(tiSheetData);
+    const stdWs = XLSX.utils.aoa_to_sheet(stdSheetData);
+
+    XLSX.utils.book_append_sheet(wb, tiWs, "Test Instrument");
+    XLSX.utils.book_append_sheet(wb, stdWs, "Standard");
+
+    triggerBrowserDownload(wb, "All_AC_DC_Diff_Data.xlsx");
   };
 
   const buildRawReadingsChartData = (prefix) => {
@@ -652,7 +730,17 @@ function CalibrationResults({
                     point={focusedTP}
                   />
                 </div>
-                <div className="results-header-right">
+                
+                {/* Updated Header Right with Global Export Button */}
+                <div className="results-header-right" style={{ display: "flex", alignItems: "center", gap: "10px" }}>
+                  <button
+                    className="button button-text"
+                    onClick={exportSummaryToXLSX}
+                    title="Export All AC-DC Diff Data"
+                  >
+                    <FaDownload style={{ marginRight: "5px" }} />
+                  </button>
+                  
                   <div className="view-toggle icon-only-toggle">
                     <div className="tooltip-container">
                       <button
@@ -754,11 +842,15 @@ function CalibrationResults({
                           <FaTable style={{ marginRight: "6px" }} /> Table
                         </button>
                       </div>
-                      <FaDownload
-                        className="download-icon"
-                        title={`Export ${activeInstrument.toUpperCase()} Readings`}
+
+                      {/* Restored Original Single Export Button */}
+                      <button
+                        className="button button-text"
                         onClick={() => exportReadingsToXLSX(activeInstrument)}
-                      />
+                        title="Export Current Point Raw Data"
+                      >
+                        <FaDownload style={{ marginRight: "6px" }} />
+                      </button>
                     </div>
                   </div>
 
