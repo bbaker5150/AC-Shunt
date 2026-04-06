@@ -458,6 +458,12 @@ class CalibrationConsumer(AsyncWebsocketConsumer):
                     current_stdev_ppm = (stdev_val / abs(mean_val)) * 1_000_000 if abs(mean_val) > 1e-9 else float('inf')
                     is_currently_stable = current_stdev_ppm < threshold_ppm
                     
+                    print(f"\n[SLIDING WINDOW] Stage: {reading_type_base} | Current Sample Count: {current_total_sample_count}")
+                    print(f"[SLIDING WINDOW] Buffer values: {[f'{v:.6f}' for v in std_window]}")
+                    print(f"[SLIDING WINDOW] Mean: {mean_val:.6f} V | StdDev: {stdev_val:.8g} V")
+                    print(f"[SLIDING WINDOW] Calculated PPM: {current_stdev_ppm:.3f} | Threshold: {threshold_ppm}")
+                    print(f"[SLIDING WINDOW] Status: {'✅ PASSED' if is_currently_stable else '❌ FAILED (Sliding forward)'}")
+
                     await self.send(text_data=json.dumps({
                         'type': 'sliding_window_update',
                         'stdev_ppm': current_stdev_ppm,
@@ -476,6 +482,9 @@ class CalibrationConsumer(AsyncWebsocketConsumer):
                 # Pop ONLY the oldest point that failed the window
                 unstable_std_point = stable_candidate_std.pop(0)
                 unstable_ti_point = stable_candidate_ti.pop(0)
+
+                print(f"[SLIDING WINDOW] Dropping oldest sample: {unstable_std_point['value']:.6f} V")
+                print(f"[SLIDING WINDOW] Valid candidates currently retained: {len(stable_candidate_std)}/{num_samples}")
 
                 # Mark that specific point as unstable for the UI
                 unstable_std_point['is_stable'] = False
