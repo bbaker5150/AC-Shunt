@@ -470,34 +470,30 @@ class CalibrationConsumer(AsyncWebsocketConsumer):
                 instability_events += 1
                 await self.send(text_data=json.dumps({
                     'type': 'warning',
-                    'message': f"Instability detected! Resetting stable sample count. (Event {instability_events}/{max_retries})"
+                    'message': f"Instability detected! Sliding window forward. (Event {instability_events}/{max_retries})"
                 }))
                 
-                unstable_std_points = stable_candidate_std[-window_size:]
-                unstable_ti_points = stable_candidate_ti[-window_size:]
+                # Pop ONLY the oldest point that failed the window
+                unstable_std_point = stable_candidate_std.pop(0)
+                unstable_ti_point = stable_candidate_ti.pop(0)
 
-                for std_point, ti_point in zip(unstable_std_points, unstable_ti_points):
-                    std_point['is_stable'] = False
-                    ti_point['is_stable'] = False
-                    
-                    try:
-                        original_index = all_std_readings.index(std_point)
-                        await self.send(text_data=json.dumps({
-                            'type': 'dual_reading_update',
-                            'std_reading': std_point,
-                            'ti_reading': ti_point,
-                            'count': original_index + 1,
-                            'stable_count': 0,
-                            'total': num_samples,
-                            'stage': reading_type_base
-                        }))
-                    except ValueError:
-                        print(f"Warning: Could not find point in all_std_readings to send update.")
+                # Mark that specific point as unstable for the UI
+                unstable_std_point['is_stable'] = False
+                unstable_ti_point['is_stable'] = False
                 
-                del stable_candidate_std[-window_size:]
-                del stable_candidate_ti[-window_size:]
-                std_window.clear()
-                await asyncio.sleep(1.5)
+                try:
+                    original_index = all_std_readings.index(unstable_std_point)
+                    await self.send(text_data=json.dumps({
+                        'type': 'dual_reading_update',
+                        'std_reading': unstable_std_point,
+                        'ti_reading': unstable_ti_point,
+                        'count': original_index + 1,
+                        'stable_count': len(stable_candidate_std),
+                        'total': num_samples,
+                        'stage': reading_type_base
+                    }))
+                except ValueError:
+                    print(f"Warning: Could not find point in all_std_readings to send update.")
 
             try:
                 await asyncio.sleep(0.1)
