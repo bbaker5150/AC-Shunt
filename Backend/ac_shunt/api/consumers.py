@@ -802,11 +802,14 @@ class CalibrationConsumer(AsyncWebsocketConsumer):
             if warmup_time > 0:
                 await self._perform_warmup(warmup_time)
 
-            settling_time, num_samples, nplc_setting, measurement_params = float(data.get('settling_time', 5.0)), data.get('num_samples', 8), data.get('nplc'), data.get('measurement_params')
+            nplc_setting, measurement_params = data.get('nplc'), data.get('measurement_params')
 
             for i, point_data in enumerate(test_points_to_run):
                 if self.stop_event.is_set(): break
                 
+                current_settling_time = float(point_data.get('settling_time', data.get('settling_time', 5.0)))
+                current_num_samples = int(point_data.get('num_samples', data.get('num_samples', 8)))
+
                 await self.send(text_data=json.dumps({
                     'type': 'batch_progress_update',
                     'test_point': point_data,
@@ -831,11 +834,21 @@ class CalibrationConsumer(AsyncWebsocketConsumer):
                     await self.send(text_data=json.dumps({
                         'type': 'calibration_stage_update', 
                         'stage': stage, 
-                        'total': num_samples,
+                        'total': current_num_samples,
                         'tpId': point_data.get('id')
                     }))
                     
-                    await self._perform_single_measurement(stage, num_samples, point_data, data.get('bypass_tvc'), data.get('amplifier_range'), source_instrument, std_reader, ti_reader, amplifier, settling_time, nplc_setting, measurement_params)
+                    await self._perform_single_measurement(
+                        stage, 
+                        current_num_samples, 
+                        point_data, 
+                        data.get('bypass_tvc'), 
+                        data.get('amplifier_range'), 
+                        source_instrument, std_reader, ti_reader, amplifier, 
+                        current_settling_time, 
+                        nplc_setting, 
+                        measurement_params
+                    )
 
             if not self.stop_event.is_set():
                 await self.send(text_data=json.dumps({'type': 'collection_finished', 'message': 'Batch calibration complete.'}))
@@ -921,8 +934,13 @@ class CalibrationConsumer(AsyncWebsocketConsumer):
                 await self.send(text_data=json.dumps({'type': 'switch_status_update', 'active_source': required_switch_state}))
                 await asyncio.sleep(1)
 
+            nplc_setting, measurement_params = data.get('nplc'), data.get('measurement_params')
+
             for i, point_data in enumerate(test_points_to_run):
                 if self.stop_event.is_set(): break
+
+                current_settling_time = float(point_data.get('settling_time', data.get('settling_time', 5.0)))
+                current_num_samples = int(point_data.get('num_samples', data.get('num_samples', 8)))
 
                 await self.send(text_data=json.dumps({
                     'type': 'batch_progress_update',
@@ -936,20 +954,20 @@ class CalibrationConsumer(AsyncWebsocketConsumer):
                 await self.send(text_data=json.dumps({
                     'type': 'calibration_stage_update', 
                     'stage': stage, 
-                    'total': data.get('num_samples', 8),
+                    'total': current_num_samples,
                     'tpId': point_data.get('id')
                 }))
 
                 await self._perform_single_measurement(
                     stage, 
-                    data.get('num_samples', 8), 
+                    current_num_samples, 
                     point_data, 
                     data.get('bypass_tvc'), 
                     data.get('amplifier_range'), 
                     source_instrument, std_reader, ti_reader, amplifier, 
-                    data.get('settling_time', 5.0), 
-                    data.get('nplc'), 
-                    data.get('measurement_params')
+                    current_settling_time, 
+                    nplc_setting, 
+                    measurement_params
                 )
 
             if not self.stop_event.is_set():
