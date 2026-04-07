@@ -30,3 +30,21 @@ corrections_hash.json
 
 # The source Excel file (optional)
 corrections.xlsx
+
+# --- PyInstaller (Backend Build Artifacts) ---
+# Ignores the temporary build files and the final packaged output
+Backend/ac_shunt/build/
+Backend/ac_shunt/dist/
+
+# Ignore automatically generated .spec files in subfolders, 
+# but keep your primary configuration in Backend/ac_shunt/
+Backend/ac_shunt/ac_shunt/*.spec
+
+# --- Electron Builder (Frontend Build Artifacts) ---
+# Ignores the folder where the Windows Setup .exe is created
+Frontend/ac-shunt-interface/dist/
+
+# --- Local Environment / Credentials ---
+# Since you use the Documents/Portal folder for real creds, 
+# keep any local mock creds out of the repo.
+*.txt

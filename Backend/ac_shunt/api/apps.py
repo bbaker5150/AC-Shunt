@@ -15,3 +15,4 @@ class ApiConfig(AppConfig):
         if os.environ.get('RUN_MAIN') or os.environ.get('WERKZEUG_RUN_MAIN'):
             from .manage_corrections import check_and_update_corrections
             check_and_update_corrections()
+            print("CORRECTIONS CHECKED")

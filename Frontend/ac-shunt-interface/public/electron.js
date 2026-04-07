@@ -11,8 +11,7 @@ function createWindow() {
         height: 800,
         title: "AC Shunt Calibration",
         icon: path.join(__dirname, 'favicon.ico'),
-        autoHideMenuBar: true, // Hides File/Edit/View but allows 'Alt' to show it
-        // Adding a neutral background color prevents a harsh white flash on boot in dark mode
+        autoHideMenuBar: true,
         backgroundColor: '#2b2b2b', 
         webPreferences: {
             nodeIntegration: true,
@@ -22,7 +21,6 @@ function createWindow() {
     });
 
     // --- ZOOM LOGIC ---
-    // Enables Ctrl + Mouse Wheel zooming
     mainWindow.webContents.on('zoom-changed', (event, zoomDirection) => {
         const currentZoom = mainWindow.webContents.getZoomFactor();
         if (zoomDirection === 'in') {
@@ -32,13 +30,11 @@ function createWindow() {
         }
     });
 
-    // --- DEVTOOLS HOTKEY LOGIC ---
-    // Listens for F12 or Ctrl+Shift+I to toggle DevTools
+    // --- DEVTOOLS HOTKEY ---
     mainWindow.webContents.on('before-input-event', (event, input) => {
         const isDevToolsHotkey = 
             input.key === 'F12' || 
             (input.control && input.shift && input.key.toLowerCase() === 'i');
-
         if (isDevToolsHotkey) {
             mainWindow.webContents.toggleDevTools();
             event.preventDefault();
@@ -51,39 +47,37 @@ function createWindow() {
         : `file://${path.join(__dirname, '../build/index.html')}`;
 
     mainWindow.loadURL(startUrl);
-
-    if (isDev) {
-        mainWindow.webContents.openDevTools();
-    }
+    if (isDev) mainWindow.webContents.openDevTools();
 
     mainWindow.on('closed', () => (mainWindow = null));
 }
 
-// --- THEME SYNC LOGIC ---
-// Listens for the theme change from React and applies it to the native OS window
 ipcMain.on('theme-changed', (event, theme) => {
-    nativeTheme.themeSource = theme; // 'light' or 'dark'
+    nativeTheme.themeSource = theme;
 });
 
 function startBackend() {
     const isDev = !app.isPackaged;
     let backendPath;
+    let backendArgs = [];
     let backendDir;
 
     if (isDev) {
-        // Pointing to 'dist' instead of 'build' to ensure DLLs are found
-        backendDir = path.join('C:', 'Users', 'barry.baker', 'Development', 'AC Shunt', 'Backend', 'ac_shunt', 'dist', 'ac_shunt_backend');
-        backendPath = path.join(backendDir, 'ac_shunt_backend.exe');
+        // Adjust the number of '..' based on where electron.js is. 
+        // If in public/electron.js, '..', '..', '..' hits the Root.
+        const projectRoot = path.join(__dirname, '..', '..', '..');
+
+        backendDir = path.join(projectRoot, 'Backend', 'ac_shunt');
+        backendPath = path.join(projectRoot, 'venv', 'Scripts', 'python.exe');
+        backendArgs = [path.join(backendDir, 'entry_point.py')]; 
     } else {
-        // Production path inside the packaged resources
         backendDir = path.join(process.resourcesPath, 'ac_shunt_backend');
         backendPath = path.join(backendDir, 'ac_shunt_backend.exe');
     }
 
     console.log("Launching Backend from:", backendPath);
 
-    // spawn without shell:true is more robust for paths with spaces when providing a cwd
-    backendProcess = spawn(backendPath, [], {
+    backendProcess = spawn(backendPath, backendArgs, {
         cwd: backendDir,
         shell: false,
         windowsHide: true
@@ -95,8 +89,7 @@ function startBackend() {
 
     backendProcess.stderr.on('data', (data) => {
         const message = data.toString();
-        // Categorize logs: 200/CONNECT/HANDSHAKE are normal logs, not errors
-        if (message.includes('200') || message.includes('CONNECT') || message.includes('HANDSHAKING')) {
+        if (message.includes('200') || message.includes('CONNECT') || message.includes('HANDSHAKE')) {
             console.log(`Backend Log: ${message}`);
         } else {
             console.error(`Backend Error: ${message}`);
@@ -104,19 +97,14 @@ function startBackend() {
     });
 
     backendProcess.on('error', (err) => {
-        console.error("Failed to start backend process. Verify the path exists:", err);
+        console.error("Backend failed to start:", err);
     });
 }
 
-// --- APP LIFECYCLE ---
-
 app.on('ready', () => {
-    // Nuclear option: Removes the default menu completely
     Menu.setApplicationMenu(null);
-    
     startBackend();
-    // 2-second delay gives the Django backend a head start before the UI loads
-    setTimeout(createWindow, 2000);
+    setTimeout(createWindow, 5000);
 });
 
 app.on('window-all-closed', () => {
@@ -124,7 +112,6 @@ app.on('window-all-closed', () => {
 });
 
 app.on('will-quit', () => {
-    // Ensure the Django sidecar process is killed when Electron exits
     if (backendProcess) {
         backendProcess.kill();
     }

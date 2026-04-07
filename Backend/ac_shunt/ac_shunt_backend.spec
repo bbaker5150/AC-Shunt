@@ -1,12 +1,30 @@
 # -*- mode: python ; coding: utf-8 -*-
 
-
 a = Analysis(
     ['entry_point.py'],
     pathex=[],
     binaries=[],
-    datas=[('ac_shunt', 'ac_shunt'), ('api', 'api')],
-    hiddenimports=['channels', 'daphne', 'rest_framework', 'corsheaders'],
+    datas=[
+        ('ac_shunt', 'ac_shunt'), 
+        ('api', 'api'),
+        ('uncertainty_data.json', '.'),
+        ('corrections.xlsx', '.'),
+    ],
+    hiddenimports=[
+        'channels', 
+        'channels.routing',       # ADD THIS (The specific cause of your crash)
+        'channels.auth',          # Recommended for safety
+        'daphne', 
+        'rest_framework', 
+        'rest_framework_nested',  # Ensure this is here for your nested routers
+        'corsheaders',
+        'mssql', 
+        'pyodbc', 
+        'numpy', 
+        'pandas', 
+        'openpyxl',
+        'pyvisa',                 # Ensure this is here for instrument discovery
+    ],
     hookspath=[],
     hooksconfig={},
     runtime_hooks=[],
@@ -29,9 +47,6 @@ exe = EXE(
     console=True,
     disable_windowed_traceback=False,
     argv_emulation=False,
-    target_arch=None,
-    codesign_identity=None,
-    entitlements_file=None,
 )
 coll = COLLECT(
     exe,
