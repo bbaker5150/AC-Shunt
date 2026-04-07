@@ -285,6 +285,7 @@ class Shunt(models.Model):
     range = models.FloatField()
     current = models.FloatField()
     remark = models.CharField(max_length=255, blank=True, null=True)
+    is_manual = models.BooleanField(default=False)
 
     class Meta:
         unique_together = ('serial_number', 'range', 'current')
@@ -312,6 +313,7 @@ class TVC(models.Model):
     """
     serial_number = models.IntegerField(unique=True)
     test_voltage = models.FloatField()
+    is_manual = models.BooleanField(default=False)
 
     def __str__(self):
         return f"TVC Device SN: {self.serial_number}"

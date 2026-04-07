@@ -1,5 +1,3 @@
-# api/serializers.py
-
 import re
 from rest_framework import serializers
 from .models import (
@@ -17,51 +15,134 @@ class MessageSerializer(serializers.ModelSerializer):
         fields = ['id', 'text', 'created_at']
 
 # ==============================================================================
-#  NEW Serializers for Correction Data
-#  (Replaces the old BaseDataSerializer, CorrectionSerializer, etc.)
+#  Serializers for Correction Data (Updated for Manual Entry)
 # ==============================================================================
 
 class ShuntCorrectionSerializer(serializers.ModelSerializer):
     """ Serializes a single correction point for a Shunt. """
+    id = serializers.IntegerField(required=False, allow_null=True) # Required to preserve IDs during PUT
+    
     class Meta:
         model = ShuntCorrection
-        fields = ['frequency', 'correction', 'uncertainty']
+        fields = ['id', 'frequency', 'correction', 'uncertainty']
 
 class ShuntSerializer(serializers.ModelSerializer):
-    corrections = ShuntCorrectionSerializer(many=True, read_only=True)
+    corrections = ShuntCorrectionSerializer(many=True, required=False)
     size = serializers.SerializerMethodField()
 
     class Meta:
         model = Shunt
-        fields = ['id', 'serial_number', 'range', 'current', 'remark', 'size', 'corrections']
+        fields = [
+            'id', 'model_name', 'serial_number', 'range', 
+            'current', 'remark', 'is_manual', 'size', 'corrections'
+        ]
     
     def get_size(self, obj):
-        """
-        Parses the 'remarks' field to extract the shunt size.
-        e.g., from "A40B-10mA sn 450274734", it extracts "10mA".
-        """
         if obj.remark:
             match = re.search(r'-(\S+?)\s+sn', obj.remark)
             if match:
                 return match.group(1)
         return None
 
+    def create(self, validated_data):
+        corrections_data = validated_data.pop('corrections', [])
+        shunt = Shunt.objects.create(**validated_data)
+        for correction_data in corrections_data:
+            correction_data.pop('id', None) # Remove mock ID if exists
+            ShuntCorrection.objects.create(shunt=shunt, **correction_data)
+        return shunt
+
+    def update(self, instance, validated_data):
+        """ Handles updating nested correction points for a Shunt safely. """
+        corrections_data = validated_data.pop('corrections', None)
+        
+        # Update main Shunt attributes
+        for attr, value in validated_data.items():
+            setattr(instance, attr, value)
+        instance.save()
+
+        # Update nested corrections safely using update_or_create
+        if corrections_data is not None:
+            # 1. Identify all frequencies the user wants to keep/update
+            incoming_frequencies = [c_data['frequency'] for c_data in corrections_data if 'frequency' in c_data]
+            
+            # 2. Delete any points that exist in the DB but are missing from the incoming payload (User deleted them)
+            instance.corrections.exclude(frequency__in=incoming_frequencies).delete()
+
+            # 3. Create or Update the incoming points based on frequency
+            for c_data in corrections_data:
+                freq = c_data.get('frequency')
+                if freq is not None:
+                    ShuntCorrection.objects.update_or_create(
+                        shunt=instance,
+                        frequency=freq,
+                        defaults={
+                            'correction': c_data.get('correction'),
+                            'uncertainty': c_data.get('uncertainty')
+                        }
+                    )
+
+        return instance
+
+
 class TVCCorrectionSerializer(serializers.ModelSerializer):
     """ Serializes a single correction point for a TVC. """
+    id = serializers.IntegerField(required=False, allow_null=True) # Required to preserve IDs during PUT
+    
     class Meta:
         model = TVCCorrection
-        fields = ['frequency', 'ac_dc_difference', 'expanded_uncertainty']
+        fields = ['id', 'frequency', 'ac_dc_difference', 'expanded_uncertainty']
 
 class TVCSerializer(serializers.ModelSerializer):
     """ Serializes a TVC device and nests all its correction points. """
-    corrections = TVCCorrectionSerializer(many=True, read_only=True)
+    corrections = TVCCorrectionSerializer(many=True, required=False)
 
     class Meta:
         model = TVC
-        fields = ['serial_number', 'test_voltage', 'corrections']
+        fields = ['id', 'serial_number', 'test_voltage', 'is_manual', 'corrections']
+
+    def create(self, validated_data):
+        corrections_data = validated_data.pop('corrections', [])
+        tvc = TVC.objects.create(**validated_data)
+        for correction_data in corrections_data:
+            correction_data.pop('id', None)
+            TVCCorrection.objects.create(tvc=tvc, **correction_data)
+        return tvc
+        
+    def update(self, instance, validated_data):
+        """ Handles updating nested correction points for a TVC safely. """
+        corrections_data = validated_data.pop('corrections', None)
+        
+        for attr, value in validated_data.items():
+            setattr(instance, attr, value)
+        instance.save()
+
+        # Update nested corrections safely using update_or_create
+        if corrections_data is not None:
+            # 1. Identify all frequencies the user wants to keep/update
+            incoming_frequencies = [c_data['frequency'] for c_data in corrections_data if 'frequency' in c_data]
+            
+            # 2. Delete any points that exist in the DB but are missing from the incoming payload
+            instance.corrections.exclude(frequency__in=incoming_frequencies).delete()
+
+            # 3. Create or Update the incoming points based on frequency
+            for c_data in corrections_data:
+                freq = c_data.get('frequency')
+                if freq is not None:
+                    TVCCorrection.objects.update_or_create(
+                        tvc=instance,
+                        frequency=freq,
+                        defaults={
+                            'ac_dc_difference': c_data.get('ac_dc_difference'),
+                            'expanded_uncertainty': c_data.get('expanded_uncertainty')
+                        }
+                    )
+
+        return instance
+
 
 # ==============================================================================
-#  Existing Serializers (Preserved from your original file)
+#  Calibration & Session Serializers (Preserved)
 # ==============================================================================
 
 class CalibrationSessionSerializer(serializers.ModelSerializer):

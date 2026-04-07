@@ -5,11 +5,16 @@ import json
 import hashlib
 import pandas as pd
 from django.db import transaction
+from django.conf import settings # Use central settings for path resolution
 from api.models import Shunt, ShuntCorrection, TVC, TVCCorrection
 
-# --- Settings ---
-EXCEL_FILE = 'corrections.xlsx'
-HASH_FILE = 'corrections_hash.json'
+# Use absolute paths provided by settings.py
+# In dev: resolves to BASE_DIR / corrections.xlsx
+# In prod: resolves to _internal / corrections.xlsx
+EXCEL_FILE = settings.CORRECTIONS_FILE 
+
+# The hash file should live in the writable Portal directory to track changes across sessions
+HASH_FILE = os.path.join(settings.CREDENTIALS_DIR, 'corrections_hash.json')
 
 # ==============================================================================
 #  DATA PROCESSING FUNCTIONS
@@ -62,7 +67,10 @@ def process_shunt_data(xls):
         final_cols = ['model_name', 'serial_number', 'range', 'current', 'frequency', 'correction', 'uncertainty', 'remark']
         
         df = df[final_cols].dropna(subset=['serial_number', 'range', 'current', 'frequency'])
-        return df.to_dict('records')
+        
+        records = df.to_dict('records')
+        print(f"Shunt data processing: Found {len(records)} valid correction records.")
+        return records
     except Exception as e:
         print(f"Error processing Shunt sheets: {e}")
         return None
@@ -116,10 +124,16 @@ def process_tvc_data(xls):
         except Exception as e:
             print(f"Error processing TVC sheet '{sheet_name}': {e}")
             continue
+    
+    if all_tvcs:
+        print(f"TVC data processing: Found {len(all_tvcs)} TVC units ({', '.join(all_tvcs.keys())}).")
+    else:
+        print("TVC data processing: No TVC sheets identified.")
+        
     return all_tvcs
 
 # ==============================================================================
-#  MODIFIED DATABASE UPDATE LOGIC
+#  DATABASE UPDATE LOGIC
 # ==============================================================================
 
 def update_shunt_records(shunt_data):
@@ -129,14 +143,10 @@ def update_shunt_records(shunt_data):
     This function performs an efficient "surgical" update. It compares the
     data from the Excel file with records in the database. It then creates
     new records, updates existing ones if values have changed, and deletes
-    any records from the database that are no longer present in the file.
-    It also cleans up any orphan Shunt records that have no associated corrections.
-
-    Args:
-        shunt_data (list[dict]): A list of shunt correction data records
-                                 processed from the Excel file.
+    any records from the database that are no longer present in the file,
+    EXCEPT those marked as manual entries.
     """
-    # --- FIX: The key now only uses truly unique fields ---
+    # Load existing corrections and their parent shunt details
     db_corrections = {
         (c.shunt.serial_number, c.shunt.range, c.shunt.current, c.frequency): c
         for c in ShuntCorrection.objects.select_related('shunt').all()
@@ -145,7 +155,7 @@ def update_shunt_records(shunt_data):
     file_keys = set()
     to_create = []
     to_update = []
-    shunts_to_update = {} # Used to track model_name changes
+    shunts_to_update = {}
 
     for row in shunt_data:
         try:
@@ -165,26 +175,25 @@ def update_shunt_records(shunt_data):
             correction_obj = db_corrections[correction_key]
             shunt_instance = correction_obj.shunt
 
-            # <-- CHANGE 1: Modified condition to also check if the remark has changed.
+            # Update model/remark if they changed in the Excel file
             if shunt_instance.model_name != model or shunt_instance.remark != remark_val:
                 shunt_instance.model_name = model
                 shunt_instance.remark = remark_val
                 shunts_to_update[shunt_instance.id] = shunt_instance
             
-            # Check if correction values need an update
+            # Update correction values
             if (correction_obj.correction != row['correction'] or 
                 correction_obj.uncertainty != row['uncertainty']):
                 correction_obj.correction = row['correction']
                 correction_obj.uncertainty = row['uncertainty']
                 to_update.append(correction_obj)
         else:
-            # Logic for creating new records
-            # <-- CHANGE 2: Added 'remark' to the defaults dictionary for new records.
+            # Create new records for data found in Excel
             shunt_instance, _ = Shunt.objects.get_or_create(
                 serial_number=serial,
                 range=shunt_range,
                 current=shunt_current,
-                defaults={'model_name': model, 'remark': remark_val}
+                defaults={'model_name': model, 'remark': remark_val, 'is_manual': False}
             )
             
             to_create.append(
@@ -196,7 +205,12 @@ def update_shunt_records(shunt_data):
                 )
             )
             
-    pks_to_delete = [c.pk for key, c in db_corrections.items() if key not in file_keys]
+    # --- UPDATED DELETION LOGIC ---
+    # Only delete records that are missing from the file AND are not marked as manual
+    pks_to_delete = [
+        c.pk for key, c in db_corrections.items() 
+        if key not in file_keys and not c.shunt.is_manual
+    ]
 
     if pks_to_delete:
         ShuntCorrection.objects.filter(pk__in=pks_to_delete).delete()
@@ -211,22 +225,14 @@ def update_shunt_records(shunt_data):
         Shunt.objects.bulk_update(list(shunts_to_update.values()), ['model_name', 'remark'])
         print(f"Updated {len(shunts_to_update)} Shunt model names.")
 
-    Shunt.objects.filter(corrections__isnull=True).delete()
+    # Cleanup orphaned shunts that aren't manual entries
+    Shunt.objects.filter(corrections__isnull=True, is_manual=False).delete()
 
 
 def update_tvc_records(tvc_data):
     """
     Synchronizes the database with the provided TVC correction data.
-
-    This function performs an efficient "surgical" update. It compares the
-    data from the Excel file with records in the database. It then creates
-    new records, updates existing ones if values have changed, and deletes
-
-    any records from the database that are no longer present in the file.
-    It also cleans up any orphan TVC records that have no associated corrections.
-    Args:
-        tvc_data (dict): A dictionary of TVC data, keyed by serial number,
-                         processed from the Excel file.
+    Preserves manual entries during the synchronization.
     """
     file_keys = set()
     db_corrections = {
@@ -253,7 +259,7 @@ def update_tvc_records(tvc_data):
                 if serial_number not in tvc_cache:
                     tvc_instance, _ = TVC.objects.get_or_create(
                         serial_number=serial_number,
-                        defaults={'test_voltage': data['test_voltage']}
+                        defaults={'test_voltage': data['test_voltage'], 'is_manual': False}
                     )
                     tvc_cache[serial_number] = tvc_instance
                 tvc_instance = tvc_cache[serial_number]
@@ -261,7 +267,12 @@ def update_tvc_records(tvc_data):
                     TVCCorrection(tvc=tvc_instance, **corr)
                 )
 
-    pks_to_delete = [c.pk for key, c in db_corrections.items() if key not in file_keys]
+    # --- UPDATED DELETION LOGIC ---
+    # Only delete records missing from file that are not manual
+    pks_to_delete = [
+        c.pk for key, c in db_corrections.items() 
+        if key not in file_keys and not c.tvc.is_manual
+    ]
 
     if pks_to_delete:
         TVCCorrection.objects.filter(pk__in=pks_to_delete).delete()
@@ -273,55 +284,65 @@ def update_tvc_records(tvc_data):
         TVCCorrection.objects.bulk_update(to_update, ['ac_dc_difference', 'expanded_uncertainty'])
         print(f"Updated {len(to_update)} existing TVC correction records.")
     
-    TVC.objects.filter(corrections__isnull=True).delete()
+    # Cleanup orphaned TVCs that aren't manual entries
+    TVC.objects.filter(corrections__isnull=True, is_manual=False).delete()
 
 
 # ==============================================================================
 #  MAIN ORCHESTRATION FUNCTION
 # ==============================================================================
+
 def check_and_update_corrections():
     """
-    Orchestrates the entire correction data update process.
-
-    This function serves as the main entry point. It checks for the existence
-    of the corrections Excel file, processes its contents, and generates a
-    SHA256 hash of the data. This hash is compared against a stored hash to
-    detect changes. If a change is detected, it updates the database within
-    a single transaction and writes the new hash to a file upon success.
+    Orchestrates the update process. Uses absolute paths from settings.
     """
-    print("Checking for corrections file updates...")
+    print(f"Checking for corrections update at: {EXCEL_FILE}")
     if not os.path.exists(EXCEL_FILE):
-        print(f"'{EXCEL_FILE}' not found."); return
+        print(f"Warning: Corrections file not found at {EXCEL_FILE}")
+        return
+
     try:
         xls = pd.ExcelFile(EXCEL_FILE)
     except Exception as e:
-        print(f"Could not read Excel file: {e}"); return
+        print(f"Error: Could not read Excel file: {e}")
+        return
+
     all_data = {
         'shunts': process_shunt_data(xls),
         'tvcs': process_tvc_data(xls)
     }
+
     if all_data['shunts'] is None:
         print("Halting update due to error in processing shunt data.")
         return
+
+    print(f"Processing complete. Found {len(all_data['shunts'])} Shunt correction points and {len(all_data['tvcs'])} TVC units.")
+
     if not all_data['shunts'] and not all_data['tvcs']:
-        print("No valid data processed from Excel file."); return
+        print("No valid data processed from Excel file.")
+        return
+
     json_bytes = json.dumps(all_data, sort_keys=True, default=str).encode('utf-8')
     current_hash = hashlib.sha256(json_bytes).hexdigest()
+    
     stored_hash = ""
     if os.path.exists(HASH_FILE):
-        with open(HASH_FILE, 'r') as f: stored_hash = f.read()
+        with open(HASH_FILE, 'r') as f:
+            stored_hash = f.read()
+
     if current_hash != stored_hash:
-        print("Change detected in the Excel file. Updating database...")
+        print("Excel change detected. Updating database records...")
         try:
             with transaction.atomic():
                 print("--- Processing Shunts ---")
                 update_shunt_records(all_data['shunts'])
                 print("--- Processing TVCs ---")
                 update_tvc_records(all_data['tvcs'])
-            with open(HASH_FILE, 'w') as f: f.write(current_hash)
-            print("\nDatabase update successful.")
+            
+            with open(HASH_FILE, 'w') as f:
+                f.write(current_hash)
+            print("Database synchronization complete.")
         except Exception as e:
-            print(f"\nAn error occurred during the update process: {e}")
-            print("The hash file will not be updated.")
+            print(f"Database update failed: {e}")
     else:
-        print("No changes detected. Database is up to date.")
+        print("Database is already synchronized with Excel data.")

@@ -154,7 +154,7 @@ class MessageViewSet(viewsets.ModelViewSet):
     queryset = Message.objects.all().order_by('-created_at')
     serializer_class = MessageSerializer
 
-class ShuntViewSet(viewsets.ReadOnlyModelViewSet):
+class ShuntViewSet(viewsets.ModelViewSet):
     queryset = Shunt.objects.prefetch_related('corrections').all()
     serializer_class = ShuntSerializer
 
@@ -166,7 +166,7 @@ class ShuntViewSet(viewsets.ReadOnlyModelViewSet):
             # print(json.dumps(response.data[0], indent=2))
         return response
 
-class TVCViewSet(viewsets.ReadOnlyModelViewSet):
+class TVCViewSet(viewsets.ModelViewSet):
     queryset = TVC.objects.prefetch_related('corrections').all()
     serializer_class = TVCSerializer
 
