@@ -24,29 +24,27 @@ def main():
     print(f"--- Booting with Database Engine: {db_conn.settings_dict['ENGINE']} ---")
     
     try:
+        # Attempt to get a cursor to verify the connection works
         db_conn.cursor()
         table_names = db_conn.introspection.table_names()
         
         if 'django_migrations' not in table_names:
-            print("First run detected. Running migrations...")
+            print("Database schema missing. Running migrations...")
             call_command('migrate', interactive=False)
         else:
-            print("Database schema exists. Skipping migration.")
+            print("Database schema verified.")
     except Exception as e:
-        print(f"CRITICAL: Database initialization failed: {e}")
-        # Don't exit here, attempt to start server anyway for diagnostics
+        # If this fails, settings.py probably tried to use MSSQL because the test 
+        # partially passed but the actual connection is blocked. 
+        # We log and let runserver start so the user sees errors in the browser console.
+        print(f"WARNING: Database is not ready for queries: {e}")
 
     port = '8000'
-    
     if is_port_in_use(port):
         print(f"ERROR: Port {port} is already in use. Kill the existing process first.")
         sys.exit(1)
 
-    # Use 127.0.0.1 instead of 0.0.0.0 for better local reliability
     print(f"Starting Django server on 127.0.0.1:{port}...")
-    
-    # execute_from_command_line needs a list where the first arg is the script name
-    # In a packaged EXE, sys.argv[0] is the path to the EXE itself.
     server_args = [sys.argv[0], 'runserver', f'127.0.0.1:{port}', '--noreload']
     execute_from_command_line(server_args)
 

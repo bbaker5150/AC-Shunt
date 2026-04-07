@@ -12,18 +12,26 @@ a = Analysis(
     ],
     hiddenimports=[
         'channels', 
-        'channels.routing',       # ADD THIS (The specific cause of your crash)
-        'channels.auth',          # Recommended for safety
+        'channels.routing',
+        'channels.auth',
         'daphne', 
         'rest_framework', 
-        'rest_framework_nested',  # Ensure this is here for your nested routers
+        'rest_framework_nested',
         'corsheaders',
-        'mssql', 
-        'pyodbc', 
+        'pyodbc',
+        # --- MSSQL Backend Modules (CRITICAL FIX) ---
+        'mssql',
+        'mssql.base',
+        'mssql.compiler',
+        'mssql.features',
+        'mssql.introspection',
+        'mssql.operations',
+        'mssql.schema',
+        # --- Data processing ---
         'numpy', 
         'pandas', 
         'openpyxl',
-        'pyvisa',                 # Ensure this is here for instrument discovery
+        'pyvisa',
     ],
     hookspath=[],
     hooksconfig={},
