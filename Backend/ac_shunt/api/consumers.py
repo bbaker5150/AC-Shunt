@@ -124,7 +124,7 @@ class InstrumentStatusConsumer(AsyncWebsocketConsumer):
         if self.instrument_instance and hasattr(self.instrument_instance, 'run_zero_cal'):
             try:
                 print(f"[StatusConsumer] Calling .run_zero_cal() on instance: {self.instrument_instance}")
-                self.instrument_instance.run_zero_cal()
+                self.instrument_instance.run_zero_cal_async()
                 return True 
                 
             except Exception as e:
@@ -168,6 +168,21 @@ class CalibrationConsumer(AsyncWebsocketConsumer):
                 }))
         except Exception as e:
             print(f"Error sending sync status: {e}")
+    
+    async def connection_sync(self, event):
+        """
+        Invoked when a 'connection_sync' message is broadcast to the group.
+        This forwards the sync update to the frontend client.
+        """
+        is_complete = event.get('is_complete', False)
+        message = event.get('message', 'Session state synchronized.')
+
+        # Send the message to the WebSocket
+        await self.send(text_data=json.dumps({
+            'type': 'connection_sync',
+            'is_complete': is_complete,
+            'message': message
+        }))
 
     # [NEW] Database Accessor for session status
     @database_sync_to_async
@@ -462,7 +477,7 @@ class CalibrationConsumer(AsyncWebsocketConsumer):
                     print(f"[SLIDING WINDOW] Buffer values: {[f'{v:.6f}' for v in std_window]}")
                     print(f"[SLIDING WINDOW] Mean: {mean_val:.6f} V | StdDev: {stdev_val:.8g} V")
                     print(f"[SLIDING WINDOW] Calculated PPM: {current_stdev_ppm:.3f} | Threshold: {threshold_ppm}")
-                    print(f"[SLIDING WINDOW] Status: {'✅ PASSED' if is_currently_stable else '❌ FAILED (Sliding forward)'}")
+                    print(f"[SLIDING WINDOW] Status: {'PASSED' if is_currently_stable else 'FAILED (Sliding forward)'}")
 
                     await self.send(text_data=json.dumps({
                         'type': 'sliding_window_update',

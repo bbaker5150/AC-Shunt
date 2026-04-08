@@ -9,18 +9,26 @@ const calculateStats = (data) => {
     const stableCount = stableData.length;
 
     if (stableCount < 2) {
-        const mean = stableCount > 0 ? stableData.reduce((acc, val) => acc + val.y, 0) / stableCount : null;
+        const mean = stableCount > 0 ? stableData[0].y : null;
         return { mean, stdDev: null, stdDevPpm: null, count: stableCount };
     }
 
     const values = stableData.map(p => p.y);
-    const sum = values.reduce((acc, val) => acc + val, 0);
-    const mean = sum / values.length;
-    const variance = values.reduce((acc, val) => acc + Math.pow(val - mean, 2), 0) / (values.length - 1);
+
+    // 2. Use Welford's Algorithm here as well
+    let mean = 0;
+    let M2 = 0;
+    values.forEach((val, index) => {
+        const delta = val - mean;
+        mean += delta / (index + 1);
+        M2 += delta * (val - mean);
+    });
+
+    const variance = M2 / (values.length - 1);
     const stdDev = Math.sqrt(variance);
     const stdDevPpm = mean === 0 ? 0 : (stdDev / Math.abs(mean)) * 1e6;
 
-    return { mean, stdDev, stdDevPpm, count: values.length };
+    return { mean, stdDev, stdDevPpm, count: stableCount };
 };
 
 const READING_TYPES = [

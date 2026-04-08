@@ -7,9 +7,22 @@ import React, {
 } from "react";
 import axios from "axios";
 import { useInstruments } from "../../contexts/InstrumentContext";
+import { FaTimes, FaSave, FaArrowLeft, FaPlus, FaEdit, FaTrash } from "react-icons/fa";
 
 const API_BASE_URL =
   process.env.REACT_APP_API_BASE_URL || "http://localhost:8000/api";
+
+// --- Static Initial State (Moved outside component to fix dependency warnings) ---
+const initialManualFormState = {
+  id: null,
+  model_name: "",
+  serial_number: "",
+  range: "",
+  current: "",
+  test_voltage: "",
+  remark: "",
+  points: [{ id: null, frequency: "", val1: "", val2: "" }],
+};
 
 // --- Clean, Minimalist Icon Button Component ---
 const IconBtn = ({ icon, onClick, title, color = "var(--text-color)", size = "1.2rem" }) => (
@@ -176,52 +189,122 @@ const CustomDropdown = ({
   );
 };
 
-function CorrectionsModal({ isOpen, onClose, showNotification }) {
+// --- Standardized Confirmation Modal ---
+const ConfirmationModal = ({
+  isOpen,
+  title,
+  message,
+  onConfirm,
+  onCancel,
+  confirmText = "Confirm",
+  confirmButtonClass = "",
+}) => {
+  if (!isOpen) return null;
+  return (
+    <div className="modal-overlay" style={{ zIndex: 1400 }}>
+      <div className="modal-content">
+        <h3>{title}</h3>
+        <p style={{ marginBottom: "25px", whiteSpace: "pre-wrap" }}>
+          {message}
+        </p>
+        <div className="modal-actions">
+          <button onClick={onCancel} className="button button-secondary">
+            Cancel
+          </button>
+          <button
+            onClick={onConfirm}
+            className={`button ${confirmButtonClass}`}
+          >
+            {confirmText}
+          </button>
+        </div>
+      </div>
+    </div>
+  );
+};
+
+function CorrectionsModal({ isOpen, onClose, showNotification, onUpdate, uniqueTestPoints }) {
+  // NEW: Extract selectedSessionId to allow direct test point generation
   const {
     standardInstrumentSerial,
     testInstrumentSerial,
     standardTvcSn,
     testTvcSn,
+    selectedSessionId 
   } = useInstruments();
 
   const [isLoading, setIsLoading] = useState(true);
-  const [isSaving, setIsSaving] = useState(false); // <--- ADDED: Saving state
+  const [isSaving, setIsSaving] = useState(false);
   const [shuntsData, setShuntsData] = useState([]);
   const [tvcsData, setTvcsData] = useState([]);
   const [selectedShuntSn, setSelectedShuntSn] = useState("");
   
-  // --- Navigation State ---
   const [primaryTab, setPrimaryTab] = useState("AC Shunt");
   const [shuntView, setShuntView] = useState("Corrections");
   const [auxiliaryTvcSn, setAuxiliaryTvcSn] = useState("");
 
-  // --- Manual Entry State ---
   const [isManualFormOpen, setIsManualFormOpen] = useState(false);
   const [manualType, setManualType] = useState("shunt");
   const [isEditing, setIsEditing] = useState(false);
+  const [deleteConfirm, setDeleteConfirm] = useState({ isOpen: false, type: null, serialNumber: null });
   
-  const initialManualFormState = {
-    id: null,
-    model_name: "",
-    serial_number: "",
-    range: "",
-    current: "",
-    test_voltage: "",
-    remark: "",
-    points: [{ id: null, frequency: "", val1: "", val2: "" }],
-  };
+  // NEW: State for confirming the automatic addition of test points from a row
+  const [addPointsConfirm, setAddPointsConfirm] = useState({ isOpen: false, row: null, headers: null });
+
   const [manualForm, setManualForm] = useState(initialManualFormState);
 
-  // Helper for consistent notifications
-  const notify = (msg, type = "info") => {
+  const notify = useCallback((msg, type = "info") => {
     if (showNotification) {
       showNotification(msg, type);
     } else {
       alert(msg);
     }
-  };
+  }, [showNotification]);
 
-  // Reset form when switching main tabs
+  const fetchData = useCallback(async () => {
+    setIsLoading(true);
+    try {
+      // Append a timestamp parameter to force a fresh pull without violating CORS headers
+      const timestamp = new Date().getTime();
+      const [shuntsRes, tvcsRes] = await Promise.all([
+        axios.get(`${API_BASE_URL}/shunts/?t=${timestamp}`),
+        axios.get(`${API_BASE_URL}/tvcs/?t=${timestamp}`),
+      ]);
+
+      const shunts = shuntsRes.data || [];
+      const tvcs = tvcsRes.data || [];
+      setShuntsData(shunts);
+      setTvcsData(tvcs);
+
+      if (shunts.length > 0) {
+        const shuntSerialNumbers = [
+          ...new Set(shunts.map((s) => String(s.serial_number))),
+        ];
+        const standardMatch =
+          standardInstrumentSerial &&
+          shuntSerialNumbers.includes(String(standardInstrumentSerial));
+        const testMatch =
+          testInstrumentSerial &&
+          shuntSerialNumbers.includes(String(testInstrumentSerial));
+
+        // Use functional state update to avoid adding selectedShuntSn to dependencies
+        setSelectedShuntSn((prev) => {
+          if (!prev) {
+            if (standardMatch) return String(standardInstrumentSerial);
+            if (testMatch) return String(testInstrumentSerial);
+            return shuntSerialNumbers[0];
+          }
+          return prev;
+        });
+      }
+    } catch (error) {
+      console.error("Failed to fetch correction data:", error);
+      notify("Failed to load instrument database.", "error");
+    } finally {
+      setIsLoading(false);
+    }
+  }, [standardInstrumentSerial, testInstrumentSerial, notify]);
+
   useEffect(() => {
     setIsManualFormOpen(false);
     setManualForm(initialManualFormState);
@@ -234,56 +317,66 @@ function CorrectionsModal({ isOpen, onClose, showNotification }) {
       setIsManualFormOpen(false);
       fetchData();
     }
-  }, [isOpen, standardInstrumentSerial, testInstrumentSerial]);
+  }, [isOpen, fetchData]);
 
-  const fetchData = async () => {
-    setIsLoading(true);
-    try {
-      const [shuntsRes, tvcsRes] = await Promise.all([
-        axios.get(`${API_BASE_URL}/shunts/`),
-        axios.get(`${API_BASE_URL}/tvcs/`),
-      ]);
+  // --- Auto-populate Frequencies for New Shunt Entries ---
+  useEffect(() => {
+    if (isManualFormOpen && manualType === "shunt" && !isEditing) {
+      const rangeVal = parseFloat(manualForm.range);
+      const currentVal = parseFloat(manualForm.current);
 
-      const shunts = shuntsRes.data || [];
-      const tvcs = tvcsRes.data || [];
-      setShuntsData(shunts);
-      setTvcsData(tvcs);
+      if (!isNaN(rangeVal) && !isNaN(currentVal)) {
+        const matchingShunts = shuntsData.filter(
+          (s) => parseFloat(s.range) === rangeVal && parseFloat(s.current) === currentVal
+        );
 
-      if (shunts.length > 0) {
-        const shuntSerialNumbers = [
-          ...new Set(shunts.map((s) => s.serial_number)),
-        ];
-        const standardMatch =
-          standardInstrumentSerial &&
-          shuntSerialNumbers.includes(String(standardInstrumentSerial));
-        const testMatch =
-          testInstrumentSerial &&
-          shuntSerialNumbers.includes(String(testInstrumentSerial));
+        if (matchingShunts.length > 0) {
+          const freqs = new Set();
+          matchingShunts.forEach((shunt) => {
+            shunt.corrections.forEach((c) => freqs.add(Number(c.frequency)));
+          });
 
-        if (!selectedShuntSn) {
-          if (standardMatch) {
-            setSelectedShuntSn(String(standardInstrumentSerial));
-          } else if (testMatch) {
-            setSelectedShuntSn(String(testInstrumentSerial));
-          } else {
-            setSelectedShuntSn(shuntSerialNumbers[0]);
+          const sortedFreqs = Array.from(freqs).sort((a, b) => a - b);
+
+          if (sortedFreqs.length > 0) {
+            const isPointsEmpty =
+              manualForm.points.length === 0 ||
+              (manualForm.points.length === 1 &&
+                manualForm.points[0].frequency === "" &&
+                manualForm.points[0].val1 === "" &&
+                manualForm.points[0].val2 === "");
+
+            if (isPointsEmpty) {
+              const autoPopulatedPoints = sortedFreqs.map((freq) => ({
+                id: null,
+                frequency: String(freq),
+                val1: "",
+                val2: "",
+              }));
+              
+              setManualForm((prev) => ({ ...prev, points: autoPopulatedPoints }));
+              notify(`Auto-populated standard frequencies for ${rangeVal}A / ${currentVal}A`, "info");
+            }
           }
         }
       }
-    } catch (error) {
-      console.error("Failed to fetch correction data:", error);
-      notify("Failed to load instrument database.", "error");
-    } finally {
-      setIsLoading(false);
     }
-  };
+  }, [
+    manualForm.range,
+    manualForm.current,
+    isManualFormOpen,
+    manualType,
+    isEditing,
+    shuntsData,
+    notify,
+  ]);
 
   const uniqueShuntInfo = useMemo(() => {
     const shuntMap = new Map();
     shuntsData.forEach((shunt) => {
-      if (shunt.serial_number && !shuntMap.has(shunt.serial_number)) {
-        shuntMap.set(shunt.serial_number, {
-          serial_number: shunt.serial_number,
+      if (shunt.serial_number && !shuntMap.has(String(shunt.serial_number))) {
+        shuntMap.set(String(shunt.serial_number), {
+          serial_number: String(shunt.serial_number),
           size: shunt.size,
           is_manual: shunt.is_manual,
         });
@@ -295,27 +388,31 @@ function CorrectionsModal({ isOpen, onClose, showNotification }) {
   }, [shuntsData]);
 
   const tvcOptions = useMemo(() => {
-    const uniqueSerials = [...new Set(tvcsData.map((t) => t.serial_number))];
+    const uniqueSerials = [...new Set(tvcsData.map((t) => String(t.serial_number)))];
     uniqueSerials.sort((a, b) => a - b);
     return uniqueSerials.map((sn) => ({
-      value: String(sn),
-      label: String(sn),
+      value: sn,
+      label: sn,
     }));
   }, [tvcsData]);
 
   const pivotedShuntData = useMemo(() => {
     if (!selectedShuntSn) return { headers: [], rows: [] };
+    
     const filteredShunts = shuntsData.filter(
-      (shunt) => shunt.serial_number === selectedShuntSn
+      (shunt) => String(shunt.serial_number) === String(selectedShuntSn)
     );
+    
     if (filteredShunts.length === 0) return { headers: [], rows: [] };
+    
     const frequencyHeaders = [
       ...new Set(
         filteredShunts.flatMap((shunt) =>
-          shunt.corrections.map((c) => c.frequency)
+          shunt.corrections.map((c) => Number(c.frequency))
         )
       ),
     ].sort((a, b) => a - b);
+    
     const dataMap = new Map();
     filteredShunts.forEach((shunt) => {
       const key = `${shunt.range}-${shunt.current}`;
@@ -329,21 +426,20 @@ function CorrectionsModal({ isOpen, onClose, showNotification }) {
       }
       const entry = dataMap.get(key);
       const valueKey = shuntView === "Corrections" ? "correction" : "uncertainty";
+      
       shunt.corrections.forEach((corr) => {
-        entry.values[corr.frequency] = corr[valueKey];
+        entry.values[Number(corr.frequency)] = corr[valueKey];
       });
     });
     return { headers: frequencyHeaders, rows: Array.from(dataMap.values()) };
   }, [shuntsData, selectedShuntSn, shuntView]);
 
-  // Derived state to check if current selection is manual
-  const selectedShunt = shuntsData.find(s => s.serial_number === selectedShuntSn);
+  const selectedShunt = shuntsData.find(s => String(s.serial_number) === String(selectedShuntSn));
   const isSelectedShuntManual = selectedShunt?.is_manual;
   
   const selectedTvc = tvcsData.find(t => String(t.serial_number) === String(auxiliaryTvcSn));
   const isSelectedTvcManual = selectedTvc?.is_manual;
 
-  // --- Manual Form Handlers ---
   const handleOpenManualForm = (type) => {
     setManualType(type);
     setIsEditing(false);
@@ -356,18 +452,18 @@ function CorrectionsModal({ isOpen, onClose, showNotification }) {
     setIsEditing(true);
 
     if (type === 'shunt') {
-      const shuntToEdit = shuntsData.find(s => s.serial_number === serialNumber);
+      const shuntToEdit = shuntsData.find(s => String(s.serial_number) === String(serialNumber));
       if (shuntToEdit) {
         setManualForm({
           id: shuntToEdit.id,
           model_name: shuntToEdit.model_name || "",
-          serial_number: shuntToEdit.serial_number,
+          serial_number: String(shuntToEdit.serial_number),
           range: shuntToEdit.range ?? "",
           current: shuntToEdit.current ?? "",
           test_voltage: "",
           remark: shuntToEdit.remark || "",
           points: shuntToEdit.corrections.map(c => ({
-            id: c.id || null, // Preserve ID for updates
+            id: c.id || null, 
             frequency: c.frequency ?? "",
             val1: c.correction ?? "",
             val2: c.uncertainty ?? ""
@@ -380,13 +476,13 @@ function CorrectionsModal({ isOpen, onClose, showNotification }) {
         setManualForm({
           id: tvcToEdit.id,
           model_name: "",
-          serial_number: tvcToEdit.serial_number,
+          serial_number: String(tvcToEdit.serial_number),
           range: "",
           current: "",
           test_voltage: tvcToEdit.test_voltage ?? "",
           remark: tvcToEdit.remark || "",
           points: tvcToEdit.corrections.map(c => ({
-            id: c.id || null, // Preserve ID for updates
+            id: c.id || null, 
             frequency: c.frequency ?? "",
             val1: c.ac_dc_difference ?? "",
             val2: c.expanded_uncertainty ?? ""
@@ -397,23 +493,23 @@ function CorrectionsModal({ isOpen, onClose, showNotification }) {
     setIsManualFormOpen(true);
   };
 
-  const handleDeleteManual = async (type, serialNumber) => {
-    if (!window.confirm(`Are you sure you want to delete manual entry S/N: ${serialNumber}?`)) return;
-    
+  const executeDelete = async () => {
+    const { type, serialNumber } = deleteConfirm;
     const endpoint = type === 'shunt' ? 'shunts' : 'tvcs';
     const device = type === 'shunt' 
-        ? shuntsData.find(s => s.serial_number === serialNumber)
+        ? shuntsData.find(s => String(s.serial_number) === String(serialNumber))
         : tvcsData.find(t => String(t.serial_number) === String(serialNumber));
         
     if (!device) {
         notify("Error: Device not found in database.", "error");
+        setDeleteConfirm({ isOpen: false, type: null, serialNumber: null });
         return;
     }
 
     try {
-      // Must use the database ID, not the string serialNumber
       await axios.delete(`${API_BASE_URL}/${endpoint}/${device.id}/`);
-      notify("Entry successfully deleted.", "success");
+      
+      notify(`${type === 'shunt' ? 'AC Shunt' : 'TVC'} entry successfully deleted.`, "success");
       
       if (type === 'shunt') setSelectedShuntSn("");
       else setAuxiliaryTvcSn("");
@@ -421,6 +517,8 @@ function CorrectionsModal({ isOpen, onClose, showNotification }) {
       fetchData();
     } catch (err) {
       notify(`Error deleting entry: ${err.message}`, "error");
+    } finally {
+      setDeleteConfirm({ isOpen: false, type: null, serialNumber: null });
     }
   };
 
@@ -432,14 +530,12 @@ function CorrectionsModal({ isOpen, onClose, showNotification }) {
     });
   };
 
-  // <--- UPDATED: handleSaveManual with isSaving state and await fetchData()
   const handleSaveManual = async () => {
     const isShunt = manualType === "shunt";
     const endpoint = isShunt ? "shunts" : "tvcs";
 
-    // Filter out rows where crucial fields are empty
     const validPoints = manualForm.points.filter(
-      p => p.frequency !== "" && p.val1 !== ""
+      p => p.frequency !== "" && p.frequency !== null
     );
 
     if (validPoints.length === 0) {
@@ -449,7 +545,7 @@ function CorrectionsModal({ isOpen, onClose, showNotification }) {
 
     const correctionsPayload = validPoints.map((p) => {
       const base = { frequency: parseFloat(p.frequency) };
-      if (p.id) base.id = p.id; // Map ID back to prevent creating duplicate records
+      if (p.id) base.id = p.id; 
       
       if (isShunt) {
         base.correction = parseFloat(p.val1 || 0);
@@ -479,7 +575,7 @@ function CorrectionsModal({ isOpen, onClose, showNotification }) {
         };
 
     try {
-      setIsSaving(true); // Lock the UI
+      setIsSaving(true); 
 
       if (isEditing && manualForm.id) {
         await axios.put(`${API_BASE_URL}/${endpoint}/${manualForm.id}/`, payload);
@@ -487,21 +583,82 @@ function CorrectionsModal({ isOpen, onClose, showNotification }) {
         await axios.post(`${API_BASE_URL}/${endpoint}/`, payload);
       }
       
-      // AWAIT FETCH DATA BEFORE CLOSING THE FORM
       await fetchData(); 
-      
       notify("Manual entry saved successfully!", "success");
       setIsManualFormOpen(false);
-      setManualForm(initialManualFormState);
       
-      if (isShunt) setSelectedShuntSn(String(manualForm.serial_number));
-      else setAuxiliaryTvcSn(String(manualForm.serial_number));
+      const targetSn = String(manualForm.serial_number);
+      if (isShunt) setSelectedShuntSn(targetSn);
+      else setAuxiliaryTvcSn(targetSn);
+      
+      setManualForm(initialManualFormState);
       
     } catch (err) {
       const errMsg = err.response?.data ? JSON.stringify(err.response.data) : err.message;
       notify(`Error saving: ${errMsg}`, "error");
     } finally {
-      setIsSaving(false); // Unlock the UI
+      setIsSaving(false); 
+    }
+  };
+
+  // --- NEW: Handlers for directly creating Test Points from the table ---
+  const handleRowClick = (row, headers) => {
+    if (!selectedSessionId) {
+      notify("Please select or create an active Calibration Session first.", "warning");
+      return;
+    }
+    setAddPointsConfirm({ isOpen: true, row, headers });
+  };
+
+  const executeGenerateTestPoints = async () => {
+    const { row, headers } = addPointsConfirm;
+    
+    const rowFrequencies = headers.filter(freq => 
+      row.values[freq] !== undefined && 
+      row.values[freq] !== null && 
+      row.values[freq] !== "—"
+    ).map(f => parseFloat(f));
+
+    if (rowFrequencies.length === 0) {
+      notify("No valid frequencies found in this row.", "warning");
+      setAddPointsConfirm({ isOpen: false, row: null, headers: null });
+      return;
+    }
+
+    const currentVal = parseFloat(row.current);
+
+    // FIX: Filter out frequencies that already exist in the session using parseInt
+    const existingFreqs = new Set(
+        (uniqueTestPoints || [])
+          .filter(p => Math.abs(parseFloat(p.current) - currentVal) < 1e-6)
+          .map(p => parseInt(p.frequency, 10))
+    );
+
+    const filteredFrequencies = rowFrequencies.filter(f => !existingFreqs.has(parseInt(f, 10)));
+
+    if (filteredFrequencies.length === 0) {
+      notify(`All frequencies for ${currentVal}A already exist in this session.`, "info");
+      setAddPointsConfirm({ isOpen: false, row: null, headers: null });
+      return;
+    }
+
+    const newPoints = filteredFrequencies.flatMap((freq) => [
+      { current: currentVal, frequency: freq, direction: "Forward" },
+      { current: currentVal, frequency: freq, direction: "Reverse" },
+    ]);
+
+    try {
+      const response = await axios.post(`${API_BASE_URL}/calibration_sessions/${selectedSessionId}/test_points/append/`, { points: newPoints });
+      notify(response.data?.message || "Test points generated!", "success");
+      
+      if (onUpdate) await onUpdate();
+      
+      setTimeout(() => onClose(), 300); 
+    } catch (error) {
+      const errorMsg = error.response?.data?.detail || "Error generating test points.";
+      notify(errorMsg, "error");
+    } finally {
+      setAddPointsConfirm({ isOpen: false, row: null, headers: null });
     }
   };
 
@@ -517,6 +674,10 @@ function CorrectionsModal({ isOpen, onClose, showNotification }) {
 
     return (
       <div className="corrections-table-container">
+        {/* NEW: Helper hint text for the new feature */}
+        <p style={{ fontSize: "0.85rem", color: "var(--text-color-muted)", marginBottom: "10px", fontStyle: "italic" }}>
+          💡 Hint: Click on any row to instantly generate test points for that configuration in your active session.
+        </p>
         <table className="styled-table">
           <thead>
             <tr>
@@ -531,7 +692,14 @@ function CorrectionsModal({ isOpen, onClose, showNotification }) {
           </thead>
           <tbody>
             {rows.map((row) => (
-              <tr key={`${row.range}-${row.current}`}>
+              <tr 
+                key={`${row.range}-${row.current}`}
+                onClick={() => handleRowClick(row, headers)}
+                style={{ cursor: "pointer", transition: "background-color 0.2s ease" }}
+                onMouseEnter={(e) => e.currentTarget.style.backgroundColor = "var(--hover-bg-color, rgba(0, 123, 255, 0.1))"}
+                onMouseLeave={(e) => e.currentTarget.style.backgroundColor = "transparent"}
+                title={`Generate test points for ${row.current}A`}
+              >
                 <td style={{ textAlign: "center" }}>{row.range}</td>
                 <td style={{ textAlign: "center" }}>{row.current}</td>
                 {headers.map((freq) => (
@@ -666,7 +834,12 @@ function CorrectionsModal({ isOpen, onClose, showNotification }) {
       <div className="input-card" style={{ textAlign: "left" }}>
         <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", borderBottom: "1px solid var(--border-color)", paddingBottom: "10px", marginBottom: "20px" }}>
            <h4 style={{ margin: 0, padding: 0, border: "none" }}>Correction Points</h4>
-           <button type="button" className="button button-small button-success" onClick={() => setManualForm({...manualForm, points: [...manualForm.points, { id: null, frequency: '', val1: '', val2: ''}]})}>+ Add Point</button>
+           <IconBtn 
+             icon={<FaPlus />} 
+             onClick={() => setManualForm({...manualForm, points: [...manualForm.points, { id: null, frequency: '', val1: '', val2: ''}]})} 
+             title="Add Point" 
+             size="1.2rem"
+           />
         </div>
 
         <div className="manual-points-list" style={{ display: "flex", flexDirection: "column", gap: "12px" }}>
@@ -708,40 +881,41 @@ function CorrectionsModal({ isOpen, onClose, showNotification }) {
               <button 
                 type="button" 
                 style={{ 
-                  background: 'none', border: 'none', color: '#dc3545', fontSize: '1.5rem', cursor: 'pointer', opacity: 0.7, margin: 0, flexShrink: 0
+                  background: 'none', border: 'none', color: '#dc3545', fontSize: '1.2rem', cursor: 'pointer', opacity: 0.7, margin: 0, flexShrink: 0, display: 'flex', alignItems: 'center'
                 }}
                 onMouseEnter={(e) => e.currentTarget.style.opacity = 1}
                 onMouseLeave={(e) => e.currentTarget.style.opacity = 0.7}
                 onClick={() => setManualForm({...manualForm, points: manualForm.points.filter((_, idx) => idx !== i)})} 
                 title="Remove Point"
               >
-                &times;
+                <FaTimes />
               </button>
             </div>
           ))}
           {manualForm.points.length === 0 && (
             <div className="placeholder-content" style={{ padding: "30px 20px" }}>
-              <p style={{ margin: 0 }}>No correction points added. Click "+ Add Point" to begin.</p>
+              <p style={{ margin: 0 }}>No correction points added. Click the + icon above to begin.</p>
             </div>
           )}
         </div>
       </div>
 
-      {/* <--- UPDATED: Disabled buttons while saving ---> */}
       <div className="form-submit-area" style={{ display: "flex", gap: "15px", justifyContent: "flex-end" }}>
         <button 
-          className="button button-secondary" 
+          className="sidebar-action-button" 
           onClick={() => setIsManualFormOpen(false)}
           disabled={isSaving}
+          title="Go Back / Cancel"
         >
-          Cancel
+          <FaArrowLeft />
         </button>
         <button 
-          className="button button-primary" 
+          className="sidebar-action-button" 
           onClick={handleSaveManual}
           disabled={isSaving}
+          title={isSaving ? "Saving..." : "Save Entry"}
         >
-          {isSaving ? "Saving..." : "Save Entry"}
+          <FaSave />
         </button>
       </div>
     </div>
@@ -789,14 +963,14 @@ function CorrectionsModal({ isOpen, onClose, showNotification }) {
               
               <div style={{ display: 'flex', alignItems: 'center', gap: '2px', marginBottom: '6px' }}>
                 <IconBtn 
-                  icon={<span style={{ fontWeight: '300', fontSize: '1.5rem', lineHeight: '1rem' }}>+</span>} 
+                  icon={<FaPlus />} 
                   onClick={() => handleOpenManualForm('tvc')} 
                   title="Add Manual TVC" 
                 />
                 {isSelectedTvcManual && (
                   <>
-                    <IconBtn icon="✎" size="1.1rem" onClick={() => handleEditManual('tvc', auxiliaryTvcSn)} title="Edit Entry" />
-                    <IconBtn icon="🗑" size="1.1rem" color="#dc3545" onClick={() => handleDeleteManual('tvc', auxiliaryTvcSn)} title="Delete Entry" />
+                    <IconBtn icon={<FaEdit />} size="1.1rem" onClick={() => handleEditManual('tvc', auxiliaryTvcSn)} title="Edit Entry" />
+                    <IconBtn icon={<FaTrash />} size="1.1rem" color="#dc3545" onClick={() => setDeleteConfirm({ isOpen: true, type: 'tvc', serialNumber: auxiliaryTvcSn })} title="Delete Entry" />
                   </>
                 )}
               </div>
@@ -819,10 +993,33 @@ function CorrectionsModal({ isOpen, onClose, showNotification }) {
 
   return (
     <div className="modal-overlay">
+      <ConfirmationModal
+        isOpen={deleteConfirm.isOpen}
+        title="Confirm Deletion"
+        message={`Are you sure you want to permanently delete the manual entry for S/N: ${deleteConfirm.serialNumber}?`}
+        confirmText="Delete"
+        confirmButtonClass="button-danger"
+        onConfirm={executeDelete}
+        onCancel={() => setDeleteConfirm({ isOpen: false, type: null, serialNumber: null })}
+      />
+      
+      {/* NEW Confirmation Modal for Generating Points */}
+      <ConfirmationModal
+        isOpen={addPointsConfirm.isOpen}
+        title="Generate Test Points?"
+        message={`Are you sure you want to add test points for ${addPointsConfirm.row?.current}A at all available frequencies to the current calibration session?`}
+        confirmText="Generate Points"
+        confirmButtonClass="button-primary"
+        onConfirm={executeGenerateTestPoints}
+        onCancel={() => setAddPointsConfirm({ isOpen: false, row: null, headers: null })}
+      />
+      
       <div className={`corrections-modal-content ${(primaryTab === "TVC" && !isManualFormOpen) ? "modal-wide" : ""}`}>
-        <header className="corrections-modal-header">
-          <h3>Correction & Uncertainty Data</h3>
-          <button onClick={onClose} className="modal-close-button">&times;</button>
+        <header className="corrections-modal-header" style={{ display: "flex", justifyContent: "space-between", alignItems: "center" }}>
+          <h3 style={{ margin: 0 }}>Correction & Uncertainty Data</h3>
+          <button onClick={onClose} className="modal-close-button" style={{ position: "static" }} title="Close">
+            <FaTimes />
+          </button>
         </header>
 
         <main className="corrections-modal-body">
@@ -857,14 +1054,14 @@ function CorrectionsModal({ isOpen, onClose, showNotification }) {
                       
                       <div style={{ display: 'flex', alignItems: 'center', gap: '2px', marginBottom: '6px' }}>
                         <IconBtn 
-                          icon={<span style={{ fontWeight: '300', fontSize: '1.5rem', lineHeight: '1rem' }}>+</span>} 
+                          icon={<FaPlus />} 
                           onClick={() => handleOpenManualForm('shunt')} 
                           title="Add Manual AC Shunt" 
                         />
                         {isSelectedShuntManual && (
                           <>
-                            <IconBtn icon="✎" size="1.1rem" onClick={() => handleEditManual('shunt', selectedShuntSn)} title="Edit Entry" />
-                            <IconBtn icon="🗑" size="1.1rem" color="#dc3545" onClick={() => handleDeleteManual('shunt', selectedShuntSn)} title="Delete Entry" />
+                            <IconBtn icon={<FaEdit />} size="1.1rem" onClick={() => handleEditManual('shunt', selectedShuntSn)} title="Edit Entry" />
+                            <IconBtn icon={<FaTrash />} size="1.1rem" color="#dc3545" onClick={() => setDeleteConfirm({ isOpen: true, type: 'shunt', serialNumber: selectedShuntSn })} title="Delete Entry" />
                           </>
                         )}
                       </div>
@@ -884,10 +1081,6 @@ function CorrectionsModal({ isOpen, onClose, showNotification }) {
             </>
           )}
         </main>
-
-        <footer className="corrections-modal-footer">
-          <button onClick={onClose} className="button button-secondary">Close</button>
-        </footer>
       </div>
     </div>
   );

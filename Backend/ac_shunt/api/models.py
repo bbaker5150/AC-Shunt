@@ -130,7 +130,6 @@ class CalibrationConfigurations(models.Model):
     )
     ac_shunt_range = models.FloatField(null=True, blank=True)
     amplifier_range = models.FloatField(null=True, blank=True)
-    tvc_upper_limit = models.FloatField(null=True, blank=True)
     
 class CalibrationSettings(models.Model):
     test_point = models.OneToOneField(
@@ -151,12 +150,12 @@ class CalibrationSettings(models.Model):
     )
     
     initial_warm_up_time = models.IntegerField(null=True, blank=True)
-    num_samples = models.IntegerField(default=8, null=True, blank=True)
-    settling_time = models.IntegerField(default=5, null=True, blank=True)
+    num_samples = models.IntegerField(default=35, null=True, blank=True)
+    settling_time = models.IntegerField(default=120, null=True, blank=True)
     nplc = models.FloatField(default=20, null=True, blank=True, help_text="Integration time in Power Line Cycles for 34420A")
-    stability_window = models.IntegerField(default=5, null=True, blank=True)
+    stability_window = models.IntegerField(default=30, null=True, blank=True)
     stability_threshold_ppm = models.FloatField(default=10, null=True, blank=True)
-    stability_max_attempts = models.IntegerField(default=50, null=True, blank=True)
+    stability_max_attempts = models.IntegerField(default=10, null=True, blank=True)
     iqr_filter_enabled = models.BooleanField(default=False)
     iqr_filter_ppm_threshold = models.FloatField(default=15.0, null=True, blank=True)
 

@@ -572,7 +572,9 @@ function AppContent() {
       <CorrectionsModal
         isOpen={isCorrectionsModalOpen}
         onClose={() => setIsCorrectionsModalOpen(false)}
+        onUpdate={fetchSessionData}
         showNotification={showNotification}
+        uniqueTestPoints={uniqueTestPoints}
       />
       <CorrectionsDetailsModal
         isOpen={pointCorrectionsModal.isOpen}

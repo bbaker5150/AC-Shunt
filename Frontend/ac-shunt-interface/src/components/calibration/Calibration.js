@@ -281,13 +281,13 @@ function Calibration({
   );
   const [calibrationSettings, setCalibrationSettings] = useState({
     initial_warm_up_time: 0,
-    num_samples: 8,
-    settling_time: 5,
+    num_samples: 35,
+    settling_time: 120,
     nplc: 20,
     stability_check_method: 'sliding_window',
-    stability_window: 5,
+    stability_window: 30,
     stability_threshold_ppm: 10,
-    stability_max_attempts: 50,
+    stability_max_attempts: 10,
     iqr_filter_ppm_threshold: 15,
   });
   const [correctionInputs, setCorrectionInputs] = useState({
@@ -335,24 +335,31 @@ function Calibration({
   );
 
   const livePpm = useMemo(() => {
-    if (!isCollecting || !activeCollectionDetails?.stage) {
-      return null;
-    }
+    if (!isCollecting || !activeCollectionDetails?.stage) return null;
     const currentReadings = liveReadings[activeCollectionDetails.stage];
-    if (!currentReadings || currentReadings.length < 2) {
-      return null;
-    }
-    const values = currentReadings.map((p) => p.y);
-    const sum = values.reduce((acc, val) => acc + val, 0);
-    const mean = sum / values.length;
-    if (Math.abs(mean) < 1e-9) return 0;
-    const variance =
-      values.reduce((acc, val) => acc + Math.pow(val - mean, 2), 0) /
-      (values.length - 1);
+    if (!currentReadings || currentReadings.length < 2) return null;
+
+    // 1. Enforce the sliding window
+    const windowSize = calibrationSettings.stability_window || 30;
+    const values = currentReadings.slice(-windowSize).map((p) => p.y);
+
+    if (values.length < 2) return null;
+
+    // 2. Use Welford's Algorithm for high-precision variance
+    let mean = 0;
+    let M2 = 0;
+    values.forEach((val, index) => {
+        const delta = val - mean;
+        mean += delta / (index + 1);
+        M2 += delta * (val - mean);
+    });
+
+    const variance = M2 / (values.length - 1);
     const stdDev = Math.sqrt(variance);
     const ppm = (stdDev / Math.abs(mean)) * 1e6;
+    
     return ppm;
-  }, [liveReadings, isCollecting, activeCollectionDetails]);
+  }, [liveReadings, isCollecting, activeCollectionDetails, calibrationSettings.stability_window]);
 
   const latestStdReading = useMemo(() => {
     if (!isCollecting || !activeCollectionDetails?.stage) return null;
@@ -780,13 +787,6 @@ function Calibration({
     isCalculatingAverages
   ]);
 
-  const allForwardPointsComplete = useMemo(() => {
-    if (uniqueTestPoints.length === 0) return false;
-    return uniqueTestPoints.every(
-      (p) => p.forward && hasAllReadings(p.forward)
-    );
-  }, [uniqueTestPoints, hasAllReadings]);
-
   const getShuntCorrection = useCallback(() => {
     if (
       !focusedTP ||
@@ -902,24 +902,32 @@ function Calibration({
       });
     };
 
+    // 1. DEFINE currentFocusedTP FIRST
+    const currentFocusedTP = focusedTP
+      ? orderedTestPoints.find((p) => p.key === focusedTP.key)
+      : null;
+
+    // 2. NOW CHECK IF IT IS THE FIRST POINT
+    const isFirstTestPoint = 
+      currentFocusedTP && 
+      orderedTestPoints.length > 0 && 
+      currentFocusedTP.key === orderedTestPoints[0].key;
+
+    // 3. APPLY SETTINGS
     const defaultSettings = {
-      initial_warm_up_time: 0,
-      num_samples: 8,
-      settling_time: 5,
+      initial_warm_up_time: isFirstTestPoint ? 7200 : 0,
+      num_samples: 35,
+      settling_time: 120,
       nplc: 20,
       stability_check_method: 'sliding_window',
-      stability_window: 5,
+      stability_window: 30,
       stability_threshold_ppm: 10,
-      stability_max_attempts: 50,
+      stability_max_attempts: 10,
       iqr_filter_ppm_threshold: 15,
     };
 
     setHistoricalReadings(initialLiveReadings);
     setTiHistoricalReadings(initialLiveReadings);
-
-    const currentFocusedTP = focusedTP
-      ? orderedTestPoints.find((p) => p.key === focusedTP.key)
-      : null;
 
     if (currentFocusedTP) {
       const pointForDirection =
@@ -1437,13 +1445,6 @@ function Calibration({
       return;
     }
 
-    if (activeDirection === "Reverse" && !allForwardPointsComplete) {
-      return showNotification(
-        "Please complete all Forward readings before starting Reverse.",
-        "error"
-      );
-    }
-
     const runBatchSequence = () => {
       const pointsToRunData = orderedTestPoints
         .filter((p) => selectedTPs.has(p.key))
@@ -1815,7 +1816,6 @@ function Calibration({
         "success"
       );
       onDataUpdate();
-      setActiveTab("readings");
     } catch (error) {
       showNotification("Error saving settings.", "error");
     }

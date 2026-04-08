@@ -10,6 +10,8 @@ from django.db import transaction
 from django.core.exceptions import ObjectDoesNotExist
 import json
 import os
+from channels.layers import get_channel_layer
+from asgiref.sync import async_to_sync
 
 from .models import (
     Message, CalibrationSession, TestPoint, TestPointSet, Calibration, 
@@ -814,20 +816,17 @@ class TestPointViewSet(viewsets.ModelViewSet):
     
     @action(detail=False, methods=['post'], url_path='append')
     def append_points(self, request, session_pk=None):
+        """
+        Creates new test points for the session and broadcasts a sync message to update the UI.
+        """
         points_data = request.data.get('points', [])
         try:
             tp_set, created_tp_set = TestPointSet.objects.get_or_create(session_id=session_pk)
-            
-            # THE FIX: Fetch current, frequency, AND direction to create a truly unique key.
             existing = tp_set.points.values_list('current', 'frequency', 'direction')
-
-            # Create a set of tuples for efficient lookup.
             existing_set = { (str(c), f, d) for c, f, d in existing }
             
             points_to_create = []
-            
             for point in points_data:
-                # THE FIX: Create a key that includes the direction.
                 key = (
                     str(point.get('current')), 
                     point.get('frequency'), 
@@ -838,11 +837,22 @@ class TestPointViewSet(viewsets.ModelViewSet):
                     points_to_create.append(
                         TestPoint(test_point_set=tp_set, **point)
                     )
-                    existing_set.add(key) # Prevent duplicates within the same request.
+                    existing_set.add(key) 
             
-            # Use bulk_create for better performance when adding multiple points.
             if points_to_create:
                 TestPoint.objects.bulk_create(points_to_create)
+
+                # --- BROADCAST SYNC TO FRONTEND ---
+                # This ensures the Sidebar and Main views refresh automatically via WebSockets
+                channel_layer = get_channel_layer()
+                async_to_sync(channel_layer.group_send)(
+                    f'session_{session_pk}',
+                    {
+                        'type': 'connection_sync',
+                        'is_complete': False,
+                        'message': 'Test points appended.'
+                    }
+                )
 
             return Response(
                 {"message": f"Added {len(points_to_create)} new test point(s)."},
@@ -853,7 +863,6 @@ class TestPointViewSet(viewsets.ModelViewSet):
             return Response({"detail": "Calibration Session not found."}, status=status.HTTP_404_NOT_FOUND)
         except Exception as e: 
             return Response({"detail": f"An error occurred: {str(e)}"}, status=status.HTTP_400_BAD_REQUEST)
-
         
     @action(detail=False, methods=['delete'], url_path='clear')
     def clear_test_points(self, request, session_pk=None):

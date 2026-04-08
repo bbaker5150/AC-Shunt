@@ -38,14 +38,24 @@ function ConfigurationModal({
   const [shuntRange, setShuntRange] = useState("");
   const [shuntRangeUnit, setShuntRangeUnit] = useState("A");
   const [amplifierRange, setAmplifierRange] = useState("");
-  const [tvcUpperLimit, setTvcUpperLimit] = useState("");
-  const [tvcUpperLimitUnit, setTvcUpperLimitUnit] = useState("A");
   const [filteredCurrents, setFilteredCurrents] = useState([]);
   const [selectedFrequencies, setSelectedFrequencies] = useState(new Set());
+
+  const [customFreqInput, setCustomFreqInput] = useState("");
+  const [addedCustomFreqs, setAddedCustomFreqs] = useState([]);
+  
+  // NEW STATE: Background database for smart pre-selection
+  const [shuntsDatabase, setShuntsDatabase] = useState([]);
 
   useEffect(() => {
     if (isOpen) {
       setStep(1);
+      setCustomFreqInput("");
+      
+      // Fetch the corrections database in the background when the modal opens
+      axios.get(`${API_BASE_URL}/shunts/`)
+        .then(res => setShuntsDatabase(res.data || []))
+        .catch(err => console.error("Could not fetch shunts for auto-selection", err));
     }
   }, [isOpen]);
 
@@ -53,11 +63,9 @@ function ConfigurationModal({
     if (isOpen) {
       const { configurations } = { configurations: calibrationConfigs };
       const shuntDisplay = getDisplayValueAndUnit(configurations?.ac_shunt_range);
-      const tvcDisplay = getDisplayValueAndUnit(configurations?.tvc_upper_limit);
+      
       setShuntRange(shuntDisplay.value);
       setShuntRangeUnit(shuntDisplay.unit);
-      setTvcUpperLimit(tvcDisplay.value);
-      setTvcUpperLimitUnit(tvcDisplay.unit);
       setAmplifierRange(configurations?.amplifier_range || "");
 
       if (uniqueTestPoints && uniqueTestPoints.length > 0) {
@@ -65,7 +73,28 @@ function ConfigurationModal({
         if (uniqueCurrents.size === 1) setInputCurrent(uniqueTestPoints[0].current);
       } 
       
-      setSelectedFrequencies(new Set(uniqueTestPoints.map(p => p.frequency)));
+      // Get all frequencies currently saved in the database
+      const pointFreqs = uniqueTestPoints ? uniqueTestPoints.map(p => p.frequency) : [];
+      setSelectedFrequencies(new Set(pointFreqs));
+
+      // Reconstruct custom frequencies from existing test points
+      const standardFreqValues = new Set(AVAILABLE_FREQUENCIES.map(f => f.value));
+      const loadedCustomFreqs = [];
+      const seen = new Set(standardFreqValues);
+
+      pointFreqs.forEach(freq => {
+        if (!seen.has(freq)) {
+          loadedCustomFreqs.push({ value: freq, text: `${freq}Hz (Custom)` });
+          seen.add(freq); // Prevent duplicates
+        }
+      });
+
+      // Merge newly loaded custom frequencies with any that might already be in state
+      setAddedCustomFreqs(prev => {
+        const prevValues = new Set(prev.map(f => f.value));
+        const missingCustoms = loadedCustomFreqs.filter(f => !prevValues.has(f.value));
+        return [...prev, ...missingCustoms];
+      });
     }
   }, [isOpen, calibrationConfigs, uniqueTestPoints]);
 
@@ -89,6 +118,60 @@ function ConfigurationModal({
     }
   }, [inputCurrent]);
 
+  // --- SMART PRE-SELECTION EFFECT ---
+  useEffect(() => {
+    // Don't auto-override if the user is editing an existing session with already generated points
+    if (uniqueTestPoints && uniqueTestPoints.length > 0) return;
+
+    const shuntRangeInAmps = getValueInAmps(shuntRange, shuntRangeUnit);
+    const currentInAmps = parseFloat(inputCurrent);
+
+    if (shuntRangeInAmps !== null && currentInAmps && shuntsDatabase.length > 0) {
+      // Find all shunts in the DB matching the chosen range and current
+      // Using an epsilon comparison for safe floating-point match
+      const matchedShunts = shuntsDatabase.filter(s => 
+        Math.abs(parseFloat(s.range) - shuntRangeInAmps) < 1e-6 && 
+        Math.abs(parseFloat(s.current) - currentInAmps) < 1e-6
+      );
+
+      const traceableFreqs = new Set();
+      matchedShunts.forEach(shunt => {
+        if (shunt.corrections) {
+          shunt.corrections.forEach(c => traceableFreqs.add(Number(c.frequency)));
+        }
+      });
+
+      if (traceableFreqs.size > 0) {
+        const standardFreqValues = new Set(AVAILABLE_FREQUENCIES.map(f => f.value));
+        const newCustomsToInject = [];
+
+        traceableFreqs.forEach(freq => {
+          // If this traceable frequency isn't in our standard UI list, prepare to add it as custom
+          if (!standardFreqValues.has(freq)) {
+            newCustomsToInject.push({ value: freq, text: `${freq}Hz (Traceable)` });
+          }
+        });
+
+        // Inject any non-standard frequencies into the custom list so they render properly
+        if (newCustomsToInject.length > 0) {
+          setAddedCustomFreqs(prev => {
+            const prevValues = new Set(prev.map(f => f.value));
+            const uniqueNewCustoms = newCustomsToInject.filter(c => !prevValues.has(c.value));
+            return [...prev, ...uniqueNewCustoms];
+          });
+        }
+        
+        // Auto-select all traceable frequencies
+        setSelectedFrequencies(new Set(traceableFreqs));
+      } else {
+        // Clear if no matches so previous selections don't carry over
+        setSelectedFrequencies(new Set());
+      }
+    } else if (!uniqueTestPoints || uniqueTestPoints.length === 0) {
+       setSelectedFrequencies(new Set());
+    }
+  }, [shuntRange, shuntRangeUnit, inputCurrent, shuntsDatabase, uniqueTestPoints]);
+
   const handleSaveSettings = async (showNotif = true) => {
     const shuntValueInAmps = getValueInAmps(shuntRange, shuntRangeUnit);
     if (shuntValueInAmps === null) {
@@ -99,7 +182,6 @@ function ConfigurationModal({
       configurations: {
         ac_shunt_range: shuntValueInAmps,
         amplifier_range: parseFloat(amplifierRange) || null,
-        tvc_upper_limit: getValueInAmps(tvcUpperLimit, tvcUpperLimitUnit),
       },
     };
     try {
@@ -115,16 +197,41 @@ function ConfigurationModal({
   };
 
   const handleNextStep = async () => {
-    // If test points already exist, we don't need to re-save the settings.
     if (uniqueTestPoints.length > 0) {
       setStep(2);
       return;
     }
-    // Otherwise, save the new settings before proceeding.
     const success = await handleSaveSettings(false);
     if (success) {
       setStep(2);
     }
+  };
+
+  // Combine constant frequencies with user-added ones and sort them correctly
+  const allAvailableFrequencies = [...AVAILABLE_FREQUENCIES, ...addedCustomFreqs].sort((a, b) => a.value - b.value);
+
+  const handleAddCustomFrequency = () => {
+    const freqVal = parseInt(customFreqInput, 10);
+    
+    if (isNaN(freqVal) || freqVal <= 0) {
+      return showNotification("Please enter a valid positive integer for frequency.", "error");
+    }
+
+    if (allAvailableFrequencies.some(f => f.value === freqVal)) {
+      return showNotification("This frequency is already in the list.", "warning");
+    }
+
+    const newFreqObj = { value: freqVal, text: `${freqVal}Hz (Custom)` };
+    
+    setAddedCustomFreqs(prev => [...prev, newFreqObj]);
+    
+    setSelectedFrequencies(prev => {
+      const newSelected = new Set(prev);
+      newSelected.add(freqVal);
+      return newSelected;
+    });
+
+    setCustomFreqInput("");
   };
 
   const handleConfirmAndSaveFrequencies = async () => {
@@ -133,7 +240,8 @@ function ConfigurationModal({
     if (amplifierRange === "Out of Range") return showNotification(`Input Current is out of the amplifier's range.`, "error");
 
     const existingFreqValues = new Set(uniqueTestPoints.map((p) => p.frequency));
-    const selectedFreqObjects = AVAILABLE_FREQUENCIES.filter(f => selectedFrequencies.has(f.value));
+    
+    const selectedFreqObjects = allAvailableFrequencies.filter(f => selectedFrequencies.has(f.value));
     const newFrequenciesToAdd = selectedFreqObjects.filter((f) => !existingFreqValues.has(f.value));
 
     if (newFrequenciesToAdd.length === 0) {
@@ -157,12 +265,13 @@ function ConfigurationModal({
     }
   };
 
-  const areAllFrequenciesSelected = selectedFrequencies.size === AVAILABLE_FREQUENCIES.length;
+  const areAllFrequenciesSelected = selectedFrequencies.size === allAvailableFrequencies.length;
+  
   const handleSelectAllFrequencies = () => {
       if (areAllFrequenciesSelected) {
           setSelectedFrequencies(new Set());
       } else {
-          setSelectedFrequencies(new Set(AVAILABLE_FREQUENCIES.map(f => f.value)));
+          setSelectedFrequencies(new Set(allAvailableFrequencies.map(f => f.value)));
       }
   };
 
@@ -191,16 +300,6 @@ function ConfigurationModal({
                 <div className="form-section">
                   <label htmlFor="amplifier-range">8100 Amplifier Range</label>
                   <input type="text" id="amplifier-range" value={amplifierRange ? `${amplifierRange} A` : ""} disabled readOnly />
-                </div>
-                <div className="form-section">
-                  <label htmlFor="tvc-upper-limit">TVC Upper Limit</label>
-                  <div className="input-with-unit">
-                    <input type="number" id="tvc-upper-limit" value={tvcUpperLimit} onChange={(e) => setTvcUpperLimit(e.target.value)} placeholder="e.g., 100.5" />
-                    <select value={tvcUpperLimitUnit} onChange={(e) => setTvcUpperLimitUnit(e.target.value)}>
-                      <option value="A">A</option>
-                      <option value="mA">mA</option>
-                    </select>
-                  </div>
                 </div>
               </div>
               <div className="config-column">
@@ -233,8 +332,6 @@ function ConfigurationModal({
               <button
                 onClick={handleNextStep}
                 className="button"
-                // --- THIS IS THE FIX ---
-                // Now, the button is only disabled if no current is set.
                 disabled={!inputCurrent}
               >
                 Next: Select Frequencies
@@ -245,26 +342,46 @@ function ConfigurationModal({
 
         {step === 2 && (
           <>
-            <div className="modal-header-flex">
-                <h3>Select Frequencies</h3>
+            <div className="modal-header-flex" style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '15px' }}>
+                <h3 style={{ margin: 0 }}>Select Frequencies</h3>
                 <button className="modal-select-all-button" onClick={handleSelectAllFrequencies}>
                     {areAllFrequenciesSelected ? 'Deselect All' : 'Select All'}
                 </button>
             </div>
-            <div className="frequency-list-container" style={{ maxHeight: "400px", overflowY: "auto", paddingRight: "15px" }}>
-              {AVAILABLE_FREQUENCIES.map((freq) => (
-                <div key={freq.value} className="frequency-selection-row">
+            
+            <div className="frequency-list-container" style={{ maxHeight: "400px", overflowY: "auto", paddingLeft: "4px", paddingRight: "15px" }}>
+              {allAvailableFrequencies.map((freq) => (
+                <div key={freq.value} className="frequency-selection-row" style={{ padding: "8px 4px", display: "flex", alignItems: "center", gap: "10px" }}>
                   <input type="checkbox" id={`freq-${freq.value}`} checked={selectedFrequencies.has(freq.value)} onChange={() => {
                       const newSelected = new Set(selectedFrequencies);
                       if (newSelected.has(freq.value)) newSelected.delete(freq.value);
                       else newSelected.add(freq.value);
                       setSelectedFrequencies(newSelected);
                   }}/>
-                  <label htmlFor={`freq-${freq.value}`}>{freq.text}</label>
+                  <label htmlFor={`freq-${freq.value}`} style={{ cursor: "pointer", margin: 0 }}>{freq.text}</label>
                 </div>
               ))}
             </div>
-            <div className="modal-actions">
+
+            <div className="custom-frequency-input" style={{ display: "flex", gap: "10px", marginTop: "15px", paddingLeft: "4px" }}>
+              <input 
+                type="number" 
+                placeholder="Enter custom frequency (Hz)" 
+                value={customFreqInput}
+                onChange={(e) => setCustomFreqInput(e.target.value)}
+                onKeyDown={(e) => e.key === 'Enter' && handleAddCustomFrequency()}
+                style={{ flex: 1, padding: "8px", borderRadius: "4px", border: "1px solid var(--border-color)" }}
+              />
+              <button 
+                className="button button-secondary" 
+                onClick={handleAddCustomFrequency}
+                disabled={!customFreqInput}
+              >
+                Add
+              </button>
+            </div>
+            
+            <div className="modal-actions" style={{ marginTop: "20px" }}>
               <button onClick={() => setStep(1)} className="button button-secondary">Back to Configuration</button>
               <button onClick={handleConfirmAndSaveFrequencies} className="button">Generate Test Points</button>
             </div>

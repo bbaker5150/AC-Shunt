@@ -81,7 +81,7 @@ const getTVCCorrectionForPoint = (point, tvcSn, tvcsData) => {
 };
 const formatFrequency = (value) =>
   (AVAILABLE_FREQUENCIES.find((f) => f.value === value) || {
-    text: `${value}Hz`,
+    text: `${value} Hz`,
   }).text;
 const formatCurrent = (value) => {
   const numValue = parseFloat(value);

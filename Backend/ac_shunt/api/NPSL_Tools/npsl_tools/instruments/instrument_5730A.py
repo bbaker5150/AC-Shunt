@@ -81,27 +81,38 @@ class Instrument5730A(FlukeInstrument):
         self.resource.write("WBAND ON")
 
     def run_zero_cal(self):
-        """Performs internal zeros calibration (CAL_ZERO)."""
+        """Performs internal zeros calibration (CAL_ZERO) without locking the VISA bus."""
         print(f"[Instrument5730A] Sending 'CAL_ZERO;*OPC?' to {self.resource}...")
         
-        # Save original timeout
-        original_timeout = self.resource.timeout
-        
         try:
-            # Set timeout to 5 minutes (300,000 ms) because Zero Cal takes time
-            self.resource.timeout = 300000 
+            # 1. Use write() instead of query(). 
+            # This sends the command and releases the VISA bus immediately.
+            self.resource.write('CAL_ZERO;*OPC?')
             
-            # Send command and WAIT for '1' response indicating completion
-            # This blocks this thread until the instrument is actually done
-            self.resource.query('CAL_ZERO;*OPC?')
+            # 2. Poll the Status Byte Register (STB) to see when it's done.
+            while True:
+                # read_stb() performs a GPIB Serial Poll. It is nearly instantaneous 
+                # and doesn't lock the bus waiting for an output buffer response.
+                stb = self.resource.read_stb()
+                
+                # Bit 4 (value 16) is the Message Available (MAV) bit.
+                # When *OPC? completes, it places a '1' in the output buffer, setting MAV high.
+                if stb & 16:
+                    break
+                    
+                # Sleep the background thread for 5 seconds.
+                # This releases the Python GIL and allows the other 5730A thread to use the bus.
+                time.sleep(5)
+                
+            # 3. Read the '1' from the buffer to clear it out.
+            self.resource.read()
             
             print(f"[Instrument5730A] Zero Cal returned successfully.")
+            return True
+            
         except Exception as e:
-             print(f"[Instrument5730A] VISA Error sending CAL_ZERO: {e}")
-             raise e
-        finally:
-            # Always restore the original timeout, even if it fails
-            self.resource.timeout = original_timeout
+             print(f"[Instrument5730A] VISA Error during CAL_ZERO: {e}")
+             return False
 
     def get_instrument_status(self):
         """Get the Instrument Status Register (ISR) value of the 5730A.
