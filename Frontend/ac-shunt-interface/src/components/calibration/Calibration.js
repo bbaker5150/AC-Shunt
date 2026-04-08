@@ -687,6 +687,28 @@ function Calibration({
     ].every((k) => point.readings[k]?.length > 0);
   }, []);
 
+  // Check if entire directions are fully complete
+  const allForwardPointsComplete = useMemo(() => {
+    if (uniqueTestPoints.length === 0) return false;
+    return uniqueTestPoints.every((p) => p.forward && hasAllReadings(p.forward));
+  }, [uniqueTestPoints, hasAllReadings]);
+
+  const allReversePointsComplete = useMemo(() => {
+    if (uniqueTestPoints.length === 0) return false;
+    return uniqueTestPoints.every((p) => p.reverse && hasAllReadings(p.reverse));
+  }, [uniqueTestPoints, hasAllReadings]);
+
+  // Check if a direction has been started but is not yet complete
+  const forwardIsInProgress = useMemo(() => {
+    const hasStarted = uniqueTestPoints.some((p) => p.forward && p.forward.results);
+    return hasStarted && !allForwardPointsComplete;
+  }, [uniqueTestPoints, allForwardPointsComplete]);
+
+  const reverseIsInProgress = useMemo(() => {
+    const hasStarted = uniqueTestPoints.some((p) => p.reverse && p.reverse.results);
+    return hasStarted && !allReversePointsComplete;
+  }, [uniqueTestPoints, allReversePointsComplete]);
+
   useEffect(() => {
     prevIsBulkRunning.current = isBulkRunning;
   }, [isBulkRunning]);
@@ -1534,26 +1556,55 @@ function Calibration({
       }
     };
 
-    if (
-      activeDirection !== lastCollectionDirection &&
-      lastCollectionDirection !== null
-    ) {
-      setConfirmationModal({
-        isOpen: true,
-        title: "Confirm Hardware Change",
-        message: `Please ensure you have physically configured the hardware for the '${activeDirection}' direction before proceeding.`,
-        onConfirm: () => {
-          setConfirmationModal((prev) => ({ ...prev, isOpen: false }));
-          setLastCollectionDirection(activeDirection);
-          runBatchSequence();
-        },
-        onCancel: () =>
-          setConfirmationModal((prev) => ({ ...prev, isOpen: false })),
-      });
-    } else {
-      setLastCollectionDirection(activeDirection);
-      runBatchSequence();
+    // Evaluate conditions for warnings
+    const changingHardware = activeDirection !== lastCollectionDirection && lastCollectionDirection !== null;
+    const bypassingForward = activeDirection === "Reverse" && forwardIsInProgress;
+    const bypassingReverse = activeDirection === "Forward" && reverseIsInProgress;
+
+    // 1. Check if they are bypassing the completion lock
+    if (bypassingForward || bypassingReverse) {
+        let warningMessage = bypassingForward
+          ? "Forward readings are not fully complete. Are you sure you want to bypass the lock and switch to Reverse?"
+          : "Reverse readings are not fully complete. Are you sure you want to bypass the lock and switch to Forward?";
+
+        // Append hardware change reminder if they are also switching directions physically
+        if (changingHardware) {
+            warningMessage += `\n\nAlso, please ensure you have physically configured the hardware for the '${activeDirection}' direction.`;
+        }
+
+        setConfirmationModal({
+            isOpen: true,
+            title: "Bypass Completion Lock?",
+            message: warningMessage,
+            onConfirm: () => {
+                setConfirmationModal((prev) => ({ ...prev, isOpen: false }));
+                setLastCollectionDirection(activeDirection);
+                runBatchSequence();
+            },
+            onCancel: () => setConfirmationModal((prev) => ({ ...prev, isOpen: false })),
+        });
+        return;
     }
+
+    // 2. Standard hardware change check (if no bypass was needed)
+    if (changingHardware) {
+        setConfirmationModal({
+            isOpen: true,
+            title: "Confirm Hardware Change",
+            message: `Please ensure you have physically configured the hardware for the '${activeDirection}' direction before proceeding.`,
+            onConfirm: () => {
+                setConfirmationModal((prev) => ({ ...prev, isOpen: false }));
+                setLastCollectionDirection(activeDirection);
+                runBatchSequence();
+            },
+            onCancel: () => setConfirmationModal((prev) => ({ ...prev, isOpen: false })),
+        });
+        return;
+    }
+
+    // 3. No warnings needed, just run
+    setLastCollectionDirection(activeDirection);
+    runBatchSequence();
   };
 
   const handleCollectReadingsRequest = useCallback(

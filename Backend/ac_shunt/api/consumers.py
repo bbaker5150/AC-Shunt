@@ -152,8 +152,6 @@ class CalibrationConsumer(AsyncWebsocketConsumer):
 
         # [NEW] Send sync status immediately upon connection
         await self.send_session_sync_status()
-
-        print(f"[HEARTBEAT] Starting for client {self.channel_name}")
         self.heartbeat_task = asyncio.create_task(self.send_heartbeat())
 
     # [NEW] Helper to send session status

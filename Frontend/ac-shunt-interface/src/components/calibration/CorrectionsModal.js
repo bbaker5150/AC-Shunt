@@ -362,8 +362,7 @@ function CorrectionsModal({ isOpen, onClose, showNotification, onUpdate, uniqueT
       }
     }
   }, [
-    manualForm.range,
-    manualForm.current,
+    manualForm,
     isManualFormOpen,
     manualType,
     isEditing,
