@@ -190,28 +190,36 @@ class CalibrationReadings(models.Model):
         results, _ = CalibrationResults.objects.get_or_create(test_point=self.test_point)
         
         def calculate_stats(readings):
+            import math
             if not readings:
                 return None, None
+            
             stable_values = [
                 r['value'] for r in readings
                 if isinstance(r, dict) and r.get('is_stable', True)
             ]
 
+            # Fallback if no stable readings exist
             if len(stable_values) < 2:
                 print(f"[DEBUG - Models] No stable readings found. Using all {len(readings)} readings as fallback.")
                 all_values = [r['value'] for r in readings if isinstance(r, dict) and 'value' in r]
                 
                 if len(all_values) < 2:
                     return None, None
-                
-                mean = np.mean(all_values)
-                std_dev = np.std(all_values, ddof=1)
-                return mean, std_dev
+                stable_values = all_values
 
-            mean = np.mean(stable_values)
-            std_dev = np.std(stable_values, ddof=1)
+            # Welford's Algorithm for strict parity with Frontend/Excel
+            mean_val = 0.0
+            M2 = 0.0
+            for index, val in enumerate(stable_values):
+                delta = val - mean_val
+                mean_val += delta / (index + 1)
+                M2 += delta * (val - mean_val)
+
+            variance = M2 / (len(stable_values) - 1)
+            std_dev = math.sqrt(variance)
             
-            return mean, std_dev
+            return mean_val, std_dev
 
         results.std_ac_open_avg, results.std_ac_open_stddev = calculate_stats(self.std_ac_open_readings)
         results.std_dc_pos_avg, results.std_dc_pos_stddev = calculate_stats(self.std_dc_pos_readings)
@@ -222,7 +230,6 @@ class CalibrationReadings(models.Model):
         results.ti_dc_pos_avg, results.ti_dc_pos_stddev = calculate_stats(self.ti_dc_pos_readings)
         results.ti_dc_neg_avg, results.ti_dc_neg_stddev = calculate_stats(self.ti_dc_neg_readings)
         results.ti_ac_close_avg, results.ti_ac_close_stddev = calculate_stats(self.ti_ac_close_readings)
-        print(f"[DEBUG - Models] Saving calculated averages for TestPoint ID: {self.test_point.id}")
         results.save()
 
 class CalibrationResults(models.Model):

@@ -10,6 +10,7 @@ from asgiref.sync import sync_to_async
 from channels.db import database_sync_to_async
 from collections import deque
 import statistics
+import math
 import numpy as np
 
 from npsl_tools.instruments import Instrument11713C, Instrument3458A, Instrument5730A, Instrument5790B, Instrument34420A, Instrument8100
@@ -124,7 +125,7 @@ class InstrumentStatusConsumer(AsyncWebsocketConsumer):
         if self.instrument_instance and hasattr(self.instrument_instance, 'run_zero_cal'):
             try:
                 print(f"[StatusConsumer] Calling .run_zero_cal() on instance: {self.instrument_instance}")
-                self.instrument_instance.run_zero_cal_async()
+                self.instrument_instance.run_zero_cal()
                 return True 
                 
             except Exception as e:
@@ -150,11 +151,9 @@ class CalibrationConsumer(AsyncWebsocketConsumer):
         await self.channel_layer.group_add(self.session_group_name, self.channel_name)
         await self.accept()
 
-        # [NEW] Send sync status immediately upon connection
         await self.send_session_sync_status()
         self.heartbeat_task = asyncio.create_task(self.send_heartbeat())
 
-    # [NEW] Helper to send session status
     async def send_session_sync_status(self):
         try:
             session_data = await self.get_session_sync_data(self.session_id)
@@ -168,21 +167,14 @@ class CalibrationConsumer(AsyncWebsocketConsumer):
             print(f"Error sending sync status: {e}")
     
     async def connection_sync(self, event):
-        """
-        Invoked when a 'connection_sync' message is broadcast to the group.
-        This forwards the sync update to the frontend client.
-        """
         is_complete = event.get('is_complete', False)
         message = event.get('message', 'Session state synchronized.')
-
-        # Send the message to the WebSocket
         await self.send(text_data=json.dumps({
             'type': 'connection_sync',
             'is_complete': is_complete,
             'message': message
         }))
 
-    # [NEW] Database Accessor for session status
     @database_sync_to_async
     def get_session_sync_data(self, session_id):
         try:
@@ -198,14 +190,12 @@ class CalibrationConsumer(AsyncWebsocketConsumer):
             self.collection_task.cancel()
         if self.heartbeat_task:
             self.heartbeat_task.cancel()
-        print(f"[HEARTBEAT] Stopping for client {self.channel_name}")
         await self.channel_layer.group_discard(self.session_group_name, self.channel_name)
 
     async def send_heartbeat(self):
         while True:
             try:
                 await asyncio.sleep(25)
-                print(f"[HEARTBEAT] Sending ping to client {self.channel_name}")
                 await self.send(text_data=json.dumps({'type': 'ping'}))
             except asyncio.CancelledError:
                 break
@@ -239,23 +229,18 @@ class CalibrationConsumer(AsyncWebsocketConsumer):
             self.state = "BUSY"
             task_started = True
             if command == 'start_collection':
-                print("[RECEIVE] Dispatching to 'collect_single_reading_set'")
                 self.collection_task = asyncio.create_task(self.collect_single_reading_set(data))
             elif command == 'start_full_calibration':
-                print("[RECEIVE] Dispatching to 'run_full_calibration_sequence'")
                 self.collection_task = asyncio.create_task(self.run_full_calibration_sequence(data))
             elif command == 'start_single_stage_batch':
-                print("[RECEIVE] Dispatching to 'run_single_stage_batch'")
                 self.collection_task = asyncio.create_task(self.run_single_stage_batch(data))
             elif command == 'start_full_calibration_batch':
-                print("[RECEIVE] Dispatching to 'run_full_calibration_batch'")
                 self.collection_task = asyncio.create_task(self.run_full_calibration_batch(data))
         elif command == 'set_amplifier_range':
             await self.set_amplifier_range(data)
 
         if not task_started:
             self.state = "IDLE"
-
 
     async def _handle_amplifier_confirmation(self, amplifier_instrument, amplifier_range, data):
         if data.get('bypass_amplifier_confirmation'):
@@ -321,24 +306,17 @@ class CalibrationConsumer(AsyncWebsocketConsumer):
 
     async def _verify_initial_reading(self, instrument, instrument_name, expected_value, tolerance=0.10):
         await self.send(text_data=json.dumps({'type': 'status_update', 'message': f"Taking pre-check sample from {instrument_name}..."}))
-        print(f"VERIFY: Performing 10% pre-check for {instrument_name}.")
-        
         reading = await self._take_one_reading(instrument)
         
         lower_bound = expected_value * (1 - tolerance)
         upper_bound = expected_value * (1 + tolerance)
-        
         reading_abs = abs(reading)
 
-        print(f"VERIFY: {instrument_name} read {reading_abs:.6f}V. Expected range: [{lower_bound:.6f}V, {upper_bound:.6f}V].")
-        
         if lower_bound <= reading_abs <= upper_bound:
             await self.send(text_data=json.dumps({'type': 'status_update', 'message': f"{instrument_name} check passed. Reading: {reading_abs:.4f}V"}))
-            print(f"VERIFY: {instrument_name} check PASSED.")
             return True
         else:
             await self.send(text_data=json.dumps({'type': 'error', 'message': f"{instrument_name} pre-check failed. Reading: {reading_abs:.4f}V, Expected: ~{expected_value:.4f}V"}))
-            print(f"VERIFY: {instrument_name} check FAILED.")
             return False
 
     async def _configure_sources(self, test_point_data, bypass_tvc, amplifier_range, ac_source=None, dc_source=None):
@@ -376,13 +354,18 @@ class CalibrationConsumer(AsyncWebsocketConsumer):
         try:
             await asyncio.sleep(warmup_time)
         except asyncio.CancelledError:
-            print("[WARMUP_FUNC] Warm-up cancelled.")
             raise
 
         if not self.stop_event.is_set():
             await self.send(text_data=json.dumps({'type': 'status_update', 'message': "Warm-up complete. Starting measurement."}))
 
     async def _perform_single_measurement(self, reading_type_base, num_samples, test_point_data, bypass_tvc, amplifier_range, source_instrument, std_reader_instrument, ti_reader_instrument, amplifier_instrument=None, settling_time=0, nplc_setting=None, measurement_params=None):
+        """
+        Refactored measurement logic: 
+        1. Phase 1 (Search): Discards samples (slides window) until initial stability is found.
+        2. Phase 2 (Collection): Collects num_samples while monitoring stability.
+        3. Abort: Returns False if max_attempts is reached.
+        """
         is_ac_reading = 'ac' in reading_type_base
         input_current = float(test_point_data.get('current'))
         voltage = (input_current / float(amplifier_range)) * 2
@@ -390,11 +373,16 @@ class CalibrationConsumer(AsyncWebsocketConsumer):
         
         config_voltage, frequency = abs(voltage), float(test_point_data.get('frequency', 0)) if is_ac_reading else 0
 
+        # Instrument Configuration (Standard and TI)
         for instrument in [std_reader_instrument, ti_reader_instrument]:
             if isinstance(instrument, Instrument34420A) and nplc_setting is not None:
                 await sync_to_async(instrument.set_integration, thread_sensitive=True)(setting=nplc_setting)
-            if isinstance(instrument, Instrument5790B): await sync_to_async(instrument.set_range, thread_sensitive=True)(value=config_voltage)
-            elif isinstance(instrument, Instrument3458A): await sync_to_async(instrument.configure_measurement, thread_sensitive=True)(**{'function': 'ACV' if is_ac_reading else 'DCV', 'expected_value': config_voltage, 'frequency': frequency})
+            if isinstance(instrument, Instrument5790B): 
+                await sync_to_async(instrument.set_range, thread_sensitive=True)(value=config_voltage)
+            elif isinstance(instrument, Instrument3458A): 
+                await sync_to_async(instrument.configure_measurement, thread_sensitive=True)(
+                    **{'function': 'ACV' if is_ac_reading else 'DCV', 'expected_value': config_voltage, 'frequency': frequency}
+                )
 
         await sync_to_async(source_instrument.set_output, thread_sensitive=True)(voltage=voltage, frequency=frequency)
         
@@ -405,37 +393,55 @@ class CalibrationConsumer(AsyncWebsocketConsumer):
         
         if settling_time > 0:
             await self.send(text_data=json.dumps({'type': 'status_update', 'message': f"Settling for {settling_time}s..."}))
-            try:
-                await asyncio.sleep(settling_time)
-            except asyncio.CancelledError:
-                raise
+            await asyncio.sleep(settling_time)
 
+        # Stability Logic Setup
         stability_method = measurement_params.get('stability_check_method', 'sliding_window')
-
         max_retries = measurement_params.get('max_attempts', 50)
         instability_events = 0
-        window_size = measurement_params.get('window', 5)
+        window_size = measurement_params.get('window', 30)
         threshold_ppm = measurement_params.get('threshold_ppm', 10)
 
-        all_std_readings = []
-        all_ti_readings = []
+        # Final saved array
+        final_std_readings = []
+        final_ti_readings = []
+        
+        # Temporary buffers for search phase
         stable_candidate_std = []
         stable_candidate_ti = []
-        std_window = deque(maxlen=window_size)
-        
-        await self.send(text_data=json.dumps({
-            'type': 'status_update',
-            'message': f"Collecting {num_samples} stable samples..."
-        }))
 
-        while len(stable_candidate_std) < num_samples and not self.stop_event.is_set():
-            if stability_method == 'sliding_window' and instability_events >= max_retries:
+        initial_stability_achieved = False if stability_method == 'sliding_window' else True
+
+        def calc_ppm(points):
+            """Welford's Algorithm for high-precision variance calculation."""
+            if len(points) < 2: return float('inf')
+            mean_val = 0.0
+            M2 = 0.0
+            for index, p in enumerate(points):
+                val = p['value']
+                delta = val - mean_val
+                mean_val += delta / (index + 1)
+                M2 += delta * (val - mean_val)
+            variance = M2 / (len(points) - 1)
+            stdev_val = math.sqrt(variance)
+            return (stdev_val / abs(mean_val)) * 1_000_000 if abs(mean_val) > 1e-9 else 0
+
+        await self.send(text_data=json.dumps({'type': 'status_update', 'message': "Monitoring stability..."}))
+
+        while len(final_std_readings) < num_samples and not self.stop_event.is_set():
+            # 1. Global Abort Check (Applies to both Search and Collection phases)
+            if instability_events >= max_retries:
+                # Generate the exact key used by the frontend
+                tp_key = f"{test_point_data.get('current')}-{test_point_data.get('frequency')}"
+                
                 await self.send(text_data=json.dumps({
-                    'type': 'error',
-                    'message': f"Measurement failed after {max_retries} instability events."
+                    'type': 'warning',
+                    'message': f"Test point aborted: Stability limit ({max_retries}) reached.",
+                    'tpKey': tp_key # <-- Send the key directly to the UI
                 }))
-                break
+                return False
 
+            # 2. Take Readings
             std_reading_val, ti_reading_val = await asyncio.gather(
                 self._take_one_reading(std_reader_instrument),
                 self._take_one_reading(ti_reader_instrument)
@@ -445,126 +451,96 @@ class CalibrationConsumer(AsyncWebsocketConsumer):
             std_point = {'value': std_reading_val, 'timestamp': timestamp, 'is_stable': True}
             ti_point = {'value': ti_reading_val, 'timestamp': timestamp, 'is_stable': True}
 
-            all_std_readings.append(std_point)
-            all_ti_readings.append(ti_point)
-            stable_candidate_std.append(std_point)
-            stable_candidate_ti.append(ti_point)
-            std_window.append(std_point['value'])
-            
-            current_total_sample_count = len(all_std_readings)
+            if stability_method == 'sliding_window':
+                stable_candidate_std.append(std_point)
+                stable_candidate_ti.append(ti_point)
+
+                if len(stable_candidate_std) >= window_size:
+                    # Analyze current window
+                    current_window = stable_candidate_std[-window_size:]
+                    current_ppm = calc_ppm(current_window)
+                    is_currently_stable = current_ppm < threshold_ppm
+
+                    # --- EVALUATE STABILITY & INCREMENT BEFORE SENDING ---
+                    if not initial_stability_achieved:
+                        if is_currently_stable:
+                            initial_stability_achieved = True
+                            final_std_readings.extend(stable_candidate_std)
+                            final_ti_readings.extend(stable_candidate_ti)
+                        else:
+                            # SEARCH PHASE: Unstable. Increment retry count and slide window
+                            instability_events += 1
+                            stable_candidate_std.pop(0)
+                            stable_candidate_ti.pop(0)
+                    else:
+                        # COLLECTION PHASE: Monitor but keep all samples
+                        if not is_currently_stable:
+                            instability_events += 1
+                        final_std_readings.append(std_point)
+                        final_ti_readings.append(ti_point)
+
+                    # --- NOW SEND UPDATES WITH THE ACCURATE METRICS ---
+                    await self.send(text_data=json.dumps({
+                        'type': 'sliding_window_update',
+                        'ppm': current_ppm,
+                        'stdev_ppm': current_ppm,
+                        'is_stable': is_currently_stable,
+                        'instability_events': instability_events,
+                        'max_retries': max_retries
+                    }))
+                    
+                    await self.send(text_data=json.dumps({
+                        'type': 'status_update',
+                        'message': f"Stdev: {current_ppm:.2f} PPM [{instability_events}/{max_retries}]"
+                    }))
+
+                    # Announce stability ONLY exactly when it is found
+                    if initial_stability_achieved and is_currently_stable and len(final_std_readings) == window_size:
+                        await self.send(text_data=json.dumps({'type': 'status_update', 'message': "Initial stability achieved."}))
+
+                else:
+                    # Still filling initial window
+                    await self.send(text_data=json.dumps({
+                        'type': 'status_update',
+                        'message': f"Filling initial window... [{len(stable_candidate_std)}/{window_size}]"
+                    }))
+                    
+                    temp_ppm = calc_ppm(stable_candidate_std) if len(stable_candidate_std) > 1 else None
+                    temp_is_stable = (temp_ppm < threshold_ppm) if temp_ppm is not None else True
+                    
+                    await self.send(text_data=json.dumps({
+                        'type': 'sliding_window_update',
+                        'ppm': temp_ppm,
+                        'stdev_ppm': temp_ppm,
+                        'is_stable': temp_is_stable,
+                        'instability_events': instability_events,
+                        'max_retries': max_retries
+                    }))
+            else:
+                final_std_readings.append(std_point)
+                final_ti_readings.append(ti_point)
+
+            # Update the UI with the latest points
+            current_count = len(final_std_readings) if initial_stability_achieved else len(stable_candidate_std)
 
             await self.send(text_data=json.dumps({
                 'type': 'dual_reading_update',
                 'std_reading': std_point,
                 'ti_reading': ti_point,
-                'count': current_total_sample_count,
-                'stable_count': len(stable_candidate_std),
+                'count': current_count,
+                'stable_count': len(final_std_readings),
                 'total': num_samples,
                 'stage': reading_type_base
             }))
 
-            is_currently_stable = True
-            if stability_method == 'sliding_window' and len(std_window) == window_size:
-                try:
-                    mean_val = statistics.mean(std_window)
-                    stdev_val = statistics.stdev(std_window)
-                    current_stdev_ppm = (stdev_val / abs(mean_val)) * 1_000_000 if abs(mean_val) > 1e-9 else float('inf')
-                    is_currently_stable = current_stdev_ppm < threshold_ppm
-                    
-                    print(f"\n[SLIDING WINDOW] Stage: {reading_type_base} | Current Sample Count: {current_total_sample_count}")
-                    print(f"[SLIDING WINDOW] Buffer values: {[f'{v:.6f}' for v in std_window]}")
-                    print(f"[SLIDING WINDOW] Mean: {mean_val:.6f} V | StdDev: {stdev_val:.8g} V")
-                    print(f"[SLIDING WINDOW] Calculated PPM: {current_stdev_ppm:.3f} | Threshold: {threshold_ppm}")
-                    print(f"[SLIDING WINDOW] Status: {'PASSED' if is_currently_stable else 'FAILED (Sliding forward)'}")
-
-                    await self.send(text_data=json.dumps({
-                        'type': 'sliding_window_update',
-                        'stdev_ppm': current_stdev_ppm,
-                        'is_stable': is_currently_stable
-                    }))
-                except statistics.StatisticsError:
-                    is_currently_stable = True
-
-            if not is_currently_stable:
-                instability_events += 1
-                await self.send(text_data=json.dumps({
-                    'type': 'warning',
-                    'message': f"Instability detected! Sliding window forward. (Event {instability_events}/{max_retries})"
-                }))
-                
-                # Pop ONLY the oldest point that failed the window
-                unstable_std_point = stable_candidate_std.pop(0)
-                unstable_ti_point = stable_candidate_ti.pop(0)
-
-                print(f"[SLIDING WINDOW] Dropping oldest sample: {unstable_std_point['value']:.6f} V")
-                print(f"[SLIDING WINDOW] Valid candidates currently retained: {len(stable_candidate_std)}/{num_samples}")
-
-                # Mark that specific point as unstable for the UI
-                unstable_std_point['is_stable'] = False
-                unstable_ti_point['is_stable'] = False
-                
-                try:
-                    original_index = all_std_readings.index(unstable_std_point)
-                    await self.send(text_data=json.dumps({
-                        'type': 'dual_reading_update',
-                        'std_reading': unstable_std_point,
-                        'ti_reading': unstable_ti_point,
-                        'count': original_index + 1,
-                        'stable_count': len(stable_candidate_std),
-                        'total': num_samples,
-                        'stage': reading_type_base
-                    }))
-                except ValueError:
-                    print(f"Warning: Could not find point in all_std_readings to send update.")
-
-            try:
-                await asyncio.sleep(0.1)
-            except asyncio.CancelledError:
-                raise
+            await asyncio.sleep(0.05)
         
-        if stability_method == 'iqr_filter' and len(stable_candidate_std) >= 4 and not self.stop_event.is_set():
-            await self.send(text_data=json.dumps({'type': 'status_update', 'message': 'Applying IQR outlier filter...'}))
-            
-            stable_values = [p['value'] for p in stable_candidate_std]
-            median = np.median(stable_values)
-            
-            ppm_threshold = measurement_params.get('ppm_threshold', 15.0)
-            deviation = (abs(median) * ppm_threshold) / 1_000_000
-            
-            lower_fence = median - deviation
-            upper_fence = median + deviation
-            
-            outliers = []
-            for std_point, ti_point in zip(stable_candidate_std, stable_candidate_ti):
-                if not (lower_fence <= std_point['value'] <= upper_fence):
-                    outliers.append((std_point, ti_point))
-            
-            if outliers:
-                await asyncio.sleep(1)
-                await self.send(text_data=json.dumps({ 'type': 'warning', 'message': f"{len(outliers)} outliers detected by IQR filter." }))
-                for std_outlier, ti_outlier in outliers:
-                    std_outlier['is_stable'] = False
-                    ti_outlier['is_stable'] = False
-                    try:
-                        original_index = all_std_readings.index(std_outlier)
-                        await self.send(text_data=json.dumps({
-                            'type': 'dual_reading_update',
-                            'std_reading': std_outlier,
-                            'ti_reading': ti_outlier,
-                            'count': original_index + 1,
-                            'stable_count': len(stable_candidate_std) - len(outliers),
-                            'total': num_samples,
-                            'stage': reading_type_base
-                        }))
-                    except ValueError:
-                        print(f"Warning: Could not find outlier point in all_std_readings.")
-
-        if all_std_readings:
-            await self.save_readings_to_db(f"std_{reading_type_base}", all_std_readings, test_point_data)
-            await self.save_readings_to_db(f"ti_{reading_type_base}", all_ti_readings, test_point_data)
+        # Save the final (locked) sets to the database
+        if final_std_readings and not self.stop_event.is_set():
+            await self.save_readings_to_db(f"std_{reading_type_base}", final_std_readings, test_point_data)
+            await self.save_readings_to_db(f"ti_{reading_type_base}", final_ti_readings, test_point_data)
         
-        if stability_method == 'sliding_window':
-            await self.send(text_data=json.dumps({'type': 'sliding_window_update', 'stdev_ppm': None, 'is_stable': None}))
+        return True
     
     async def collect_single_reading_set(self, data):
         ac_source, dc_source, std_reader_instrument, ti_reader_instrument, amplifier_instrument, switch_driver = None, None, None, None, None, None
@@ -639,7 +615,7 @@ class CalibrationConsumer(AsyncWebsocketConsumer):
                 'total': data.get('num_samples')
             }))
 
-            await self._perform_single_measurement(
+            success = await self._perform_single_measurement(
                 reading_type_base, 
                 data.get('num_samples'), 
                 data.get('test_point'), 
@@ -654,8 +630,10 @@ class CalibrationConsumer(AsyncWebsocketConsumer):
                 data.get('measurement_params')
             )
             
-            if not self.stop_event.is_set():
+            if success and not self.stop_event.is_set():
                 await self.send(text_data=json.dumps({'type': 'collection_finished', 'message': 'All readings complete.'}))
+            elif not success and not self.stop_event.is_set():
+                await self.send(text_data=json.dumps({'type': 'error', 'message': 'Test point aborted due to stability limit.'}))
 
         except asyncio.CancelledError:
             await self.send(text_data=json.dumps({'type': 'collection_stopped', 'message': 'Collection stopped by user.'}))
@@ -744,7 +722,13 @@ class CalibrationConsumer(AsyncWebsocketConsumer):
                     
                     await self.send(text_data=json.dumps({'type': 'calibration_stage_update', 'stage': stage, 'total': num_samples}))
                     
-                    await self._perform_single_measurement(stage, num_samples, data.get('test_point'), data.get('bypass_tvc'), data.get('amplifier_range'), source_instrument, std_reader, ti_reader, amplifier, settling_time, nplc_setting, measurement_params)
+                    success = await self._perform_single_measurement(stage, num_samples, data.get('test_point'), data.get('bypass_tvc'), data.get('amplifier_range'), source_instrument, std_reader, ti_reader, amplifier, settling_time, nplc_setting, measurement_params)
+                    
+                    # Stop sequence if measurement fails due to instability limits
+                    if not success: 
+                        if not self.stop_event.is_set():
+                            await self.send(text_data=json.dumps({'type': 'error', 'message': f"Sequence aborted: Stability limit reached on {stage}."}))
+                        break 
                 finally:
                     if switch_driver and hasattr(switch_driver, 'close'): await sync_to_async(switch_driver.close, thread_sensitive=True)()
             
@@ -830,6 +814,7 @@ class CalibrationConsumer(AsyncWebsocketConsumer):
                     'total': len(test_points_to_run)
                 }))
 
+                point_aborted = False
                 for stage in ['ac_open', 'dc_pos', 'dc_neg', 'ac_close']:
                     if self.stop_event.is_set(): break
                     
@@ -851,7 +836,7 @@ class CalibrationConsumer(AsyncWebsocketConsumer):
                         'tpId': point_data.get('id')
                     }))
                     
-                    await self._perform_single_measurement(
+                    success = await self._perform_single_measurement(
                         stage, 
                         current_num_samples, 
                         point_data, 
@@ -862,6 +847,14 @@ class CalibrationConsumer(AsyncWebsocketConsumer):
                         nplc_setting, 
                         measurement_params
                     )
+                    
+                    if not success:
+                        print(f"[DEBUG - BACKEND] Batch caught failure on {stage}. Breaking loop and moving to next point.", flush=True)
+                        point_aborted = True
+                        break 
+                
+                # Gracefully move on to the next test point if max retry limit failed
+                if point_aborted: continue
 
             if not self.stop_event.is_set():
                 await self.send(text_data=json.dumps({'type': 'collection_finished', 'message': 'Batch calibration complete.'}))
@@ -961,8 +954,6 @@ class CalibrationConsumer(AsyncWebsocketConsumer):
                     'current': i + 1,
                     'total': len(test_points_to_run)
                 }))
-
-                print(f"[BATCH_RUN] Starting measurement for point {i+1}/{len(test_points_to_run)}: {point_data}")
                 
                 await self.send(text_data=json.dumps({
                     'type': 'calibration_stage_update', 
@@ -971,7 +962,7 @@ class CalibrationConsumer(AsyncWebsocketConsumer):
                     'tpId': point_data.get('id')
                 }))
 
-                await self._perform_single_measurement(
+                success = await self._perform_single_measurement(
                     stage, 
                     current_num_samples, 
                     point_data, 
@@ -982,6 +973,8 @@ class CalibrationConsumer(AsyncWebsocketConsumer):
                     nplc_setting, 
                     measurement_params
                 )
+                
+                if not success: continue
 
             if not self.stop_event.is_set():
                 await self.send(text_data=json.dumps({'type': 'collection_finished', 'message': 'Batch readings complete.'}))

@@ -56,27 +56,18 @@ class Instrument5790B(FlukeInstrument):
         # This will raise an error if the connected device is not a 5790B.
         super().__init__(model=model, gpib=gpib, timeout=timeout)
         
-        print(f"[DEBUG 5790B @ {self.gpib}] Initializing...")
         self.set_auto_range()
-        print(f"[DEBUG 5790B @ {self.gpib}] Setting to INPUT1.")
         self.resource.write("INPUT INPUT1")
-        print(f"[DEBUG 5790B @ {self.gpib}] Initialization complete.")
-
 
     def read_instrument(self):
         """
         Unified method to take a reading. Manually triggers, waits for the
         operation to complete, and then gets the value using VAL?.
         """
-        print(f"[DEBUG 5790B @ {self.gpib}] Sending 'TRIG' command to start measurement.")
         self.resource.write("TRIG")
-        
-        print(f"[DEBUG 5790B @ {self.gpib}] Sending '*OPC?' query to wait for operation complete.")
         self.resource.query("*OPC?")  # This blocks until the new measurement is complete
-        print(f"[DEBUG 5790B @ {self.gpib}] Operation complete. Calling send_VAL to get the result.")
         
         voltage, _, _ = self.send_VAL()
-        print(f"[DEBUG 5790B @ {self.gpib}] send_VAL returned voltage: {voltage}")
         return voltage
 
     def _parse_cal_steps(self, query: str, test_points: list = []):
@@ -149,26 +140,20 @@ class Instrument5790B(FlukeInstrument):
 
     def send_VAL(self):
         """Query the "VAL?" command to the 5790B."""
-        print(f"[DEBUG 5790B @ {self.gpib}] Sending 'VAL?' query...")
         output = self.resource.query("VAL?").strip()
-        print(f"[DEBUG 5790B @ {self.gpib}] Received response from 'VAL?': {output}")
         output = output.split(',')
         return float(output[0]), float(output[1]), MEASUREMENT_STATUS_5790B(int(output[2]))
 
     def send_MEAS(self):
         """Query the "MEAS?" command to the 5790B."""
-        print(f"[DEBUG 5790B @ {self.gpib}] Sending 'MEAS?' query...")
         output = self.resource.query("MEAS?").strip()
-        print(f"[DEBUG 5790B @ {self.gpib}] Received response from 'MEAS?': {output}")
         output = output.split(',')
         return float(output[0]), float(output[1]), MEASUREMENT_STATUS_5790B(int(output[2]))
     
     def set_auto_range(self): 
-        print(f"[DEBUG 5790B @ {self.gpib}] Sending 'RANGE AUTO' command.")
         self.resource.write("RANGE AUTO")
         
     def set_range(self, value: float):
-        print(f"[DEBUG 5790B @ {self.gpib}] Sending 'RANGE {value}' command.")
         self.resource.write(f"RANGE {value}")
 
     def get_range(self):

@@ -1889,30 +1889,33 @@ function UncertaintyAnalysis({
 
       const combinedResults = {};
 
-      READING_KEY_NAMES.forEach((key) => {
-        const readings = combinedReadings[key]
-          .filter(r => r.is_stable !== false)
-          .map((r) =>
-            typeof r === "object" ? r.value : r
-          );
-        if (readings.length > 0) {
-          const sum = readings.reduce((a, b) => a + b, 0);
-          const avg = sum / readings.length;
-          const stddev =
-            readings.length > 1
-              ? Math.sqrt(
-                  readings
-                    .map((x) => Math.pow(x - avg, 2))
-                    .reduce((a, b) => a + b, 0) /
-                    (readings.length - 1)
-                )
-              : 0;
-          const avgKey = key.replace("_readings", "_avg");
-          const stddevKey = key.replace("_readings", "_stddev");
-          combinedResults[avgKey] = avg;
-          combinedResults[stddevKey] = stddev;
-        }
-      });
+        READING_KEY_NAMES.forEach((key) => {
+          const readings = combinedReadings[key]
+            .filter((r) => r.is_stable !== false)
+            .map((r) => (typeof r === "object" ? r.value : r));
+
+          if (readings.length > 0) {
+            // Use Welford's Algorithm instead of the standard reduce/pow method
+            let mean = 0;
+            let M2 = 0;
+
+            readings.forEach((val, index) => {
+              const delta = val - mean;
+              mean += delta / (index + 1);
+              M2 += delta * (val - mean);
+            });
+
+            // Handle edge case where there is only 1 reading
+            const variance = readings.length > 1 ? M2 / (readings.length - 1) : 0;
+            const stdDev = Math.sqrt(variance);
+
+            const avgKey = key.replace("_readings", "_avg");
+            const stddevKey = key.replace("_readings", "_stddev");
+            
+            combinedResults[avgKey] = mean;
+            combinedResults[stddevKey] = stdDev;
+          }
+        });
 
       Object.assign(combinedResults, {
         eta_std: forward.results.eta_std,

@@ -135,9 +135,8 @@ const CustomDropdown = ({
 
   return (
     <div
-      className={`custom-dropdown-container ${disabled ? "disabled" : ""} ${
-        isLoading ? "loading" : ""
-      }`}
+      className={`custom-dropdown-container ${disabled ? "disabled" : ""} ${isLoading ? "loading" : ""
+        }`}
       ref={dropdownRef}
       style={{ width: `${width}px` }}
     >
@@ -224,21 +223,21 @@ const ConfirmationModal = ({
 };
 
 function CorrectionsModal({ isOpen, onClose, showNotification, onUpdate, uniqueTestPoints }) {
-  // NEW: Extract selectedSessionId to allow direct test point generation
   const {
     standardInstrumentSerial,
     testInstrumentSerial,
     standardTvcSn,
     testTvcSn,
-    selectedSessionId 
+    selectedSessionId
   } = useInstruments();
 
+  const isFirstFetch = useRef(true);
   const [isLoading, setIsLoading] = useState(true);
   const [isSaving, setIsSaving] = useState(false);
   const [shuntsData, setShuntsData] = useState([]);
   const [tvcsData, setTvcsData] = useState([]);
   const [selectedShuntSn, setSelectedShuntSn] = useState("");
-  
+
   const [primaryTab, setPrimaryTab] = useState("AC Shunt");
   const [shuntView, setShuntView] = useState("Corrections");
   const [auxiliaryTvcSn, setAuxiliaryTvcSn] = useState("");
@@ -247,8 +246,8 @@ function CorrectionsModal({ isOpen, onClose, showNotification, onUpdate, uniqueT
   const [manualType, setManualType] = useState("shunt");
   const [isEditing, setIsEditing] = useState(false);
   const [deleteConfirm, setDeleteConfirm] = useState({ isOpen: false, type: null, serialNumber: null });
-  
-  // NEW: State for confirming the automatic addition of test points from a row
+
+  // State for confirming the automatic addition of test points from a row
   const [addPointsConfirm, setAddPointsConfirm] = useState({ isOpen: false, row: null, headers: null });
 
   const [manualForm, setManualForm] = useState(initialManualFormState);
@@ -262,7 +261,11 @@ function CorrectionsModal({ isOpen, onClose, showNotification, onUpdate, uniqueT
   }, [showNotification]);
 
   const fetchData = useCallback(async () => {
-    setIsLoading(true);
+    // Only trigger the hard loading screen on the very first fetch
+    if (isFirstFetch.current) {
+      setIsLoading(true);
+    }
+
     try {
       // Append a timestamp parameter to force a fresh pull without violating CORS headers
       const timestamp = new Date().getTime();
@@ -275,6 +278,9 @@ function CorrectionsModal({ isOpen, onClose, showNotification, onUpdate, uniqueT
       const tvcs = tvcsRes.data || [];
       setShuntsData(shunts);
       setTvcsData(tvcs);
+
+      // Mark the initial fetch as complete so subsequent opens refresh silently
+      isFirstFetch.current = false;
 
       if (shunts.length > 0) {
         const shuntSerialNumbers = [
@@ -353,7 +359,7 @@ function CorrectionsModal({ isOpen, onClose, showNotification, onUpdate, uniqueT
                 val1: "",
                 val2: "",
               }));
-              
+
               setManualForm((prev) => ({ ...prev, points: autoPopulatedPoints }));
               notify(`Auto-populated standard frequencies for ${rangeVal}A / ${currentVal}A`, "info");
             }
@@ -397,13 +403,13 @@ function CorrectionsModal({ isOpen, onClose, showNotification, onUpdate, uniqueT
 
   const pivotedShuntData = useMemo(() => {
     if (!selectedShuntSn) return { headers: [], rows: [] };
-    
+
     const filteredShunts = shuntsData.filter(
       (shunt) => String(shunt.serial_number) === String(selectedShuntSn)
     );
-    
+
     if (filteredShunts.length === 0) return { headers: [], rows: [] };
-    
+
     const frequencyHeaders = [
       ...new Set(
         filteredShunts.flatMap((shunt) =>
@@ -411,7 +417,7 @@ function CorrectionsModal({ isOpen, onClose, showNotification, onUpdate, uniqueT
         )
       ),
     ].sort((a, b) => a - b);
-    
+
     const dataMap = new Map();
     filteredShunts.forEach((shunt) => {
       const key = `${shunt.range}-${shunt.current}`;
@@ -425,7 +431,7 @@ function CorrectionsModal({ isOpen, onClose, showNotification, onUpdate, uniqueT
       }
       const entry = dataMap.get(key);
       const valueKey = shuntView === "Corrections" ? "correction" : "uncertainty";
-      
+
       shunt.corrections.forEach((corr) => {
         entry.values[Number(corr.frequency)] = corr[valueKey];
       });
@@ -435,7 +441,7 @@ function CorrectionsModal({ isOpen, onClose, showNotification, onUpdate, uniqueT
 
   const selectedShunt = shuntsData.find(s => String(s.serial_number) === String(selectedShuntSn));
   const isSelectedShuntManual = selectedShunt?.is_manual;
-  
+
   const selectedTvc = tvcsData.find(t => String(t.serial_number) === String(auxiliaryTvcSn));
   const isSelectedTvcManual = selectedTvc?.is_manual;
 
@@ -462,7 +468,7 @@ function CorrectionsModal({ isOpen, onClose, showNotification, onUpdate, uniqueT
           test_voltage: "",
           remark: shuntToEdit.remark || "",
           points: shuntToEdit.corrections.map(c => ({
-            id: c.id || null, 
+            id: c.id || null,
             frequency: c.frequency ?? "",
             val1: c.correction ?? "",
             val2: c.uncertainty ?? ""
@@ -481,7 +487,7 @@ function CorrectionsModal({ isOpen, onClose, showNotification, onUpdate, uniqueT
           test_voltage: tvcToEdit.test_voltage ?? "",
           remark: tvcToEdit.remark || "",
           points: tvcToEdit.corrections.map(c => ({
-            id: c.id || null, 
+            id: c.id || null,
             frequency: c.frequency ?? "",
             val1: c.ac_dc_difference ?? "",
             val2: c.expanded_uncertainty ?? ""
@@ -495,24 +501,24 @@ function CorrectionsModal({ isOpen, onClose, showNotification, onUpdate, uniqueT
   const executeDelete = async () => {
     const { type, serialNumber } = deleteConfirm;
     const endpoint = type === 'shunt' ? 'shunts' : 'tvcs';
-    const device = type === 'shunt' 
-        ? shuntsData.find(s => String(s.serial_number) === String(serialNumber))
-        : tvcsData.find(t => String(t.serial_number) === String(serialNumber));
-        
+    const device = type === 'shunt'
+      ? shuntsData.find(s => String(s.serial_number) === String(serialNumber))
+      : tvcsData.find(t => String(t.serial_number) === String(serialNumber));
+
     if (!device) {
-        notify("Error: Device not found in database.", "error");
-        setDeleteConfirm({ isOpen: false, type: null, serialNumber: null });
-        return;
+      notify("Error: Device not found in database.", "error");
+      setDeleteConfirm({ isOpen: false, type: null, serialNumber: null });
+      return;
     }
 
     try {
       await axios.delete(`${API_BASE_URL}/${endpoint}/${device.id}/`);
-      
+
       notify(`${type === 'shunt' ? 'AC Shunt' : 'TVC'} entry successfully deleted.`, "success");
-      
+
       if (type === 'shunt') setSelectedShuntSn("");
       else setAuxiliaryTvcSn("");
-      
+
       fetchData();
     } catch (err) {
       notify(`Error deleting entry: ${err.message}`, "error");
@@ -523,9 +529,9 @@ function CorrectionsModal({ isOpen, onClose, showNotification, onUpdate, uniqueT
 
   const handlePointChange = (index, field, value) => {
     setManualForm((prev) => {
-        const newPoints = [...prev.points];
-        newPoints[index] = { ...newPoints[index], [field]: value };
-        return { ...prev, points: newPoints };
+      const newPoints = [...prev.points];
+      newPoints[index] = { ...newPoints[index], [field]: value };
+      return { ...prev, points: newPoints };
     });
   };
 
@@ -544,8 +550,8 @@ function CorrectionsModal({ isOpen, onClose, showNotification, onUpdate, uniqueT
 
     const correctionsPayload = validPoints.map((p) => {
       const base = { frequency: parseFloat(p.frequency) };
-      if (p.id) base.id = p.id; 
-      
+      if (p.id) base.id = p.id;
+
       if (isShunt) {
         base.correction = parseFloat(p.val1 || 0);
         base.uncertainty = parseFloat(p.val2 || 0);
@@ -558,49 +564,49 @@ function CorrectionsModal({ isOpen, onClose, showNotification, onUpdate, uniqueT
 
     const payload = isShunt
       ? {
-          model_name: manualForm.model_name,
-          serial_number: String(manualForm.serial_number),
-          range: parseFloat(manualForm.range || 0),
-          current: parseFloat(manualForm.current || 0),
-          remark: manualForm.remark || "Manually added",
-          is_manual: true,
-          corrections: correctionsPayload,
-        }
+        model_name: manualForm.model_name,
+        serial_number: String(manualForm.serial_number),
+        range: parseFloat(manualForm.range || 0),
+        current: parseFloat(manualForm.current || 0),
+        remark: manualForm.remark || "Manually added",
+        is_manual: true,
+        corrections: correctionsPayload,
+      }
       : {
-          serial_number: String(manualForm.serial_number),
-          test_voltage: parseFloat(manualForm.test_voltage || 0),
-          is_manual: true,
-          corrections: correctionsPayload,
-        };
+        serial_number: String(manualForm.serial_number),
+        test_voltage: parseFloat(manualForm.test_voltage || 0),
+        is_manual: true,
+        corrections: correctionsPayload,
+      };
 
     try {
-      setIsSaving(true); 
+      setIsSaving(true);
 
       if (isEditing && manualForm.id) {
         await axios.put(`${API_BASE_URL}/${endpoint}/${manualForm.id}/`, payload);
       } else {
         await axios.post(`${API_BASE_URL}/${endpoint}/`, payload);
       }
-      
-      await fetchData(); 
+
+      await fetchData();
       notify("Manual entry saved successfully!", "success");
       setIsManualFormOpen(false);
-      
+
       const targetSn = String(manualForm.serial_number);
       if (isShunt) setSelectedShuntSn(targetSn);
       else setAuxiliaryTvcSn(targetSn);
-      
+
       setManualForm(initialManualFormState);
-      
+
     } catch (err) {
       const errMsg = err.response?.data ? JSON.stringify(err.response.data) : err.message;
       notify(`Error saving: ${errMsg}`, "error");
     } finally {
-      setIsSaving(false); 
+      setIsSaving(false);
     }
   };
 
-  // --- NEW: Handlers for directly creating Test Points from the table ---
+  // --- Handlers for directly creating Test Points from the table ---
   const handleRowClick = (row, headers) => {
     if (!selectedSessionId) {
       notify("Please select or create an active Calibration Session first.", "warning");
@@ -611,10 +617,10 @@ function CorrectionsModal({ isOpen, onClose, showNotification, onUpdate, uniqueT
 
   const executeGenerateTestPoints = async () => {
     const { row, headers } = addPointsConfirm;
-    
-    const rowFrequencies = headers.filter(freq => 
-      row.values[freq] !== undefined && 
-      row.values[freq] !== null && 
+
+    const rowFrequencies = headers.filter(freq =>
+      row.values[freq] !== undefined &&
+      row.values[freq] !== null &&
       row.values[freq] !== "—"
     ).map(f => parseFloat(f));
 
@@ -625,12 +631,13 @@ function CorrectionsModal({ isOpen, onClose, showNotification, onUpdate, uniqueT
     }
 
     const currentVal = parseFloat(row.current);
+    const rangeVal = parseFloat(row.range); // Extract the range from the row
 
-    // FIX: Filter out frequencies that already exist in the session using parseInt
+    // Filter out frequencies that already exist in the session using parseInt
     const existingFreqs = new Set(
-        (uniqueTestPoints || [])
-          .filter(p => Math.abs(parseFloat(p.current) - currentVal) < 1e-6)
-          .map(p => parseInt(p.frequency, 10))
+      (uniqueTestPoints || [])
+        .filter(p => Math.abs(parseFloat(p.current) - currentVal) < 1e-6)
+        .map(p => parseInt(p.frequency, 10))
     );
 
     const filteredFrequencies = rowFrequencies.filter(f => !existingFreqs.has(parseInt(f, 10)));
@@ -648,11 +655,19 @@ function CorrectionsModal({ isOpen, onClose, showNotification, onUpdate, uniqueT
 
     try {
       const response = await axios.post(`${API_BASE_URL}/calibration_sessions/${selectedSessionId}/test_points/append/`, { points: newPoints });
-      notify(response.data?.message || "Test points generated!", "success");
-      
+
+      if (!isNaN(rangeVal)) {
+        await axios.put(`${API_BASE_URL}/calibration_sessions/${selectedSessionId}/configurations/`, {
+          amplifier_range: rangeVal,
+          ac_shunt_range: rangeVal
+        });
+      }
+
+      notify(response.data?.message || "Test points generated and Amplifier range configured!", "success");
+
       if (onUpdate) await onUpdate();
-      
-      setTimeout(() => onClose(), 300); 
+
+      setTimeout(() => onClose(), 300);
     } catch (error) {
       const errorMsg = error.response?.data?.detail || "Error generating test points.";
       notify(errorMsg, "error");
@@ -663,7 +678,15 @@ function CorrectionsModal({ isOpen, onClose, showNotification, onUpdate, uniqueT
 
   const renderShuntTable = () => {
     const { headers, rows } = pivotedShuntData;
-    if (isLoading) return <p>Loading...</p>;
+    
+    if (isLoading && rows.length === 0) {
+      return (
+        <div className="corrections-table-container" style={{ minHeight: "300px", display: "flex", alignItems: "center", justifyContent: "center" }}>
+          <p className="placeholder-content">Loading instrument database...</p>
+        </div>
+      );
+    }
+    
     if (rows.length === 0)
       return (
         <p className="placeholder-content">
@@ -673,7 +696,6 @@ function CorrectionsModal({ isOpen, onClose, showNotification, onUpdate, uniqueT
 
     return (
       <div className="corrections-table-container">
-        {/* NEW: Helper hint text for the new feature */}
         <p style={{ fontSize: "0.85rem", color: "var(--text-color-muted)", marginBottom: "10px", fontStyle: "italic" }}>
           💡 Hint: Click on any row to instantly generate test points for that configuration in your active session.
         </p>
@@ -691,7 +713,7 @@ function CorrectionsModal({ isOpen, onClose, showNotification, onUpdate, uniqueT
           </thead>
           <tbody>
             {rows.map((row) => (
-              <tr 
+              <tr
                 key={`${row.range}-${row.current}`}
                 onClick={() => handleRowClick(row, headers)}
                 style={{ cursor: "pointer", transition: "background-color 0.2s ease" }}
@@ -719,7 +741,15 @@ function CorrectionsModal({ isOpen, onClose, showNotification, onUpdate, uniqueT
     const filteredTvc = tvcsData.find(
       (tvc) => String(tvc.serial_number) === String(serialNumber)
     );
-    if (isLoading) return <p>Loading...</p>;
+    
+    if (isLoading && (!filteredTvc || !filteredTvc.corrections?.length)) {
+      return (
+        <div className="corrections-table-container" style={{ minHeight: "150px", display: "flex", alignItems: "center", justifyContent: "center" }}>
+          <p className="placeholder-content">Loading TVC data...</p>
+        </div>
+      );
+    }
+    
     if (!filteredTvc?.corrections?.length) {
       return (
         <p className="placeholder-content">
@@ -727,6 +757,7 @@ function CorrectionsModal({ isOpen, onClose, showNotification, onUpdate, uniqueT
         </p>
       );
     }
+    
     const sortedCorrections = [...filteredTvc.corrections].sort(
       (a, b) => a.frequency - b.frequency
     );
@@ -765,41 +796,41 @@ function CorrectionsModal({ isOpen, onClose, showNotification, onUpdate, uniqueT
             <>
               <div className="form-section">
                 <label>Model Name</label>
-                <input 
-                  type="text" 
-                  value={manualForm.model_name ?? ''} 
-                  onChange={(e) => setManualForm(prev => ({...prev, model_name: e.target.value}))} 
-                  placeholder="e.g. A40B" 
+                <input
+                  type="text"
+                  value={manualForm.model_name ?? ''}
+                  onChange={(e) => setManualForm(prev => ({ ...prev, model_name: e.target.value }))}
+                  placeholder="e.g. A40B"
                 />
               </div>
               <div className="form-section">
                 <label>Serial Number</label>
-                <input 
-                  type="text" 
-                  disabled={isEditing} 
-                  value={manualForm.serial_number ?? ''} 
-                  onChange={(e) => setManualForm(prev => ({...prev, serial_number: e.target.value}))} 
-                  placeholder="e.g. 12345" 
+                <input
+                  type="text"
+                  disabled={isEditing}
+                  value={manualForm.serial_number ?? ''}
+                  onChange={(e) => setManualForm(prev => ({ ...prev, serial_number: e.target.value }))}
+                  placeholder="e.g. 12345"
                 />
               </div>
               <div className="form-section">
                 <label>Range (A)</label>
-                <input 
-                  type="text" 
+                <input
+                  type="text"
                   inputMode="decimal"
-                  value={manualForm.range ?? ''} 
-                  onChange={(e) => setManualForm(prev => ({...prev, range: e.target.value}))} 
-                  placeholder="e.g. 5" 
+                  value={manualForm.range ?? ''}
+                  onChange={(e) => setManualForm(prev => ({ ...prev, range: e.target.value }))}
+                  placeholder="e.g. 5"
                 />
               </div>
               <div className="form-section">
                 <label>Current (A)</label>
-                <input 
-                  type="text" 
+                <input
+                  type="text"
                   inputMode="decimal"
-                  value={manualForm.current ?? ''} 
-                  onChange={(e) => setManualForm(prev => ({...prev, current: e.target.value}))} 
-                  placeholder="e.g. 5" 
+                  value={manualForm.current ?? ''}
+                  onChange={(e) => setManualForm(prev => ({ ...prev, current: e.target.value }))}
+                  placeholder="e.g. 5"
                 />
               </div>
             </>
@@ -807,22 +838,22 @@ function CorrectionsModal({ isOpen, onClose, showNotification, onUpdate, uniqueT
             <>
               <div className="form-section">
                 <label>Serial Number</label>
-                <input 
-                  type="text" 
-                  disabled={isEditing} 
-                  value={manualForm.serial_number ?? ''} 
-                  onChange={(e) => setManualForm(prev => ({...prev, serial_number: e.target.value}))} 
-                  placeholder="e.g. 12345" 
+                <input
+                  type="text"
+                  disabled={isEditing}
+                  value={manualForm.serial_number ?? ''}
+                  onChange={(e) => setManualForm(prev => ({ ...prev, serial_number: e.target.value }))}
+                  placeholder="e.g. 12345"
                 />
               </div>
               <div className="form-section">
                 <label>Test Voltage (V)</label>
-                <input 
-                  type="text" 
+                <input
+                  type="text"
                   inputMode="decimal"
-                  value={manualForm.test_voltage ?? ''} 
-                  onChange={(e) => setManualForm(prev => ({...prev, test_voltage: e.target.value}))} 
-                  placeholder="e.g. 0.5" 
+                  value={manualForm.test_voltage ?? ''}
+                  onChange={(e) => setManualForm(prev => ({ ...prev, test_voltage: e.target.value }))}
+                  placeholder="e.g. 0.5"
                 />
               </div>
             </>
@@ -832,59 +863,59 @@ function CorrectionsModal({ isOpen, onClose, showNotification, onUpdate, uniqueT
 
       <div className="input-card" style={{ textAlign: "left" }}>
         <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", borderBottom: "1px solid var(--border-color)", paddingBottom: "10px", marginBottom: "20px" }}>
-           <h4 style={{ margin: 0, padding: 0, border: "none" }}>Correction Points</h4>
-           <IconBtn 
-             icon={<FaPlus />} 
-             onClick={() => setManualForm({...manualForm, points: [...manualForm.points, { id: null, frequency: '', val1: '', val2: ''}]})} 
-             title="Add Point" 
-             size="1.2rem"
-           />
+          <h4 style={{ margin: 0, padding: 0, border: "none" }}>Correction Points</h4>
+          <IconBtn
+            icon={<FaPlus />}
+            onClick={() => setManualForm({ ...manualForm, points: [...manualForm.points, { id: null, frequency: '', val1: '', val2: '' }] })}
+            title="Add Point"
+            size="1.2rem"
+          />
         </div>
 
         <div className="manual-points-list" style={{ display: "flex", flexDirection: "column", gap: "12px" }}>
           {manualForm.points.length > 0 && (
-             <div style={{ display: "flex", gap: "15px", padding: "0 15px", marginBottom: "-5px" }}>
-               <label style={{ flex: 1, fontSize: "0.85rem", fontWeight: 600, color: "var(--text-color-muted)", margin: 0 }}>Frequency (Hz)</label>
-               <label style={{ flex: 1, fontSize: "0.85rem", fontWeight: 600, color: "var(--text-color-muted)", margin: 0 }}>{manualType === 'shunt' ? "Correction (ppm)" : "AC/DC Diff (ppm)"}</label>
-               <label style={{ flex: 1, fontSize: "0.85rem", fontWeight: 600, color: "var(--text-color-muted)", margin: 0 }}>{manualType === 'shunt' ? "Uncertainty (ppm)" : "Expanded Unc (ppm)"}</label>
-               <div style={{ width: "36px" }}></div>
-             </div>
+            <div style={{ display: "flex", gap: "15px", padding: "0 15px", marginBottom: "-5px" }}>
+              <label style={{ flex: 1, fontSize: "0.85rem", fontWeight: 600, color: "var(--text-color-muted)", margin: 0 }}>Frequency (Hz)</label>
+              <label style={{ flex: 1, fontSize: "0.85rem", fontWeight: 600, color: "var(--text-color-muted)", margin: 0 }}>{manualType === 'shunt' ? "Correction (ppm)" : "AC/DC Diff (ppm)"}</label>
+              <label style={{ flex: 1, fontSize: "0.85rem", fontWeight: 600, color: "var(--text-color-muted)", margin: 0 }}>{manualType === 'shunt' ? "Uncertainty (ppm)" : "Expanded Unc (ppm)"}</label>
+              <div style={{ width: "36px" }}></div>
+            </div>
           )}
-          
+
           {manualForm.points.map((p, i) => (
             <div key={i} className="manual-point-row" style={{ display: "flex", gap: "15px", alignItems: "center", backgroundColor: "var(--background-color)", padding: "10px 15px", borderRadius: "6px", border: "1px solid var(--border-color)" }}>
-              <input 
-                type="text" 
+              <input
+                type="text"
                 inputMode="decimal"
-                style={{ flex: 1, margin: 0 }} 
-                placeholder="Freq" 
-                value={p.frequency ?? ''} 
-                onChange={(e) => handlePointChange(i, 'frequency', e.target.value)} 
+                style={{ flex: 1, margin: 0 }}
+                placeholder="Freq"
+                value={p.frequency ?? ''}
+                onChange={(e) => handlePointChange(i, 'frequency', e.target.value)}
               />
-              <input 
-                type="text" 
+              <input
+                type="text"
                 inputMode="decimal"
-                style={{ flex: 1, margin: 0 }} 
-                placeholder="Value" 
-                value={p.val1 ?? ''} 
-                onChange={(e) => handlePointChange(i, 'val1', e.target.value)} 
+                style={{ flex: 1, margin: 0 }}
+                placeholder="Value"
+                value={p.val1 ?? ''}
+                onChange={(e) => handlePointChange(i, 'val1', e.target.value)}
               />
-              <input 
-                type="text" 
+              <input
+                type="text"
                 inputMode="decimal"
-                style={{ flex: 1, margin: 0 }} 
-                placeholder="Uncertainty" 
-                value={p.val2 ?? ''} 
-                onChange={(e) => handlePointChange(i, 'val2', e.target.value)} 
+                style={{ flex: 1, margin: 0 }}
+                placeholder="Uncertainty"
+                value={p.val2 ?? ''}
+                onChange={(e) => handlePointChange(i, 'val2', e.target.value)}
               />
-              <button 
-                type="button" 
-                style={{ 
+              <button
+                type="button"
+                style={{
                   background: 'none', border: 'none', color: '#dc3545', fontSize: '1.2rem', cursor: 'pointer', opacity: 0.7, margin: 0, flexShrink: 0, display: 'flex', alignItems: 'center'
                 }}
                 onMouseEnter={(e) => e.currentTarget.style.opacity = 1}
                 onMouseLeave={(e) => e.currentTarget.style.opacity = 0.7}
-                onClick={() => setManualForm({...manualForm, points: manualForm.points.filter((_, idx) => idx !== i)})} 
+                onClick={() => setManualForm({ ...manualForm, points: manualForm.points.filter((_, idx) => idx !== i) })}
                 title="Remove Point"
               >
                 <FaTimes />
@@ -900,16 +931,16 @@ function CorrectionsModal({ isOpen, onClose, showNotification, onUpdate, uniqueT
       </div>
 
       <div className="form-submit-area" style={{ display: "flex", gap: "15px", justifyContent: "flex-end" }}>
-        <button 
-          className="sidebar-action-button" 
+        <button
+          className="sidebar-action-button"
           onClick={() => setIsManualFormOpen(false)}
           disabled={isSaving}
           title="Go Back / Cancel"
         >
           <FaArrowLeft />
         </button>
-        <button 
-          className="sidebar-action-button" 
+        <button
+          className="sidebar-action-button"
           onClick={handleSaveManual}
           disabled={isSaving}
           title={isSaving ? "Saving..." : "Save Entry"}
@@ -959,12 +990,12 @@ function CorrectionsModal({ isOpen, onClose, showNotification, onUpdate, uniqueT
                   ))}
                 </select>
               </div>
-              
+
               <div style={{ display: 'flex', alignItems: 'center', gap: '2px', marginBottom: '6px' }}>
-                <IconBtn 
-                  icon={<FaPlus />} 
-                  onClick={() => handleOpenManualForm('tvc')} 
-                  title="Add Manual TVC" 
+                <IconBtn
+                  icon={<FaPlus />}
+                  onClick={() => handleOpenManualForm('tvc')}
+                  title="Add Manual TVC"
                 />
                 {isSelectedTvcManual && (
                   <>
@@ -1001,8 +1032,7 @@ function CorrectionsModal({ isOpen, onClose, showNotification, onUpdate, uniqueT
         onConfirm={executeDelete}
         onCancel={() => setDeleteConfirm({ isOpen: false, type: null, serialNumber: null })}
       />
-      
-      {/* NEW Confirmation Modal for Generating Points */}
+
       <ConfirmationModal
         isOpen={addPointsConfirm.isOpen}
         title="Generate Test Points?"
@@ -1012,7 +1042,7 @@ function CorrectionsModal({ isOpen, onClose, showNotification, onUpdate, uniqueT
         onConfirm={executeGenerateTestPoints}
         onCancel={() => setAddPointsConfirm({ isOpen: false, row: null, headers: null })}
       />
-      
+
       <div className={`corrections-modal-content ${(primaryTab === "TVC" && !isManualFormOpen) ? "modal-wide" : ""}`}>
         <header className="corrections-modal-header" style={{ display: "flex", justifyContent: "space-between", alignItems: "center" }}>
           <h3 style={{ margin: 0 }}>Correction & Uncertainty Data</h3>
@@ -1030,7 +1060,7 @@ function CorrectionsModal({ isOpen, onClose, showNotification, onUpdate, uniqueT
           )}
 
           {isManualFormOpen ? (
-             renderManualEntry()
+            renderManualEntry()
           ) : (
             <>
               {primaryTab === "AC Shunt" && (
@@ -1050,12 +1080,12 @@ function CorrectionsModal({ isOpen, onClose, showNotification, onUpdate, uniqueT
                         disabled={isLoading}
                         isLoading={isLoading}
                       />
-                      
+
                       <div style={{ display: 'flex', alignItems: 'center', gap: '2px', marginBottom: '6px' }}>
-                        <IconBtn 
-                          icon={<FaPlus />} 
-                          onClick={() => handleOpenManualForm('shunt')} 
-                          title="Add Manual AC Shunt" 
+                        <IconBtn
+                          icon={<FaPlus />}
+                          onClick={() => handleOpenManualForm('shunt')}
+                          title="Add Manual AC Shunt"
                         />
                         {isSelectedShuntManual && (
                           <>

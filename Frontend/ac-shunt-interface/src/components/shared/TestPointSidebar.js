@@ -14,6 +14,7 @@ import {
   FaTrashAlt,
   FaPlus,
   FaEye,
+  FaExclamationCircle,
 } from "react-icons/fa";
 import { IoDocumentText } from "react-icons/io5";
 import { FaRegSquare } from "react-icons/fa6";
@@ -183,6 +184,7 @@ const SortableTestPointItem = ({
   isComplete,
   isPartial,
   isCurrentlyExecuting,
+  isFailed, // <-- New Prop
   areControlsDisabled,
   onFocus,
   onToggle,
@@ -198,26 +200,28 @@ const SortableTestPointItem = ({
     isDragging,
   } = useSortable({ id: point.key });
 
+  // Prioritize "Failed" -> "Complete" -> "Partial"
+  const getBorderStyle = () => {
+    if (isFailed) return "4px solid var(--status-bad, #e74c3c)";
+    if (isComplete) return "4px solid var(--status-good, #2ecc71)";
+    if (isPartial) return "4px solid var(--status-warning, #f1c40f)";
+    return "4px solid transparent";
+  };
+
   const style = {
     transform: CSS.Transform.toString(transform),
     transition,
     opacity: isDragging ? 0.5 : 1,
-    borderLeft: isComplete
-      ? "4px solid var(--status-good)"
-      : isPartial
-      ? "4px solid var(--status-warning)"
-      : "4px solid transparent",
+    borderLeft: getBorderStyle(), // <-- Applied here
   };
 
   return (
     <div
       ref={setNodeRef}
       style={style}
-      className={`test-point-item-selectable ${isFocused ? "active" : ""} ${
-        isComplete ? "completed" : ""
-      } ${isDragging ? "dragging" : ""} ${
-        isContextMenuTarget ? "context-active" : ""
-      }`}
+      className={`test-point-item-selectable ${isFocused ? "active" : ""} ${isComplete ? "completed" : ""
+        } ${isDragging ? "dragging" : ""} ${isContextMenuTarget ? "context-active" : ""
+        }`}
       onClick={() => onFocus(point)}
       onContextMenu={(e) => onContextMenu(e, point)}
       {...attributes}
@@ -241,11 +245,23 @@ const SortableTestPointItem = ({
         disabled={areControlsDisabled}
         className="tp-checkbox"
       />
-      <div className="tp-label">
+      <div className="tp-label" style={{ display: "flex", alignItems: "center", flex: 1 }}>
         <span className="test-point-name">
           {formatCurrent(point.current)} @ {formatFrequency(point.frequency)}
         </span>
-        {isCurrentlyExecuting && <span className="status-indicator"></span>}
+
+        {/* Warning Icon moved directly next to the text */}
+        {isFailed && (
+          <FaExclamationCircle
+            style={{ color: "var(--status-bad, #e74c3c)", fontSize: "0.9em", marginLeft: "8px", flexShrink: 0 }}
+            title="Failed stability check"
+          />
+        )}
+
+        {/* Pushes the animated loading dot to the far right */}
+        <div style={{ marginLeft: "auto", display: "flex", alignItems: "center" }}>
+          {isCurrentlyExecuting && <span className="status-indicator"></span>}
+        </div>
       </div>
     </div>
   );
@@ -275,7 +291,7 @@ function TestPointSidebar({
   onViewCorrections,
   onViewPointCorrections,
 }) {
-  const { selectedSessionId, standardTvcSn, testTvcSn } = useInstruments();
+  const { selectedSessionId, standardTvcSn, testTvcSn, failedTPKeys } = useInstruments();
   const [contextMenu, setContextMenu] = useState({
     isOpen: false,
     x: 0,
@@ -436,10 +452,12 @@ function TestPointSidebar({
               const isPointCurrentlyExecuting =
                 (isCollecting &&
                   activeCollectionDetails?.tpId ===
-                    (activeDirection === "Forward"
-                      ? point.forward?.id
-                      : point.reverse?.id)) ||
+                  (activeDirection === "Forward"
+                    ? point.forward?.id
+                    : point.reverse?.id)) ||
                 (isBulkRunning && bulkRunProgress.pointKey === point.key);
+
+              const isFailed = failedTPKeys.has(point.key);
 
               return (
                 <SortableTestPointItem
@@ -450,6 +468,7 @@ function TestPointSidebar({
                   isComplete={isComplete}
                   isPartial={isPartial}
                   isCurrentlyExecuting={isPointCurrentlyExecuting}
+                  isFailed={isFailed}
                   areControlsDisabled={isBulkRunning || isCollecting}
                   onFocus={onFocus}
                   onToggle={onToggleSelect}

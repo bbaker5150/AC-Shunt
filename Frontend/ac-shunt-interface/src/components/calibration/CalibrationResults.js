@@ -433,43 +433,64 @@ function CalibrationResults({
     const instrumentName =
       instrumentType === "std" ? "Standard" : "Test_Instrument";
 
+    // Reusable Welford's algorithm to perfectly match the LiveStatisticsTracker
+    const calculateStats = (data) => {
+      if (!data || data.length === 0) return { mean: null, stdDev: null, stdDevPpm: null };
+      
+      const stableData = data.filter(p => p.is_stable !== false);
+      if (stableData.length < 2) {
+        const mean = stableData.length > 0 ? (typeof stableData[0] === "object" ? stableData[0].value : stableData[0]) : null;
+        return { mean, stdDev: null, stdDevPpm: null };
+      }
+
+      let mean = 0;
+      let M2 = 0;
+      stableData.forEach((point, index) => {
+        const val = typeof point === "object" ? point.value : point;
+        const delta = val - mean;
+        mean += delta / (index + 1);
+        M2 += delta * (val - mean);
+      });
+
+      const variance = M2 / (stableData.length - 1);
+      const stdDev = Math.sqrt(variance);
+      const stdDevPpm = mean === 0 ? 0 : (stdDev / Math.abs(mean)) * 1e6;
+
+      return { mean, stdDev, stdDevPpm };
+    };
+
     READING_TYPES.forEach((rt) => {
       const key = `${prefix}${rt.value}`;
       const readingsArray = calReadings[key] || [];
 
       if (readingsArray.length > 0) {
-        const sheetData = [["Sample #", "Value", "Timestamp"]];
+        const sheetData = [["Sample #", "Value", "Status", "Timestamp"]];
+        
         readingsArray.forEach((point, index) => {
-          const p =
-            typeof point === "object"
-              ? point
-              : { value: point, timestamp: null };
-          const ts = p.timestamp
-            ? new Date(p.timestamp * 1000).toLocaleString()
-            : "N/A";
-          sheetData.push([index + 1, p.value, ts]);
+          const p = typeof point === "object" ? point : { value: point, is_stable: true, timestamp: null };
+          const ts = p.timestamp ? new Date(p.timestamp * 1000).toLocaleString() : "N/A";
+          const status = p.is_stable ? "Stable" : "Unstable";
+          sheetData.push([index + 1, p.value, status, ts]);
         });
+        
         sheetData.push([]);
-        const avgKey = `${prefix}${rt.value.replace("_readings", "_avg")}`;
-        const stddevKey = `${prefix}${rt.value.replace(
-          "_readings",
-          "_stddev"
-        )}`;
-        sheetData.push(["Average:", calResults?.[avgKey]?.toPrecision(8)]);
-        sheetData.push([
-          "Standard Deviation:",
-          calResults?.[stddevKey]?.toPrecision(8),
-        ]);
+        
+        // Calculate stats on the fly to perfectly match the frontend UI
+        const stats = calculateStats(readingsArray);
+        
+        sheetData.push(["Average (V):", stats.mean !== null ? stats.mean.toPrecision(8) : "N/A"]);
+        sheetData.push(["Standard Deviation (V):", stats.stdDev !== null ? stats.stdDev.toPrecision(8) : "N/A"]);
+        sheetData.push(["Standard Deviation (PPM):", stats.stdDevPpm !== null ? stats.stdDevPpm.toFixed(3) : "N/A"]);
+        
         const sheet = XLSX.utils.aoa_to_sheet(sheetData);
         XLSX.utils.book_append_sheet(wb, sheet, rt.label);
       }
     });
 
-    if (calResults?.delta_uut_ppm !== undefined) {
+    if (calResults?.delta_uut_ppm != null) {
       const acdcData = [
-        ["AC-DC Difference (ppm):", calResults.delta_uut_ppm.toFixed(8)],
+        ["AC-DC Difference (ppm):", Number(calResults.delta_uut_ppm).toFixed(8)],
       ];
-
       const acdcSheet = XLSX.utils.aoa_to_sheet(acdcData);
       XLSX.utils.book_append_sheet(wb, acdcSheet, "AC-DC Difference");
     }

@@ -1,4 +1,4 @@
-const { app, BrowserWindow, Menu, ipcMain, nativeTheme } = require('electron');
+const { app, BrowserWindow, Menu, MenuItem, ipcMain, nativeTheme } = require('electron');
 const path = require('path');
 const { spawn } = require('child_process');
 
@@ -18,6 +18,22 @@ function createWindow() {
             contextIsolation: false,
             spellcheck: false
         },
+    });
+
+    const isDev = !app.isPackaged;
+
+    // --- CONTEXT MENU (INSPECT ELEMENT) ---
+    mainWindow.webContents.on('context-menu', (event, params) => {
+        if (isDev) {
+            const menu = new Menu();
+            menu.append(new MenuItem({
+                label: 'Inspect Element',
+                click: () => {
+                    mainWindow.webContents.inspectElement(params.x, params.y);
+                }
+            }));
+            menu.popup({ window: mainWindow, x: params.x, y: params.y });
+        }
     });
 
     // --- ZOOM LOGIC ---
@@ -41,12 +57,12 @@ function createWindow() {
         }
     });
 
-    const isDev = !app.isPackaged;
     const startUrl = isDev
         ? 'http://localhost:3000'
         : `file://${path.join(__dirname, '../build/index.html')}`;
 
     mainWindow.loadURL(startUrl);
+    
     if (isDev) mainWindow.webContents.openDevTools();
 
     mainWindow.on('closed', () => (mainWindow = null));
@@ -90,9 +106,9 @@ function startBackend() {
     backendProcess.stderr.on('data', (data) => {
         const message = data.toString();
         if (message.includes('200') || message.includes('CONNECT') || message.includes('HANDSHAKE')) {
-            console.log(`Backend Log: ${message}`);
+            // console.log(`Backend Log: ${message}`);
         } else {
-            console.error(`Backend Error: ${message}`);
+            // console.error(`Backend Error: ${message}`);
         }
     });
 
