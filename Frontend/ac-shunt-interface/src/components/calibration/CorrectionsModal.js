@@ -8,6 +8,7 @@ import React, {
 import axios from "axios";
 import { useInstruments } from "../../contexts/InstrumentContext";
 import { FaTimes, FaSave, FaArrowLeft, FaPlus, FaEdit, FaTrash } from "react-icons/fa";
+import { AMPLIFIER_RANGES_A } from "../../constants/constants";
 
 const API_BASE_URL =
   process.env.REACT_APP_API_BASE_URL || "http://localhost:8000/api";
@@ -631,7 +632,7 @@ function CorrectionsModal({ isOpen, onClose, showNotification, onUpdate, uniqueT
     }
 
     const currentVal = parseFloat(row.current);
-    const rangeVal = parseFloat(row.range); // Extract the range from the row
+    const rangeVal = parseFloat(row.range);
 
     // Filter out frequencies that already exist in the session using parseInt
     const existingFreqs = new Set(
@@ -653,15 +654,24 @@ function CorrectionsModal({ isOpen, onClose, showNotification, onUpdate, uniqueT
       { current: currentVal, frequency: freq, direction: "Reverse" },
     ]);
 
-    try {
-      const response = await axios.post(`${API_BASE_URL}/calibration_sessions/${selectedSessionId}/test_points/append/`, { points: newPoints });
+    // Safely calculate the correct amplifier range based on current (matching ConfigurationModal logic)
+    let suitableAmpRange = rangeVal; 
+    if (typeof AMPLIFIER_RANGES_A !== 'undefined') {
+      const foundRange = AMPLIFIER_RANGES_A.find((r) => currentVal <= r);
+      if (foundRange !== undefined) suitableAmpRange = foundRange;
+    }
 
+    try {
+      // 1. UPDATE CONFIGURATION FIRST to prevent a WebSocket race condition
       if (!isNaN(rangeVal)) {
         await axios.put(`${API_BASE_URL}/calibration_sessions/${selectedSessionId}/configurations/`, {
-          amplifier_range: rangeVal,
+          amplifier_range: suitableAmpRange,
           ac_shunt_range: rangeVal
         });
       }
+
+      // 2. APPEND POINTS (This triggers the backend to send the WS sync message)
+      const response = await axios.post(`${API_BASE_URL}/calibration_sessions/${selectedSessionId}/test_points/append/`, { points: newPoints });
 
       notify(response.data?.message || "Test points generated and Amplifier range configured!", "success");
 
