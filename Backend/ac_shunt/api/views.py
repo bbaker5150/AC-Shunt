@@ -891,6 +891,9 @@ class TestPointViewSet(viewsets.ModelViewSet):
             test_point = self.get_queryset().get(pk=pk)
             
             with transaction.atomic():
+                test_point.is_stability_failed = False
+                test_point.save(update_fields=['is_stability_failed'])
+
                 if hasattr(test_point, 'results') and test_point.results is not None:
                     test_point.results.delete()
 

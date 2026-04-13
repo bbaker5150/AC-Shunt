@@ -457,7 +457,10 @@ function TestPointSidebar({
                     : point.reverse?.id)) ||
                 (isBulkRunning && bulkRunProgress.pointKey === point.key);
 
-              const isFailed = failedTPKeys.has(point.key);
+              const isFailed = 
+                failedTPKeys.has(point.key) || 
+                point.forward?.is_stability_failed === true || 
+                point.reverse?.is_stability_failed === true;
 
               return (
                 <SortableTestPointItem

@@ -97,6 +97,7 @@ class TestPoint(models.Model):
     frequency = models.IntegerField()
     direction = models.CharField(max_length=10, choices=DIRECTION_CHOICES, default='Forward')
     order = models.IntegerField(default=0, help_text="Custom sort order for the test point pair")
+    is_stability_failed = models.BooleanField(default=False)
 
     def __str__(self):
         return f"ID: {self.id} | {self.direction} | Current: {self.current}, Frequency: {self.frequency}"

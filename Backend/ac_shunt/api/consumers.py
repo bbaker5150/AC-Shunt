@@ -395,6 +395,10 @@ class CalibrationConsumer(AsyncWebsocketConsumer):
             await self.send(text_data=json.dumps({'type': 'status_update', 'message': f"Settling for {settling_time}s..."}))
             await asyncio.sleep(settling_time)
 
+        tp_id = test_point_data.get('id')
+        if tp_id:
+            await self.set_test_point_failed_status(tp_id, False)
+
         # Stability Logic Setup
         stability_method = measurement_params.get('stability_check_method', 'sliding_window')
         max_retries = measurement_params.get('max_attempts', 50)
@@ -433,6 +437,9 @@ class CalibrationConsumer(AsyncWebsocketConsumer):
             if instability_events >= max_retries:
                 # Generate the exact key used by the frontend
                 tp_key = f"{test_point_data.get('current')}-{test_point_data.get('frequency')}"
+                
+                if tp_id:
+                    await self.set_test_point_failed_status(tp_id, True)
                 
                 await self.send(text_data=json.dumps({
                     'type': 'warning',
@@ -1020,6 +1027,17 @@ class CalibrationConsumer(AsyncWebsocketConsumer):
             readings.update_related_results()
         except Exception as e:
             print(f"Error saving readings to DB: {e}")
+    
+    @database_sync_to_async
+    def set_test_point_failed_status(self, test_point_id, status: bool):
+        if not test_point_id: 
+            return
+        try:
+            tp = TestPoint.objects.get(pk=test_point_id)
+            tp.is_stability_failed = status
+            tp.save(update_fields=['is_stability_failed'])
+        except TestPoint.DoesNotExist:
+            pass
 
 
 class SwitchDriverConsumer(AsyncWebsocketConsumer):
