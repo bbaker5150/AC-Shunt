@@ -245,6 +245,10 @@ function AppContent() {
     point: null,
   });
 
+  useEffect(() => {
+    setSelectedTPs(new Set());
+  }, [selectedSessionId]);
+
   const showNotification = useCallback(
     (message, type = "info", duration = 4000) => {
       const newKey = Date.now();

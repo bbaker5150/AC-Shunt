@@ -87,7 +87,7 @@ function SessionManager({
     setSelectedSessionName,
     setStdInstrumentAddress, setStdReaderModel, setStdReaderSN, setTiInstrumentAddress, setTiReaderModel, setTiReaderSN,
     setAcSourceAddress, setAcSourceSN, setDcSourceAddress, setDcSourceSN, setSwitchDriverAddress, setSwitchDriverModel, setSwitchDriverSN,
-    setAmplifierAddress, setAmplifierSN, setStandardTvcSn, setTestTvcSn, setStandardInstrumentSerial, setTestInstrumentSerial,
+    setAmplifierAddress, setAmplifierSN, setStandardTvcSn, setTestTvcSn, setStandardInstrumentSerial, setTestInstrumentSerial, setFailedTPKeys
   } = useInstruments();
 
   const [isModalOpen, setIsModalOpen] = useState(false);
@@ -100,12 +100,14 @@ function SessionManager({
     setAcSourceAddress(null); setAcSourceSN(null); setDcSourceAddress(null); setDcSourceSN(null); setSwitchDriverAddress(null); setSwitchDriverModel(null); setSwitchDriverSN(null);
     setAmplifierAddress(null); setAmplifierSN(null); setStandardTvcSn(null); setTestTvcSn(null);
     setStandardInstrumentSerial(null); setTestInstrumentSerial(null);
+    setFailedTPKeys(new Set());
   };
 
   const handleSessionSelectChange = (sessionId) => {
     const session = sessionsList.find((s) => s.id.toString() === sessionId.toString());
     setSelectedSessionId(sessionId || null);
     setSelectedSessionName(session ? session.session_name : "");
+    setFailedTPKeys(new Set());
 
     if (session) {
       setStdInstrumentAddress(session.standard_reader_address || null);

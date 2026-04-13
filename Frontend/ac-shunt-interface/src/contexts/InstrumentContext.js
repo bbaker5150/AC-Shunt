@@ -211,10 +211,14 @@ export const InstrumentContextProvider = ({ children }) => {
 
       if (data.type === "connection_sync") {
         console.log("Received connection sync. Status:", data);
-        setDataRefreshTrigger((prev) => prev + 1);
+        
         if (data.is_complete) {
+          // It's finished. Let the "collection_finished" block handle the final data refresh.
           setIsCollecting(false);
           setCollectionStatus("collection_finished");
+        } else {
+          // It's a mid-run sync. Trigger the UI to update.
+          setDataRefreshTrigger((prev) => prev + 1);
         }
         return;
       }
@@ -323,6 +327,7 @@ export const InstrumentContextProvider = ({ children }) => {
           readingKeyRef.current = "";
           setBulkRunProgress({ current: 0, total: 0, pointKey: null });
           setFocusedTPKey(null);
+          setDataRefreshTrigger((prev) => prev + 1);
         }
         setStabilizationStatus(null);
         setSlidingWindowStatus(null);

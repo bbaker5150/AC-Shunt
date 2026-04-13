@@ -60,36 +60,64 @@ print("="*50 + "\n")
 IS_BUILDING = 'PyInstaller' in sys.modules or os.environ.get('PYINSTALLER_BUILD') == '1'
 USE_MSSQL = False
 
+# Global driver variables to be used in DATABASES dictionary later
+active_driver = None
+trust_cert_flag = ""
+
 if not IS_BUILDING and all([MSSQL_USER, MSSQL_PASS, MSSQL_HOST, MSSQL_NAME]):
-    try:
-        # Constructing the connection string with driver-level timeout
-        conn_str = (
-            f"DRIVER={{ODBC Driver 18 for SQL Server}};"
-            f"SERVER={MSSQL_HOST};"
-            f"DATABASE={MSSQL_NAME};"
-            f"UID={MSSQL_USER};"
-            f"PWD={MSSQL_PASS};"
-            f"LoginTimeout=10;"
-            f"TrustServerCertificate=yes;" 
-        )
-        
-        print(f"DEBUG: Attempting pyodbc.connect with SERVER={MSSQL_HOST} (10s timeout)...")
-        # Diagnostic test connection
-        test_conn = pyodbc.connect(conn_str, timeout=10)
-        test_conn.close()
-        USE_MSSQL = True
-        print("SUCCESS: MSSQL Connection test passed.")
-    except Exception as e:
-        print(f"CRITICAL ERROR during MSSQL connection test:")
-        print(f"Error Type: {type(e).__name__}")
-        print(f"Error Details: {e}")
+    # Dynamically detect available ODBC drivers
+    available_drivers = pyodbc.drivers()
+    
+    if 'ODBC Driver 18 for SQL Server' in available_drivers:
+        active_driver = 'ODBC Driver 18 for SQL Server'
+        trust_cert_flag = "TrustServerCertificate=yes;"
+    elif 'ODBC Driver 17 for SQL Server' in available_drivers:
+        active_driver = 'ODBC Driver 17 for SQL Server'
+        trust_cert_flag = "" # Driver 17 doesn't strictly need it
+    
+    if active_driver:
+        try:
+            # Constructing the connection string dynamically based on the detected driver
+            conn_str = (
+                f"DRIVER={{{active_driver}}};"
+                f"SERVER={MSSQL_HOST};"
+                f"DATABASE={MSSQL_NAME};"
+                f"UID={MSSQL_USER};"
+                f"PWD={MSSQL_PASS};"
+                f"LoginTimeout=10;"
+                f"{trust_cert_flag}" 
+            )
+            
+            print(f"DEBUG: Attempting pyodbc.connect using {active_driver} to SERVER={MSSQL_HOST}...")
+            # Diagnostic test connection
+            test_conn = pyodbc.connect(conn_str, timeout=10)
+            test_conn.close()
+            USE_MSSQL = True
+            print("SUCCESS: MSSQL Connection test passed.")
+        except Exception as e:
+            print(f"CRITICAL ERROR during MSSQL connection test:")
+            print(f"Error Type: {type(e).__name__}")
+            print(f"Error Details: {e}")
+            print("Falling back to local SQLite database.")
+    else:
+        print("CRITICAL ERROR: Neither ODBC Driver 17 nor 18 found on this machine.")
         print("Falling back to local SQLite database.")
+
 elif IS_BUILDING:
     print("SKIPPING MSSQL: Build Process Detected.")
 else:
     print("SKIPPING MSSQL: Missing credentials files in Documents/Portal.")
 
 if USE_MSSQL:
+    db_options = {
+        'driver': active_driver,
+        'connection_timeout': 10,
+    }
+    
+    # Only append the extra parameter if we are using Driver 18
+    if trust_cert_flag:
+        db_options['extra_params'] = 'TrustServerCertificate=yes'
+
     DATABASES = {
         'default': {
             'ENGINE': 'mssql',
@@ -98,11 +126,7 @@ if USE_MSSQL:
             'PASSWORD': MSSQL_PASS,
             'HOST': MSSQL_HOST,
             'PORT': '',
-            'OPTIONS': {
-                'driver': 'ODBC Driver 18 for SQL Server',
-                'connection_timeout': 10,
-                'extra_params': 'TrustServerCertificate=yes',
-            },
+            'OPTIONS': db_options,
         }
     }
 else:

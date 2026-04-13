@@ -637,7 +637,7 @@ function Calibration({
       return;
     }
 
-    const reading_key = `${prefix}${readingType.key}_readings`; // Fixed key name
+    const reading_key = `${prefix}${readingType.key}_readings`; 
 
     const payload = {
       reading_key: reading_key,
@@ -652,19 +652,20 @@ function Calibration({
         payload
       );
       showNotification(`Readings ${payload.start_index}-${payload.end_index} marked as ${stabilityData.mark_as}. Averages recalculated.`, "success");
+      
+      setFailedTPKeys((prev) => {
+        const newSet = new Set(prev);
+        newSet.delete(focusedTP.key);
+        return newSet;
+      });
+
       await onDataUpdate();
     } catch (error) {
       const errorMsg = error.response?.data?.detail || "Failed to update reading stability.";
       showNotification(errorMsg, "error");
       console.error(error);
     }
-  }, [focusedTP, selectedSessionId, activeDirection, onDataUpdate, showNotification]);
-
-  useEffect(() => {
-    if (!isCollecting && !isBulkRunning) {
-      refreshComponentData();
-    }
-  }, [isCollecting, isBulkRunning, refreshComponentData, orderedTestPoints]);
+  }, [focusedTP, selectedSessionId, activeDirection, onDataUpdate, showNotification, setFailedTPKeys]);
 
   const parseStabilizationStatus = useCallback(
     (statusString) => {
@@ -1063,10 +1064,10 @@ function Calibration({
                 reversePayload
               ),
             ]);
-            showNotification(
-              `Saved Averaged δ UUT: ${averagePpmFormatted} PPM`,
-              "success"
-            );
+            // showNotification(
+            //   `Saved Averaged δ UUT: ${averagePpmFormatted} PPM`,
+            //   "success"
+            // );
             onDataUpdate();
           } catch (error) {
             showNotification("Error saving the averaged result.", "error");

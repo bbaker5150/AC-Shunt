@@ -539,6 +539,11 @@ class CalibrationConsumer(AsyncWebsocketConsumer):
         if final_std_readings and not self.stop_event.is_set():
             await self.save_readings_to_db(f"std_{reading_type_base}", final_std_readings, test_point_data)
             await self.save_readings_to_db(f"ti_{reading_type_base}", final_ti_readings, test_point_data)
+            await self.send(text_data=json.dumps({
+                'type': 'connection_sync',
+                'is_complete': False,
+                'message': f'{reading_type_base} stage data saved.'
+            }))
         
         return True
     
