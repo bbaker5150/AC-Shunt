@@ -64,12 +64,13 @@ if not IS_BUILDING and all([MSSQL_USER, MSSQL_PASS, MSSQL_HOST, MSSQL_NAME]):
     try:
         # Constructing the connection string with driver-level timeout
         conn_str = (
-            f"DRIVER={{ODBC Driver 17 for SQL Server}};"
+            f"DRIVER={{ODBC Driver 18 for SQL Server}};"
             f"SERVER={MSSQL_HOST};"
             f"DATABASE={MSSQL_NAME};"
             f"UID={MSSQL_USER};"
             f"PWD={MSSQL_PASS};"
-            f"LoginTimeout=10;" 
+            f"LoginTimeout=10;"
+            f"TrustServerCertificate=yes;" 
         )
         
         print(f"DEBUG: Attempting pyodbc.connect with SERVER={MSSQL_HOST} (10s timeout)...")
@@ -98,8 +99,9 @@ if USE_MSSQL:
             'HOST': MSSQL_HOST,
             'PORT': '',
             'OPTIONS': {
-                'driver': 'ODBC Driver 17 for SQL Server',
+                'driver': 'ODBC Driver 18 for SQL Server',
                 'connection_timeout': 10,
+                'extra_params': 'TrustServerCertificate=yes',
             },
         }
     }

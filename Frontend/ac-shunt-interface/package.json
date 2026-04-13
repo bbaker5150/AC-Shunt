@@ -16,6 +16,7 @@
     "bootstrap": "^5.3.7",
     "chart.js": "^4.4.9",
     "chartjs-plugin-zoom": "^2.2.0",
+    "concurrently": "^9.2.1",
     "is-electron": "^2.2.2",
     "react": "^19.1.0",
     "react-bootstrap": "^2.10.10",
@@ -84,5 +85,10 @@
     "transformIgnorePatterns": [
       "/node_modules/(?!axios)/"
     ]
+  },
+  "devDependencies": {
+    "cross-env": "^10.1.0",
+    "electron": "^41.2.0",
+    "wait-on": "^9.0.5"
   }
 }
