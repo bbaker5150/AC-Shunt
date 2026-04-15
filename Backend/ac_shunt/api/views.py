@@ -6,6 +6,7 @@ from rest_framework.decorators import api_view
 from rest_framework import viewsets, status
 from rest_framework.decorators import action
 from rest_framework.response import Response
+from django.conf import settings
 from django.db import transaction
 from django.core.exceptions import ObjectDoesNotExist
 import json
@@ -974,3 +975,19 @@ class TestPointViewSet(viewsets.ModelViewSet):
             "calibration_session_id": int(self.kwargs['session_pk']),
             "test_points": serializer.data
         })
+    
+@api_view(['GET'])
+def system_info(request):
+    """
+    Returns basic system information, such as the active database engine.
+    """
+    # Extract the database engine (e.g., 'sqlite3', 'postgresql')
+    db_engine = settings.DATABASES['default']['ENGINE'].split('.')[-1]
+    
+    # You can also fetch the database name if desired, though engine is usually safer
+    db_name = str(settings.DATABASES['default']['NAME'])
+    
+    return JsonResponse({
+        "database_type": db_engine,
+        "database_name": db_name
+    })

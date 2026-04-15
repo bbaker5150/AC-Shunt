@@ -1232,6 +1232,49 @@ body.dark-mode .premium-action-button-item:hover {
   color: #212529;
 }
 
+/* Update the header-right container to space out the items */
+.header-right {
+  display: flex;
+  justify-content: flex-end;
+  align-items: center;
+  gap: 20px; 
+}
+
+/* Styling for the new database indicator pill */
+.db-indicator-pill {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  background-color: var(--background-color);
+  border: 1px solid var(--border-color);
+  padding: 6px 14px;
+  border-radius: 20px;
+  font-size: 0.85rem;
+  font-weight: 500;
+  color: var(--text-color-muted);
+  transition: all 0.2s ease-in-out;
+}
+
+/* Adds a pulsing green dot for a "live" feel */
+.db-status-dot {
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  background-color: var(--success-color);
+  box-shadow: 0 0 0 rgba(40, 167, 69, 0.4);
+  animation: pulse-dot 2s infinite;
+}
+
+@keyframes pulse-dot {
+  0% { box-shadow: 0 0 0 0 rgba(40, 167, 69, 0.4); }
+  70% { box-shadow: 0 0 0 6px rgba(40, 167, 69, 0); }
+  100% { box-shadow: 0 0 0 0 rgba(40, 167, 69, 0); }
+}
+
+/* Dark mode override for the pill */
+body.dark-mode .db-indicator-pill {
+  background-color: var(--input-background);
+}
 
 /* --- Theme Switcher --- */
 .theme-switcher {

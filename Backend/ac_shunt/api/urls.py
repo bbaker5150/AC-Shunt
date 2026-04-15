@@ -1,7 +1,7 @@
 # api/urls.py
 from django.urls import path, include
 from rest_framework_nested import routers
-from .views import MessageViewSet, ShuntViewSet, TVCViewSet, CalibrationSessionViewSet, TestPointViewSet, discover_instruments
+from .views import MessageViewSet, ShuntViewSet, TVCViewSet, CalibrationSessionViewSet, TestPointViewSet, discover_instruments, system_info
 
 router = routers.SimpleRouter()
 router.register(r'messages', MessageViewSet, basename='message')
@@ -17,9 +17,10 @@ urlpatterns = [
          TestPointViewSet.as_view({'post': 'clear_readings'}),
          name='testpoint-clear-readings'),
     
-    # The router includes can now remain in their original order.
+
+    path('system_info/', system_info, name='system_info'),
+    
     path('', include(router.urls)),
     path('', include(test_point_router.urls)),
-    
     path('instruments/discover/', discover_instruments, name='discover-instruments'),
 ]

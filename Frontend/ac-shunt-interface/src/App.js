@@ -39,9 +39,9 @@ const getShuntCorrectionForPoint = (point, shuntRangeInAmps, shuntsData) => {
     );
     return correction
       ? {
-          correction: correction.correction,
-          uncertainty: correction.uncertainty,
-        }
+        correction: correction.correction,
+        uncertainty: correction.uncertainty,
+      }
       : { correction: "N/A", uncertainty: "N/A" };
   }
   return { correction: "N/A", uncertainty: "N/A" };
@@ -244,6 +244,20 @@ function AppContent() {
     isOpen: false,
     point: null,
   });
+  const [dbInfo, setDbInfo] = useState(null);
+
+  useEffect(() => {
+    const fetchSystemInfo = async () => {
+      try {
+        const response = await axios.get(`${API_BASE_URL}/system_info/`);
+        setDbInfo(response.data);
+      } catch (error) {
+        console.error("Failed to fetch system info.", error);
+      }
+    };
+
+    fetchSystemInfo();
+  }, []);
 
   useEffect(() => {
     setSelectedTPs(new Set());
@@ -267,12 +281,12 @@ function AppContent() {
   const fetchSessionsList = useCallback(async () => {
     setIsLoadingSessions(true);
     try {
-        const response = await axios.get(`${API_BASE_URL}/calibration_sessions/`);
-        setSessionsList(response.data || []);
+      const response = await axios.get(`${API_BASE_URL}/calibration_sessions/`);
+      setSessionsList(response.data || []);
     } catch (error) {
-        showNotification('Failed to fetch sessions list.', 'error');
+      showNotification('Failed to fetch sessions list.', 'error');
     } finally {
-        setIsLoadingSessions(false);
+      setIsLoadingSessions(false);
     }
   }, [showNotification]);
 
@@ -458,12 +472,10 @@ function AppContent() {
     const hasReadingsCheck = pointsToDelete.some(hasAnyReadings);
 
     const message = hasReadingsCheck
-      ? `This test point has existing readings. Deleting it will permanently remove all associated data.\n\nAre you sure you want to delete ${
-          uniquePoint.current
-        }A @ ${formatFrequency(uniquePoint.frequency)}?`
-      : `Are you sure you want to delete the test point for ${
-          uniquePoint.current
-        }A @ ${formatFrequency(uniquePoint.frequency)}?`;
+      ? `This test point has existing readings. Deleting it will permanently remove all associated data.\n\nAre you sure you want to delete ${uniquePoint.current
+      }A @ ${formatFrequency(uniquePoint.frequency)}?`
+      : `Are you sure you want to delete the test point for ${uniquePoint.current
+      }A @ ${formatFrequency(uniquePoint.frequency)}?`;
 
     setDeleteConfirmationModal({
       isOpen: true,
@@ -526,11 +538,10 @@ function AppContent() {
       setClearConfirmationModal({
         isOpen: true,
         title: "Confirm Clear Readings",
-        message: `Are you sure you want to permanently delete all readings for ${
-          point.current
-        }A @ ${formatFrequency(
-          point.frequency
-        )} in the ${direction} direction?`,
+        message: `Are you sure you want to permanently delete all readings for ${point.current
+          }A @ ${formatFrequency(
+            point.frequency
+          )} in the ${direction} direction?`,
         onConfirm: () => handleClearReadings(pointForDirection.id, direction),
         onCancel: () => setClearConfirmationModal({ isOpen: false }),
       });
@@ -644,6 +655,14 @@ function AppContent() {
             <h1>AC Shunt Calibration</h1>
           </div>
           <div className="header-right">
+            {dbInfo && (
+              <div className="db-indicator-pill">
+                <span className="db-status-dot"></span>
+                <span className="db-name-text">
+                  {dbInfo.database_type === 'sqlite3' ? 'SQLite' : 'MSSQL'}
+                </span>
+              </div>
+            )}
             <div className="theme-switcher">
               <span>{theme === "light" ? "Light" : "Dark"} Mode</span>
               <label className="switch">
@@ -746,7 +765,7 @@ function AppContent() {
 
         <main className="main-content-area">
           {activeTab === "sessionSetup" && (
-            <SessionSetup 
+            <SessionSetup
               sessionsList={sessionsList}
               isLoadingSessions={isLoadingSessions}
               showNotification={showNotification}
