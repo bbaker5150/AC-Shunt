@@ -48,6 +48,22 @@ const READING_KEY_NAMES = [
   "ti_ac_close_readings",
 ];
 
+// Reusable MathDisplay Component for isolated MathJax rendering
+const MathDisplay = ({ math }) => {
+  const containerRef = useRef(null);
+
+  useEffect(() => {
+    if (window.MathJax && containerRef.current) {
+      window.MathJax.typesetClear([containerRef.current]);
+      window.MathJax.typesetPromise([containerRef.current]).catch((err) =>
+        console.error("MathJax typeset failed:", err)
+      );
+    }
+  }, [math]);
+
+  return <span ref={containerRef}>{math}</span>;
+};
+
 // Reusable Accordion Component
 const Accordion = ({ title, children, initialOpen = false }) => {
   const [isOpen, setIsOpen] = useState(initialOpen);
@@ -124,7 +140,9 @@ const FinalResultCard = ({ title, value, formula }) => {
           </span>
         </p>
         {formula && (
-          <span style={{ opacity: 0.7, fontSize: "0.9rem" }}>{formula}</span>
+          <span style={{ opacity: 0.7, fontSize: "0.9rem" }}>
+            <MathDisplay math={formula} />
+          </span>
         )}
       </div>
     </div>
@@ -262,14 +280,6 @@ function CalibrationResults({
   const [showCalcDetails, setShowCalcDetails] = useState(false);
   const [activeDirection, setActiveDirection] = useState("Forward");
   
-  useEffect(() => {
-    if (window.MathJax && (showCalcDetails || activeTab === "summary")) {
-      window.MathJax.typesetPromise?.().catch((err) =>
-        console.error("MathJax typeset failed:", err)
-      );
-    }
-  }, [showCalcDetails, calResults, activeTab, activeDirection]);
-
   // Refetch data when the WebSocket sends a 'connection_sync' signal
   useEffect(() => {
     if (onDataUpdate) {
@@ -723,24 +733,30 @@ function CalibrationResults({
         <p>
           <b>1. Full Formula:</b>
         </p>
-        <p>{mainFormula}</p>
+        <p>
+          <MathDisplay math={mainFormula} />
+        </p>
         <hr />
         <p>
           <b>2. Applied Values:</b>
         </p>
         <p style={{ overflowX: "auto", whiteSpace: "nowrap" }}>
-          {appliedValues}
+          <MathDisplay math={appliedValues} />
         </p>
         <hr />
         <p>
           <b>3. Intermediate Calculation:</b>
         </p>
-        <p>{intermediateBreakdown}</p>
+        <p>
+          <MathDisplay math={intermediateBreakdown} />
+        </p>
         <hr />
         <p>
           <b>4. Final Result:</b>
         </p>
-        <p>{finalResult}</p>
+        <p>
+          <MathDisplay math={finalResult} />
+        </p>
       </div>
     );
   };

@@ -394,11 +394,24 @@ function CorrectionsModal({ isOpen, onClose, showNotification, onUpdate, uniqueT
   }, [shuntsData]);
 
   const tvcOptions = useMemo(() => {
-    const uniqueSerials = [...new Set(tvcsData.map((t) => String(t.serial_number)))];
-    uniqueSerials.sort((a, b) => a - b);
-    return uniqueSerials.map((sn) => ({
-      value: sn,
-      label: sn,
+    const tvcMap = new Map();
+    tvcsData.forEach((tvc) => {
+      if (tvc.serial_number && !tvcMap.has(String(tvc.serial_number))) {
+        tvcMap.set(String(tvc.serial_number), {
+          serial_number: String(tvc.serial_number),
+          is_manual: tvc.is_manual,
+        });
+      }
+    });
+
+    // Sort alphanumerically
+    const uniqueTvcs = Array.from(tvcMap.values()).sort((a, b) =>
+      a.serial_number.localeCompare(b.serial_number)
+    );
+
+    return uniqueTvcs.map((tvc) => ({
+      value: tvc.serial_number,
+      label: tvc.is_manual ? `${tvc.serial_number} (Manual)` : tvc.serial_number,
     }));
   }, [tvcsData]);
 
@@ -655,7 +668,7 @@ function CorrectionsModal({ isOpen, onClose, showNotification, onUpdate, uniqueT
     ]);
 
     // Safely calculate the correct amplifier range based on current (matching ConfigurationModal logic)
-    let suitableAmpRange = rangeVal; 
+    let suitableAmpRange = rangeVal;
     if (typeof AMPLIFIER_RANGES_A !== 'undefined') {
       const foundRange = AMPLIFIER_RANGES_A.find((r) => currentVal <= r);
       if (foundRange !== undefined) suitableAmpRange = foundRange;
@@ -688,7 +701,7 @@ function CorrectionsModal({ isOpen, onClose, showNotification, onUpdate, uniqueT
 
   const renderShuntTable = () => {
     const { headers, rows } = pivotedShuntData;
-    
+
     if (isLoading && rows.length === 0) {
       return (
         <div className="corrections-table-container" style={{ minHeight: "300px", display: "flex", alignItems: "center", justifyContent: "center" }}>
@@ -696,7 +709,7 @@ function CorrectionsModal({ isOpen, onClose, showNotification, onUpdate, uniqueT
         </div>
       );
     }
-    
+
     if (rows.length === 0)
       return (
         <p className="placeholder-content">
@@ -751,7 +764,7 @@ function CorrectionsModal({ isOpen, onClose, showNotification, onUpdate, uniqueT
     const filteredTvc = tvcsData.find(
       (tvc) => String(tvc.serial_number) === String(serialNumber)
     );
-    
+
     if (isLoading && (!filteredTvc || !filteredTvc.corrections?.length)) {
       return (
         <div className="corrections-table-container" style={{ minHeight: "150px", display: "flex", alignItems: "center", justifyContent: "center" }}>
@@ -759,7 +772,7 @@ function CorrectionsModal({ isOpen, onClose, showNotification, onUpdate, uniqueT
         </div>
       );
     }
-    
+
     if (!filteredTvc?.corrections?.length) {
       return (
         <p className="placeholder-content">
@@ -767,7 +780,7 @@ function CorrectionsModal({ isOpen, onClose, showNotification, onUpdate, uniqueT
         </p>
       );
     }
-    
+
     const sortedCorrections = [...filteredTvc.corrections].sort(
       (a, b) => a.frequency - b.frequency
     );
@@ -1080,10 +1093,14 @@ function CorrectionsModal({ isOpen, onClose, showNotification, onUpdate, uniqueT
                       <CustomDropdown
                         key="shunt-dropdown"
                         label="Serial Number"
-                        options={uniqueShuntInfo.map((info) => ({
-                          value: info.serial_number,
-                          label: info.size ? `${info.serial_number} (${info.size})` : info.serial_number,
-                        }))}
+                        options={uniqueShuntInfo.map((info) => {
+                          let labelStr = info.size ? `${info.serial_number} (${info.size})` : info.serial_number;
+                          if (info.is_manual) labelStr += " (Manual)";
+                          return {
+                            value: info.serial_number,
+                            label: labelStr,
+                          };
+                        })}
                         value={selectedShuntSn}
                         onChange={setSelectedShuntSn}
                         placeholder="-- Select a Serial --"

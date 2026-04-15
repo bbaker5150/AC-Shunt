@@ -4441,6 +4441,11 @@ body.dark-mode .accordion-card:hover {
   box-shadow: 0 4px 12px rgba(0, 0, 0, 0.15);
 }
 
+body.dark-mode .accordion-content {
+  color: var(--text-color);
+  border-top-color: var(--border-color);
+}
+
 body.dark-mode .test-point-chip {
   background-color: var(--content-background);
   color: var(--text-color);
