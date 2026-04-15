@@ -367,6 +367,18 @@ export const InstrumentContextProvider = ({ children }) => {
     };
   }, [selectedSessionId, connectWebSocket]);
 
+  // --- Reset UI State on Session Change ---
+  useEffect(() => {
+    setCollectionStatus("");
+    setLastMessage(null);
+    setCollectionProgress({ count: 0, total: 0 });
+    setStabilizationStatus(null);
+    setSlidingWindowStatus(null);
+    setIsCollecting(false);
+    setTimerState({ isActive: false, duration: 0, label: "" });
+    setFailedTPKeys(new Set());
+  }, [selectedSessionId]);
+
   // --- Instrument Status & Control Logic ---
 
   const decodeInstrumentStatus = (model, isrString) => {

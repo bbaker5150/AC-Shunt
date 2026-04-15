@@ -892,12 +892,14 @@ class TestPointViewSet(viewsets.ModelViewSet):
             test_point = self.get_queryset().get(pk=pk)
             
             with transaction.atomic():
+                # 1. Reset the failure flag so the UI clears the red border
                 test_point.is_stability_failed = False
                 test_point.save(update_fields=['is_stability_failed'])
 
-                if hasattr(test_point, 'results') and test_point.results is not None:
-                    test_point.results.delete()
+                # 2. Safely delete results if they exist (avoids RelatedObjectDoesNotExist exception)
+                CalibrationResults.objects.filter(test_point=test_point).delete()
 
+                # 3. Clear all readings arrays
                 readings_instance = getattr(test_point, 'readings', None)
                 if readings_instance:
                     readings_instance.std_ac_open_readings = []

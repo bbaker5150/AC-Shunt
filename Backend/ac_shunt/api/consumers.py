@@ -216,6 +216,8 @@ class CalibrationConsumer(AsyncWebsocketConsumer):
             self.stop_event.set()
             if self.collection_task:
                 self.collection_task.cancel()
+            
+            await self.send(text_data=json.dumps({'type': 'collection_stopped', 'message': 'Collection stopped by user.'}))
             return
 
         if self.state == "BUSY":
@@ -648,7 +650,7 @@ class CalibrationConsumer(AsyncWebsocketConsumer):
                 await self.send(text_data=json.dumps({'type': 'error', 'message': 'Test point aborted due to stability limit.'}))
 
         except asyncio.CancelledError:
-            await self.send(text_data=json.dumps({'type': 'collection_stopped', 'message': 'Collection stopped by user.'}))
+            print(f"Collection task cancelled for session {self.session_id}.")
         except Exception as e:
             traceback.print_exc()
             await self.send(text_data=json.dumps({'type': 'error', 'message': f"An instrument error occurred: {e}"}))
@@ -668,9 +670,6 @@ class CalibrationConsumer(AsyncWebsocketConsumer):
             for inst in filter(None, {std_reader_instrument, ti_reader_instrument, amplifier_instrument, ac_source, dc_source}):
                 if hasattr(inst, 'close'):
                     await sync_to_async(inst.close, thread_sensitive=True)()
-
-            if self.stop_event.is_set():
-                await self.send(text_data=json.dumps({'type': 'collection_stopped', 'message': 'Collection stopped by user.'}))
 
     async def run_full_calibration_sequence(self, data):
         ac_source, dc_source, std_reader, ti_reader, amplifier = None, None, None, None, None
@@ -748,7 +747,7 @@ class CalibrationConsumer(AsyncWebsocketConsumer):
                 await self.send(text_data=json.dumps({'type': 'collection_finished', 'message': 'All readings complete.'}))
 
         except asyncio.CancelledError:
-            await self.send(text_data=json.dumps({'type': 'collection_stopped', 'message': 'Collection stopped by user.'}))
+            print(f"Collection task cancelled for session {self.session_id}.")
         except Exception as e:
             traceback.print_exc()
             await self.send(text_data=json.dumps({'type': 'error', 'message': f"An instrument error occurred: {e}"}))
@@ -762,8 +761,6 @@ class CalibrationConsumer(AsyncWebsocketConsumer):
             for inst in filter(None, {std_reader, ti_reader, amplifier, ac_source, dc_source}):
                 if hasattr(inst, 'close'):
                     await sync_to_async(inst.close, thread_sensitive=True)()
-            if self.stop_event.is_set():
-                await self.send(text_data=json.dumps({'type': 'collection_stopped', 'message': 'Collection stopped by user.'}))
 
     async def run_full_calibration_batch(self, data):
         ac_source, dc_source, std_reader, ti_reader, amplifier, switch_driver = None, None, None, None, None, None
@@ -872,7 +869,7 @@ class CalibrationConsumer(AsyncWebsocketConsumer):
                 await self.send(text_data=json.dumps({'type': 'collection_finished', 'message': 'Batch calibration complete.'}))
 
         except asyncio.CancelledError:
-            await self.send(text_data=json.dumps({'type': 'collection_stopped', 'message': 'Batch collection stopped by user.'}))
+            print(f"Collection task cancelled for session {self.session_id}.")
         except Exception as e:
             traceback.print_exc()
             await self.send(text_data=json.dumps({'type': 'error', 'message': f"An instrument error occurred during batch run: {e}"}))
@@ -891,9 +888,6 @@ class CalibrationConsumer(AsyncWebsocketConsumer):
             for inst in filter(None, {std_reader, ti_reader, amplifier, ac_source, dc_source}):
                 if hasattr(inst, 'close'):
                     await sync_to_async(inst.close, thread_sensitive=True)()
-            
-            if self.stop_event.is_set():
-                await self.send(text_data=json.dumps({'type': 'collection_stopped', 'message': 'Batch collection stopped by user.'}))
 
     async def run_single_stage_batch(self, data):
         ac_source, dc_source, std_reader, ti_reader, amplifier = None, None, None, None, None
@@ -992,7 +986,7 @@ class CalibrationConsumer(AsyncWebsocketConsumer):
                 await self.send(text_data=json.dumps({'type': 'collection_finished', 'message': 'Batch readings complete.'}))
 
         except asyncio.CancelledError:
-            await self.send(text_data=json.dumps({'type': 'collection_stopped', 'message': 'Batch collection stopped by user.'}))
+            print(f"Collection task cancelled for session {self.session_id}.")
         except Exception as e:
             traceback.print_exc()
             await self.send(text_data=json.dumps({'type': 'error', 'message': f"An instrument error occurred during batch run: {e}"}))
@@ -1011,8 +1005,6 @@ class CalibrationConsumer(AsyncWebsocketConsumer):
             for inst in filter(None, {std_reader, ti_reader, amplifier, ac_source, dc_source}):
                 if hasattr(inst, 'close'):
                     await sync_to_async(inst.close, thread_sensitive=True)()
-            if self.stop_event.is_set():
-                await self.send(text_data=json.dumps({'type': 'collection_stopped', 'message': 'Batch collection stopped by user.'}))
 
     @database_sync_to_async
     def save_readings_to_db(self, reading_type_full, readings_list, test_point):
