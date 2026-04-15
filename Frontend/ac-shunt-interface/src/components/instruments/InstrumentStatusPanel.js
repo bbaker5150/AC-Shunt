@@ -218,7 +218,7 @@ function InstrumentStatusPanel({ showNotification }) {
                 }
             });
 
-            showNotification(`Scan complete. Found ${instruments.length} instrument(s).`, 'success');
+            showNotification(`Scan complete. Found ${instruments.length - 1} instrument(s).`, 'success');
         } catch (error) {
             showNotification('Failed to scan for instruments.', 'error');
         } finally {
