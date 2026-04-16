@@ -379,6 +379,7 @@ class CalibrationConsumer(AsyncWebsocketConsumer):
         if 'neg' in reading_type_base: voltage = -voltage
         
         config_voltage, frequency = abs(voltage), float(test_point_data.get('frequency', 0)) if is_ac_reading else 0
+        ignore_after_lock = measurement_params.get('ignore_instability_after_lock', False)
 
         # Instrument Configuration (Standard and TI)
         for instrument in [std_reader_instrument, ti_reader_instrument]:
@@ -489,7 +490,8 @@ class CalibrationConsumer(AsyncWebsocketConsumer):
                     else:
                         # COLLECTION PHASE: Monitor but keep all samples
                         if not is_currently_stable:
-                            instability_events += 1
+                            if not ignore_after_lock:
+                                instability_events += 1
                         final_std_readings.append(std_point)
                         final_ti_readings.append(ti_point)
 

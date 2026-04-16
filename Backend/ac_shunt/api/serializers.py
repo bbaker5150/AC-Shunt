@@ -203,6 +203,7 @@ class CalibrationSettingsSerializer(serializers.ModelSerializer):
             'stability_max_attempts',
             'iqr_filter_enabled',
             'iqr_filter_ppm_threshold',
+            'ignore_instability_after_lock',
         ]
 
 class FormattedReadingsField(serializers.Field):

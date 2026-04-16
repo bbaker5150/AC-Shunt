@@ -290,6 +290,7 @@ function Calibration({
     stability_threshold_ppm: 10,
     stability_max_attempts: 10,
     iqr_filter_ppm_threshold: 15,
+    ignore_instability_after_lock: false,
   });
   const [correctionInputs, setCorrectionInputs] = useState({
     eta_std: "",
@@ -963,6 +964,7 @@ function Calibration({
       stability_threshold_ppm: 10,
       stability_max_attempts: 10,
       iqr_filter_ppm_threshold: 15,
+      ignore_instability_after_lock: false,
     };
 
     setHistoricalReadings(initialLiveReadings);
@@ -1433,6 +1435,7 @@ function Calibration({
           threshold_ppm: parseFloat(runSettings.stability_threshold_ppm),
           max_attempts: parseInt(runSettings.stability_max_attempts, 10),
           ppm_threshold: parseFloat(runSettings.iqr_filter_ppm_threshold),
+          ignore_instability_after_lock: runSettings.ignore_instability_after_lock || false,
         },
         test_point: {
           current: testPointToRun.current,
@@ -1537,6 +1540,7 @@ function Calibration({
           threshold_ppm: parseFloat(firstPointSettings.stability_threshold_ppm),
           max_attempts: parseInt(firstPointSettings.stability_max_attempts, 10),
           ppm_threshold: parseFloat(firstPointSettings.iqr_filter_ppm_threshold),
+          ignore_instability_after_lock: firstPointSettings.ignore_instability_after_lock || false,
         },
         std_reader_model: stdReaderModel,
         ti_reader_model: tiReaderModel,
@@ -1741,6 +1745,7 @@ function Calibration({
           threshold_ppm: parseFloat(firstPointSettings.stability_threshold_ppm),
           max_attempts: parseInt(firstPointSettings.stability_max_attempts, 10),
           ppm_threshold: parseFloat(firstPointSettings.iqr_filter_ppm_threshold),
+          ignore_instability_after_lock: firstPointSettings.ignore_instability_after_lock || false,
         },
         std_reader_model: stdReaderModel,
         ti_reader_model: tiReaderModel,
@@ -1857,6 +1862,7 @@ function Calibration({
       stability_max_attempts:
         parseInt(calibrationSettings.stability_max_attempts, 10) || 50,
       iqr_filter_ppm_threshold: parseFloat(calibrationSettings.iqr_filter_ppm_threshold) || 15,
+      ignore_instability_after_lock: calibrationSettings.ignore_instability_after_lock || false,
     };
 
     let pointToUpdate =
@@ -1916,6 +1922,7 @@ function Calibration({
         stability_max_attempts:
           parseInt(calibrationSettings.stability_max_attempts, 10) || 50,
         iqr_filter_ppm_threshold: parseFloat(calibrationSettings.iqr_filter_ppm_threshold) || 15,
+        ignore_instability_after_lock: calibrationSettings.ignore_instability_after_lock || false,
       };
 
       try {
@@ -2533,6 +2540,22 @@ function Calibration({
                                     }
                                   />
                                 </div>
+                                <div className="form-section checkbox-section" style={{ display: 'flex', alignItems: 'flex-end', paddingBottom: '10px' }}>
+                                <label style={{ display: 'flex', alignItems: 'center', gap: '10px', cursor: 'pointer', fontWeight: 'normal' }}>
+                                  <input
+                                    type="checkbox"
+                                    style={{ width: 'auto', margin: 0 }}
+                                    checked={calibrationSettings.ignore_instability_after_lock || false}
+                                    onChange={(e) =>
+                                      setCalibrationSettings((prev) => ({
+                                        ...prev,
+                                        ignore_instability_after_lock: e.target.checked,
+                                      }))
+                                    }
+                                  />
+                                  Bypass Stability Attempts (Post Initial)
+                                </label>
+                              </div>
                               </>
                             )}
 

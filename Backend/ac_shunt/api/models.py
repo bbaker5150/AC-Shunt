@@ -159,6 +159,7 @@ class CalibrationSettings(models.Model):
     stability_max_attempts = models.IntegerField(default=10, null=True, blank=True)
     iqr_filter_enabled = models.BooleanField(default=False)
     iqr_filter_ppm_threshold = models.FloatField(default=15.0, null=True, blank=True)
+    ignore_instability_after_lock = models.BooleanField(default=False)
 
 class CalibrationReadings(models.Model):
 
