@@ -245,7 +245,7 @@ class TestPointSerializer(serializers.ModelSerializer):
     results = CalibrationResultsSerializer(required=False)
     class Meta:
         model = TestPoint
-        fields = ['id', 'current', 'frequency', 'direction', 'settings', 'readings', 'results']
+        fields = ['id', 'current', 'frequency', 'direction', 'is_stability_failed', 'settings', 'readings', 'results']
     
     def update(self, instance, validated_data):
         settings_data = validated_data.pop('settings', None)

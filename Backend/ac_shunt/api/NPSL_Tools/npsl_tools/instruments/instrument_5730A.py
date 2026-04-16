@@ -80,6 +80,15 @@ class Instrument5730A(FlukeInstrument):
     def enter_wb_cal(self):
         """Set the 5730A to the wideband calibration setting"""
         self.resource.write("WBAND ON")
+    
+    def set_ac_transfer(self, enabled: bool):
+        """Enable or disable AC transfer mode on the 5730A.
+        
+        Args:
+            enabled : bool
+                If `True`, enables XFER mode. `False` to turn it off.
+        """
+        self.resource.write(f"XFER {'ON' if enabled else 'OFF'}")
 
     def run_zero_cal(self):
         """Performs internal zeros calibration (CAL_ZERO) without locking the VISA bus."""

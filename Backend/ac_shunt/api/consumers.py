@@ -335,7 +335,12 @@ class CalibrationConsumer(AsyncWebsocketConsumer):
 
         if ac_source:
             frequency = float(config_point.get('frequency', 0))
+            # Set initial voltage and frequency while in standby
             await sync_to_async(ac_source.set_output, thread_sensitive=True)(voltage=voltage, frequency=frequency)
+            
+            # ---> Send the XFER command immediately after configuring the AC source <---
+            if hasattr(ac_source, 'set_ac_transfer'):
+                await sync_to_async(ac_source.set_ac_transfer, thread_sensitive=True)(enabled=False)
         
         if dc_source:
             await sync_to_async(dc_source.set_output, thread_sensitive=True)(voltage=voltage, frequency=0)
