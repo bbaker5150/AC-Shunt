@@ -1112,6 +1112,10 @@ body.dark-mode .premium-action-button-item:hover {
 
 .modal-close-button:hover {
   opacity: 1;
+  background-color: transparent;
+  box-shadow: none;
+  transform: none;
+  color: #dc3545;
 }
 
 .reset-modal-content {
@@ -1192,7 +1196,7 @@ body.dark-mode .premium-action-button-item:hover {
   position: fixed;
   bottom: 20px;
   right: 20px;
-  z-index: 1000;
+  z-index: 9999;
   min-width: 300px;
   box-shadow: 0 2px 10px rgba(0, 0, 0, 0.2);
 }
@@ -1539,8 +1543,17 @@ input:checked+.slider:before {
   margin-bottom: -1px;
 }
 
+.tab-button-modal:hover {
+  background-color: transparent;
+  transform: none;
+  box-shadow: none;
+}
+
 .tab-button-modal:hover:not(.active) {
   color: var(--text-color);
+  background-color: transparent;
+  transform: none;
+  box-shadow: none;
 }
 
 .tab-button-modal.active {

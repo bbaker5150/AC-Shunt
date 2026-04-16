@@ -18,6 +18,7 @@ import {
   FaStream,
   FaSave,
   FaChevronDown,
+  FaCloudDownloadAlt,
 } from "react-icons/fa";
 import { LuSaveAll } from "react-icons/lu";
 import { useInstruments } from "../../contexts/InstrumentContext";
@@ -58,18 +59,23 @@ const CorrectionFactorsModal = ({
             display: "flex",
             justifyContent: "space-between",
             alignItems: "center",
+            borderBottom: "1px solid var(--border-color)",
+            paddingBottom: "10px",
+            marginBottom: "20px"
           }}
         >
-          <h3>Correction Factor Inputs</h3>
+          <h3 style={{ margin: 0 }}>Correction Factor Inputs</h3>
           <button
             onClick={onClose}
             className="modal-close-button"
             style={{ position: "static" }}
+            title="Close"
           >
             <FaTimes />
           </button>
         </div>
-        <p>
+        
+        <p style={{ marginBottom: "20px" }}>
           Enter known correction factors. These will be applied to all completed
           directions.
         </p>
@@ -139,26 +145,24 @@ const CorrectionFactorsModal = ({
           </div>
         </div>
 
-        <div className="modal-actions">
+        <div className="form-section-action-icons" style={{ marginTop: "20px" }}>
           <button
             type="button"
             onClick={onGetCorrection}
-            className="button button-secondary"
+            className="sidebar-action-button"
+            title="Fetch Corrections from Database"
           >
-            Fetch Corrections
+            <FaCloudDownloadAlt />
           </button>
-          <div className="modal-actions-right">
-            <button onClick={onClose} className="button button-secondary">
-              Cancel
-            </button>
-            <button
-              onClick={() => onSubmit(initialValues)}
-              className="button button-primary"
-              disabled={!isFormValid}
-            >
-              Calculate & Save
-            </button>
-          </div>
+          <button
+            type="button"
+            onClick={() => onSubmit(initialValues)}
+            className="sidebar-action-button"
+            disabled={!isFormValid}
+            title="Calculate & Save"
+          >
+            <FaSave />
+          </button>
         </div>
       </div>
     </div>

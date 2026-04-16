@@ -5,7 +5,7 @@
 import React, { useState, useEffect, useMemo } from 'react';
 import axios from 'axios';
 import { useInstruments } from '../../contexts/InstrumentContext';
-import { FaSave, FaUndo, FaTimes } from 'react-icons/fa';
+import { FaSave, FaUndo, FaTimes, FaSearch, FaSync, FaEdit } from 'react-icons/fa';
 
 const API_BASE_URL = process.env.REACT_APP_API_BASE_URL;
 const ASSIGNABLE_MODELS = ['34420A', '3458A', '5790B'];
@@ -341,17 +341,23 @@ function InstrumentStatusPanel({ showNotification }) {
             <div className="instrument-status-header">
                 <h2>Instrument Status Overview</h2>
                 <div className="header-buttons" style={{ display: 'flex', gap: '10px' }}>
-                    <button type="button" onClick={handleScanInstruments} className="button button-icon" disabled={isScanning}>
-                        &#128269; {isScanning ? 'Scanning...' : 'Scan for Instruments'}
+                    <button 
+                        type="button" 
+                        onClick={handleScanInstruments} 
+                        className="sidebar-action-button" 
+                        disabled={isScanning}
+                        title={isScanning ? "Scanning..." : "Scan for Instruments"}
+                    >
+                        <FaSearch />
                     </button>
                     <button
                         type="button"
                         onClick={handleInitializeInstruments}
-                        className="button button-icon button-secondary"
+                        className="sidebar-action-button"
                         disabled={isInitializing || !selectedSessionId || !hasAssignedInstruments}
-                        title="Send initialization commands to all assigned instruments"
+                        title={isInitializing ? "Initializing..." : "Initialize assigned instruments"}
                     >
-                        💡 {isInitializing ? 'Initializing...' : 'Initialize Instruments'}
+                        <FaSync />
                     </button>
                 </div>
             </div>
@@ -366,37 +372,48 @@ function InstrumentStatusPanel({ showNotification }) {
 
             {workstations.length > 0 && (
                 <div className="workstation-controls">
-                    <div className="form-section" style={{ flexGrow: 1, margin: 0, minWidth: '250px' }}>
+                    <div className="form-section" style={{ flexGrow: 1, margin: 0, maxWidth: '900px' }}>
                         <label htmlFor="workstation-select">Active Workstation</label>
-                        <select
-                            id="workstation-select"
-                            value={activeWorkstationIp}
-                            onChange={(e) => setActiveWorkstationIp(e.target.value)}
-                        >
-                            {workstations.map(({ ip, name, instruments }) => (
-                                <option key={ip} value={ip}>{`${name} (${instruments.length} instruments)`}</option>
-                            ))}
-                        </select>
-                    </div>
-                    <div className="workstation-editor">
-                        {editingIp === activeWorkstationIp ? (
-                            <>
-                                <input type="text" value={editingName} onChange={e => setEditingName(e.target.value)} placeholder="Enter new name..." />
-                                <button className="button button-small" onClick={handleSaveName}>
-                                    <FaSave /> Save
-                                </button>
-                                <button className="button button-secondary button-small" onClick={handleResetName}>
-                                    <FaUndo /> Reset
-                                </button>
-                                <button className="button button-secondary button-small" onClick={() => setEditingIp(null)}>
-                                    <FaTimes /> Cancel
-                                </button>
-                            </>
-                        ) : (
-                            <button  onClick={handleEditName} disabled={!activeWorkstationIp}>
-                                ✏️ Rename Workstation
-                            </button>
-                        )}
+                        <div style={{ display: 'flex', alignItems: 'center', gap: '15px' }}>
+                            <select
+                                id="workstation-select"
+                                value={activeWorkstationIp}
+                                onChange={(e) => setActiveWorkstationIp(e.target.value)}
+                                style={{ margin: 0, flexGrow: 1, maxWidth: '350px' }}
+                                disabled={editingIp === activeWorkstationIp}
+                            >
+                                {workstations.map(({ ip, name, instruments }) => (
+                                    <option key={ip} value={ip}>{`${name} (${instruments.length} instruments)`}</option>
+                                ))}
+                            </select>
+                            
+                            <div className="workstation-editor" style={{ margin: 0 }}>
+                                {editingIp === activeWorkstationIp ? (
+                                    <>
+                                        <input 
+                                            type="text" 
+                                            value={editingName} 
+                                            onChange={e => setEditingName(e.target.value)} 
+                                            placeholder="Enter new name..." 
+                                            style={{ margin: 0, width: '220px' }} 
+                                        />
+                                        <button className="sidebar-action-button" onClick={handleSaveName} title="Save Workstation Name">
+                                            <FaSave />
+                                        </button>
+                                        <button className="sidebar-action-button" onClick={handleResetName} title="Reset Workstation Name">
+                                            <FaUndo />
+                                        </button>
+                                        <button className="sidebar-action-button" onClick={() => setEditingIp(null)} title="Cancel">
+                                            <FaTimes />
+                                        </button>
+                                    </>
+                                ) : (
+                                    <button className="sidebar-action-button" onClick={handleEditName} disabled={!activeWorkstationIp} title="Rename Workstation">
+                                        <FaEdit />
+                                    </button>
+                                )}
+                            </div>
+                        </div>
                     </div>
                 </div>
             )}
