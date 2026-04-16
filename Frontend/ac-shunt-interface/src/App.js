@@ -650,11 +650,6 @@ function AppContent() {
                 </span>
               </div>
             )}
-          </div>
-          <div className="header-center">
-            <h1>AC Shunt Calibration</h1>
-          </div>
-          <div className="header-right">
             {dbInfo && (
               <div className="db-indicator-pill">
                 <span className="db-status-dot"></span>
@@ -663,6 +658,11 @@ function AppContent() {
                 </span>
               </div>
             )}
+          </div>
+          <div className="header-center">
+            <h1>AC Shunt Calibration</h1>
+          </div>
+          <div className="header-right">
             <div className="theme-switcher">
               <span>{theme === "light" ? "Light" : "Dark"} Mode</span>
               <label className="switch">
