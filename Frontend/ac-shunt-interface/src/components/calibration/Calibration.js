@@ -931,6 +931,39 @@ function Calibration({
     return [stdCorrection, testCorrection];
   }, [focusedTP, tvcsData, standardTvcSerial, testTvcSerial]);
 
+  const getTVCGain = useCallback(() => {
+    if (!focusedTP || tvcsData.length === 0) return [null, null];
+    
+    const targetFreq = parseFloat(focusedTP.frequency);
+    const targetCurrent = parseFloat(focusedTP.current);
+
+    const findGainForSerial = (serial) => {
+      if (!serial) return null;
+      const relevantTvc = tvcsData.find(
+        (t) => String(t.serial_number) === String(serial)
+      );
+      if (
+        !relevantTvc ||
+        !Array.isArray(relevantTvc.sensitivities) ||
+        relevantTvc.sensitivities.length === 0
+      ) {
+        return null;
+      }
+      
+      // Look for an exact match on Current and Frequency
+      const exactMatch = relevantTvc.sensitivities.find(
+        (s) => parseFloat(s.frequency) === targetFreq && parseFloat(s.current) === targetCurrent
+      );
+      
+      return exactMatch ? exactMatch.gain_eta : null;
+    };
+
+    const stdGain = findGainForSerial(standardTvcSerial);
+    const testGain = findGainForSerial(testTvcSerial);
+    
+    return [stdGain, testGain];
+  }, [focusedTP, tvcsData, standardTvcSerial, testTvcSerial]);
+
   useEffect(() => {
     const formatReadingsForChart = (readingsArray) => {
       if (!readingsArray) return [];
@@ -1281,10 +1314,11 @@ function Calibration({
       if (isReadyForAutoCalc) {
         const [stdTVC, tiTVC] = getTVCCorrection();
         const shuntCorrection = getShuntCorrection();
+        const [stdGain, tiGain] = getTVCGain();
 
         const autoCorrectionInputs = {
-          eta_std: focusedTP.forward?.results?.eta_std || "1",
-          eta_ti: focusedTP.forward?.results?.eta_ti || "1",
+          eta_std: focusedTP.forward?.results?.eta_std || (stdGain !== null ? String(stdGain) : "1"),
+          eta_ti: focusedTP.forward?.results?.eta_ti || (tiGain !== null ? String(tiGain) : "1"),
           delta_std: stdTVC !== null ? String(stdTVC) : "0",
           delta_ti: tiTVC !== null ? String(tiTVC) : "0",
           delta_std_known:
@@ -1308,6 +1342,7 @@ function Calibration({
     getShuntCorrection,
     performFinalCalculation,
     showNotification,
+    getTVCGain
   ]);
 
   const handleOpenCorrectionModal = () => {
@@ -1315,10 +1350,11 @@ function Calibration({
     const existingResults = primaryPoint?.results || {};
     const tvcCorrection = getTVCCorrection();
     const shuntCorrection = getShuntCorrection();
+    const [stdGain, tiGain] = getTVCGain();
 
     setCorrectionInputs({
-      eta_std: existingResults.eta_std || "1",
-      eta_ti: existingResults.eta_ti || "1",
+      eta_std: existingResults.eta_std || (stdGain !== null ? String(stdGain) : "1"),
+      eta_ti: existingResults.eta_ti || (tiGain !== null ? String(tiGain) : "1"),
       delta_std:
         existingResults.delta_std !== undefined
           ? existingResults.delta_std
@@ -1345,6 +1381,7 @@ function Calibration({
   const handleGetCorrection = () => {
     const [stdTVC, tiTVC] = getTVCCorrection();
     const shuntCorrection = getShuntCorrection();
+    const [stdGain, tiGain] = getTVCGain();
 
     const updatedFieldDetails = [];
     if (stdTVC !== null)
@@ -1365,6 +1402,8 @@ function Calibration({
         delta_std: stdTVC ?? prev.delta_std,
         delta_ti: tiTVC ?? prev.delta_ti,
         delta_std_known: shuntCorrection ?? prev.delta_std_known,
+        eta_std: stdGain ?? prev.eta_std,
+        eta_ti: tiGain ?? prev.eta_ti,
       }));
 
       const successMessage = `Successfully updated: ${updatedFieldDetails.join(
@@ -1500,6 +1539,7 @@ function Calibration({
     setFailedTPKeys(new Set());
 
     const runBatchSequence = () => {
+      setActiveChartView("calibration");
       const pointsToRunData = orderedTestPoints
         .filter((p) => selectedTPs.has(p.key))
         .map((p) => {
@@ -1642,6 +1682,7 @@ function Calibration({
   const handleCollectReadingsRequest = useCallback(
     (baseReadingKey) => {
       const run = () => {
+        setActiveChartView("calibration");
         setFailedTPKeys(new Set());
         setLastCollectionDirection(activeDirection);
         runMeasurement(focusedTP, "single", baseReadingKey)
@@ -1698,6 +1739,7 @@ function Calibration({
 
   const handleCharacterizationRequest = useCallback(async (target_tvc = "BOTH") => {
     if (!focusedTP) return;
+    setActiveChartView("characterization");
 
     // 1. Initialize the point in the DB if it hasn't been run before
     let pointData = activeDirection === "Forward" ? focusedTP.forward : focusedTP.reverse;
@@ -1788,7 +1830,7 @@ function Calibration({
         showNotification("No test points selected for batch run.", "warning");
         return;
       }
-
+      setActiveChartView("calibration");
       setFailedTPKeys(new Set());
 
       const pointsToRunData = orderedTestPoints
@@ -2733,22 +2775,6 @@ function Calibration({
                     {activeTab === "readings" && (
                       <>
                         {/* --- RUN BUTTONS MOVED TO STATUS BAR --- */}
-
-                        <div style={{ display: "flex", justifyContent: "center", gap: "10px", marginBottom: "20px", marginTop: "10px" }}>
-                          <button 
-                            className={`button ${activeChartView === "calibration" ? "button-primary" : "button-secondary"}`}
-                            onClick={() => setActiveChartView("calibration")}
-                          >
-                            View Calibration Data
-                          </button>
-                          <button 
-                            className={`button ${activeChartView === "characterization" ? "button-primary" : "button-secondary"}`}
-                            onClick={() => setActiveChartView("characterization")}
-                          >
-                            View Characterization Data
-                          </button>
-                        </div>
-                        {/* Chart and Stats sections remain */}
                         {showStdChart && (
                           <div className="chart-container">
                             <CalibrationChart
@@ -2761,6 +2787,8 @@ function Calibration({
                               comparisonData={tiChartData.datasets}
                               instrumentType="std"
                               onMarkStability={handleMarkStability}
+                              activeChartView={activeChartView}
+                              setActiveChartView={setActiveChartView}
                             />
                             <LiveStatisticsTracker
                               title="Standard Instrument Statistics"
@@ -2786,6 +2814,8 @@ function Calibration({
                               comparisonData={stdChartData.datasets}
                               instrumentType="ti"
                               onMarkStability={handleMarkStability}
+                              activeChartView={activeChartView}
+                              setActiveChartView={setActiveChartView}
                             />
                             <LiveStatisticsTracker
                               title="Test Instrument Statistics"

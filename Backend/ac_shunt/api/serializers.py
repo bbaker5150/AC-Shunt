@@ -1,7 +1,7 @@
 import re
 from rest_framework import serializers
 from .models import (
-    Message, Shunt, ShuntCorrection, TVC, TVCCorrection, 
+    Message, Shunt, ShuntCorrection, TVC, TVCCorrection, TVCSensitivity,
     CalibrationSession, TestPoint, TestPointSet, Calibration, 
     CalibrationTVCCorrections, CalibrationConfigurations, CalibrationSettings, 
     CalibrationReadings, CalibrationResults
@@ -93,13 +93,19 @@ class TVCCorrectionSerializer(serializers.ModelSerializer):
         model = TVCCorrection
         fields = ['id', 'frequency', 'ac_dc_difference', 'expanded_uncertainty']
 
+class TVCSensitivitySerializer(serializers.ModelSerializer):
+    class Meta:
+        model = TVCSensitivity
+        fields = ['id', 'current', 'frequency', 'gain_eta', 'updated_at']
+
 class TVCSerializer(serializers.ModelSerializer):
     """ Serializes a TVC device and nests all its correction points. """
     corrections = TVCCorrectionSerializer(many=True, required=False)
+    sensitivities = TVCSensitivitySerializer(many=True, read_only=True)
 
     class Meta:
         model = TVC
-        fields = ['id', 'serial_number', 'test_voltage', 'is_manual', 'corrections']
+        fields = ['id', 'serial_number', 'test_voltage', 'is_manual', 'corrections', 'sensitivities']
 
     def create(self, validated_data):
         corrections_data = validated_data.pop('corrections', [])

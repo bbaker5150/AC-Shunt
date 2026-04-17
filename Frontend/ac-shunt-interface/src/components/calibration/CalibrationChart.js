@@ -81,6 +81,8 @@ function CalibrationChart({
   onRunFullAnalysis = null,
   onMarkStability = null,
   instrumentType = null,
+  activeChartView,
+  setActiveChartView,
 }) {
   const chartRef = useRef(null);
   const [yAxisUnit, setYAxisUnit] = useState("voltage");
@@ -590,6 +592,27 @@ function CalibrationChart({
               <div className="chart-options-dropdown">
                 <Accordion title="Display Options" initialOpen={true}>
                   <div className="chart-options-section">
+                    
+                    {setActiveChartView && (
+                      <div className="chart-options-form-group">
+                        <label>Data View</label>
+                        <div className="unit-toggle">
+                          <button
+                            className={activeChartView === "calibration" ? "active" : ""}
+                            onClick={() => setActiveChartView("calibration")}
+                          >
+                            Calibration
+                          </button>
+                          <button
+                            className={activeChartView === "characterization" ? "active" : ""}
+                            onClick={() => setActiveChartView("characterization")}
+                          >
+                            Characterization
+                          </button>
+                        </div>
+                      </div>
+                    )}
+
                     <div className="chart-options-form-group">
                       <label>Y-Axis Unit</label>
                       <div className="unit-toggle">

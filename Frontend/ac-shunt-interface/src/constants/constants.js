@@ -1,7 +1,7 @@
 const READING_TYPES = [
-  { key: "char_plus1", label: "Char +500ppm", color: "rgb(153, 102, 255)" },
-  { key: "char_minus", label: "Char -500ppm", color: "rgb(255, 159, 64)" },
-  { key: "char_plus2", label: "Char +500ppm (2)", color: "rgb(153, 102, 255)" },
+  { key: "char_plus1", label: "Nominal +500ppm", color: "rgb(153, 102, 255)" },
+  { key: "char_minus", label: "Nominal -500ppm", color: "rgb(255, 159, 64)" },
+  { key: "char_plus2", label: "Nominal +500ppm (x2)", color: "hsl(187, 83%, 50%)" },
   { key: "ac_open", label: "AC Open", color: "rgb(75, 192, 192)" },
   { key: "dc_pos", label: "DC+", color: "rgb(255, 99, 132)" },
   { key: "dc_neg", label: "DC-", color: "rgb(54, 162, 235)" },

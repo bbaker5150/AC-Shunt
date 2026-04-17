@@ -199,9 +199,10 @@ class CalibrationReadings(models.Model):
         return f"Calibration Readings for TestPoint ID: {self.test_point.id} | Session: {self.test_point.test_point_set.session.session_name}"
 
     def update_related_results(self):
+        print(f"\n[MODELS] --- Starting Result Calculation for TP ID {self.test_point.id} ---", flush=True)
         results, _ = CalibrationResults.objects.get_or_create(test_point=self.test_point)
         
-        def calculate_stats(readings):
+        def calculate_stats(readings, label="Reading"):
             import math
             if not readings:
                 return None, None
@@ -213,10 +214,11 @@ class CalibrationReadings(models.Model):
 
             # Fallback if no stable readings exist
             if len(stable_values) < 2:
-                print(f"[DEBUG - Models] No stable readings found. Using all {len(readings)} readings as fallback.")
+                print(f"[MODELS - {label}] Warning: < 2 stable readings. Using all {len(readings)} readings as fallback.", flush=True)
                 all_values = [r['value'] for r in readings if isinstance(r, dict) and 'value' in r]
                 
                 if len(all_values) < 2:
+                    print(f"[MODELS - {label}] Insufficient readings to calculate stats. Aborting.", flush=True)
                     return None, None
                 stable_values = all_values
 
@@ -231,38 +233,54 @@ class CalibrationReadings(models.Model):
             variance = M2 / (len(stable_values) - 1)
             std_dev = math.sqrt(variance)
             
+            print(f"[MODELS - {label}] Calculated from {len(stable_values)} points: Mean = {mean_val:.6f}, StdDev = {std_dev:.6e}", flush=True)
             return mean_val, std_dev
 
         # --- 1. Standard Averages Update ---
-        results.std_ac_open_avg, results.std_ac_open_stddev = calculate_stats(self.std_ac_open_readings)
-        results.std_dc_pos_avg, results.std_dc_pos_stddev = calculate_stats(self.std_dc_pos_readings)
-        results.std_dc_neg_avg, results.std_dc_neg_stddev = calculate_stats(self.std_dc_neg_readings)
-        results.std_ac_close_avg, results.std_ac_close_stddev = calculate_stats(self.std_ac_close_readings)
+        print("[MODELS] Calculating Standard Instrument AC/DC Averages...", flush=True)
+        results.std_ac_open_avg, results.std_ac_open_stddev = calculate_stats(self.std_ac_open_readings, "STD AC Open")
+        results.std_dc_pos_avg, results.std_dc_pos_stddev = calculate_stats(self.std_dc_pos_readings, "STD DC Pos")
+        results.std_dc_neg_avg, results.std_dc_neg_stddev = calculate_stats(self.std_dc_neg_readings, "STD DC Neg")
+        results.std_ac_close_avg, results.std_ac_close_stddev = calculate_stats(self.std_ac_close_readings, "STD AC Close")
 
-        results.ti_ac_open_avg, results.ti_ac_open_stddev = calculate_stats(self.ti_ac_open_readings)
-        results.ti_dc_pos_avg, results.ti_dc_pos_stddev = calculate_stats(self.ti_dc_pos_readings)
-        results.ti_dc_neg_avg, results.ti_dc_neg_stddev = calculate_stats(self.ti_dc_neg_readings)
-        results.ti_ac_close_avg, results.ti_ac_close_stddev = calculate_stats(self.ti_ac_close_readings)
+        print("[MODELS] Calculating Test Instrument AC/DC Averages...", flush=True)
+        results.ti_ac_open_avg, results.ti_ac_open_stddev = calculate_stats(self.ti_ac_open_readings, "TI AC Open")
+        results.ti_dc_pos_avg, results.ti_dc_pos_stddev = calculate_stats(self.ti_dc_pos_readings, "TI DC Pos")
+        results.ti_dc_neg_avg, results.ti_dc_neg_stddev = calculate_stats(self.ti_dc_neg_readings, "TI DC Neg")
+        results.ti_ac_close_avg, results.ti_ac_close_stddev = calculate_stats(self.ti_ac_close_readings, "TI AC Close")
 
         # --- 2. TVC Characterization Averages ---
-        std_char_plus1_avg, _ = calculate_stats(self.std_char_plus1_readings)
-        std_char_minus_avg, _ = calculate_stats(self.std_char_minus_readings)
-        std_char_plus2_avg, _ = calculate_stats(self.std_char_plus2_readings)
+        print("[MODELS] Calculating TVC Characterization Averages...", flush=True)
+        std_char_plus1_avg, _ = calculate_stats(self.std_char_plus1_readings, "STD Char +500ppm (1)")
+        std_char_minus_avg, _ = calculate_stats(self.std_char_minus_readings, "STD Char -500ppm")
+        std_char_plus2_avg, _ = calculate_stats(self.std_char_plus2_readings, "STD Char +500ppm (2)")
 
-        ti_char_plus1_avg, _ = calculate_stats(self.ti_char_plus1_readings)
-        ti_char_minus_avg, _ = calculate_stats(self.ti_char_minus_readings)
-        ti_char_plus2_avg, _ = calculate_stats(self.ti_char_plus2_readings)
+        ti_char_plus1_avg, _ = calculate_stats(self.ti_char_plus1_readings, "TI Char +500ppm (1)")
+        ti_char_minus_avg, _ = calculate_stats(self.ti_char_minus_readings, "TI Char -500ppm")
+        ti_char_plus2_avg, _ = calculate_stats(self.ti_char_plus2_readings, "TI Char +500ppm (2)")
 
         # --- 3. Eta (η) Calculation ---
-        def calculate_eta(v_out_1, v_out_2, v_out_3):
-            if None in [v_out_1, v_out_2, v_out_3] or v_out_2 == 0: return None
+        def calculate_eta(v_out_1, v_out_2, v_out_3, label="Unknown"):
+            print(f"[MODELS - ETA CALC - {label}] Checking variables: v1={v_out_1}, v2={v_out_2}, v3={v_out_3}", flush=True)
+            if None in [v_out_1, v_out_2, v_out_3] or v_out_2 == 0: 
+                print(f"[MODELS - ETA CALC - {label}] Missing or invalid data. Skipping calculation.", flush=True)
+                return None
+            
             denominator = 0.00100050025 
             numerator = ((v_out_1 + v_out_3) / (2 * v_out_2)) - 1
-            return numerator / denominator
+            calculated_eta = numerator / denominator
+            
+            print(f"[MODELS - ETA CALC - {label}] Math Execution:", flush=True)
+            print(f"   -> Numerator: (( {v_out_1} + {v_out_3} ) / (2 * {v_out_2})) - 1 = {numerator}", flush=True)
+            print(f"   -> Denominator: 0.00100050025", flush=True)
+            print(f"   -> Final Gain (eta): {calculated_eta}", flush=True)
+            return calculated_eta
 
         # Helper to save global TVC gain
         def save_global_tvc_gain(tvc_serial, gain_val):
-            if not tvc_serial or gain_val is None: return
+            if not tvc_serial or gain_val is None: 
+                print(f"[MODELS - GLOBAL SAVE] Skipping save. Serial: {tvc_serial}, Gain: {gain_val}", flush=True)
+                return
             try:
                 # Find the TVC by serial
                 tvc_obj = TVC.objects.get(serial_number=tvc_serial)
@@ -274,21 +292,32 @@ class CalibrationReadings(models.Model):
                     frequency=tp.frequency,
                     defaults={'gain_eta': gain_val}
                 )
-                print(f"[MODELS] Saved Gain {gain_val} to global TVC SN: {tvc_serial}")
+                print(f"[MODELS - GLOBAL SAVE] SUCCESS: Saved Gain {gain_val} to global TVC SN {tvc_serial} for TP {tp.current}A @ {tp.frequency}Hz.", flush=True)
             except TVC.DoesNotExist:
-                print(f"[MODELS] TVC SN {tvc_serial} not found in global DB. Gain not saved globally.")
+                print(f"[MODELS - GLOBAL SAVE] ERROR: TVC SN {tvc_serial} not found in global DB. Gain not saved globally.", flush=True)
 
         session = self.test_point.test_point_set.session
 
-        new_eta_std = calculate_eta(std_char_plus1_avg, std_char_minus_avg, std_char_plus2_avg)
+        new_eta_std = calculate_eta(std_char_plus1_avg, std_char_minus_avg, std_char_plus2_avg, "STD TVC")
         if new_eta_std is not None:
-            results.eta_std = new_eta_std
-            save_global_tvc_gain(session.standard_tvc_serial, new_eta_std)
+            if results.eta_std is None or abs(results.eta_std - new_eta_std) > 1e-9:
+                results.eta_std = new_eta_std
+                print(f"[MODELS] Triggering global save for STD Gain {new_eta_std}...", flush=True)
+                save_global_tvc_gain(session.standard_tvc_serial, new_eta_std)
+            else:
+                print(f"[MODELS] STD Gain unchanged ({results.eta_std}). Skipping global save.", flush=True)
 
-        new_eta_ti = calculate_eta(ti_char_plus1_avg, ti_char_minus_avg, ti_char_plus2_avg)
+        new_eta_ti = calculate_eta(ti_char_plus1_avg, ti_char_minus_avg, ti_char_plus2_avg, "TI TVC")
         if new_eta_ti is not None:
-            results.eta_ti = new_eta_ti
-            save_global_tvc_gain(session.test_tvc_serial, new_eta_ti)
+            if results.eta_ti is None or abs(results.eta_ti - new_eta_ti) > 1e-9:
+                results.eta_ti = new_eta_ti
+                print(f"[MODELS] Triggering global save for TI Gain {new_eta_ti}...", flush=True)
+                save_global_tvc_gain(session.test_tvc_serial, new_eta_ti)
+            else:
+                print(f"[MODELS] TI Gain unchanged ({results.eta_ti}). Skipping global save.", flush=True)
+
+        results.save()
+        print(f"[MODELS] --- Result Calculation Complete ---", flush=True)
 
 class CalibrationResults(models.Model):
     test_point = models.OneToOneField(
