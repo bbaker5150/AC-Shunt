@@ -227,7 +227,7 @@ class CalibrationConsumer(AsyncWebsocketConsumer):
         self.stop_event.clear()
         
         task_started = False
-        if command in ['start_collection', 'start_full_calibration', 'start_single_stage_batch', 'start_full_calibration_batch']:
+        if command in ['start_collection', 'start_full_calibration', 'start_single_stage_batch', 'start_full_calibration_batch', 'tvc_characterization']:
             self.state = "BUSY"
             task_started = True
             if command == 'start_collection':
@@ -238,6 +238,8 @@ class CalibrationConsumer(AsyncWebsocketConsumer):
                 self.collection_task = asyncio.create_task(self.run_single_stage_batch(data))
             elif command == 'start_full_calibration_batch':
                 self.collection_task = asyncio.create_task(self.run_full_calibration_batch(data))
+            elif command == 'tvc_characterization':
+                self.collection_task = asyncio.create_task(self.run_tvc_characterization(data))
         elif command == 'set_amplifier_range':
             await self.set_amplifier_range(data)
 
@@ -365,6 +367,124 @@ class CalibrationConsumer(AsyncWebsocketConsumer):
 
         if not self.stop_event.is_set():
             await self.send(text_data=json.dumps({'type': 'status_update', 'message': "Warm-up complete. Starting measurement."}))
+    
+    async def run_tvc_characterization(self, data):
+        print(f"[TVC_CHAR] Entering run_tvc_characterization with data: {data}", flush=True)
+        ac_source, dc_source, std_reader, ti_reader, amplifier, switch_driver = None, None, None, None, None, None
+        try:
+            print("[TVC_CHAR] Fetching session details...", flush=True)
+            session_details = await self.get_session_details()
+            if not session_details: raise Exception("Session not found.")
+
+            std_addr, ti_addr = session_details.get('std_reader_address'), session_details.get('ti_reader_address')
+            std_model, ti_model = session_details.get('std_reader_model'), session_details.get('ti_reader_model')
+            ac_source_address = session_details.get('ac_source_address')
+            
+            if ac_source_address: 
+                ac_source = await sync_to_async(Instrument5730A, thread_sensitive=True)(model="5730A", gpib=ac_source_address)
+
+            std_reader_class, ti_reader_class = INSTRUMENT_CLASS_MAP.get(std_model), INSTRUMENT_CLASS_MAP.get(ti_model)
+            std_reader = await sync_to_async(std_reader_class, thread_sensitive=True)(gpib=std_addr) if std_reader_class == Instrument34420A else await sync_to_async(std_reader_class, thread_sensitive=True)(model=std_model, gpib=std_addr)
+            ti_reader = await sync_to_async(ti_reader_class, thread_sensitive=True)(gpib=ti_addr) if ti_reader_class == Instrument34420A else await sync_to_async(ti_reader_class, thread_sensitive=True)(model=ti_model, gpib=ti_addr)
+
+            if session_details.get('switch_driver_address'):
+                switch_driver = await sync_to_async(Instrument11713C, thread_sensitive=True)(gpib=session_details.get('switch_driver_address'))
+                await self.send(text_data=json.dumps({'type': 'status_update', 'message': "Switching to AC source for Characterization..."}))
+                await sync_to_async(switch_driver.select_ac_source, thread_sensitive=True)()
+                await self.send(text_data=json.dumps({'type': 'switch_status_update', 'active_source': 'AC'}))
+                await asyncio.sleep(1)
+
+            original_tp = data.get('test_point')
+            nominal_current = float(original_tp.get('current'))
+            
+            # --- EXTRACT TARGET FROM PAYLOAD ---
+            target_tvc = data.get('target_tvc', 'BOTH') 
+            print(f"[TVC_CHAR] Targeting: {target_tvc}", flush=True)
+            
+            await self._configure_sources(original_tp, data.get('bypass_tvc'), data.get('amplifier_range'), ac_source=ac_source)
+            
+            if session_details.get('amplifier_address'):
+                amplifier = await sync_to_async(Instrument8100, thread_sensitive=True)(model='8100', gpib=session_details.get('amplifier_address'))
+                if not await self._handle_amplifier_confirmation(amplifier, data.get('amplifier_range'), data): return
+            
+            await self._activate_sources(ac_source=ac_source)
+            
+            warmup_time = data.get('initial_warm_up_time', 0)
+            if warmup_time > 0:
+                await self._perform_warmup(warmup_time)
+
+            settling_time, num_samples = float(data.get('settling_time', 5.0)), data.get('num_samples', 8)
+            nplc_setting, measurement_params = data.get('nplc'), data.get('measurement_params')
+
+            # === TARGETED DB CLEANUP BLOCK ===
+            try:
+                tp_id = original_tp.get('id')
+                if tp_id:
+                    readings_obj = await database_sync_to_async(CalibrationReadings.objects.get)(test_point__id=tp_id)
+                    # Only wipe the arrays for the instrument we are actively characterizing
+                    if target_tvc in ['STD', 'BOTH']:
+                        readings_obj.std_char_plus1_readings = []
+                        readings_obj.std_char_minus_readings = []
+                        readings_obj.std_char_plus2_readings = []
+                    if target_tvc in ['TI', 'BOTH']:
+                        readings_obj.ti_char_plus1_readings = []
+                        readings_obj.ti_char_minus_readings = []
+                        readings_obj.ti_char_plus2_readings = []
+                    await database_sync_to_async(readings_obj.save)()
+                    print(f"[TVC_CHAR] Wiped previous {target_tvc} characterization data.", flush=True)
+            except Exception as e:
+                pass
+            # === END CLEANUP ===
+
+            tvc_sequence = [
+                ('char_plus1', 1.0005),
+                ('char_minus', 0.9995),
+                ('char_plus2', 1.0005)
+            ]
+
+            print("[TVC_CHAR] ===== STARTING CHARACTERIZATION LOOP =====", flush=True)
+            for stage, ppm_multiplier in tvc_sequence:
+                if self.stop_event.is_set(): break
+                
+                ppm_shifted_tp = original_tp.copy()
+                ppm_shifted_tp['current'] = nominal_current * ppm_multiplier
+                
+                # --- INJECT TARGET INTO TEST POINT ---
+                ppm_shifted_tp['target_tvc'] = target_tvc 
+
+                await self.send(text_data=json.dumps({'type': 'calibration_stage_update', 'stage': stage, 'total': num_samples}))
+                
+                success = await self._perform_single_measurement(
+                    stage, num_samples, ppm_shifted_tp, data.get('bypass_tvc'), 
+                    data.get('amplifier_range'), ac_source, std_reader, ti_reader, 
+                    amplifier, settling_time, nplc_setting, measurement_params
+                )
+                
+                if not success: 
+                    if not self.stop_event.is_set():
+                        await self.send(text_data=json.dumps({'type': 'error', 'message': f"Characterization aborted: Stability limit reached on {stage}."}))
+                    break 
+
+            if not self.stop_event.is_set():
+                print("[TVC_CHAR] Sequence completed successfully!", flush=True)
+                await self.send(text_data=json.dumps({'type': 'collection_finished', 'message': 'Sensitivity Characterization complete.'}))
+
+        except asyncio.CancelledError:
+            print(f"[TVC_CHAR] Task cancelled.", flush=True)
+        except Exception as e:
+            traceback.print_exc()
+            await self.send(text_data=json.dumps({'type': 'error', 'message': f"An instrument error occurred: {e}"}))
+        finally:
+            self.state = "IDLE"
+            if switch_driver and hasattr(switch_driver, 'close'): 
+                await sync_to_async(switch_driver.close, thread_sensitive=True)()
+            if ac_source:
+                await sync_to_async(ac_source.reset, thread_sensitive=True)()
+            if amplifier: 
+                await sync_to_async(amplifier.set_standby, thread_sensitive=True)()
+            for inst in filter(None, {std_reader, ti_reader, amplifier, ac_source}):
+                if hasattr(inst, 'close'):
+                    await sync_to_async(inst.close, thread_sensitive=True)()
 
     async def _perform_single_measurement(self, reading_type_base, num_samples, test_point_data, bypass_tvc, amplifier_range, source_instrument, std_reader_instrument, ti_reader_instrument, amplifier_instrument=None, settling_time=0, nplc_setting=None, measurement_params=None):
         """
@@ -373,7 +493,9 @@ class CalibrationConsumer(AsyncWebsocketConsumer):
         2. Phase 2 (Collection): Collects num_samples while monitoring stability.
         3. Abort: Returns False if max_attempts is reached.
         """
-        is_ac_reading = 'ac' in reading_type_base
+        is_ac_reading = 'ac' in reading_type_base or 'char' in reading_type_base
+        target_tvc = test_point_data.get('target_tvc', 'BOTH')
+        
         input_current = float(test_point_data.get('current'))
         voltage = (input_current / float(amplifier_range)) * 2
         if 'neg' in reading_type_base: voltage = -voltage
@@ -381,8 +503,14 @@ class CalibrationConsumer(AsyncWebsocketConsumer):
         config_voltage, frequency = abs(voltage), float(test_point_data.get('frequency', 0)) if is_ac_reading else 0
         ignore_after_lock = measurement_params.get('ignore_instability_after_lock', False)
 
-        # Instrument Configuration (Standard and TI)
-        for instrument in [std_reader_instrument, ti_reader_instrument]:
+        # Instrument Configuration (Standard and TI) - Targeted Isolation
+        instruments_to_config = []
+        if target_tvc in ['STD', 'BOTH'] and std_reader_instrument:
+            instruments_to_config.append(std_reader_instrument)
+        if target_tvc in ['TI', 'BOTH'] and ti_reader_instrument:
+            instruments_to_config.append(ti_reader_instrument)
+
+        for instrument in instruments_to_config:
             if isinstance(instrument, Instrument34420A) and nplc_setting is not None:
                 await sync_to_async(instrument.set_integration, thread_sensitive=True)(setting=nplc_setting)
             if isinstance(instrument, Instrument5790B): 
@@ -440,39 +568,56 @@ class CalibrationConsumer(AsyncWebsocketConsumer):
 
         await self.send(text_data=json.dumps({'type': 'status_update', 'message': "Monitoring stability..."}))
 
-        while len(final_std_readings) < num_samples and not self.stop_event.is_set():
+        def get_target_length():
+            return len(final_std_readings) if target_tvc in ['STD', 'BOTH'] else len(final_ti_readings)
+
+        # Replaces raw final_std_readings length with the dynamic targeted check
+        while get_target_length() < num_samples and not self.stop_event.is_set():
             # 1. Global Abort Check (Applies to both Search and Collection phases)
             if instability_events >= max_retries:
-                # Generate the exact key used by the frontend
                 tp_key = f"{test_point_data.get('current')}-{test_point_data.get('frequency')}"
-                
                 if tp_id:
                     await self.set_test_point_failed_status(tp_id, True)
-                
                 await self.send(text_data=json.dumps({
                     'type': 'warning',
                     'message': f"Test point aborted: Stability limit ({max_retries}) reached.",
-                    'tpKey': tp_key # <-- Send the key directly to the UI
+                    'tpKey': tp_key
                 }))
                 return False
 
-            # 2. Take Readings
-            std_reading_val, ti_reading_val = await asyncio.gather(
-                self._take_one_reading(std_reader_instrument),
-                self._take_one_reading(ti_reader_instrument)
-            )
+            # 2. Take Readings (Targeted Instrument Querying)
+            tasks = []
+            if target_tvc in ['STD', 'BOTH'] and std_reader_instrument:
+                tasks.append(self._take_one_reading(std_reader_instrument))
+            else:
+                tasks.append(asyncio.sleep(0)) # Dummy task
+
+            if target_tvc in ['TI', 'BOTH'] and ti_reader_instrument:
+                tasks.append(self._take_one_reading(ti_reader_instrument))
+            else:
+                tasks.append(asyncio.sleep(0)) # Dummy task
+
+            results = await asyncio.gather(*tasks)
+            
+            std_reading_val = results[0] if target_tvc in ['STD', 'BOTH'] else None
+            ti_reading_val = results[1] if target_tvc in ['TI', 'BOTH'] else None
+            
             timestamp = time.time()
             
-            std_point = {'value': std_reading_val, 'timestamp': timestamp, 'is_stable': True}
-            ti_point = {'value': ti_reading_val, 'timestamp': timestamp, 'is_stable': True}
+            # None creation protects downstream arrays from bloating with fake points
+            std_point = {'value': std_reading_val, 'timestamp': timestamp, 'is_stable': True} if std_reading_val is not None else None
+            ti_point = {'value': ti_reading_val, 'timestamp': timestamp, 'is_stable': True} if ti_reading_val is not None else None
 
             if stability_method == 'sliding_window':
-                stable_candidate_std.append(std_point)
-                stable_candidate_ti.append(ti_point)
+                if std_point: stable_candidate_std.append(std_point)
+                if ti_point: stable_candidate_ti.append(ti_point)
 
-                if len(stable_candidate_std) >= window_size:
+                # Route the window length checks and math to whichever array is actively growing
+                primary_candidates = stable_candidate_std if target_tvc in ['STD', 'BOTH'] else stable_candidate_ti
+
+                if len(primary_candidates) >= window_size:
                     # Analyze current window
-                    current_window = stable_candidate_std[-window_size:]
+                    current_window = primary_candidates[-window_size:]
                     current_ppm = calc_ppm(current_window)
                     is_currently_stable = current_ppm < threshold_ppm
 
@@ -480,20 +625,19 @@ class CalibrationConsumer(AsyncWebsocketConsumer):
                     if not initial_stability_achieved:
                         if is_currently_stable:
                             initial_stability_achieved = True
-                            final_std_readings.extend(stable_candidate_std)
-                            final_ti_readings.extend(stable_candidate_ti)
+                            if std_point: final_std_readings.extend(stable_candidate_std)
+                            if ti_point: final_ti_readings.extend(stable_candidate_ti)
                         else:
                             # SEARCH PHASE: Unstable. Increment retry count and slide window
                             instability_events += 1
-                            stable_candidate_std.pop(0)
-                            stable_candidate_ti.pop(0)
+                            if std_point: stable_candidate_std.pop(0)
+                            if ti_point: stable_candidate_ti.pop(0)
                     else:
                         # COLLECTION PHASE: Monitor but keep all samples
-                        if not is_currently_stable:
-                            if not ignore_after_lock:
-                                instability_events += 1
-                        final_std_readings.append(std_point)
-                        final_ti_readings.append(ti_point)
+                        if not is_currently_stable and not ignore_after_lock:
+                            instability_events += 1
+                        if std_point: final_std_readings.append(std_point)
+                        if ti_point: final_ti_readings.append(ti_point)
 
                     # --- NOW SEND UPDATES WITH THE ACCURATE METRICS ---
                     await self.send(text_data=json.dumps({
@@ -511,17 +655,17 @@ class CalibrationConsumer(AsyncWebsocketConsumer):
                     }))
 
                     # Announce stability ONLY exactly when it is found
-                    if initial_stability_achieved and is_currently_stable and len(final_std_readings) == window_size:
+                    if initial_stability_achieved and is_currently_stable and get_target_length() == window_size:
                         await self.send(text_data=json.dumps({'type': 'status_update', 'message': "Initial stability achieved."}))
 
                 else:
                     # Still filling initial window
                     await self.send(text_data=json.dumps({
                         'type': 'status_update',
-                        'message': f"Filling initial window... [{len(stable_candidate_std)}/{window_size}]"
+                        'message': f"Filling initial window... [{len(primary_candidates)}/{window_size}]"
                     }))
                     
-                    temp_ppm = calc_ppm(stable_candidate_std) if len(stable_candidate_std) > 1 else None
+                    temp_ppm = calc_ppm(primary_candidates) if len(primary_candidates) > 1 else None
                     temp_is_stable = (temp_ppm < threshold_ppm) if temp_ppm is not None else True
                     
                     await self.send(text_data=json.dumps({
@@ -533,28 +677,34 @@ class CalibrationConsumer(AsyncWebsocketConsumer):
                         'max_retries': max_retries
                     }))
             else:
-                final_std_readings.append(std_point)
-                final_ti_readings.append(ti_point)
+                if std_point: final_std_readings.append(std_point)
+                if ti_point: final_ti_readings.append(ti_point)
 
-            # Update the UI with the latest points
-            current_count = len(final_std_readings) if initial_stability_achieved else len(stable_candidate_std)
+            # Update the UI with the latest points depending on targeted length
+            if initial_stability_achieved:
+                current_count = get_target_length()
+            else:
+                current_count = len(stable_candidate_std) if target_tvc in ['STD', 'BOTH'] else len(stable_candidate_ti)
 
             await self.send(text_data=json.dumps({
                 'type': 'dual_reading_update',
                 'std_reading': std_point,
                 'ti_reading': ti_point,
                 'count': current_count,
-                'stable_count': len(final_std_readings),
+                'stable_count': get_target_length(),
                 'total': num_samples,
                 'stage': reading_type_base
             }))
 
             await asyncio.sleep(0.05)
         
-        # Save the final (locked) sets to the database
-        if final_std_readings and not self.stop_event.is_set():
-            await self.save_readings_to_db(f"std_{reading_type_base}", final_std_readings, test_point_data)
-            await self.save_readings_to_db(f"ti_{reading_type_base}", final_ti_readings, test_point_data)
+        # Save the final (locked) sets to the database (respects skip targets)
+        if not self.stop_event.is_set():
+            if target_tvc in ['STD', 'BOTH'] and final_std_readings:
+                await self.save_readings_to_db(f"std_{reading_type_base}", final_std_readings, test_point_data)
+            if target_tvc in ['TI', 'BOTH'] and final_ti_readings:
+                await self.save_readings_to_db(f"ti_{reading_type_base}", final_ti_readings, test_point_data)
+            
             await self.send(text_data=json.dumps({
                 'type': 'connection_sync',
                 'is_complete': False,
@@ -1015,11 +1165,18 @@ class CalibrationConsumer(AsyncWebsocketConsumer):
 
     @database_sync_to_async
     def save_readings_to_db(self, reading_type_full, readings_list, test_point):
-        current, frequency, direction = test_point.get('current'), test_point.get('frequency'), test_point.get('direction', 'Forward')
         try:
             session = CalibrationSession.objects.get(pk=self.session_id)
             test_point_set, _ = TestPointSet.objects.get_or_create(session=session)
-            test_point_obj, _ = TestPoint.objects.get_or_create(test_point_set=test_point_set, current=current, frequency=frequency, direction=direction)
+            
+            # Prioritize lookup by explicit ID to prevent phantom records during ppm shifting
+            tp_id = test_point.get('id')
+            if tp_id:
+                test_point_obj = TestPoint.objects.get(pk=tp_id)
+            else:
+                current, frequency, direction = test_point.get('current'), test_point.get('frequency'), test_point.get('direction', 'Forward')
+                test_point_obj, _ = TestPoint.objects.get_or_create(test_point_set=test_point_set, current=current, frequency=frequency, direction=direction)
+            
             readings, _ = CalibrationReadings.objects.get_or_create(test_point=test_point_obj)
             setattr(readings, f"{reading_type_full}_readings", readings_list)
             readings.save()

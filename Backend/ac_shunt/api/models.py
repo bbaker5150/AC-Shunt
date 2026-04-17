@@ -170,17 +170,27 @@ class CalibrationReadings(models.Model):
         null=True,
         blank=True
     )
-    # Standard Instrument Readings
+    
+    # --- Standard Instrument Readings ---
     std_ac_open_readings = models.JSONField(default=list, blank=True, null=True)
     std_dc_pos_readings = models.JSONField(default=list, blank=True, null=True)
     std_dc_neg_readings = models.JSONField(default=list, blank=True, null=True)
     std_ac_close_readings = models.JSONField(default=list, blank=True, null=True)
 
-    # Test Instrument Readings
+    # --- Test Instrument Readings ---
     ti_ac_open_readings = models.JSONField(default=list, blank=True, null=True)
     ti_dc_pos_readings = models.JSONField(default=list, blank=True, null=True)
     ti_dc_neg_readings = models.JSONField(default=list, blank=True, null=True)
     ti_ac_close_readings = models.JSONField(default=list, blank=True, null=True)
+
+    # --- TVC Sensitivity Characterization Readings ---
+    std_char_plus1_readings = models.JSONField(default=list, blank=True, null=True)
+    std_char_minus_readings = models.JSONField(default=list, blank=True, null=True)
+    std_char_plus2_readings = models.JSONField(default=list, blank=True, null=True)
+
+    ti_char_plus1_readings = models.JSONField(default=list, blank=True, null=True)
+    ti_char_minus_readings = models.JSONField(default=list, blank=True, null=True)
+    ti_char_plus2_readings = models.JSONField(default=list, blank=True, null=True)
 
     created_at = models.DateTimeField(auto_now_add=True)
     updated_at = models.DateTimeField(auto_now=True)
@@ -223,6 +233,7 @@ class CalibrationReadings(models.Model):
             
             return mean_val, std_dev
 
+        # --- 1. Standard Averages Update ---
         results.std_ac_open_avg, results.std_ac_open_stddev = calculate_stats(self.std_ac_open_readings)
         results.std_dc_pos_avg, results.std_dc_pos_stddev = calculate_stats(self.std_dc_pos_readings)
         results.std_dc_neg_avg, results.std_dc_neg_stddev = calculate_stats(self.std_dc_neg_readings)
@@ -232,7 +243,52 @@ class CalibrationReadings(models.Model):
         results.ti_dc_pos_avg, results.ti_dc_pos_stddev = calculate_stats(self.ti_dc_pos_readings)
         results.ti_dc_neg_avg, results.ti_dc_neg_stddev = calculate_stats(self.ti_dc_neg_readings)
         results.ti_ac_close_avg, results.ti_ac_close_stddev = calculate_stats(self.ti_ac_close_readings)
-        results.save()
+
+        # --- 2. TVC Characterization Averages ---
+        std_char_plus1_avg, _ = calculate_stats(self.std_char_plus1_readings)
+        std_char_minus_avg, _ = calculate_stats(self.std_char_minus_readings)
+        std_char_plus2_avg, _ = calculate_stats(self.std_char_plus2_readings)
+
+        ti_char_plus1_avg, _ = calculate_stats(self.ti_char_plus1_readings)
+        ti_char_minus_avg, _ = calculate_stats(self.ti_char_minus_readings)
+        ti_char_plus2_avg, _ = calculate_stats(self.ti_char_plus2_readings)
+
+        # --- 3. Eta (η) Calculation ---
+        def calculate_eta(v_out_1, v_out_2, v_out_3):
+            if None in [v_out_1, v_out_2, v_out_3] or v_out_2 == 0: return None
+            denominator = 0.00100050025 
+            numerator = ((v_out_1 + v_out_3) / (2 * v_out_2)) - 1
+            return numerator / denominator
+
+        # Helper to save global TVC gain
+        def save_global_tvc_gain(tvc_serial, gain_val):
+            if not tvc_serial or gain_val is None: return
+            try:
+                # Find the TVC by serial
+                tvc_obj = TVC.objects.get(serial_number=tvc_serial)
+                tp = self.test_point
+                # Create or update the specific gain profile for this current/freq
+                TVCSensitivity.objects.update_or_create(
+                    tvc=tvc_obj,
+                    current=float(tp.current),
+                    frequency=tp.frequency,
+                    defaults={'gain_eta': gain_val}
+                )
+                print(f"[MODELS] Saved Gain {gain_val} to global TVC SN: {tvc_serial}")
+            except TVC.DoesNotExist:
+                print(f"[MODELS] TVC SN {tvc_serial} not found in global DB. Gain not saved globally.")
+
+        session = self.test_point.test_point_set.session
+
+        new_eta_std = calculate_eta(std_char_plus1_avg, std_char_minus_avg, std_char_plus2_avg)
+        if new_eta_std is not None:
+            results.eta_std = new_eta_std
+            save_global_tvc_gain(session.standard_tvc_serial, new_eta_std)
+
+        new_eta_ti = calculate_eta(ti_char_plus1_avg, ti_char_minus_avg, ti_char_plus2_avg)
+        if new_eta_ti is not None:
+            results.eta_ti = new_eta_ti
+            save_global_tvc_gain(session.test_tvc_serial, new_eta_ti)
 
 class CalibrationResults(models.Model):
     test_point = models.OneToOneField(
@@ -325,6 +381,22 @@ class TVC(models.Model):
 
     def __str__(self):
         return f"TVC Device SN: {self.serial_number}"
+
+class TVCSensitivity(models.Model):
+    """
+    Stores the characterized Gain (η) for a specific TVC at a specific test point.
+    """
+    tvc = models.ForeignKey(TVC, on_delete=models.CASCADE, related_name='sensitivities')
+    current = models.FloatField()
+    frequency = models.FloatField()
+    gain_eta = models.FloatField()
+    updated_at = models.DateTimeField(auto_now=True)
+
+    class Meta:
+        unique_together = ('tvc', 'current', 'frequency')
+
+    def __str__(self):
+        return f"TVC {self.tvc.serial_number} Gain: {self.gain_eta} at {self.current}A, {self.frequency}Hz"
 
 
 class TVCCorrection(models.Model):

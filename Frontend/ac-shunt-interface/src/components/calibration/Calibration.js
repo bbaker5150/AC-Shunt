@@ -74,7 +74,7 @@ const CorrectionFactorsModal = ({
             <FaTimes />
           </button>
         </div>
-        
+
         <p style={{ marginBottom: "20px" }}>
           Enter known correction factors. These will be applied to all completed
           directions.
@@ -334,6 +334,7 @@ function Calibration({
   const [isRunDropdownOpen, setIsRunDropdownOpen] = useState(false);
   const runDropdownRef = useRef(null);
   const prevIsBulkRunning = useRef(isBulkRunning);
+  const [activeChartView, setActiveChartView] = useState("calibration");
 
   const uniqueTestPoints = useMemo(
     () => orderedTestPoints,
@@ -523,7 +524,7 @@ function Calibration({
     if (lastMessage.type === "warning") {
       showNotification(lastMessage.message, "warning");
     }
-    
+
     // The flagging logic was moved to InstrumentContext.js!
   }, [lastMessage, showNotification]);
 
@@ -642,7 +643,7 @@ function Calibration({
       return;
     }
 
-    const reading_key = `${prefix}${readingType.key}_readings`; 
+    const reading_key = `${prefix}${readingType.key}_readings`;
 
     const payload = {
       reading_key: reading_key,
@@ -657,7 +658,7 @@ function Calibration({
         payload
       );
       showNotification(`Readings ${payload.start_index}-${payload.end_index} marked as ${stabilityData.mark_as}. Averages recalculated.`, "success");
-      
+
       setFailedTPKeys((prev) => {
         const newSet = new Set(prev);
         newSet.delete(focusedTP.key);
@@ -995,6 +996,9 @@ function Calibration({
 
         if (pointForDirection.readings) {
           setHistoricalReadings({
+            char_plus1: formatReadingsForChart(pointForDirection.readings.std_char_plus1_readings),
+            char_minus: formatReadingsForChart(pointForDirection.readings.std_char_minus_readings),
+            char_plus2: formatReadingsForChart(pointForDirection.readings.std_char_plus2_readings),
             ac_open: formatReadingsForChart(
               pointForDirection.readings.std_ac_open_readings
             ),
@@ -1009,6 +1013,9 @@ function Calibration({
             ),
           });
           setTiHistoricalReadings({
+            char_plus1: formatReadingsForChart(pointForDirection.readings.ti_char_plus1_readings),
+            char_minus: formatReadingsForChart(pointForDirection.readings.ti_char_minus_readings),
+            char_plus2: formatReadingsForChart(pointForDirection.readings.ti_char_plus2_readings),
             ac_open: formatReadingsForChart(
               pointForDirection.readings.ti_ac_open_readings
             ),
@@ -1689,6 +1696,92 @@ function Calibration({
     ]
   );
 
+  const handleCharacterizationRequest = useCallback(async (target_tvc = "BOTH") => {
+    if (!focusedTP) return;
+
+    // 1. Initialize the point in the DB if it hasn't been run before
+    let pointData = activeDirection === "Forward" ? focusedTP.forward : focusedTP.reverse;
+    if (!pointData) {
+      try {
+        const response = await axios.post(
+          `${API_BASE_URL}/calibration_sessions/${selectedSessionId}/test_points/`,
+          {
+            current: focusedTP.current,
+            frequency: focusedTP.frequency,
+            direction: activeDirection,
+          }
+        );
+        pointData = response.data;
+        await onDataUpdate();
+      } catch (error) {
+        showNotification(`Error creating ${activeDirection} configuration.`, "error");
+        return;
+      }
+    }
+
+    clearLiveReadings();
+
+    // 2. Package the parameters
+    const params = {
+      command: "tvc_characterization",
+      target_tvc: target_tvc, // <-- Pass the target to the backend
+      test_point: {
+        id: pointData.id,
+        current: focusedTP.current,
+        frequency: focusedTP.frequency,
+        direction: activeDirection,
+      },
+      test_point_id: pointData.id,
+      num_samples: parseInt(calibrationSettings.num_samples, 10),
+      settling_time: parseFloat(calibrationSettings.settling_time),
+      initial_warm_up_time: parseFloat(calibrationSettings.initial_warm_up_time),
+      amplifier_range: calibrationConfigurations.amplifier_range,
+      nplc: parseFloat(calibrationSettings.nplc),
+      measurement_params: {
+        stability_check_method: calibrationSettings.stability_check_method,
+        window: parseInt(calibrationSettings.stability_window, 10),
+        threshold_ppm: parseFloat(calibrationSettings.stability_threshold_ppm),
+        max_attempts: parseInt(calibrationSettings.stability_max_attempts, 10),
+        ppm_threshold: parseFloat(calibrationSettings.iqr_filter_ppm_threshold),
+        ignore_instability_after_lock: calibrationSettings.ignore_instability_after_lock || false,
+      },
+      std_reader_model: stdReaderModel,
+      ti_reader_model: tiReaderModel,
+    };
+
+    // 3. Trigger the standard collection flow so the UI activates
+    if (startReadingCollection(params)) {
+      waitForCollection()
+        .then((result) => {
+          if (result === "collection_stopped" || result === "error") {
+            showNotification("Characterization stopped or failed.", "warning");
+          } else {
+            showNotification("Characterization complete!", "success");
+          }
+        })
+        .catch((err) => {
+          showNotification(`Operation failed: ${err.message}`, "error");
+        })
+        .finally(() => {
+          onDataUpdate();
+        });
+    } else {
+      showNotification("WebSocket not connected.", "error");
+    }
+  }, [
+    focusedTP,
+    activeDirection,
+    calibrationSettings,
+    calibrationConfigurations.amplifier_range,
+    startReadingCollection,
+    showNotification,
+    onDataUpdate,
+    clearLiveReadings,
+    selectedSessionId,
+    stdReaderModel,
+    tiReaderModel
+  ]);
+
   const handleRunSingleStageOnSelected = useCallback(
     async (readingKey) => {
       if (selectedTPs.size === 0) {
@@ -1799,36 +1892,38 @@ function Calibration({
     ]
   );
 
-  const buildChartData = (readings) => ({
-    labels: [
-      ...new Set(
-        Object.values(readings).flatMap((arr) =>
-          arr ? arr.map((point) => point.x) : []
-        )
-      ),
-    ].sort((a, b) => a - b),
-    datasets: READING_TYPES.map((type) => {
-      const baseColor = type.color;
+  const buildChartData = (readings) => {
+    // Determine which keys to show based on the active view
+    const activeKeys = activeChartView === "characterization" 
+      ? ["char_plus1", "char_minus", "char_plus2"] 
+      : ["ac_open", "dc_pos", "dc_neg", "ac_close"];
 
-      return {
-        label: type.label,
-        data: readings[type.key],
-        borderColor: baseColor,
-        backgroundColor: baseColor.replace(")", ", 0.5)").replace("rgb", "rgba"),
-        tension: 0.1,
-        fill: false,
-        segment: {
-          borderDash: (ctx) => {
+    // Filter READING_TYPES so the legend and datasets only show active keys
+    const filteredTypes = READING_TYPES.filter(type => activeKeys.includes(type.key));
 
-            if (ctx.p0.raw?.is_stable === false || ctx.p1.raw?.is_stable === false) {
-              return [6, 6];
-            }
-            return undefined;
-          },
-        },
-      };
-    }),
-  });
+    return {
+      labels: [
+        ...new Set(
+          Object.values(readings).flatMap((arr) =>
+            arr ? arr.map((point) => point.x) : []
+          )
+        ),
+      ].sort((a, b) => a - b),
+      datasets: filteredTypes.map((type) => {
+        return {
+          label: type.label,
+          data: readings[type.key] || [],
+          borderColor: type.color,
+          backgroundColor: type.color,
+          borderWidth: 2,
+          fill: false,
+          tension: 0.1,
+          pointRadius: 3,
+          pointHoverRadius: 5,
+        };
+      }),
+    };
+  };
 
   const formatFrequency = useCallback((value) => {
     return (
@@ -2034,23 +2129,51 @@ function Calibration({
     tiReaderModel === "3458A";
 
   const dropdownOptions = useMemo(() => {
+    // Define the targeted characterization options
+    const charOptions = [
+      {
+        key: "tvc_char_both",
+        label: "Characterize Both TVCs (η)",
+        onClick: () => handleCharacterizationRequest("BOTH"),
+      },
+      {
+        key: "tvc_char_std",
+        label: "Characterize STD TVC (η)",
+        onClick: () => handleCharacterizationRequest("STD"),
+      },
+      {
+        key: "tvc_char_ti",
+        label: "Characterize TI TVC (η)",
+        onClick: () => handleCharacterizationRequest("TI"),
+      }
+    ];
+
+    // Filter out internal characterization stages from the individual "Take" options
+    const visibleReadingTypes = READING_TYPES.filter(
+      (type) => !type.key.startsWith("char_")
+    );
+
     if (selectedTPs.size > 1) {
-      return READING_TYPES.map(({ key, label }) => ({
+      return visibleReadingTypes.map(({ key, label }) => ({
         key: key,
         label: `Take ${label} on ${selectedTPs.size} Points`,
         onClick: () => handleRunSingleStageOnSelected(key),
       }));
     } else {
-      return READING_TYPES.map(({ key, label }) => ({
+      const standardOptions = visibleReadingTypes.map(({ key, label }) => ({
         key: key,
         label: `Take ${label} Readings`,
         onClick: () => handleCollectReadingsRequest(key),
       }));
+
+      // Prepend the char options so they appear at the top
+      return [...charOptions, ...standardOptions];
     }
   }, [
     selectedTPs.size,
     handleCollectReadingsRequest,
     handleRunSingleStageOnSelected,
+    handleCharacterizationRequest,
   ]);
 
   const displayPpm = slidingWindowStatus?.ppm ?? livePpm;
@@ -2545,21 +2668,21 @@ function Calibration({
                                   />
                                 </div>
                                 <div className="form-section checkbox-section" style={{ display: 'flex', alignItems: 'flex-end', paddingBottom: '10px' }}>
-                                <label style={{ display: 'flex', alignItems: 'center', gap: '10px', cursor: 'pointer', fontWeight: 'normal' }}>
-                                  <input
-                                    type="checkbox"
-                                    style={{ width: 'auto', margin: 0 }}
-                                    checked={calibrationSettings.ignore_instability_after_lock || false}
-                                    onChange={(e) =>
-                                      setCalibrationSettings((prev) => ({
-                                        ...prev,
-                                        ignore_instability_after_lock: e.target.checked,
-                                      }))
-                                    }
-                                  />
-                                  Bypass Stability Attempts (Post Initial)
-                                </label>
-                              </div>
+                                  <label style={{ display: 'flex', alignItems: 'center', gap: '10px', cursor: 'pointer', fontWeight: 'normal' }}>
+                                    <input
+                                      type="checkbox"
+                                      style={{ width: 'auto', margin: 0 }}
+                                      checked={calibrationSettings.ignore_instability_after_lock || false}
+                                      onChange={(e) =>
+                                        setCalibrationSettings((prev) => ({
+                                          ...prev,
+                                          ignore_instability_after_lock: e.target.checked,
+                                        }))
+                                      }
+                                    />
+                                    Bypass Stability Attempts (Post Initial)
+                                  </label>
+                                </div>
                               </>
                             )}
 
@@ -2611,6 +2734,20 @@ function Calibration({
                       <>
                         {/* --- RUN BUTTONS MOVED TO STATUS BAR --- */}
 
+                        <div style={{ display: "flex", justifyContent: "center", gap: "10px", marginBottom: "20px", marginTop: "10px" }}>
+                          <button 
+                            className={`button ${activeChartView === "calibration" ? "button-primary" : "button-secondary"}`}
+                            onClick={() => setActiveChartView("calibration")}
+                          >
+                            View Calibration Data
+                          </button>
+                          <button 
+                            className={`button ${activeChartView === "characterization" ? "button-primary" : "button-secondary"}`}
+                            onClick={() => setActiveChartView("characterization")}
+                          >
+                            View Characterization Data
+                          </button>
+                        </div>
                         {/* Chart and Stats sections remain */}
                         {showStdChart && (
                           <div className="chart-container">

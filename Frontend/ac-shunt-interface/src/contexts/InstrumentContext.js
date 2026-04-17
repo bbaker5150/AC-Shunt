@@ -13,6 +13,9 @@ const WS_BASE_URL =
   `ws://${window.location.hostname}:8000/ws`;
 
 const initialLiveReadings = {
+  char_plus1: [],
+  char_minus: [],
+  char_plus2: [],
   ac_open: [],
   dc_pos: [],
   dc_neg: [],
@@ -211,7 +214,7 @@ export const InstrumentContextProvider = ({ children }) => {
 
       if (data.type === "connection_sync") {
         console.log("Received connection sync. Status:", data);
-        
+
         if (data.is_complete) {
           // It's finished. Let the "collection_finished" block handle the final data refresh.
           setIsCollecting(false);
@@ -239,22 +242,9 @@ export const InstrumentContextProvider = ({ children }) => {
           const stdReadingData = data.std_reading;
           const tiReadingData = data.ti_reading;
 
-          const stdPoint = {
-            x: data.count,
-            y: stdReadingData.value,
-            t: new Date(stdReadingData.timestamp * 1000),
-            is_stable: stdReadingData.is_stable,
-          };
-          const tiPoint = {
-            x: data.count,
-            y: tiReadingData.value,
-            t: new Date(tiReadingData.timestamp * 1000),
-            is_stable: tiReadingData.is_stable,
-          };
-
           const updateReadings = (prevReadings, point) => {
             const newReadings = [...(prevReadings[key] || [])];
-            const existingIndex = newReadings.findIndex(p => p.x === point.x);
+            const existingIndex = newReadings.findIndex((p) => p.x === point.x);
             if (existingIndex > -1) {
               newReadings[existingIndex] = point;
             } else {
@@ -263,13 +253,33 @@ export const InstrumentContextProvider = ({ children }) => {
             return { ...prevReadings, [key]: newReadings };
           };
 
-          setLiveReadings(readings => updateReadings(readings, stdPoint));
-          setTiLiveReadings(readings => updateReadings(readings, tiPoint));
+          // ONLY parse and update STD readings if the data is not null
+          if (stdReadingData !== null && stdReadingData !== undefined) {
+            const stdPoint = {
+              x: data.count,
+              y: stdReadingData.value,
+              t: new Date(stdReadingData.timestamp * 1000),
+              is_stable: stdReadingData.is_stable,
+            };
+            setLiveReadings((readings) => updateReadings(readings, stdPoint));
+          }
+
+          // ONLY parse and update TI readings if the data is not null
+          if (tiReadingData !== null && tiReadingData !== undefined) {
+            const tiPoint = {
+              x: data.count,
+              y: tiReadingData.value,
+              t: new Date(tiReadingData.timestamp * 1000),
+              is_stable: tiReadingData.is_stable,
+            };
+            setTiLiveReadings((readings) => updateReadings(readings, tiPoint));
+          }
         }
 
         setCollectionProgress({
-          count: data.stable_count !== undefined ? data.stable_count : data.count,
-          total: data.total
+          count:
+            data.stable_count !== undefined ? data.stable_count : data.count,
+          total: data.total,
         });
         setTimerState({ isActive: false, duration: 0, label: "" });
       } else if (data.type === "stabilization_update") {

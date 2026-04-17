@@ -5330,34 +5330,34 @@ body.dark-mode .pfr-card .risk-value {
 .status-bar {
   display: flex;
   align-items: stretch;
-  background-color: var(--background-color-offset);
+  background-color: var(--content-background); /* Fixed to match the theme */
+  border: 1px solid var(--border-color); /* Matches the other cards */
   border-radius: 8px;
   overflow: visible;
-  width: 100%;
-  max-width: 1400px;
+  width: 100%; /* Fluid width */
+  box-sizing: border-box; /* Prevents border from pushing it out of bounds */
   min-height: 80px;
-  box-shadow: 0 2px 4px rgba(0, 0, 0, 0.05);
+  box-shadow: 0 4px 12px rgba(0, 0, 0, 0.05); /* Softer, more premium shadow */
   position: relative;
-  z-index: 1;
-  margin-left: auto;
-  margin-right: auto;
+  z-index: 10;
+  margin-top: 0;
   margin-bottom: 25px;
 }
 
 .status-bar-content {
   flex-grow: 1;
   display: flex;
-  padding: 10px 15px;
-  align-items: center;
+  padding: 0; /* Removed padding to let dividers stretch */
+  align-items: stretch; /* Forces children to fill full height */
 }
 
 .status-section {
   display: flex;
   flex-direction: column;
   justify-content: center;
-  padding: 0 15px;
-  border-right: 1px solid var(--border-color); /* Added border */
-  min-height: 50px; /* Ensure sections have some height */
+  padding: 15px 20px; /* Moved padding here */
+  border-right: 1px solid var(--border-color);
+  min-height: 100%;
 }
 
 /* Remove border from the last dynamic section before the action button */
@@ -5367,9 +5367,13 @@ body.dark-mode .pfr-card .risk-value {
 
 /* Specific styling for the new live readout section */
 .live-readout-section {
-  border-left: 1px solid var(--border-color); /* Add left border */
+  border-left: 1px solid var(--border-color);
   flex-shrink: 0;
-  min-width: 180px; /* Give it some space */
+  min-width: 180px;
+  padding: 15px 20px; /* Added matching padding */
+  display: flex;
+  flex-direction: column;
+  justify-content: center;
 }
 /* Ensure border colors are correct in dark mode */
 body.dark-mode .live-readout-section {
@@ -5423,7 +5427,7 @@ body.dark-mode .readout-section {
 
 .status-detail {
   font-size: 0.85rem;
-  color: var(--text-color-light); /* Ensure this variable exists or replace */
+  color: var(--text-color-light);
   line-height: 1.2; /* Added line-height */
 }
 
@@ -5431,17 +5435,16 @@ body.dark-mode .readout-section {
   display: flex;
   align-items: center;
   justify-content: center;
-  padding: 0 15px; /* Adjusted padding */
-  /* background-color: var(--background-color); */ /* Removed background */
-  margin-left: auto; /* Push action button to the far right */
+  padding: 0 20px; /* Gives the button breathing room */
+  margin-left: auto; 
 }
 
 .status-bar-action .premium-action-button-primary {
-  padding: 10px 15px; /* Slightly reduced padding */
+  padding: 10px 15px;
   font-size: 1.1rem;
 }
 .status-bar-action .premium-action-button-caret {
-  padding: 10px 12px; /* Slightly reduced padding */
+  padding: 10px 12px;
 }
 /* Ensure dropdown menu appears correctly */
 .status-bar-action .premium-action-button-menu {
@@ -5453,8 +5456,12 @@ body.dark-mode .readout-section {
 
 .window-stability-section {
   border-left: 1px solid var(--border-color);
-  flex-shrink: 0; /* Prevents the section from shrinking too much */
-  min-width: 180px; /* Ensures it has enough space */
+  flex-shrink: 0; 
+  min-width: 180px; 
+  padding: 15px 20px; /* Added matching padding */
+  display: flex;
+  flex-direction: column;
+  justify-content: center;
 }
 
 /* This makes the PPM value the hero element of the new section */
