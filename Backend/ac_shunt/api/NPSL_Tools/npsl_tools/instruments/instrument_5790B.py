@@ -57,17 +57,14 @@ class Instrument5790B(FlukeInstrument):
         super().__init__(model=model, gpib=gpib, timeout=timeout)
         
         self.set_auto_range()
-        self.resource.write("INPUT INPUT1")
+        self.resource.write("INPUT INPUT2")
 
     def read_instrument(self):
         """
         Unified method to take a reading. Manually triggers, waits for the
-        operation to complete, and then gets the value using VAL?.
+        operation to complete, and then gets the value using MEAS?.
         """
-        self.resource.write("TRIG")
-        self.resource.query("*OPC?")  # This blocks until the new measurement is complete
-        
-        voltage, _, _ = self.send_VAL()
+        voltage, _, _ = self.send_MEAS()
         return voltage
 
     def _parse_cal_steps(self, query: str, test_points: list = []):

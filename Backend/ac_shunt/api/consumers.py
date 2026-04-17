@@ -288,7 +288,7 @@ class CalibrationConsumer(AsyncWebsocketConsumer):
             if amplifier and hasattr(amplifier, 'close'):
                 await sync_to_async(amplifier.close, thread_sensitive=True)()
 
-    @sync_to_async(thread_sensitive=True)
+    @sync_to_async(thread_sensitive=False)
     def _take_one_reading(self, instrument):
         return instrument.read_instrument()
 
@@ -515,6 +515,8 @@ class CalibrationConsumer(AsyncWebsocketConsumer):
                 await sync_to_async(instrument.set_integration, thread_sensitive=True)(setting=nplc_setting)
             if isinstance(instrument, Instrument5790B): 
                 await sync_to_async(instrument.set_range, thread_sensitive=True)(value=config_voltage)
+                await sync_to_async(instrument.resource.write, thread_sensitive=True)("HIRES OFF")
+                await sync_to_async(instrument.resource.write, thread_sensitive=True)("DFILT FAST,COARSE")
             elif isinstance(instrument, Instrument3458A): 
                 await sync_to_async(instrument.configure_measurement, thread_sensitive=True)(
                     **{'function': 'ACV' if is_ac_reading else 'DCV', 'expected_value': config_voltage, 'frequency': frequency}
