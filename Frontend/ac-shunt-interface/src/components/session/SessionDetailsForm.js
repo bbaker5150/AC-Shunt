@@ -7,8 +7,7 @@ import React, { useState, useEffect } from "react";
 import axios from "axios";
 import { FaSave } from "react-icons/fa"; // Import the save icon
 import { useInstruments } from "../../contexts/InstrumentContext";
-
-const API_BASE_URL = process.env.REACT_APP_API_BASE_URL;
+import { API_BASE_URL } from "../../constants/constants";
 
 const initialFormData = {
   sessionName: `Calibration Session - ${new Date().toLocaleString()}`,
@@ -163,73 +162,99 @@ function SessionDetailsForm({ sessionsList, fetchSessionsList, showNotification 
     }
   };
 
+  const isEditing = Boolean(selectedSessionId);
+  const saveTitle = isLoading
+    ? "Saving…"
+    : isEditing
+      ? "Update session"
+      : "Save new session";
+
   return (
-    <div className="session-details-container">
-      <h3>{selectedSessionId ? "Edit Session Details" : "Create New Session"}</h3>
-      <form onSubmit={handleSubmit} className="session-details-form">
-        <div className="form-section-group">
-          <div className="form-section full-width">
-            <label htmlFor="sessionName">Session Name</label>
-            <input type="text" id="sessionName" name="sessionName" value={formData.sessionName} onChange={handleChange} required />
-          </div>
+    <section className="session-panel session-details-container">
+      <header className="session-panel-header">
+        <div className="session-panel-header-text">
+          <h3 className="session-panel-title">
+            {isEditing ? "Edit Session Details" : "Create New Session"}
+          </h3>
         </div>
-        
-        <h4 className="form-group-header">Instrument Information</h4>
-        <div className="form-section-group">
-          <div className="form-section">
-            <label htmlFor="standardInstrumentModel">Standard Instrument</label>
-            <input type="text" id="standardInstrumentModel" name="standardInstrumentModel" value={formData.standardInstrumentModel} onChange={handleChange} required />
-          </div>
-          <div className="form-section">
-            <label htmlFor="standardInstrumentSerial">Standard Serial</label>
-            <input type="text" id="standardInstrumentSerial" name="standardInstrumentSerial" value={formData.standardInstrumentSerial} onChange={handleChange} required />
-          </div>
-          <div className="form-section">
-            <label htmlFor="testInstrument">Test Instrument</label>
-            <input type="text" id="testInstrument" name="testInstrument" value={formData.testInstrument} onChange={handleChange} required />
-          </div>
-          <div className="form-section">
-            <label htmlFor="testInstrumentSerial">Test Instrument Serial</label>
-            <input type="text" id="testInstrumentSerial" name="testInstrumentSerial" value={formData.testInstrumentSerial} onChange={handleChange} required />
-          </div>
-          <div className="form-section">
-            <label htmlFor="standardTvcSerial">Standard TVC Serial</label>
-            <input type="text" id="standardTvcSerial" name="standardTvcSerial" value={formData.standardTvcSerial} onChange={handleChange} />
-          </div>
-          <div className="form-section">
-            <label htmlFor="testTvcSerial">Test TVC Serial</label>
-            <input type="text" id="testTvcSerial" name="testTvcSerial" value={formData.testTvcSerial} onChange={handleChange} />
+      </header>
+
+      <form
+        id="session-details-form"
+        onSubmit={handleSubmit}
+        className="session-details-form"
+      >
+        <div className="session-form-group">
+          <span className="session-form-group-eyebrow">Overview</span>
+          <div className="form-section-group">
+            <div className="form-section full-width">
+              <label htmlFor="sessionName">Session name</label>
+              <input type="text" id="sessionName" name="sessionName" value={formData.sessionName} onChange={handleChange} required />
+            </div>
           </div>
         </div>
 
-        <h4 className="form-group-header">Environmental Conditions & Notes</h4>
-        <div className="form-section-group">
-          <div className="form-section">
-            <label htmlFor="temperature">Temperature (°C)</label>
-            <input type="number" id="temperature" name="temperature" value={formData.temperature} onChange={handleChange} step="0.1" required />
-          </div>
-          <div className="form-section">
-            <label htmlFor="humidity">Humidity (%RH)</label>
-            <input type="number" id="humidity" name="humidity" value={formData.humidity} onChange={handleChange} step="0.1" required />
-          </div>
-          <div className="form-section full-width">
-            <label htmlFor="notes">Notes</label>
-            <textarea id="notes" name="notes" value={formData.notes} onChange={handleChange} rows="5" />
+        <div className="session-form-group">
+          <span className="session-form-group-eyebrow">Instruments</span>
+          <div className="form-section-group">
+            <div className="form-section">
+              <label htmlFor="standardInstrumentModel">Standard instrument</label>
+              <input type="text" id="standardInstrumentModel" name="standardInstrumentModel" value={formData.standardInstrumentModel} onChange={handleChange} required />
+            </div>
+            <div className="form-section">
+              <label htmlFor="standardInstrumentSerial">Standard serial</label>
+              <input type="text" id="standardInstrumentSerial" name="standardInstrumentSerial" value={formData.standardInstrumentSerial} onChange={handleChange} required />
+            </div>
+            <div className="form-section">
+              <label htmlFor="testInstrument">Test instrument</label>
+              <input type="text" id="testInstrument" name="testInstrument" value={formData.testInstrument} onChange={handleChange} required />
+            </div>
+            <div className="form-section">
+              <label htmlFor="testInstrumentSerial">Test serial</label>
+              <input type="text" id="testInstrumentSerial" name="testInstrumentSerial" value={formData.testInstrumentSerial} onChange={handleChange} required />
+            </div>
+            <div className="form-section">
+              <label htmlFor="standardTvcSerial">Standard TVC serial</label>
+              <input type="text" id="standardTvcSerial" name="standardTvcSerial" value={formData.standardTvcSerial} onChange={handleChange} />
+            </div>
+            <div className="form-section">
+              <label htmlFor="testTvcSerial">Test TVC serial</label>
+              <input type="text" id="testTvcSerial" name="testTvcSerial" value={formData.testTvcSerial} onChange={handleChange} />
+            </div>
           </div>
         </div>
 
-        <div className="form-submit-area">
+        <div className="session-form-group">
+          <span className="session-form-group-eyebrow">Environment &amp; notes</span>
+          <div className="form-section-group">
+            <div className="form-section">
+              <label htmlFor="temperature">Temperature (°C)</label>
+              <input type="number" id="temperature" name="temperature" value={formData.temperature} onChange={handleChange} step="0.1" required />
+            </div>
+            <div className="form-section">
+              <label htmlFor="humidity">Humidity (%RH)</label>
+              <input type="number" id="humidity" name="humidity" value={formData.humidity} onChange={handleChange} step="0.1" required />
+            </div>
+            <div className="form-section full-width">
+              <label htmlFor="notes">Notes</label>
+              <textarea id="notes" name="notes" value={formData.notes} onChange={handleChange} rows="5" />
+            </div>
+          </div>
+        </div>
+
+        <div className="form-section-action-icons">
           <button
             type="submit"
             className="sidebar-action-button"
             disabled={isLoading}
-            title={isLoading ? "Saving..." : selectedSessionId ? "Update Session" : "Save New Session"}
+            aria-label={saveTitle}
+            title={saveTitle}
           >
             <FaSave />
           </button>
         </div>
       </form>
-    </div>
+    </section>
   );
 }
 

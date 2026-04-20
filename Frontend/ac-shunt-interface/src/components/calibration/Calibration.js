@@ -11,6 +11,7 @@ import axios from "axios";
 import {
   FaStop,
   FaCalculator,
+  FaDownload,
   FaTimes,
   FaPlay,
   FaHourglassHalf,
@@ -26,6 +27,7 @@ import { useTheme } from "../../contexts/ThemeContext";
 import CalibrationChart from "./CalibrationChart";
 import ConfigurationSummaryModal from "./ConfigurationSummaryModal";
 import LiveStatisticsTracker from "./LiveStatisticsTracker";
+import { downloadFullSessionExcel } from "./sessionExcelExport";
 import {
   AVAILABLE_FREQUENCIES,
   AVAILABLE_CURRENTS,
@@ -240,6 +242,7 @@ function Calibration({
 }) {
   const {
     selectedSessionId,
+    selectedSessionName,
     liveReadings,
     tiLiveReadings,
     initialLiveReadings,
@@ -340,6 +343,24 @@ function Calibration({
     () => orderedTestPoints,
     [orderedTestPoints]
   );
+
+  const handleExportSessionExcel = useCallback(async () => {
+    const r = await downloadFullSessionExcel({
+      uniqueTestPoints,
+      sessionName: selectedSessionName,
+      sessionId: selectedSessionId,
+    });
+    if (!r.ok) {
+      showNotification(r.error, "warning");
+    } else {
+      showNotification("Workbook downloaded.", "success");
+    }
+  }, [
+    uniqueTestPoints,
+    selectedSessionName,
+    selectedSessionId,
+    showNotification,
+  ]);
 
   const livePpm = useMemo(() => {
     if (!isCollecting || !activeCollectionDetails?.stage) return null;
@@ -2832,119 +2853,120 @@ function Calibration({
                       </>
                     )}
                     {activeTab === "calculate" && (
-                      <div className="results-container">
-                        <div
-                          className="form-section"
-                          style={{
-                            textAlign: "center",
-                            paddingBottom: "20px",
-                            borderBottom: "1px solid var(--border-color)",
-                          }}
-                        >
-                          <button
-                            onClick={handleOpenCorrectionModal}
-                            disabled={
-                              isCollecting ||
-                              isCalculatingAverages ||
-                              !isCalculationReady
-                            }
-                            className="button button-success button-icon-only"
-                            title="Calculate AC-DC Difference"
-                          >
-                            <FaCalculator />
-                          </button>
-                        </div>
+                      <section className="cal-calc-panel">
+                        <header className="cal-calc-bar">
+                          <div className="cal-calc-bar-meta" aria-live="polite">
+                            <span className="cal-calc-bar-amps">
+                              {focusedTP.current} A
+                            </span>
+                            <span className="cal-calc-bar-freq">
+                              {formatFrequency(focusedTP.frequency)}
+                            </span>
+                          </div>
+                          <div className="cal-calc-bar-actions">
+                            <button
+                              type="button"
+                              onClick={handleOpenCorrectionModal}
+                              disabled={
+                                isCollecting ||
+                                isCalculatingAverages ||
+                                !isCalculationReady
+                              }
+                              className="cal-results-excel-icon-btn"
+                              aria-label="Calculate AC-DC difference"
+                              title="Calculate AC–DC difference"
+                            >
+                              <FaCalculator aria-hidden />
+                            </button>
+                            <button
+                              type="button"
+                              className="cal-results-excel-icon-btn"
+                              aria-label="Export session to Excel"
+                              title="Export session to Excel — AC–DC summary and all raw readings"
+                              disabled={!uniqueTestPoints?.length}
+                              onClick={handleExportSessionExcel}
+                            >
+                              <FaDownload aria-hidden />
+                            </button>
+                          </div>
+                        </header>
 
-                        {averagedPpmDifference && (
+                        {averagedPpmDifference != null && (
                           <div
-                            className="final-result-card"
-                            style={{
-                              marginBottom: "20px",
-                              background: "var(--success-color)",
-                            }}
+                            className="cal-calc-kpi cal-calc-kpi--primary"
+                            role="status"
                           >
-                            <h4>Final Averaged AC-DC Difference</h4>
-                            <p>{averagedPpmDifference} PPM</p>
+                            <p className="cal-calc-kpi-label">
+                              Final averaged AC–DC difference
+                            </p>
+                            <div className="cal-calc-kpi-value-row">
+                              <span className="cal-calc-kpi-num">
+                                {parseFloat(averagedPpmDifference).toFixed(3)}
+                              </span>
+                              <span className="cal-calc-kpi-unit">ppm</span>
+                            </div>
                           </div>
                         )}
 
-                        <div
-                          className="reading-group"
-                          style={{
-                            gridTemplateColumns: "1fr 1fr",
-                            alignItems: "start",
-                          }}
-                        >
-                          {focusedTP.forward?.results?.delta_uut_ppm !== null &&
-                            focusedTP.forward?.results?.delta_uut_ppm !==
-                            undefined && (
-                              <div className="reading">
-                                <h4>Forward Direction</h4>
-                                <div
-                                  className="reading-group"
-                                  style={{ gridTemplateColumns: "1fr" }}
-                                >
-                                  <div className="reading">
-                                    <h3>δ UUT (PPM):</h3>
-                                    <p
-                                      style={{
-                                        fontSize: "1.5em",
-                                        fontWeight: "bold",
-                                        color: "var(--primary-color)",
-                                      }}
-                                    >
-                                      {parseFloat(
-                                        focusedTP.forward.results.delta_uut_ppm
-                                      ).toFixed(3)}
-                                    </p>
-                                  </div>
+                        {(focusedTP.forward?.results?.delta_uut_ppm != null ||
+                          focusedTP.reverse?.results?.delta_uut_ppm != null) && (
+                          <div className="cal-calc-direction-grid">
+                            {focusedTP.forward?.results?.delta_uut_ppm !=
+                              null && (
+                              <div className="cal-calc-kpi">
+                                <p className="cal-calc-kpi-label">
+                                  Forward · δ UUT
+                                </p>
+                                <div className="cal-calc-kpi-value-row">
+                                  <span className="cal-calc-kpi-num">
+                                    {parseFloat(
+                                      focusedTP.forward.results.delta_uut_ppm
+                                    ).toFixed(3)}
+                                  </span>
+                                  <span className="cal-calc-kpi-unit">
+                                    ppm
+                                  </span>
                                 </div>
                               </div>
                             )}
 
-                          {focusedTP.reverse?.results?.delta_uut_ppm !== null &&
-                            focusedTP.reverse?.results?.delta_uut_ppm !==
-                            undefined && (
-                              <div className="reading">
-                                <h4>Reverse Direction</h4>
-                                <div
-                                  className="reading-group"
-                                  style={{ gridTemplateColumns: "1fr" }}
-                                >
-                                  <div className="reading">
-                                    <h3>δ UUT (PPM):</h3>
-                                    <p
-                                      style={{
-                                        fontSize: "1.5em",
-                                        fontWeight: "bold",
-                                        color: "var(--primary-color)",
-                                      }}
-                                    >
-                                      {parseFloat(
-                                        focusedTP.reverse.results.delta_uut_ppm
-                                      ).toFixed(3)}
-                                    </p>
-                                  </div>
+                            {focusedTP.reverse?.results?.delta_uut_ppm !=
+                              null && (
+                              <div className="cal-calc-kpi">
+                                <p className="cal-calc-kpi-label">
+                                  Reverse · δ UUT
+                                </p>
+                                <div className="cal-calc-kpi-value-row">
+                                  <span className="cal-calc-kpi-num">
+                                    {parseFloat(
+                                      focusedTP.reverse.results.delta_uut_ppm
+                                    ).toFixed(3)}
+                                  </span>
+                                  <span className="cal-calc-kpi-unit">
+                                    ppm
+                                  </span>
                                 </div>
                               </div>
                             )}
-                        </div>
+                          </div>
+                        )}
+
                         {!(
                           focusedTP.forward?.results?.delta_uut_ppm ||
                           focusedTP.reverse?.results?.delta_uut_ppm
                         ) && (
-                            <div
-                              className="placeholder-content"
-                              style={{ minHeight: "200px" }}
-                            >
-                              <h3>No Results Calculated</h3>
-                              <p>
-                                Complete readings for a direction and click the
-                                "Calculate" button above.
-                              </p>
-                            </div>
-                          )}
-                      </div>
+                          <div className="cal-calc-empty">
+                            <h3 className="cal-calc-empty-title">
+                              No results yet
+                            </h3>
+                            <p className="cal-calc-empty-text">
+                              Finish readings for a direction, then use the
+                              Calculate button above to compute the AC–DC
+                              difference.
+                            </p>
+                          </div>
+                        )}
+                      </section>
                     )}
                   </div>
                 </>

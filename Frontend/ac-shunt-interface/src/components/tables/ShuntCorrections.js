@@ -1,9 +1,7 @@
 import React, { useState, useEffect, useCallback } from 'react';
 import ReactDOM from 'react-dom';
 import axios from 'axios';
-import { AVAILABLE_FREQUENCIES } from '../../constants/constants';
-
-const API_BASE_URL = process.env.REACT_APP_API_BASE_URL;
+import { API_BASE_URL, AVAILABLE_FREQUENCIES } from '../../constants/constants';
 
 const ShuntCorrections = ({ dataType = 'correction', showNotification }) => {
     const [data, setData] = useState({});

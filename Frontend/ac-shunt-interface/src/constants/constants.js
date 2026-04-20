@@ -53,7 +53,8 @@ const AVAILABLE_FREQUENCIES = [
   { text: "30000 Hz", value: 30000 },
 ];
 
-const API_BASE_URL = process.env.REACT_APP_API_BASE_URL;
+const API_BASE_URL =
+  process.env.REACT_APP_API_BASE_URL || "http://localhost:8000/api";
 
 const NPLC_OPTIONS = [0.02, 0.2, 1, 2, 10, 20, 100, 200];
 

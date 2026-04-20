@@ -18,9 +18,7 @@ import "bootstrap/dist/css/bootstrap.min.css";
 import { FaInfoCircle } from "react-icons/fa";
 import "./App.css";
 import { arrayMove } from "@dnd-kit/sortable";
-import { AVAILABLE_FREQUENCIES } from "./constants/constants";
-
-const API_BASE_URL = process.env.REACT_APP_API_BASE_URL;
+import { AVAILABLE_FREQUENCIES, API_BASE_URL } from "./constants/constants";
 
 // Helper functions for corrections (getShuntCorrectionForPoint, getTVCCorrectionForPoint)
 const getShuntCorrectionForPoint = (point, shuntRangeInAmps, shuntsData) => {

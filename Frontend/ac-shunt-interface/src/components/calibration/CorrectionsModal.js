@@ -8,10 +8,7 @@ import React, {
 import axios from "axios";
 import { useInstruments } from "../../contexts/InstrumentContext";
 import { FaTimes, FaSave, FaArrowLeft, FaPlus, FaEdit, FaTrash } from "react-icons/fa";
-import { AMPLIFIER_RANGES_A } from "../../constants/constants";
-
-const API_BASE_URL =
-  process.env.REACT_APP_API_BASE_URL || "http://localhost:8000/api";
+import { AMPLIFIER_RANGES_A, API_BASE_URL } from "../../constants/constants";
 
 // --- Static Initial State (Moved outside component to fix dependency warnings) ---
 const initialManualFormState = {
@@ -26,39 +23,25 @@ const initialManualFormState = {
 };
 
 // --- Clean, Minimalist Icon Button Component ---
-const IconBtn = ({ icon, onClick, title, color = "var(--text-color)", size = "1.2rem" }) => (
-  <button
-    type="button"
-    onClick={onClick}
-    title={title}
-    style={{
-      background: 'transparent',
-      border: 'none',
-      boxShadow: 'none',
-      cursor: 'pointer',
-      padding: '4px 6px',
-      display: 'flex',
-      alignItems: 'center',
-      justifyContent: 'center',
-      color: color,
-      fontSize: size,
-      opacity: 0.6,
-      transition: 'opacity 0.2s ease, transform 0.1s ease',
-    }}
-    onMouseEnter={(e) => {
-      e.currentTarget.style.opacity = 1;
-      e.currentTarget.style.transform = 'scale(1.1)';
-    }}
-    onMouseLeave={(e) => {
-      e.currentTarget.style.opacity = 0.6;
-      e.currentTarget.style.transform = 'scale(1)';
-    }}
-  >
-    {icon}
-  </button>
-);
+const IconBtn = ({ icon, onClick, title, variant, disabled, type = "button" }) => {
+  const className =
+    "cal-results-excel-icon-btn" +
+    (variant === "danger" ? " cal-results-excel-icon-btn--danger" : "");
+  return (
+    <button
+      type={type}
+      onClick={onClick}
+      title={title}
+      aria-label={title}
+      disabled={disabled}
+      className={className}
+    >
+      {icon}
+    </button>
+  );
+};
 
-// --- Original Custom Dropdown Component ---
+// --- Custom Dropdown (searchable, clean) ---
 const CustomDropdown = ({
   label,
   options,
@@ -70,13 +53,10 @@ const CustomDropdown = ({
 }) => {
   const [isOpen, setIsOpen] = useState(false);
   const [searchTerm, setSearchTerm] = useState("");
-  const [width, setWidth] = useState(350);
-  const [isResizing, setIsResizing] = useState(false);
-  const resizeInfoRef = useRef({ initialMouseX: 0, initialWidth: 0 });
   const dropdownRef = useRef(null);
 
   const handleToggle = () => {
-    if (!disabled) setIsOpen(!isOpen);
+    if (!disabled) setIsOpen((prev) => !prev);
   };
 
   const handleSelect = (optionValue) => {
@@ -84,39 +64,6 @@ const CustomDropdown = ({
     setIsOpen(false);
     setSearchTerm("");
   };
-
-  const handleMouseDown = (e) => {
-    e.preventDefault();
-    e.stopPropagation();
-    setIsResizing(true);
-    resizeInfoRef.current = {
-      initialMouseX: e.clientX,
-      initialWidth: dropdownRef.current.offsetWidth,
-    };
-  };
-
-  const handleResize = useCallback((e) => {
-    const deltaX = e.clientX - resizeInfoRef.current.initialMouseX;
-    const newWidth = resizeInfoRef.current.initialWidth + deltaX;
-    if (newWidth > 280 && newWidth < 800) {
-      setWidth(newWidth);
-    }
-  }, []);
-
-  const handleMouseUp = useCallback(() => {
-    setIsResizing(false);
-  }, []);
-
-  useEffect(() => {
-    if (isResizing) {
-      window.addEventListener("mousemove", handleResize);
-      window.addEventListener("mouseup", handleMouseUp);
-    }
-    return () => {
-      window.removeEventListener("mousemove", handleResize);
-      window.removeEventListener("mouseup", handleMouseUp);
-    }
-  }, [isResizing, handleResize, handleMouseUp]);
 
   useEffect(() => {
     const handleClickOutside = (event) => {
@@ -139,9 +86,8 @@ const CustomDropdown = ({
       className={`custom-dropdown-container ${disabled ? "disabled" : ""} ${isLoading ? "loading" : ""
         }`}
       ref={dropdownRef}
-      style={{ width: `${width}px` }}
     >
-      <label>{label}</label>
+      {label && <label>{label}</label>}
       <button
         type="button"
         className={`custom-dropdown-trigger ${isOpen ? "open" : ""}`}
@@ -153,7 +99,7 @@ const CustomDropdown = ({
         ) : (
           <span className="placeholder">{placeholder}</span>
         )}
-        <span className="custom-dropdown-chevron">▼</span>
+        <span className="custom-dropdown-chevron" aria-hidden>▾</span>
       </button>
       {isOpen && (
         <div className="custom-dropdown-panel">
@@ -182,7 +128,6 @@ const CustomDropdown = ({
               <li className="no-options">No matches found</li>
             )}
           </ul>
-          <div className="resizable-handle" onMouseDown={handleMouseDown}></div>
         </div>
       )}
     </div>
@@ -201,10 +146,10 @@ const ConfirmationModal = ({
 }) => {
   if (!isOpen) return null;
   return (
-    <div className="modal-overlay" style={{ zIndex: 1400 }}>
-      <div className="modal-content">
+    <div className="modal-overlay modal-overlay--nested">
+      <div className="modal-content modal-content--narrow">
         <h3>{title}</h3>
-        <p style={{ marginBottom: "25px", whiteSpace: "pre-wrap" }}>
+        <p className="confirmation-modal-message">
           {message}
         </p>
         <div className="modal-actions">
@@ -411,7 +356,7 @@ function CorrectionsModal({ isOpen, onClose, showNotification, onUpdate, uniqueT
 
     return uniqueTvcs.map((tvc) => ({
       value: tvc.serial_number,
-      label: tvc.is_manual ? `${tvc.serial_number} (Manual)` : tvc.serial_number,
+      label: tvc.serial_number,
     }));
   }, [tvcsData]);
 
@@ -704,80 +649,106 @@ function CorrectionsModal({ isOpen, onClose, showNotification, onUpdate, uniqueT
 
     if (isLoading && rows.length === 0) {
       return (
-        <div className="corrections-table-container" style={{ minHeight: "300px", display: "flex", alignItems: "center", justifyContent: "center" }}>
-          <p className="placeholder-content">Loading instrument database...</p>
+        <div className="corrections-empty-state">
+          <span className="corrections-empty-state-title">Loading instrument database…</span>
+          <span className="corrections-empty-state-message">Fetching corrections and uncertainties.</span>
         </div>
       );
     }
 
-    if (rows.length === 0)
+    if (!selectedShuntSn) {
       return (
-        <p className="placeholder-content">
-          No data available for this serial number.
-        </p>
+        <div className="corrections-empty-state">
+          <span className="corrections-empty-state-title">No shunt selected</span>
+          <span className="corrections-empty-state-message">
+            Pick a serial number from the picker above to view its corrections.
+          </span>
+        </div>
       );
+    }
+
+    if (rows.length === 0) {
+      return (
+        <div className="corrections-empty-state">
+          <span className="corrections-empty-state-title">No data available</span>
+          <span className="corrections-empty-state-message">
+            No {shuntView === "Corrections" ? "correction" : "uncertainty"} data was found for this serial number.
+          </span>
+        </div>
+      );
+    }
 
     return (
-      <div className="corrections-table-container">
-        <p style={{ fontSize: "0.85rem", color: "var(--text-color-muted)", marginBottom: "10px", fontStyle: "italic" }}>
-          💡 Hint: Click on any row to instantly generate test points for that configuration in your active session.
+      <>
+        <p className="corrections-card-hint">
+          <span className="corrections-card-hint-dot" aria-hidden />
+          Click any row to generate matching test points in your active session.
         </p>
-        <table className="styled-table">
-          <thead>
-            <tr>
-              <th style={{ textAlign: "center" }}>Range (A)</th>
-              <th style={{ textAlign: "center" }}>Current (A)</th>
-              {headers.map((freq) => (
-                <th key={freq} style={{ textAlign: "center" }}>
-                  {freq} Hz
-                </th>
-              ))}
-            </tr>
-          </thead>
-          <tbody>
-            {rows.map((row) => (
-              <tr
-                key={`${row.range}-${row.current}`}
-                onClick={() => handleRowClick(row, headers)}
-                style={{ cursor: "pointer", transition: "background-color 0.2s ease" }}
-                onMouseEnter={(e) => e.currentTarget.style.backgroundColor = "var(--hover-bg-color, rgba(0, 123, 255, 0.1))"}
-                onMouseLeave={(e) => e.currentTarget.style.backgroundColor = "transparent"}
-                title={`Generate test points for ${row.current}A`}
-              >
-                <td style={{ textAlign: "center" }}>{row.range}</td>
-                <td style={{ textAlign: "center" }}>{row.current}</td>
+        <div className="corrections-table-container">
+          <table className="styled-table styled-table--centered">
+            <thead>
+              <tr>
+                <th>Range (A)</th>
+                <th>Current (A)</th>
                 {headers.map((freq) => (
-                  <td key={freq} style={{ textAlign: "center" }}>
-                    {row.values[freq] ?? "—"}
-                  </td>
+                  <th key={freq}>{freq} Hz</th>
                 ))}
               </tr>
-            ))}
-          </tbody>
-        </table>
-      </div>
+            </thead>
+            <tbody>
+              {rows.map((row) => (
+                <tr
+                  key={`${row.range}-${row.current}`}
+                  className="styled-table-row--clickable"
+                  onClick={() => handleRowClick(row, headers)}
+                  title={`Generate test points for ${row.current}A`}
+                >
+                  <td>{row.range}</td>
+                  <td>{row.current}</td>
+                  {headers.map((freq) => (
+                    <td key={freq}>{row.values[freq] ?? "—"}</td>
+                  ))}
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        </div>
+      </>
     );
   };
 
-  const renderTVCTable = (serialNumber) => {
-    if (!serialNumber) return null;
+  const renderTVCTable = (serialNumber, { compact = false } = {}) => {
+    if (!serialNumber) {
+      return (
+        <div className={`corrections-empty-state${compact ? " corrections-empty-state--compact" : ""}`}>
+          <span className="corrections-empty-state-title">Not assigned</span>
+          <span className="corrections-empty-state-message">
+            No TVC serial has been assigned for this role.
+          </span>
+        </div>
+      );
+    }
+
     const filteredTvc = tvcsData.find(
       (tvc) => String(tvc.serial_number) === String(serialNumber)
     );
 
     if (isLoading && (!filteredTvc || !filteredTvc.corrections?.length)) {
       return (
-        <div className="corrections-table-container" style={{ minHeight: "150px", display: "flex", alignItems: "center", justifyContent: "center" }}>
-          <p className="placeholder-content">Loading TVC data...</p>
+        <div className={`corrections-empty-state${compact ? " corrections-empty-state--compact" : ""}`}>
+          <span className="corrections-empty-state-title">Loading TVC data…</span>
         </div>
       );
     }
 
     if (!filteredTvc?.corrections?.length) {
       return (
-        <p className="placeholder-content">
-          No correction data found for this serial number.
-        </p>
+        <div className={`corrections-empty-state${compact ? " corrections-empty-state--compact" : ""}`}>
+          <span className="corrections-empty-state-title">No corrections on file</span>
+          <span className="corrections-empty-state-message">
+            No correction data was found for S/N <strong>{serialNumber}</strong>.
+          </span>
+        </div>
       );
     }
 
@@ -808,236 +779,328 @@ function CorrectionsModal({ isOpen, onClose, showNotification, onUpdate, uniqueT
     );
   };
 
-  const renderManualEntry = () => (
-    <div className="manual-entry-container" style={{ animation: "fadeIn 0.2s ease-out" }}>
-      <div className="input-card" style={{ marginBottom: "25px", textAlign: "left" }}>
-        <h4 style={{ borderBottom: "1px solid var(--border-color)", paddingBottom: "10px", marginBottom: "20px" }}>
-          {isEditing ? `Edit ${manualType === 'shunt' ? 'AC Shunt' : 'TVC'} Entry` : `New ${manualType === 'shunt' ? 'AC Shunt' : 'TVC'} Entry`}
-        </h4>
-        <div className="form-section-group">
-          {manualType === 'shunt' ? (
-            <>
-              <div className="form-section">
-                <label>Model Name</label>
-                <input
-                  type="text"
-                  value={manualForm.model_name ?? ''}
-                  onChange={(e) => setManualForm(prev => ({ ...prev, model_name: e.target.value }))}
-                  placeholder="e.g. A40B"
-                />
-              </div>
-              <div className="form-section">
-                <label>Serial Number</label>
-                <input
-                  type="text"
-                  disabled={isEditing}
-                  value={manualForm.serial_number ?? ''}
-                  onChange={(e) => setManualForm(prev => ({ ...prev, serial_number: e.target.value }))}
-                  placeholder="e.g. 12345"
-                />
-              </div>
-              <div className="form-section">
-                <label>Range (A)</label>
-                <input
-                  type="text"
-                  inputMode="decimal"
-                  value={manualForm.range ?? ''}
-                  onChange={(e) => setManualForm(prev => ({ ...prev, range: e.target.value }))}
-                  placeholder="e.g. 5"
-                />
-              </div>
-              <div className="form-section">
-                <label>Current (A)</label>
-                <input
-                  type="text"
-                  inputMode="decimal"
-                  value={manualForm.current ?? ''}
-                  onChange={(e) => setManualForm(prev => ({ ...prev, current: e.target.value }))}
-                  placeholder="e.g. 5"
-                />
-              </div>
-            </>
-          ) : (
-            <>
-              <div className="form-section">
-                <label>Serial Number</label>
-                <input
-                  type="text"
-                  disabled={isEditing}
-                  value={manualForm.serial_number ?? ''}
-                  onChange={(e) => setManualForm(prev => ({ ...prev, serial_number: e.target.value }))}
-                  placeholder="e.g. 12345"
-                />
-              </div>
-              <div className="form-section">
-                <label>Test Voltage (V)</label>
-                <input
-                  type="text"
-                  inputMode="decimal"
-                  value={manualForm.test_voltage ?? ''}
-                  onChange={(e) => setManualForm(prev => ({ ...prev, test_voltage: e.target.value }))}
-                  placeholder="e.g. 0.5"
-                />
-              </div>
-            </>
-          )}
-        </div>
-      </div>
+  const renderManualEntry = () => {
+    const isShunt = manualType === "shunt";
+    const typeLabel = isShunt ? "AC Shunt" : "TVC";
+    const actionLabel = isEditing ? "Edit" : "New";
+    const value1Label = isShunt ? "Correction (ppm)" : "AC/DC Diff (ppm)";
+    const value2Label = isShunt ? "Uncertainty (ppm)" : "Expanded Unc (ppm)";
 
-      <div className="input-card" style={{ textAlign: "left" }}>
-        <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", borderBottom: "1px solid var(--border-color)", paddingBottom: "10px", marginBottom: "20px" }}>
-          <h4 style={{ margin: 0, padding: 0, border: "none" }}>Correction Points</h4>
-          <IconBtn
-            icon={<FaPlus />}
-            onClick={() => setManualForm({ ...manualForm, points: [...manualForm.points, { id: null, frequency: '', val1: '', val2: '' }] })}
-            title="Add Point"
-            size="1.2rem"
-          />
-        </div>
-
-        <div className="manual-points-list" style={{ display: "flex", flexDirection: "column", gap: "12px" }}>
-          {manualForm.points.length > 0 && (
-            <div style={{ display: "flex", gap: "15px", padding: "0 15px", marginBottom: "-5px" }}>
-              <label style={{ flex: 1, fontSize: "0.85rem", fontWeight: 600, color: "var(--text-color-muted)", margin: 0 }}>Frequency (Hz)</label>
-              <label style={{ flex: 1, fontSize: "0.85rem", fontWeight: 600, color: "var(--text-color-muted)", margin: 0 }}>{manualType === 'shunt' ? "Correction (ppm)" : "AC/DC Diff (ppm)"}</label>
-              <label style={{ flex: 1, fontSize: "0.85rem", fontWeight: 600, color: "var(--text-color-muted)", margin: 0 }}>{manualType === 'shunt' ? "Uncertainty (ppm)" : "Expanded Unc (ppm)"}</label>
-              <div style={{ width: "36px" }}></div>
-            </div>
-          )}
-
-          {manualForm.points.map((p, i) => (
-            <div key={i} className="manual-point-row" style={{ display: "flex", gap: "15px", alignItems: "center", backgroundColor: "var(--background-color)", padding: "10px 15px", borderRadius: "6px", border: "1px solid var(--border-color)" }}>
-              <input
-                type="text"
-                inputMode="decimal"
-                style={{ flex: 1, margin: 0 }}
-                placeholder="Freq"
-                value={p.frequency ?? ''}
-                onChange={(e) => handlePointChange(i, 'frequency', e.target.value)}
-              />
-              <input
-                type="text"
-                inputMode="decimal"
-                style={{ flex: 1, margin: 0 }}
-                placeholder="Value"
-                value={p.val1 ?? ''}
-                onChange={(e) => handlePointChange(i, 'val1', e.target.value)}
-              />
-              <input
-                type="text"
-                inputMode="decimal"
-                style={{ flex: 1, margin: 0 }}
-                placeholder="Uncertainty"
-                value={p.val2 ?? ''}
-                onChange={(e) => handlePointChange(i, 'val2', e.target.value)}
-              />
-              <button
-                type="button"
-                style={{
-                  background: 'none', border: 'none', color: '#dc3545', fontSize: '1.2rem', cursor: 'pointer', opacity: 0.7, margin: 0, flexShrink: 0, display: 'flex', alignItems: 'center'
-                }}
-                onMouseEnter={(e) => e.currentTarget.style.opacity = 1}
-                onMouseLeave={(e) => e.currentTarget.style.opacity = 0.7}
-                onClick={() => setManualForm({ ...manualForm, points: manualForm.points.filter((_, idx) => idx !== i) })}
-                title="Remove Point"
-              >
-                <FaTimes />
-              </button>
-            </div>
-          ))}
-          {manualForm.points.length === 0 && (
-            <div className="placeholder-content" style={{ padding: "30px 20px" }}>
-              <p style={{ margin: 0 }}>No correction points added. Click the + icon above to begin.</p>
-            </div>
-          )}
-        </div>
-      </div>
-
-      <div className="form-submit-area" style={{ display: "flex", gap: "15px", justifyContent: "flex-end" }}>
-        <button
-          className="sidebar-action-button"
-          onClick={() => setIsManualFormOpen(false)}
-          disabled={isSaving}
-          title="Go Back / Cancel"
-        >
-          <FaArrowLeft />
-        </button>
-        <button
-          className="sidebar-action-button"
-          onClick={handleSaveManual}
-          disabled={isSaving}
-          title={isSaving ? "Saving..." : "Save Entry"}
-        >
-          <FaSave />
-        </button>
-      </div>
-    </div>
-  );
-
-  const renderTvcDatabasePanels = () => {
     return (
-      <div>
-        <div className="tvc-display-grid">
-          <div className="tvc-correction-panel">
-            <h3>Standard TVC</h3>
-            <p className="tvc-serial-label">
-              {standardTvcSn ? `S/N: ${standardTvcSn}` : "No Standard TVC assigned."}
-            </p>
-            {renderTVCTable(standardTvcSn)}
+      <div className="corrections-manual-form">
+        <header className="corrections-manual-toolbar">
+          <IconBtn
+            icon={<FaArrowLeft />}
+            onClick={() => setIsManualFormOpen(false)}
+            disabled={isSaving}
+            title="Back to browser"
+          />
+          <div className="corrections-manual-toolbar-title">
+            <span className="corrections-card-eyebrow">{actionLabel} · {typeLabel}</span>
+            <span className="corrections-card-identity">
+              {manualForm.serial_number || "Unsaved entry"}
+            </span>
           </div>
-          <div className="tvc-correction-panel">
-            <h3>Test TVC</h3>
-            <p className="tvc-serial-label">
-              {testTvcSn ? `S/N: ${testTvcSn}` : "No Test TVC assigned."}
-            </p>
-            {renderTVCTable(testTvcSn)}
-          </div>
-        </div>
+          <IconBtn
+            icon={<FaSave />}
+            onClick={handleSaveManual}
+            disabled={isSaving}
+            title={isSaving ? "Saving…" : "Save entry"}
+          />
+        </header>
 
-        <hr className="modal-divider" />
-        <div className="auxiliary-tvc-section">
-          <div className="form-section" style={{ maxWidth: 'none' }}>
-            <div style={{ display: 'flex', alignItems: 'flex-end', gap: '15px' }}>
-              <div style={{ maxWidth: '350px', flex: 1 }}>
-                <label>View / Edit Auxiliary TVC</label>
-                <select
-                  value={auxiliaryTvcSn}
-                  onChange={(e) => setAuxiliaryTvcSn(e.target.value)}
-                  disabled={isLoading}
-                >
-                  <option value="">-- Select a Serial Number to View --</option>
-                  {tvcOptions.map((option) => (
-                    <option key={option.value} value={option.value}>
-                      {option.label}
-                    </option>
-                  ))}
-                </select>
+        <div className="corrections-manual-body">
+          <section className="corrections-card">
+            <header className="corrections-card-header corrections-card-header--compact">
+              <div className="corrections-card-headline">
+                <span className="corrections-card-eyebrow">Identity</span>
+                <span className="corrections-card-subtitle">
+                  {isShunt
+                    ? "Identify the shunt model, serial, and operating configuration."
+                    : "Identify the TVC serial and its nominal test voltage."}
+                </span>
               </div>
-
-              <div style={{ display: 'flex', alignItems: 'center', gap: '2px', marginBottom: '6px' }}>
-                <IconBtn
-                  icon={<FaPlus />}
-                  onClick={() => handleOpenManualForm('tvc')}
-                  title="Add Manual TVC"
-                />
-                {isSelectedTvcManual && (
+            </header>
+            <div className="corrections-card-body">
+              <div className="corrections-form-grid">
+                {isShunt ? (
                   <>
-                    <IconBtn icon={<FaEdit />} size="1.1rem" onClick={() => handleEditManual('tvc', auxiliaryTvcSn)} title="Edit Entry" />
-                    <IconBtn icon={<FaTrash />} size="1.1rem" color="#dc3545" onClick={() => setDeleteConfirm({ isOpen: true, type: 'tvc', serialNumber: auxiliaryTvcSn })} title="Delete Entry" />
+                    <div className="corrections-form-field">
+                      <label>Model name</label>
+                      <input
+                        type="text"
+                        value={manualForm.model_name ?? ""}
+                        onChange={(e) => setManualForm((prev) => ({ ...prev, model_name: e.target.value }))}
+                        placeholder="e.g. A40B"
+                      />
+                    </div>
+                    <div className="corrections-form-field">
+                      <label>Serial number</label>
+                      <input
+                        type="text"
+                        disabled={isEditing}
+                        value={manualForm.serial_number ?? ""}
+                        onChange={(e) => setManualForm((prev) => ({ ...prev, serial_number: e.target.value }))}
+                        placeholder="e.g. 12345"
+                      />
+                    </div>
+                    <div className="corrections-form-field">
+                      <label>Range (A)</label>
+                      <input
+                        type="text"
+                        inputMode="decimal"
+                        value={manualForm.range ?? ""}
+                        onChange={(e) => setManualForm((prev) => ({ ...prev, range: e.target.value }))}
+                        placeholder="e.g. 5"
+                      />
+                    </div>
+                    <div className="corrections-form-field">
+                      <label>Current (A)</label>
+                      <input
+                        type="text"
+                        inputMode="decimal"
+                        value={manualForm.current ?? ""}
+                        onChange={(e) => setManualForm((prev) => ({ ...prev, current: e.target.value }))}
+                        placeholder="e.g. 5"
+                      />
+                    </div>
+                  </>
+                ) : (
+                  <>
+                    <div className="corrections-form-field">
+                      <label>Serial number</label>
+                      <input
+                        type="text"
+                        disabled={isEditing}
+                        value={manualForm.serial_number ?? ""}
+                        onChange={(e) => setManualForm((prev) => ({ ...prev, serial_number: e.target.value }))}
+                        placeholder="e.g. 12345"
+                      />
+                    </div>
+                    <div className="corrections-form-field">
+                      <label>Test voltage (V)</label>
+                      <input
+                        type="text"
+                        inputMode="decimal"
+                        value={manualForm.test_voltage ?? ""}
+                        onChange={(e) => setManualForm((prev) => ({ ...prev, test_voltage: e.target.value }))}
+                        placeholder="e.g. 0.5"
+                      />
+                    </div>
                   </>
                 )}
               </div>
             </div>
+          </section>
+
+          <section className="corrections-card">
+            <header className="corrections-card-header corrections-card-header--compact">
+              <div className="corrections-card-headline">
+                <span className="corrections-card-eyebrow">Correction points</span>
+                <span className="corrections-card-subtitle">
+                  {manualForm.points.length} point{manualForm.points.length === 1 ? "" : "s"} · values in ppm
+                </span>
+              </div>
+              <div className="corrections-card-actions">
+                <IconBtn
+                  icon={<FaPlus />}
+                  onClick={() =>
+                    setManualForm({
+                      ...manualForm,
+                      points: [...manualForm.points, { id: null, frequency: "", val1: "", val2: "" }],
+                    })
+                  }
+                  title="Add correction point"
+                />
+              </div>
+            </header>
+
+            <div className="corrections-card-body corrections-card-body--points">
+              {manualForm.points.length > 0 ? (
+                <div className="corrections-points-table" role="table">
+                  <div className="corrections-points-thead" role="row">
+                    <span role="columnheader">Frequency (Hz)</span>
+                    <span role="columnheader">{value1Label}</span>
+                    <span role="columnheader">{value2Label}</span>
+                    <span role="columnheader" aria-hidden className="corrections-points-spacer" />
+                  </div>
+
+                  {manualForm.points.map((p, i) => (
+                    <div key={i} className="corrections-points-row" role="row">
+                      <input
+                        type="text"
+                        inputMode="decimal"
+                        className="corrections-points-input"
+                        placeholder="e.g. 1000"
+                        value={p.frequency ?? ""}
+                        onChange={(e) => handlePointChange(i, "frequency", e.target.value)}
+                      />
+                      <input
+                        type="text"
+                        inputMode="decimal"
+                        className="corrections-points-input"
+                        placeholder={isShunt ? "Correction" : "AC/DC diff"}
+                        value={p.val1 ?? ""}
+                        onChange={(e) => handlePointChange(i, "val1", e.target.value)}
+                      />
+                      <input
+                        type="text"
+                        inputMode="decimal"
+                        className="corrections-points-input"
+                        placeholder="Uncertainty"
+                        value={p.val2 ?? ""}
+                        onChange={(e) => handlePointChange(i, "val2", e.target.value)}
+                      />
+                      <IconBtn
+                        icon={<FaTimes />}
+                        onClick={() =>
+                          setManualForm({
+                            ...manualForm,
+                            points: manualForm.points.filter((_, idx) => idx !== i),
+                          })
+                        }
+                        title="Remove point"
+                        variant="danger"
+                      />
+                    </div>
+                  ))}
+                </div>
+              ) : (
+                <div className="corrections-empty-state corrections-empty-state--compact">
+                  <span className="corrections-empty-state-title">No correction points</span>
+                  <span className="corrections-empty-state-message">
+                    Use the <strong>+</strong> button above to add your first point.
+                  </span>
+                </div>
+              )}
+            </div>
+          </section>
+        </div>
+      </div>
+    );
+  };
+
+  const renderSessionTvcCard = (eyebrow, serial) => {
+    const record = serial
+      ? tvcsData.find((t) => String(t.serial_number) === String(serial))
+      : null;
+    const isManual = !!record?.is_manual;
+
+    return (
+      <section className="corrections-card corrections-card--session-tvc">
+        <header className="corrections-card-header corrections-card-header--compact">
+          <div className="corrections-card-headline">
+            <span className="corrections-card-eyebrow">{eyebrow}</span>
+            <div className="corrections-card-title">
+              {serial ? (
+                <>
+                  <span className="corrections-card-identity">S/N&nbsp;{serial}</span>
+                  {isManual && <span className="corrections-manual-badge">Manual</span>}
+                </>
+              ) : (
+                <span className="corrections-card-identity corrections-card-identity--empty">
+                  Not assigned
+                </span>
+              )}
+            </div>
+          </div>
+        </header>
+        <div className="corrections-card-body">
+          {renderTVCTable(serial, { compact: true })}
+        </div>
+      </section>
+    );
+  };
+
+  const renderTvcDatabasePanels = () => {
+    return (
+      <div className="corrections-tab-content">
+        <div className="corrections-section">
+          <div className="corrections-section-heading">
+            <span className="corrections-section-eyebrow">Session TVCs</span>
+            <span className="corrections-section-subtitle">
+              Corrections on file for the TVCs assigned to this session.
+            </span>
+          </div>
+          <div className="corrections-card-grid">
+            {renderSessionTvcCard("Standard TVC", standardTvcSn)}
+            {renderSessionTvcCard("Test TVC", testTvcSn)}
           </div>
         </div>
 
-        {auxiliaryTvcSn && (
-          <div className="tvc-correction-panel">
-            <h3>Auxiliary View</h3>
-            <p className="tvc-serial-label">S/N: {auxiliaryTvcSn}</p>
-            {renderTVCTable(auxiliaryTvcSn)}
+        <div className="corrections-section">
+          <div className="corrections-section-heading">
+            <span className="corrections-section-eyebrow">Auxiliary lookup</span>
+            <span className="corrections-section-subtitle">
+              Browse any TVC on file, or add and maintain manual entries.
+            </span>
           </div>
-        )}
+
+          <section className="corrections-card">
+            <header className="corrections-card-header">
+              <div className="corrections-card-headline">
+                <span className="corrections-card-eyebrow">Auxiliary TVC</span>
+                <div className="corrections-card-picker">
+                  <select
+                    id="aux-tvc-select"
+                    className="corrections-card-select"
+                    value={auxiliaryTvcSn}
+                    onChange={(e) => setAuxiliaryTvcSn(e.target.value)}
+                    disabled={isLoading}
+                  >
+                    <option value="">Select a serial number…</option>
+                    {tvcOptions.map((option) => (
+                      <option key={option.value} value={option.value}>
+                        {option.label}
+                      </option>
+                    ))}
+                  </select>
+                  {isSelectedTvcManual && (
+                    <span className="corrections-manual-badge">Manual</span>
+                  )}
+                </div>
+              </div>
+
+              <div className="corrections-card-actions">
+                <IconBtn
+                  icon={<FaPlus />}
+                  onClick={() => handleOpenManualForm("tvc")}
+                  title="Add manual TVC entry"
+                />
+                {isSelectedTvcManual && (
+                  <>
+                    <IconBtn
+                      icon={<FaEdit />}
+                      onClick={() => handleEditManual("tvc", auxiliaryTvcSn)}
+                      title="Edit entry"
+                    />
+                    <IconBtn
+                      icon={<FaTrash />}
+                      onClick={() =>
+                        setDeleteConfirm({ isOpen: true, type: "tvc", serialNumber: auxiliaryTvcSn })
+                      }
+                      title="Delete entry"
+                      variant="danger"
+                    />
+                  </>
+                )}
+              </div>
+            </header>
+
+            <div className="corrections-card-body">
+              {auxiliaryTvcSn ? (
+                renderTVCTable(auxiliaryTvcSn)
+              ) : (
+                <div className="corrections-empty-state">
+                  <span className="corrections-empty-state-title">Nothing selected</span>
+                  <span className="corrections-empty-state-message">
+                    Choose a serial number from the picker above to inspect its corrections.
+                  </span>
+                </div>
+              )}
+            </div>
+          </section>
+        </div>
       </div>
     );
   };
@@ -1066,75 +1129,139 @@ function CorrectionsModal({ isOpen, onClose, showNotification, onUpdate, uniqueT
         onCancel={() => setAddPointsConfirm({ isOpen: false, row: null, headers: null })}
       />
 
-      <div className={`corrections-modal-content ${(primaryTab === "TVC" && !isManualFormOpen) ? "modal-wide" : ""}`}>
-        <header className="corrections-modal-header" style={{ display: "flex", justifyContent: "space-between", alignItems: "center" }}>
-          <h3 style={{ margin: 0 }}>Correction & Uncertainty Data</h3>
-          <button onClick={onClose} className="modal-close-button" style={{ position: "static" }} title="Close">
-            <FaTimes />
+      <div className="corrections-modal-content">
+        <header className="corrections-modal-header">
+          <div className="corrections-modal-header-text">
+            <span className="corrections-modal-eyebrow">Reference data</span>
+            <h3 className="corrections-modal-title">Corrections &amp; Uncertainties</h3>
+          </div>
+          <button
+            onClick={onClose}
+            className="cal-results-excel-icon-btn"
+            title="Close"
+            aria-label="Close"
+          >
+            <FaTimes aria-hidden />
           </button>
         </header>
 
-        <main className="corrections-modal-body">
-          {!isManualFormOpen && (
-            <div className="tab-navigation-modal">
-              <button className={`tab-button-modal ${primaryTab === "AC Shunt" ? "active" : ""}`} onClick={() => setPrimaryTab("AC Shunt")}>AC Shunt</button>
-              <button className={`tab-button-modal ${primaryTab === "TVC" ? "active" : ""}`} onClick={() => setPrimaryTab("TVC")}>TVC</button>
+        {!isManualFormOpen && (
+          <nav
+            className="corrections-tab-nav"
+            role="tablist"
+            aria-label="Correction data type"
+          >
+            <div className="cal-results-tabs">
+              <button
+                type="button"
+                role="tab"
+                aria-selected={primaryTab === "AC Shunt"}
+                className={`cal-results-tab${primaryTab === "AC Shunt" ? " is-active" : ""}`}
+                onClick={() => setPrimaryTab("AC Shunt")}
+              >
+                AC Shunt
+              </button>
+              <button
+                type="button"
+                role="tab"
+                aria-selected={primaryTab === "TVC"}
+                className={`cal-results-tab${primaryTab === "TVC" ? " is-active" : ""}`}
+                onClick={() => setPrimaryTab("TVC")}
+              >
+                TVC
+              </button>
             </div>
-          )}
+          </nav>
+        )}
 
+        <main className="corrections-modal-body">
           {isManualFormOpen ? (
             renderManualEntry()
-          ) : (
-            <>
-              {primaryTab === "AC Shunt" && (
-                <>
-                  <div className="shunt-controls-container" style={{ display: 'flex', alignItems: 'flex-end', gap: '15px' }}>
-                    <div style={{ flex: 1, display: 'flex', alignItems: 'flex-end', gap: '10px' }}>
-                      <CustomDropdown
-                        key="shunt-dropdown"
-                        label="Serial Number"
-                        options={uniqueShuntInfo.map((info) => {
-                          let labelStr = info.size ? `${info.serial_number} (${info.size})` : info.serial_number;
-                          if (info.is_manual) labelStr += " (Manual)";
-                          return {
-                            value: info.serial_number,
-                            label: labelStr,
-                          };
-                        })}
-                        value={selectedShuntSn}
-                        onChange={setSelectedShuntSn}
-                        placeholder="-- Select a Serial --"
-                        disabled={isLoading}
-                        isLoading={isLoading}
-                      />
-
-                      <div style={{ display: 'flex', alignItems: 'center', gap: '2px', marginBottom: '6px' }}>
-                        <IconBtn
-                          icon={<FaPlus />}
-                          onClick={() => handleOpenManualForm('shunt')}
-                          title="Add Manual AC Shunt"
-                        />
-                        {isSelectedShuntManual && (
-                          <>
-                            <IconBtn icon={<FaEdit />} size="1.1rem" onClick={() => handleEditManual('shunt', selectedShuntSn)} title="Edit Entry" />
-                            <IconBtn icon={<FaTrash />} size="1.1rem" color="#dc3545" onClick={() => setDeleteConfirm({ isOpen: true, type: 'shunt', serialNumber: selectedShuntSn })} title="Delete Entry" />
-                          </>
-                        )}
-                      </div>
-                    </div>
-
-                    <div className="segmented-control-toggle" data-view={shuntView}>
-                      <span className="segmented-control-pill"></span>
-                      <button className={shuntView === "Corrections" ? "active" : ""} onClick={() => setShuntView("Corrections")}>Corrections</button>
-                      <button className={shuntView === "Uncertainties" ? "active" : ""} onClick={() => setShuntView("Uncertainties")}>Uncertainties</button>
-                    </div>
+          ) : primaryTab === "AC Shunt" ? (
+            <section className="corrections-card">
+              <header className="corrections-card-header">
+                <div className="corrections-card-headline">
+                  <span className="corrections-card-eyebrow">AC Shunt</span>
+                  <div className="corrections-card-picker">
+                    <CustomDropdown
+                      key="shunt-dropdown"
+                      options={uniqueShuntInfo.map((info) => ({
+                        value: info.serial_number,
+                        label: info.size
+                          ? `${info.serial_number} (${info.size})`
+                          : info.serial_number,
+                      }))}
+                      value={selectedShuntSn}
+                      onChange={setSelectedShuntSn}
+                      placeholder="Select a serial number…"
+                      disabled={isLoading}
+                      isLoading={isLoading}
+                    />
+                    {isSelectedShuntManual && (
+                      <span className="corrections-manual-badge">Manual</span>
+                    )}
                   </div>
-                  {renderShuntTable()}
-                </>
-              )}
+                </div>
 
-              {primaryTab === "TVC" && renderTvcDatabasePanels()}
-            </>
+                <div className="corrections-card-actions">
+                  <div
+                    className="cal-results-pill-group"
+                    role="tablist"
+                    aria-label="Shunt data view"
+                  >
+                    <button
+                      type="button"
+                      role="tab"
+                      aria-selected={shuntView === "Corrections"}
+                      className={`cal-results-pill${shuntView === "Corrections" ? " is-active" : ""}`}
+                      onClick={() => setShuntView("Corrections")}
+                    >
+                      Corrections
+                    </button>
+                    <button
+                      type="button"
+                      role="tab"
+                      aria-selected={shuntView === "Uncertainties"}
+                      className={`cal-results-pill${shuntView === "Uncertainties" ? " is-active" : ""}`}
+                      onClick={() => setShuntView("Uncertainties")}
+                    >
+                      Uncertainties
+                    </button>
+                  </div>
+
+                  <span className="corrections-card-actions-divider" aria-hidden />
+
+                  <IconBtn
+                    icon={<FaPlus />}
+                    onClick={() => handleOpenManualForm("shunt")}
+                    title="Add manual AC shunt entry"
+                  />
+                  {isSelectedShuntManual && (
+                    <>
+                      <IconBtn
+                        icon={<FaEdit />}
+                        onClick={() => handleEditManual("shunt", selectedShuntSn)}
+                        title="Edit entry"
+                      />
+                      <IconBtn
+                        icon={<FaTrash />}
+                        onClick={() =>
+                          setDeleteConfirm({ isOpen: true, type: "shunt", serialNumber: selectedShuntSn })
+                        }
+                        title="Delete entry"
+                        variant="danger"
+                      />
+                    </>
+                  )}
+                </div>
+              </header>
+
+              <div className="corrections-card-body">
+                {renderShuntTable()}
+              </div>
+            </section>
+          ) : (
+            renderTvcDatabasePanels()
           )}
         </main>
       </div>

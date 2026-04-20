@@ -7,8 +7,7 @@ import React, { useState, useMemo } from "react";
 import axios from "axios";
 import { useInstruments } from "../../contexts/InstrumentContext";
 import { FaPlus, FaTrashAlt } from "react-icons/fa";
-
-const API_BASE_URL = process.env.REACT_APP_API_BASE_URL;
+import { API_BASE_URL } from "../../constants/constants";
 
 // Reusable ConfirmationModal remains the same.
 const ConfirmationModal = ({ isOpen, title, children, onConfirm, onCancel }) => {
@@ -174,38 +173,52 @@ function SessionManager({
         <p>This action cannot be undone.</p>
       </ConfirmationModal>
 
-      <div className="session-manager-container">
-        <h3>Manage Session</h3>
-        <p>Select an existing session to view its details, or start a new one.</p>
-        <div className="session-manager-controls">
-          <CustomDropdown
-            options={sessionsList}
-            value={selectedSessionId}
-            onChange={handleSessionSelectChange}
-            placeholder={isLoadingSessions ? "Loading..." : "-- Select a Session --"}
-            disabled={isLoadingSessions}
-          />
-          <div className="session-manager-actions">
+      <section className="session-panel session-manager-container">
+        <header className="session-panel-header">
+          <div className="session-panel-header-text">
+            <h3 className="session-panel-title">Manage Session</h3>
+            <p className="session-panel-subtitle">
+              Select an existing session, or start a new one.
+            </p>
+          </div>
+          <div className="session-panel-header-actions">
             <button
               type="button"
               onClick={handleNewSession}
-              className="sidebar-action-button"
-              title="Start New Session"
+              className="cal-results-excel-icon-btn"
+              aria-label="Start a new session"
+              title="Start a new session"
             >
-              <FaPlus />
+              <FaPlus aria-hidden />
             </button>
+          </div>
+        </header>
+
+        <div className="session-picker-row">
+          <label className="session-picker-label" htmlFor="session-picker">
+            Active session
+          </label>
+          <div className="session-picker-controls">
+            <CustomDropdown
+              options={sessionsList}
+              value={selectedSessionId}
+              onChange={handleSessionSelectChange}
+              placeholder={isLoadingSessions ? "Loading sessions…" : "Select a session…"}
+              disabled={isLoadingSessions}
+            />
             <button
               type="button"
               onClick={handleDeleteSession}
-              className="sidebar-action-button"
-              title="Delete Selected Session"
+              className="cal-results-excel-icon-btn cal-results-excel-icon-btn--danger"
+              aria-label="Delete selected session"
+              title="Delete selected session"
               disabled={!selectedSessionId}
             >
-              <FaTrashAlt />
+              <FaTrashAlt aria-hidden />
             </button>
           </div>
         </div>
-      </div>
+      </section>
     </>
   );
 }

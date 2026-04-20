@@ -2,11 +2,10 @@ import React, { useState, useEffect } from "react";
 import axios from "axios";
 import {
   AMPLIFIER_RANGES_A,
+  API_BASE_URL,
   AVAILABLE_CURRENTS,
   AVAILABLE_FREQUENCIES,
 } from "../../constants/constants";
-
-const API_BASE_URL = process.env.REACT_APP_API_BASE_URL;
 
 const getValueInAmps = (value, unit) => {
   const numericValue = parseFloat(value);
@@ -279,11 +278,11 @@ function ConfigurationModal({
 
   return (
     <div className="modal-overlay">
-      <div className="modal-content" style={{ maxWidth: '700px', textAlign: 'left' }}>
+      <div className="modal-content modal-content--wide">
         {step === 1 && (
           <>
             <div className="config-header">
-              <h2>Test Point Configuration</h2>
+              <h2 className="modal-section-title">Test Point Configuration</h2>
             </div>
             <div className="config-grid">
               <div className="config-column">
@@ -342,9 +341,9 @@ function ConfigurationModal({
 
         {step === 2 && (
           <>
-            <div className="modal-header-flex" style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '15px' }}>
-                <h3 style={{ margin: 0 }}>Select Frequencies</h3>
-                <button className="modal-select-all-button" onClick={handleSelectAllFrequencies}>
+            <div className="modal-header-flex">
+                <h3 className="modal-section-title">Select Frequencies</h3>
+                <button type="button" className="modal-select-all-button" onClick={handleSelectAllFrequencies}>
                     {areAllFrequenciesSelected ? 'Deselect All' : 'Select All'}
                 </button>
             </div>

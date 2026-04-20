@@ -27,7 +27,25 @@ UNCERTAINTY_FILE = get_resource_path("uncertainty_data.json")
 # ---------------------------------------------------------
 # 2. DATABASE CONFIGURATION & VERBOSE DEBUGGING
 # ---------------------------------------------------------
-CREDENTIALS_DIR = Path.home() / "Documents" / "Portal"
+def _resolve_portal_dir() -> Path:
+    """
+    Portal data (SQL creds + local SQLite) lives in a user-writable folder.
+    Prefer OneDrive\\Documents\\Portal when that tree exists (common on test machines),
+    else ~/Documents/Portal. Override with AC_SHUNT_PORTAL_DIR for a fixed path.
+    """
+    override = os.environ.get("AC_SHUNT_PORTAL_DIR", "").strip()
+    if override:
+        return Path(override).expanduser().resolve()
+    home = Path.home()
+    # Windows: match OneDrive - Personal, OneDrive - Work, or plain OneDrive
+    for one_drive_root in sorted(home.glob("OneDrive*")):
+        docs = one_drive_root / "Documents"
+        if docs.is_dir():
+            return docs / "Portal"
+    return home / "Documents" / "Portal"
+
+
+CREDENTIALS_DIR = _resolve_portal_dir()
 CREDENTIALS_DIR.mkdir(parents=True, exist_ok=True)
 
 def get_db_cred(filename):
@@ -134,7 +152,8 @@ else:
     DATABASES = {
         'default': {
             'ENGINE': 'django.db.backends.sqlite3',
-            'NAME': CREDENTIALS_DIR / 'ac_shunt_local.db.sqlite3',
+            # str() ensures sqlite3 opens the file reliably on all Django/sqlite builds
+            'NAME': str(CREDENTIALS_DIR / 'ac_shunt_local.db.sqlite3'),
         }
     }
 

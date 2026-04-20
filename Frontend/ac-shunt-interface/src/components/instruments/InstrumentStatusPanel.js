@@ -6,8 +6,7 @@ import React, { useState, useEffect, useMemo } from 'react';
 import axios from 'axios';
 import { useInstruments } from '../../contexts/InstrumentContext';
 import { FaSave, FaUndo, FaTimes, FaSearch, FaSync, FaEdit } from 'react-icons/fa';
-
-const API_BASE_URL = process.env.REACT_APP_API_BASE_URL;
+import { API_BASE_URL } from '../../constants/constants';
 const ASSIGNABLE_MODELS = ['34420A', '3458A', '5790B'];
 const ACDC_ASSIGNABLE_MODELS = ['5730A'];
 const AMPLIFIER_MODELS = ['8100']; 

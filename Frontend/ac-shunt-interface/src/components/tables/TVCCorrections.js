@@ -2,8 +2,7 @@ import React, { useState, useEffect } from 'react';
 import * as XLSX from 'xlsx';
 import axios from 'axios';
 import { useInstruments } from '../../contexts/InstrumentContext';
-
-const API_BASE_URL = process.env.REACT_APP_API_BASE_URL;
+import { API_BASE_URL } from '../../constants/constants';
 
 const TVCCorrections = ({ handleClose, showNotification }) => {
     const { selectedSessionId } = useInstruments();

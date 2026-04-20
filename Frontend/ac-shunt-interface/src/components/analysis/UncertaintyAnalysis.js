@@ -7,6 +7,7 @@ import React, {
 } from "react";
 import axios from "axios";
 import { useInstruments } from "../../contexts/InstrumentContext";
+import { API_BASE_URL } from "../../constants/constants";
 import { probit, erf } from "simple-statistics";
 
 // Helper function for the bivariate normal CDF
@@ -53,7 +54,6 @@ function bivariateNormalCDF(x, y, rho) {
   return result < 0 ? 0 : result > 1 ? 1 : result;
 }
 
-const API_BASE_URL = process.env.REACT_APP_API_BASE_URL;
 const AVAILABLE_FREQUENCIES = [
   { text: "10Hz", value: 10 },
   { text: "20Hz", value: 20 },
