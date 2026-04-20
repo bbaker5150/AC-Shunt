@@ -461,7 +461,7 @@ function CalibrationChart({
     .map((ds) => ds.label);
 
   return (
-    <div>
+    <div style={{ width: "100%", minWidth: 0, display: "flex", flexDirection: "column" }}>
       <div className="summary-table-header" style={{ paddingBottom: "15px" }}>
         <h4 style={{ color: textColor }}>{title}</h4>
 
@@ -592,7 +592,7 @@ function CalibrationChart({
               <div className="chart-options-dropdown">
                 <Accordion title="Display Options" initialOpen={true}>
                   <div className="chart-options-section">
-                    
+
                     {setActiveChartView && (
                       <div className="chart-options-form-group">
                         <label>Data View</label>
@@ -693,7 +693,7 @@ function CalibrationChart({
         </div>
       </div>
 
-      <div style={{ height: "350px" }}>
+      <div className="chart-canvas-wrapper">
         <ChartComponent
           ref={chartRef}
           options={options}

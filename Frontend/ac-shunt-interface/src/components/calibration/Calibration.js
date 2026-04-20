@@ -9,16 +9,10 @@ import React, {
 } from "react";
 import axios from "axios";
 import {
-  FaStop,
   FaCalculator,
   FaDownload,
   FaTimes,
-  FaPlay,
-  FaHourglassHalf,
-  FaCrosshairs,
-  FaStream,
   FaSave,
-  FaChevronDown,
 } from "react-icons/fa";
 import { LuSaveAll } from "react-icons/lu";
 import { useInstruments } from "../../contexts/InstrumentContext";
@@ -26,6 +20,7 @@ import { useTheme } from "../../contexts/ThemeContext";
 import CalibrationChart from "./CalibrationChart";
 import ConfigurationSummaryModal from "./ConfigurationSummaryModal";
 import LiveStatisticsTracker from "./LiveStatisticsTracker";
+import CalibrationStatusBar from "./CalibrationStatusBar";
 import { downloadFullSessionExcel } from "./sessionExcelExport";
 import {
   AVAILABLE_FREQUENCIES,
@@ -314,13 +309,12 @@ function Calibration({
     useState(initialLiveReadings);
   const [hoveredIndex, setHoveredIndex] = useState(null);
   const collectionPromise = useRef(null);
+  const lastAutoFocusedKey = useRef(null);
   const [isCorrectionModalOpen, setIsCorrectionModalOpen] = useState(false);
   const [isSummaryModalOpen, setIsSummaryModalOpen] = useState(false);
   const [countdown, setCountdown] = useState(0);
   const timerInterval = useRef(null);
   const [isCalculatingAverages, setIsCalculatingAverages] = useState(false);
-  const [isRunDropdownOpen, setIsRunDropdownOpen] = useState(false);
-  const runDropdownRef = useRef(null);
   const prevIsBulkRunning = useRef(isBulkRunning);
   const [activeChartView, setActiveChartView] = useState("calibration");
 
@@ -389,21 +383,6 @@ function Calibration({
   }, [tiLiveReadings, isCollecting, activeCollectionDetails]);
 
   useEffect(() => {
-    const handleClickOutside = (event) => {
-      if (
-        runDropdownRef.current &&
-        !runDropdownRef.current.contains(event.target)
-      ) {
-        setIsRunDropdownOpen(false);
-      }
-    };
-    document.addEventListener("mousedown", handleClickOutside);
-    return () => {
-      document.removeEventListener("mousedown", handleClickOutside);
-    };
-  }, []);
-
-  useEffect(() => {
     if (timerInterval.current) {
       clearInterval(timerInterval.current);
     }
@@ -441,10 +420,11 @@ function Calibration({
   }, [timerState.isActive, timerState.targetTime]);
 
   useEffect(() => {
-    if (focusedTPKey) {
+    if (focusedTPKey && focusedTPKey !== lastAutoFocusedKey.current) {
       const pointToFocus = uniqueTestPoints.find((p) => p.key === focusedTPKey);
       if (pointToFocus) {
         setFocusedTP(pointToFocus);
+        lastAutoFocusedKey.current = focusedTPKey;
       }
     }
   }, [focusedTPKey, uniqueTestPoints, setFocusedTP]);
@@ -1181,8 +1161,7 @@ function Calibration({
           })
           .catch((error) => {
             showNotification(
-              `Operation failed: ${
-                error.message || "An unknown error occurred."
+              `Operation failed: ${error.message || "An unknown error occurred."
               }`,
               "error"
             );
@@ -1261,8 +1240,7 @@ function Calibration({
           })
           .catch((error) => {
             showNotification(
-              `Operation failed: ${
-                error.message || "An unknown error occurred."
+              `Operation failed: ${error.message || "An unknown error occurred."
               }`,
               "error"
             );
@@ -1483,8 +1461,7 @@ function Calibration({
             }
           } catch (error) {
             showNotification(
-              `Operation failed: ${
-                error.message || "An unknown error occurred."
+              `Operation failed: ${error.message || "An unknown error occurred."
               }`,
               "error"
             );
@@ -1563,8 +1540,8 @@ function Calibration({
 
   const buildChartData = (readings) => {
     // Determine which keys to show based on the active view
-    const activeKeys = activeChartView === "characterization" 
-      ? ["char_plus1", "char_minus", "char_plus2"] 
+    const activeKeys = activeChartView === "characterization"
+      ? ["char_plus1", "char_minus", "char_plus2"]
       : ["ac_open", "dc_pos", "dc_neg", "ac_close"];
 
     // Filter READING_TYPES so the legend and datasets only show active keys
@@ -1871,10 +1848,20 @@ function Calibration({
     calibrationSettings.stability_threshold_ppm,
   ]);
 
+  const activeRunningTP = useMemo(() => {
+    if ((isCollecting || isBulkRunning) && activeCollectionDetails?.tpId) {
+      return orderedTestPoints.find(p =>
+        String(p.forward?.id) === String(activeCollectionDetails.tpId) ||
+        String(p.reverse?.id) === String(activeCollectionDetails.tpId)
+      ) || focusedTP;
+    }
+    return focusedTP;
+  }, [isCollecting, isBulkRunning, activeCollectionDetails, orderedTestPoints, focusedTP]);
+
   const handleSaveCorrections = async (currentCorrectionInputs) => {
     try {
       const pointToUpdate = activeDirection === "Forward" ? focusedTP.forward : focusedTP.reverse;
-      
+
       if (!pointToUpdate || !pointToUpdate.id) return;
 
       // Push the user's manual overrides to the backend
@@ -1935,6 +1922,7 @@ function Calibration({
         onCancel={amplifierModal.onCancel}
         confirmText="Proceed"
       />
+
       {!selectedSessionId ? (
         <div className="content-area form-section-warning">
           <p>Please select a session to run a calibration.</p>
@@ -1947,641 +1935,478 @@ function Calibration({
           </p>
         </div>
       ) : (
-        <div className="content-area">
-          <div className="calibration-workflow-container">
-            <div className="test-point-content">
-              {!focusedTP ? (
-                <div className="placeholder-content">
-                  <h3>Select a Test Point</h3>
-                  <p>
-                    Please select a test point from the list on the left to
-                    begin.
-                  </p>
-                </div>
-              ) : (
-                <>
-                  {/* SubNav comes BEFORE the status bar */}
-                  <SubNav activeTab={activeTab} setActiveTab={setActiveTab} />
+        <>
+          {/* --- STANDALONE STATUS BAR --- */}
+          <div style={{ marginBottom: "20px" }}>
+            <CalibrationStatusBar
+              activeRunningTP={activeRunningTP}
+              focusedTP={focusedTP}
+              formatCurrent={formatCurrent}
+              formatFrequency={formatFrequency}
+              isCollecting={isCollecting}
+              isBulkRunning={isBulkRunning}
+              bulkRunProgress={bulkRunProgressFromContext}
+              timerState={timerState}
+              countdown={countdown}
+              stabilizationStatus={stabilizationStatus}
+              stabilizationInfo={stabilizationInfo}
+              collectionProgress={collectionProgress}
+              getStageName={getStageName}
+              latestStdReading={latestStdReading}
+              latestTiReading={latestTiReading}
+              calibrationSettings={calibrationSettings}
+              displayPpm={displayPpm}
+              isStableNow={isStableNow}
+              windowPhaseText={windowPhaseText}
+              instabilityCount={instabilityCount}
+              maxRetries={maxRetries}
+              stopReadingCollection={stopReadingCollection}
+              handleRunSelectedPoints={handleRunSelectedPoints}
+              readingWsState={readingWsState}
+              selectedTPs={selectedTPs}
+              dropdownOptions={dropdownOptions}
+            />
+          </div>
 
-                  {/* --- STATUS BAR NOW PERMANENT & AT THE TOP --- */}
-                  <div className="status-bar">
-                    <div className="status-bar-content">
-                      {/* --- NEW READOUT SECTION --- */}
-                      <div className="status-section readout-section">
-                        <span className="status-label">Test Point</span>
-                        <span className="status-value">
-                          {formatCurrent(focusedTP.current)}
-                        </span>
-                        <span className="status-detail">
-                          {formatFrequency(focusedTP.frequency)}
-                        </span>
-                      </div>
-                      <div style={{ flexGrow: 1 }}></div>
-
-                      {/* --- DYNAMIC SECTIONS (Only show when collecting/running) --- */}
-                      {(isCollecting || isBulkRunning) && (
-                        <>
-                          {isBulkRunning && (
-                            <div
-                              className="status-section"
-                              style={{ flexGrow: 1.5, borderRight: '1px solid var(--border-color)' }} // Added border here
-                            >
-                              <span className="status-label">
-                                Batch Progress
-                              </span>
-                              <span className="status-value">{`Point ${bulkRunProgressFromContext.current} of ${bulkRunProgressFromContext.total}`}</span>
-                              <span className="status-detail">{`${formatCurrent(
-                                focusedTP?.current
-                              )} @ ${formatFrequency(
-                                focusedTP?.frequency
-                              )}`}</span>
-                            </div>
-                          )}
-                          <div className="status-section">
-                            <span className="status-label">
-                              {timerState.isActive ? (
-                                <>
-                                  <FaHourglassHalf /> {timerState.label}
-                                </>
-                              ) : stabilizationStatus ? (
-                                <>
-                                  <FaCrosshairs /> Stabilizing
-                                </>
-                              ) : (
-                                <>
-                                  <FaStream /> Collecting
-                                </>
-                              )}
-                            </span>
-                            <span className="status-value">
-                              {timerState.isActive
-                                ? `${countdown}s`
-                                : getStageName()}
-                            </span>
-                            <span className="status-detail">
-                              {timerState.isActive
-                                ? null
-                                : stabilizationStatus && stabilizationInfo
-                                  ? `Attempt: ${stabilizationInfo.count}`
-                                  : `${collectionProgress.count} / ${collectionProgress.total} Samples`}
-                            </span>
-                          </div>
-
-                          {/* --- NEW LIVE READINGS SECTION --- */}
-                          {!timerState.isActive && (latestStdReading || latestTiReading) && (
-                            <div className="status-section live-readout-section">
-                              <span className="status-label">
-                                <FaStream /> Live Readings
-                              </span>
-                              <span className="status-value">
-                                {latestStdReading
-                                  ? `STD: ${latestStdReading.y.toPrecision(7)} V`
-                                  : "STD: ..."}
-                              </span>
-                              <span className="status-detail">
-                                {latestTiReading
-                                  ? `TI: ${latestTiReading.y.toPrecision(7)} V`
-                                  : "TI: ..."}
-                              </span>
-                            </div>
-                          )}
-                          {/* --- END NEW LIVE READINGS SECTION --- */}
-
-                          {!timerState.isActive &&
-                            calibrationSettings.stability_check_method ===
-                            "sliding_window" && (
-                              <div className="status-section window-stability-section">
-                                <span className="status-label">
-                                  <FaCrosshairs /> Window Stability
-                                </span>
-                                <span
-                                  className={`window-ppm-value ${isStableNow
-                                    ? "status-good"
-                                    : "status-bad"
-                                    }`}
-                                >
-                                  {displayPpm != null
-                                    ? `${displayPpm.toFixed(2)} PPM`
-                                    : "..."}
-                                </span>
-                                <span className="status-detail">
-                                  {`${windowPhaseText} | Retries: ${instabilityCount}/${maxRetries} | Thresh: ${calibrationSettings.stability_threshold_ppm} PPM`}
-                                </span>
-                              </div>
-                            )}
-                        </>
-                      )}
-                      {/* --- END DYNAMIC SECTIONS --- */}
-                    </div>
-
-                    {/* --- CONDITIONAL PROGRESS BAR, STOP BUTTON, OR PLAY BUTTON --- */}
-                    {(isCollecting || isBulkRunning) ? (
-                      <>
-                        <div className="status-bar-progress-container">
-                          <div
-                            className="status-bar-progress"
-                            style={{
-                              width: `${collectionProgress.total > 0 ? (collectionProgress.count / collectionProgress.total) * 100 : 0
-                                }%`,
-                            }}
-                          ></div>
-                        </div>
-                        <div className="status-bar-action">
-                          <button
-                            onClick={stopReadingCollection}
-                            className="button-stop"
-                            title="Stop Collection"
-                          >
-                            <FaStop />
-                          </button>
-                        </div>
-                      </>
-                    ) : (
-                      <div className="status-bar-action">
-                        <div
-                          className="premium-action-button-container"
-                          ref={runDropdownRef}
-                        >
-                          <div className="premium-action-button-wrapper">
-                            <button
-                              className="button premium-action-button-primary"
-                              onClick={handleRunSelectedPoints}
-                              disabled={
-                                !focusedTP ||
-                                readingWsState !== WebSocket.OPEN ||
-                                selectedTPs.size === 0
-                              }
-                              title={
-                                selectedTPs.size > 0
-                                  ? `Run ${selectedTPs.size} Selected Point(s) (Full)`
-                                  : "Select points to run"
-                              }
-                            >
-                              <FaPlay />
-                            </button>
-                            <button
-                              className="button premium-action-button-caret"
-                              onClick={() =>
-                                setIsRunDropdownOpen((prev) => !prev)
-                              }
-                              disabled={
-                                !focusedTP ||
-                                readingWsState !== WebSocket.OPEN
-                              }
-                              title="More run options"
-                            >
-                              <FaChevronDown />
-                            </button>
-                          </div>
-                          {isRunDropdownOpen && (
-                            <div className="premium-action-button-menu">
-                              {dropdownOptions.map((opt) => (
-                                <button
-                                  key={opt.key}
-                                  onClick={() => {
-                                    opt.onClick();
-                                    setIsRunDropdownOpen(false);
-                                  }}
-                                  className="premium-action-button-item"
-                                >
-                                  {opt.label}
-                                </button>
-                              ))}
-                            </div>
-                          )}
-                        </div>
-                      </div>
-                    )}
-                    {/* --- END CONDITIONAL ELEMENTS --- */}
+          <div className="content-area">
+            <div className="calibration-workflow-container">
+              <div className="test-point-content">
+                {!focusedTP ? (
+                  <div className="placeholder-content">
+                    <h3>Select a Test Point</h3>
+                    <p>
+                      Please select a test point from the list on the left to
+                      begin.
+                    </p>
                   </div>
-                  {/* --- END STATUS BAR --- */}
+                ) : (
+                  <>
+                    <SubNav activeTab={activeTab} setActiveTab={setActiveTab} />
 
-                  {/* Sub-tab content comes AFTER SubNav */}
-                  <div className="sub-tab-content">
-                    {activeTab === "settings" && (
-                      <form onSubmit={handleSettingsSubmit}>
-                        <h4>Calibration Settings</h4>
-                        <div className="config-grid">
-                          <div className="form-section">
-                            <label htmlFor="initial_warm_up_time">
-                              Initial Warm-up Wait (sec)
-                            </label>
-                            <input
-                              type="number"
-                              id="initial_warm_up_time"
-                              name="initial_warm_up_time"
-                              value={
-                                calibrationSettings.initial_warm_up_time || 0
-                              }
-                              onChange={(e) =>
-                                setCalibrationSettings((prev) => ({
-                                  ...prev,
-                                  initial_warm_up_time: e.target.value,
-                                }))
-                              }
-                            />
-                          </div>
-                          <div className="form-section">
-                            <label htmlFor="num_samples"># of Samples</label>
-                            <input
-                              type="number"
-                              id="num_samples"
-                              name="num_samples"
-                              required
-                              min="2"
-                              value={calibrationSettings.num_samples || ""}
-                              onChange={(e) => {
-                                const newSamples = parseInt(e.target.value, 10) || 0;
-                                setCalibrationSettings((prev) => ({
-                                  ...prev,
-                                  num_samples: e.target.value,
-                                  stability_window: prev.stability_window > newSamples && newSamples > 0
-                                    ? newSamples
-                                    : prev.stability_window,
-                                }));
-                              }}
-                            />
-                          </div>
-                          <div className="form-section">
-                            <label htmlFor="settling_time">
-                              Settling Time (sec)
-                            </label>
-                            <input
-                              type="number"
-                              id="settling_time"
-                              name="settling_time"
-                              required
-                              value={calibrationSettings.settling_time || 5}
-                              onChange={(e) =>
-                                setCalibrationSettings((prev) => ({
-                                  ...prev,
-                                  settling_time: e.target.value,
-                                }))
-                              }
-                            />
-                          </div>
-                          {isNplcInstrumentInUse && (
+                    <div className="sub-tab-content">
+                      {activeTab === "settings" && (
+                        <form onSubmit={handleSettingsSubmit}>
+                          <h4>Calibration Settings</h4>
+                          <div className="config-grid">
                             <div className="form-section">
-                              <label htmlFor="nplc">
-                                Reader Integration (NPLC)
+                              <label htmlFor="initial_warm_up_time">
+                                Initial Warm-up Wait (sec)
                               </label>
-                              <select
-                                id="nplc"
-                                name="nplc"
-                                value={calibrationSettings.nplc || 20}
+                              <input
+                                type="number"
+                                id="initial_warm_up_time"
+                                name="initial_warm_up_time"
+                                value={
+                                  calibrationSettings.initial_warm_up_time || 0
+                                }
                                 onChange={(e) =>
                                   setCalibrationSettings((prev) => ({
                                     ...prev,
-                                    nplc: parseFloat(e.target.value),
+                                    initial_warm_up_time: e.target.value,
+                                  }))
+                                }
+                              />
+                            </div>
+                            <div className="form-section">
+                              <label htmlFor="num_samples"># of Samples</label>
+                              <input
+                                type="number"
+                                id="num_samples"
+                                name="num_samples"
+                                required
+                                min="2"
+                                value={calibrationSettings.num_samples || ""}
+                                onChange={(e) => {
+                                  const newSamples = parseInt(e.target.value, 10) || 0;
+                                  setCalibrationSettings((prev) => ({
+                                    ...prev,
+                                    num_samples: e.target.value,
+                                    stability_window: prev.stability_window > newSamples && newSamples > 0
+                                      ? newSamples
+                                      : prev.stability_window,
+                                  }));
+                                }}
+                              />
+                            </div>
+                            <div className="form-section">
+                              <label htmlFor="settling_time">
+                                Settling Time (sec)
+                              </label>
+                              <input
+                                type="number"
+                                id="settling_time"
+                                name="settling_time"
+                                required
+                                value={calibrationSettings.settling_time || 5}
+                                onChange={(e) =>
+                                  setCalibrationSettings((prev) => ({
+                                    ...prev,
+                                    settling_time: e.target.value,
+                                  }))
+                                }
+                              />
+                            </div>
+                            {isNplcInstrumentInUse && (
+                              <div className="form-section">
+                                <label htmlFor="nplc">
+                                  Reader Integration (NPLC)
+                                </label>
+                                <select
+                                  id="nplc"
+                                  name="nplc"
+                                  value={calibrationSettings.nplc || 20}
+                                  onChange={(e) =>
+                                    setCalibrationSettings((prev) => ({
+                                      ...prev,
+                                      nplc: parseFloat(e.target.value),
+                                    }))
+                                  }
+                                >
+                                  {NPLC_OPTIONS.map((val) => (
+                                    <option key={val} value={val}>
+                                      {val} PLC
+                                    </option>
+                                  ))}
+                                </select>
+                              </div>
+                            )}
+                            <div className="form-section">
+                              <label htmlFor="stability_check_method">
+                                Stability Check Method
+                              </label>
+                              <select
+                                id="stability_check_method"
+                                name="stability_check_method"
+                                value={calibrationSettings.stability_check_method}
+                                onChange={(e) =>
+                                  setCalibrationSettings((prev) => ({
+                                    ...prev,
+                                    stability_check_method: e.target.value,
                                   }))
                                 }
                               >
-                                {NPLC_OPTIONS.map((val) => (
-                                  <option key={val} value={val}>
-                                    {val} PLC
-                                  </option>
-                                ))}
+                                <option value="sliding_window">
+                                  Sliding Window
+                                </option>
+                                <option value="iqr_filter">IQR Filter</option>
                               </select>
                             </div>
-                          )}
-                          <div className="form-section">
-                            <label htmlFor="stability_check_method">
-                              Stability Check Method
-                            </label>
-                            <select
-                              id="stability_check_method"
-                              name="stability_check_method"
-                              value={calibrationSettings.stability_check_method}
-                              onChange={(e) =>
-                                setCalibrationSettings((prev) => ({
-                                  ...prev,
-                                  stability_check_method: e.target.value,
-                                }))
-                              }
-                            >
-                              <option value="sliding_window">
-                                Sliding Window
-                              </option>
-                              <option value="iqr_filter">IQR Filter</option>
-                            </select>
-                          </div>
 
-                          {calibrationSettings.stability_check_method ===
-                            "sliding_window" && (
-                              <>
+                            {calibrationSettings.stability_check_method ===
+                              "sliding_window" && (
+                                <>
+                                  <div className="form-section">
+                                    <label htmlFor="stability_window">
+                                      Stability Window (# Samples)
+                                    </label>
+                                    <input
+                                      type="number"
+                                      id="stability_window"
+                                      name="stability_window"
+                                      min="2"
+                                      max={calibrationSettings.num_samples || 35}
+                                      value={
+                                        calibrationSettings.stability_window || ""
+                                      }
+                                      onChange={(e) => {
+                                        const newWindow = parseInt(e.target.value, 10) || 0;
+                                        const currentSamples = parseInt(calibrationSettings.num_samples, 10) || 35;
+                                        setCalibrationSettings((prev) => ({
+                                          ...prev,
+                                          stability_window: newWindow > currentSamples ? currentSamples : newWindow,
+                                        }));
+                                      }}
+                                    />
+                                  </div>
+                                  <div className="form-section">
+                                    <label htmlFor="stability_threshold_ppm">
+                                      Stability Threshold (PPM)
+                                    </label>
+                                    <input
+                                      type="number"
+                                      step="any"
+                                      id="stability_threshold_ppm"
+                                      name="stability_threshold_ppm"
+                                      placeholder="e.g., 10"
+                                      value={
+                                        calibrationSettings.stability_threshold_ppm ||
+                                        ""
+                                      }
+                                      onChange={(e) =>
+                                        setCalibrationSettings((prev) => ({
+                                          ...prev,
+                                          stability_threshold_ppm: e.target.value,
+                                        }))
+                                      }
+                                    />
+                                  </div>
+                                  <div className="form-section">
+                                    <label htmlFor="stability_max_attempts">
+                                      Max Stability Attempts
+                                    </label>
+                                    <input
+                                      type="number"
+                                      id="stability_max_attempts"
+                                      name="stability_max_attempts"
+                                      value={
+                                        calibrationSettings.stability_max_attempts ||
+                                        50
+                                      }
+                                      onChange={(e) =>
+                                        setCalibrationSettings((prev) => ({
+                                          ...prev,
+                                          stability_max_attempts: parseInt(
+                                            e.target.value,
+                                            10
+                                          ),
+                                        }))
+                                      }
+                                    />
+                                  </div>
+                                  <div className="form-section checkbox-section" style={{ display: 'flex', alignItems: 'flex-end', paddingBottom: '10px' }}>
+                                    <label style={{ display: 'flex', alignItems: 'center', gap: '10px', cursor: 'pointer', fontWeight: 'normal' }}>
+                                      <input
+                                        type="checkbox"
+                                        style={{ width: 'auto', margin: 0 }}
+                                        checked={calibrationSettings.ignore_instability_after_lock || false}
+                                        onChange={(e) =>
+                                          setCalibrationSettings((prev) => ({
+                                            ...prev,
+                                            ignore_instability_after_lock: e.target.checked,
+                                          }))
+                                        }
+                                      />
+                                      Bypass Stability Attempts (Post Initial)
+                                    </label>
+                                  </div>
+                                </>
+                              )}
+
+                            {calibrationSettings.stability_check_method ===
+                              "iqr_filter" && (
                                 <div className="form-section">
-                                  <label htmlFor="stability_window">
-                                    Stability Window (# Samples)
-                                  </label>
-                                  <input
-                                    type="number"
-                                    id="stability_window"
-                                    name="stability_window"
-                                    min="2"
-                                    max={calibrationSettings.num_samples || 35}
-                                    value={
-                                      calibrationSettings.stability_window || ""
-                                    }
-                                    onChange={(e) => {
-                                      const newWindow = parseInt(e.target.value, 10) || 0;
-                                      const currentSamples = parseInt(calibrationSettings.num_samples, 10) || 35;
-                                      setCalibrationSettings((prev) => ({
-                                        ...prev,
-                                        // Lock: Prevent window from exceeding total samples
-                                        stability_window: newWindow > currentSamples ? currentSamples : newWindow,
-                                      }));
-                                    }}
-                                  />
-                                </div>
-                                <div className="form-section">
-                                  <label htmlFor="stability_threshold_ppm">
-                                    Stability Threshold (PPM)
+                                  <label htmlFor="iqr_filter_ppm_threshold">
+                                    IQR Filter Threshold (PPM)
                                   </label>
                                   <input
                                     type="number"
                                     step="any"
-                                    id="stability_threshold_ppm"
-                                    name="stability_threshold_ppm"
-                                    placeholder="e.g., 10"
+                                    id="iqr_filter_ppm_threshold"
+                                    name="iqr_filter_ppm_threshold"
                                     value={
-                                      calibrationSettings.stability_threshold_ppm ||
-                                      ""
+                                      calibrationSettings.iqr_filter_ppm_threshold ||
+                                      15
                                     }
                                     onChange={(e) =>
                                       setCalibrationSettings((prev) => ({
                                         ...prev,
-                                        stability_threshold_ppm: e.target.value,
+                                        iqr_filter_ppm_threshold: e.target.value,
                                       }))
                                     }
                                   />
                                 </div>
-                                <div className="form-section">
-                                  <label htmlFor="stability_max_attempts">
-                                    Max Stability Attempts
-                                  </label>
-                                  <input
-                                    type="number"
-                                    id="stability_max_attempts"
-                                    name="stability_max_attempts"
-                                    value={
-                                      calibrationSettings.stability_max_attempts ||
-                                      50
-                                    }
-                                    onChange={(e) =>
-                                      setCalibrationSettings((prev) => ({
-                                        ...prev,
-                                        stability_max_attempts: parseInt(
-                                          e.target.value,
-                                          10
-                                        ),
-                                      }))
-                                    }
-                                  />
-                                </div>
-                                <div className="form-section checkbox-section" style={{ display: 'flex', alignItems: 'flex-end', paddingBottom: '10px' }}>
-                                  <label style={{ display: 'flex', alignItems: 'center', gap: '10px', cursor: 'pointer', fontWeight: 'normal' }}>
-                                    <input
-                                      type="checkbox"
-                                      style={{ width: 'auto', margin: 0 }}
-                                      checked={calibrationSettings.ignore_instability_after_lock || false}
-                                      onChange={(e) =>
-                                        setCalibrationSettings((prev) => ({
-                                          ...prev,
-                                          ignore_instability_after_lock: e.target.checked,
-                                        }))
-                                      }
-                                    />
-                                    Bypass Stability Attempts (Post Initial)
-                                  </label>
-                                </div>
-                              </>
-                            )}
-
-                          {calibrationSettings.stability_check_method ===
-                            "iqr_filter" && (
-                              <div className="form-section">
-                                <label htmlFor="iqr_filter_ppm_threshold">
-                                  IQR Filter Threshold (PPM)
-                                </label>
-                                <input
-                                  type="number"
-                                  step="any"
-                                  id="iqr_filter_ppm_threshold"
-                                  name="iqr_filter_ppm_threshold"
-                                  value={
-                                    calibrationSettings.iqr_filter_ppm_threshold ||
-                                    15
-                                  }
-                                  onChange={(e) =>
-                                    setCalibrationSettings((prev) => ({
-                                      ...prev,
-                                      iqr_filter_ppm_threshold: e.target.value,
-                                    }))
-                                  }
-                                />
-                              </div>
-                            )}
-                        </div>
-                        <div className="form-section-action-icons">
-                          <button
-                            type="button"
-                            onClick={handleApplySettingsToAll}
-                            className="sidebar-action-button"
-                            title="Apply to All Test Points"
-                          >
-                            <LuSaveAll />
-                          </button>
-                          <button
-                            type="submit"
-                            className="sidebar-action-button"
-                            title="Save Settings for This Point"
-                          >
-                            <FaSave />
-                          </button>
-                        </div>
-                      </form>
-                    )}
-                    {activeTab === "readings" && (
-                      <>
-                        {/* --- RUN BUTTONS MOVED TO STATUS BAR --- */}
-                        {showStdChart && (
-                          <div className="chart-container">
-                            <CalibrationChart
-                              title="Standard Instrument Readings"
-                              chartData={stdChartData}
-                              theme={theme}
-                              chartType="line"
-                              onHover={setHoveredIndex}
-                              syncedHoverIndex={hoveredIndex}
-                              comparisonData={tiChartData.datasets}
-                              instrumentType="std"
-                              onMarkStability={handleMarkStability}
-                              activeChartView={activeChartView}
-                              setActiveChartView={setActiveChartView}
-                            />
-                            <LiveStatisticsTracker
-                              title="Standard Instrument Statistics"
-                              readings={stdChartDataSource}
-                              activeStage={
-                                isCurrentTPActive
-                                  ? activeCollectionDetails?.stage ||
-                                  activeCollectionDetails?.readingKey
-                                  : null
-                              }
-                            />
+                              )}
                           </div>
-                        )}
-                        {showTiChart && (
-                          <div className="chart-container">
-                            <CalibrationChart
-                              title="Test Instrument Readings"
-                              chartData={tiChartData}
-                              theme={theme}
-                              chartType="line"
-                              onHover={setHoveredIndex}
-                              syncedHoverIndex={hoveredIndex}
-                              comparisonData={stdChartData.datasets}
-                              instrumentType="ti"
-                              onMarkStability={handleMarkStability}
-                              activeChartView={activeChartView}
-                              setActiveChartView={setActiveChartView}
-                            />
-                            <LiveStatisticsTracker
-                              title="Test Instrument Statistics"
-                              readings={tiChartDataSource}
-                              activeStage={
-                                isCurrentTPActive
-                                  ? activeCollectionDetails?.stage ||
-                                  activeCollectionDetails?.readingKey
-                                  : null
-                              }
-                            />
-                          </div>
-                        )}
-                      </>
-                    )}
-                    {activeTab === "calculate" && (
-                      <section className="cal-calc-panel">
-                        <header className="cal-calc-bar">
-                          <div className="cal-calc-bar-meta" aria-live="polite">
-                            <span className="cal-calc-bar-amps">
-                              {focusedTP.current} A
-                            </span>
-                            <span className="cal-calc-bar-freq">
-                              {formatFrequency(focusedTP.frequency)}
-                            </span>
-                          </div>
-                          <div className="cal-calc-bar-actions">
+                          <div className="form-section-action-icons">
                             <button
                               type="button"
-                              onClick={handleOpenCorrectionModal}
-                              disabled={
-                                isCollecting ||
-                                isCalculatingAverages ||
-                                !isCalculationReady
-                              }
-                              className="cal-results-excel-icon-btn"
-                              aria-label="Calculate AC-DC difference"
-                              title="Calculate AC–DC difference"
+                              onClick={handleApplySettingsToAll}
+                              className="sidebar-action-button"
+                              title="Apply to All Test Points"
                             >
-                              <FaCalculator aria-hidden />
+                              <LuSaveAll />
                             </button>
                             <button
-                              type="button"
-                              className="cal-results-excel-icon-btn"
-                              aria-label="Export session to Excel"
-                              title="Export session to Excel — AC–DC summary and all raw readings"
-                              disabled={!uniqueTestPoints?.length}
-                              onClick={handleExportSessionExcel}
+                              type="submit"
+                              className="sidebar-action-button"
+                              title="Save Settings for This Point"
                             >
-                              <FaDownload aria-hidden />
+                              <FaSave />
                             </button>
                           </div>
-                        </header>
-
-                        {averagedPpmDifference != null && (
-                          <div
-                            className="cal-calc-kpi cal-calc-kpi--primary"
-                            role="status"
-                          >
-                            <p className="cal-calc-kpi-label">
-                              Final averaged AC–DC difference
-                            </p>
-                            <div className="cal-calc-kpi-value-row">
-                              <span className="cal-calc-kpi-num">
-                                {parseFloat(averagedPpmDifference).toFixed(3)}
-                              </span>
-                              <span className="cal-calc-kpi-unit">ppm</span>
+                        </form>
+                      )}
+                      {activeTab === "readings" && (
+                        <>
+                          {showStdChart && (
+                            <div className="chart-container">
+                              <CalibrationChart
+                                title="Standard Instrument Readings"
+                                chartData={stdChartData}
+                                theme={theme}
+                                chartType="line"
+                                onHover={setHoveredIndex}
+                                syncedHoverIndex={hoveredIndex}
+                                comparisonData={tiChartData.datasets}
+                                instrumentType="std"
+                                onMarkStability={handleMarkStability}
+                                activeChartView={activeChartView}
+                                setActiveChartView={setActiveChartView}
+                              />
+                              <LiveStatisticsTracker
+                                title="Standard Instrument Statistics"
+                                readings={stdChartDataSource}
+                                activeStage={
+                                  isCurrentTPActive
+                                    ? activeCollectionDetails?.stage ||
+                                    activeCollectionDetails?.readingKey
+                                    : null
+                                }
+                              />
                             </div>
-                          </div>
-                        )}
+                          )}
+                          {showTiChart && (
+                            <div className="chart-container">
+                              <CalibrationChart
+                                title="Test Instrument Readings"
+                                chartData={tiChartData}
+                                theme={theme}
+                                chartType="line"
+                                onHover={setHoveredIndex}
+                                syncedHoverIndex={hoveredIndex}
+                                comparisonData={stdChartData.datasets}
+                                instrumentType="ti"
+                                onMarkStability={handleMarkStability}
+                                activeChartView={activeChartView}
+                                setActiveChartView={setActiveChartView}
+                              />
+                              <LiveStatisticsTracker
+                                title="Test Instrument Statistics"
+                                readings={tiChartDataSource}
+                                activeStage={
+                                  isCurrentTPActive
+                                    ? activeCollectionDetails?.stage ||
+                                    activeCollectionDetails?.readingKey
+                                    : null
+                                }
+                              />
+                            </div>
+                          )}
+                        </>
+                      )}
+                      {activeTab === "calculate" && (
+                        <section className="cal-calc-panel">
+                          <header className="cal-calc-bar">
+                            <div className="cal-calc-bar-meta" aria-live="polite">
+                              <span className="cal-calc-bar-amps">
+                                {focusedTP.current} A
+                              </span>
+                              <span className="cal-calc-bar-freq">
+                                {formatFrequency(focusedTP.frequency)}
+                              </span>
+                            </div>
+                            <div className="cal-calc-bar-actions">
+                              <button
+                                type="button"
+                                onClick={handleOpenCorrectionModal}
+                                disabled={
+                                  isCollecting ||
+                                  isCalculatingAverages ||
+                                  !isCalculationReady
+                                }
+                                className="cal-results-excel-icon-btn"
+                                aria-label="Calculate AC-DC difference"
+                                title="Calculate AC–DC difference"
+                              >
+                                <FaCalculator aria-hidden />
+                              </button>
+                              <button
+                                type="button"
+                                className="cal-results-excel-icon-btn"
+                                aria-label="Export session to Excel"
+                                title="Export session to Excel — AC–DC summary and all raw readings"
+                                disabled={!uniqueTestPoints?.length}
+                                onClick={handleExportSessionExcel}
+                              >
+                                <FaDownload aria-hidden />
+                              </button>
+                            </div>
+                          </header>
 
-                        {(focusedTP.forward?.results?.delta_uut_ppm != null ||
-                          focusedTP.reverse?.results?.delta_uut_ppm != null) && (
-                          <div className="cal-calc-direction-grid">
-                            {focusedTP.forward?.results?.delta_uut_ppm !=
-                              null && (
-                              <div className="cal-calc-kpi">
-                                <p className="cal-calc-kpi-label">
-                                  Forward · δ UUT
-                                </p>
-                                <div className="cal-calc-kpi-value-row">
-                                  <span className="cal-calc-kpi-num">
-                                    {parseFloat(
-                                      focusedTP.forward.results.delta_uut_ppm
-                                    ).toFixed(3)}
-                                  </span>
-                                  <span className="cal-calc-kpi-unit">
-                                    ppm
-                                  </span>
-                                </div>
+                          {averagedPpmDifference != null && (
+                            <div
+                              className="cal-calc-kpi cal-calc-kpi--primary"
+                              role="status"
+                            >
+                              <p className="cal-calc-kpi-label">
+                                Final averaged AC–DC difference
+                              </p>
+                              <div className="cal-calc-kpi-value-row">
+                                <span className="cal-calc-kpi-num">
+                                  {parseFloat(averagedPpmDifference).toFixed(3)}
+                                </span>
+                                <span className="cal-calc-kpi-unit">ppm</span>
+                              </div>
+                            </div>
+                          )}
+
+                          {(focusedTP.forward?.results?.delta_uut_ppm != null ||
+                            focusedTP.reverse?.results?.delta_uut_ppm != null) && (
+                              <div className="cal-calc-direction-grid">
+                                {focusedTP.forward?.results?.delta_uut_ppm !=
+                                  null && (
+                                    <div className="cal-calc-kpi">
+                                      <p className="cal-calc-kpi-label">
+                                        Forward · δ UUT
+                                      </p>
+                                      <div className="cal-calc-kpi-value-row">
+                                        <span className="cal-calc-kpi-num">
+                                          {parseFloat(
+                                            focusedTP.forward.results.delta_uut_ppm
+                                          ).toFixed(3)}
+                                        </span>
+                                        <span className="cal-calc-kpi-unit">
+                                          ppm
+                                        </span>
+                                      </div>
+                                    </div>
+                                  )}
+
+                                {focusedTP.reverse?.results?.delta_uut_ppm !=
+                                  null && (
+                                    <div className="cal-calc-kpi">
+                                      <p className="cal-calc-kpi-label">
+                                        Reverse · δ UUT
+                                      </p>
+                                      <div className="cal-calc-kpi-value-row">
+                                        <span className="cal-calc-kpi-num">
+                                          {parseFloat(
+                                            focusedTP.reverse.results.delta_uut_ppm
+                                          ).toFixed(3)}
+                                        </span>
+                                        <span className="cal-calc-kpi-unit">
+                                          ppm
+                                        </span>
+                                      </div>
+                                    </div>
+                                  )}
                               </div>
                             )}
 
-                            {focusedTP.reverse?.results?.delta_uut_ppm !=
-                              null && (
-                              <div className="cal-calc-kpi">
-                                <p className="cal-calc-kpi-label">
-                                  Reverse · δ UUT
+                          {!(
+                            focusedTP.forward?.results?.delta_uut_ppm ||
+                            focusedTP.reverse?.results?.delta_uut_ppm
+                          ) && (
+                              <div className="cal-calc-empty">
+                                <h3 className="cal-calc-empty-title">
+                                  No results yet
+                                </h3>
+                                <p className="cal-calc-empty-text">
+                                  Finish readings for a direction, then use the
+                                  Calculate button above to compute the AC–DC
+                                  difference.
                                 </p>
-                                <div className="cal-calc-kpi-value-row">
-                                  <span className="cal-calc-kpi-num">
-                                    {parseFloat(
-                                      focusedTP.reverse.results.delta_uut_ppm
-                                    ).toFixed(3)}
-                                  </span>
-                                  <span className="cal-calc-kpi-unit">
-                                    ppm
-                                  </span>
-                                </div>
                               </div>
                             )}
-                          </div>
-                        )}
-
-                        {!(
-                          focusedTP.forward?.results?.delta_uut_ppm ||
-                          focusedTP.reverse?.results?.delta_uut_ppm
-                        ) && (
-                          <div className="cal-calc-empty">
-                            <h3 className="cal-calc-empty-title">
-                              No results yet
-                            </h3>
-                            <p className="cal-calc-empty-text">
-                              Finish readings for a direction, then use the
-                              Calculate button above to compute the AC–DC
-                              difference.
-                            </p>
-                          </div>
-                        )}
-                      </section>
-                    )}
-                  </div>
-                </>
-              )} {/* Closing tag for the focusedTP check */}
-            </div> {/* Closing tag for test-point-content */}
-          </div> {/* Closing tag for calibration-workflow-container */}
-        </div> /* Closing tag for content-area */
+                        </section>
+                      )}
+                    </div>
+                  </>
+                )}
+              </div>
+            </div>
+          </div>
+        </>
       )}
     </>
   );
