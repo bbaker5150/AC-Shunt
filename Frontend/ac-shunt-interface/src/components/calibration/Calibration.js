@@ -19,7 +19,6 @@ import {
   FaStream,
   FaSave,
   FaChevronDown,
-  FaCloudDownloadAlt,
 } from "react-icons/fa";
 import { LuSaveAll } from "react-icons/lu";
 import { useInstruments } from "../../contexts/InstrumentContext";
@@ -42,7 +41,6 @@ const CorrectionFactorsModal = ({
   onSubmit,
   initialValues,
   onInputChange,
-  onGetCorrection,
 }) => {
   if (!isOpen) return null;
 
@@ -148,14 +146,6 @@ const CorrectionFactorsModal = ({
         </div>
 
         <div className="form-section-action-icons" style={{ marginTop: "20px" }}>
-          <button
-            type="button"
-            onClick={onGetCorrection}
-            className="sidebar-action-button"
-            title="Fetch Corrections from Database"
-          >
-            <FaCloudDownloadAlt />
-          </button>
           <button
             type="button"
             onClick={() => onSubmit(initialValues)}
@@ -275,9 +265,6 @@ function Calibration({
     timerState,
     bulkRunProgress: bulkRunProgressFromContext,
     focusedTPKey,
-    standardInstrumentSerial,
-    standardTvcSn: standardTvcSerial,
-    testTvcSn: testTvcSerial,
     dataRefreshTrigger,
     setFailedTPKeys,
   } = useInstruments();
@@ -326,8 +313,6 @@ function Calibration({
   const [tiHistoricalReadings, setTiHistoricalReadings] =
     useState(initialLiveReadings);
   const [hoveredIndex, setHoveredIndex] = useState(null);
-  const [shuntsData, setShuntsData] = useState([]);
-  const [tvcsData, setTvcsData] = useState([]);
   const collectionPromise = useRef(null);
   const [isCorrectionModalOpen, setIsCorrectionModalOpen] = useState(false);
   const [isSummaryModalOpen, setIsSummaryModalOpen] = useState(false);
@@ -512,25 +497,6 @@ function Calibration({
       });
     }
   }, [lastMessage, sendWsCommand]);
-
-  useEffect(() => {
-    const fetchCorrectionData = async () => {
-      try {
-        const [shuntsRes, tvcsRes] = await Promise.all([
-          axios.get(`${API_BASE_URL}/shunts/`),
-          axios.get(`${API_BASE_URL}/tvcs/`),
-        ]);
-        setShuntsData(shuntsRes.data || []);
-        setTvcsData(tvcsRes.data || []);
-      } catch (error) {
-        showNotification(
-          "Could not fetch correction data from the database.",
-          "warning"
-        );
-      }
-    };
-    fetchCorrectionData();
-  }, [showNotification]);
 
   useEffect(() => {
     if (collectionStatus === "collection_stopped") {
@@ -731,27 +697,43 @@ function Calibration({
     ].every((k) => point.readings[k]?.length > 0);
   }, []);
 
-  // Check if entire directions are fully complete
-  const allForwardPointsComplete = useMemo(() => {
-    if (uniqueTestPoints.length === 0) return false;
-    return uniqueTestPoints.every((p) => p.forward && hasAllReadings(p.forward));
-  }, [uniqueTestPoints, hasAllReadings]);
+  // Check if a point has ANY readings at all
+  const hasSomeReadings = useCallback((point) => {
+    if (!point?.readings) return false;
+    return [
+      "std_ac_open_readings",
+      "std_dc_pos_readings",
+      "std_dc_neg_readings",
+      "std_ac_close_readings",
+      "ti_ac_open_readings",
+      "ti_dc_pos_readings",
+      "ti_dc_neg_readings",
+      "ti_ac_close_readings",
+    ].some((k) => point.readings[k]?.length > 0);
+  }, []);
 
-  const allReversePointsComplete = useMemo(() => {
-    if (uniqueTestPoints.length === 0) return false;
-    return uniqueTestPoints.every((p) => p.reverse && hasAllReadings(p.reverse));
-  }, [uniqueTestPoints, hasAllReadings]);
+  // Determine if it was started but abandoned
+  const isPartial = useCallback((point) => {
+    return hasSomeReadings(point) && !hasAllReadings(point);
+  }, [hasSomeReadings, hasAllReadings]);
 
-  // Check if a direction has been started but is not yet complete
-  const forwardIsInProgress = useMemo(() => {
-    const hasStarted = uniqueTestPoints.some((p) => p.forward && p.forward.results);
-    return hasStarted && !allForwardPointsComplete;
-  }, [uniqueTestPoints, allForwardPointsComplete]);
+  // Hoist formatters so they can be used in the warning locks
+  const formatFrequency = useCallback((value) => {
+    return (
+      AVAILABLE_FREQUENCIES.find((f) => f.value === value) || {
+        text: `${value}Hz`,
+      }
+    ).text;
+  }, []);
 
-  const reverseIsInProgress = useMemo(() => {
-    const hasStarted = uniqueTestPoints.some((p) => p.reverse && p.reverse.results);
-    return hasStarted && !allReversePointsComplete;
-  }, [uniqueTestPoints, allReversePointsComplete]);
+  const formatCurrent = useCallback((value) => {
+    const numValue = parseFloat(value);
+    const epsilon = 1e-9;
+    const found = AVAILABLE_CURRENTS.find(
+      (c) => Math.abs(c.value - numValue) < epsilon
+    );
+    return found ? found.text : `${numValue}`;
+  }, []);
 
   useEffect(() => {
     prevIsBulkRunning.current = isBulkRunning;
@@ -852,138 +834,6 @@ function Calibration({
     showNotification,
     isCalculatingAverages
   ]);
-
-  const getShuntCorrection = useCallback(() => {
-    if (
-      !focusedTP ||
-      !calibrationConfigurations.ac_shunt_range ||
-      !standardInstrumentSerial ||
-      shuntsData.length === 0
-    ) {
-      return null;
-    }
-    const range = parseFloat(calibrationConfigurations.ac_shunt_range);
-    const current = parseFloat(focusedTP.current);
-    const frequency = parseFloat(focusedTP.frequency);
-    const relevantShunt = shuntsData.find(
-      (s) =>
-        s.serial_number === String(standardInstrumentSerial) &&
-        parseFloat(s.range) === range &&
-        parseFloat(s.current) === current
-    );
-    if (!relevantShunt) return null;
-    const correctionEntry = relevantShunt.corrections.find(
-      (c) => parseFloat(c.frequency) === frequency
-    );
-    return correctionEntry ? correctionEntry.correction : null;
-  }, [
-    focusedTP,
-    calibrationConfigurations.ac_shunt_range,
-    standardInstrumentSerial,
-    shuntsData,
-  ]);
-
-  const getTVCCorrection = useCallback(() => {
-    if (!focusedTP || tvcsData.length === 0) return [null, null];
-    const targetFreq = parseFloat(focusedTP.frequency);
-    const findCorrectionForSerial = (serial) => {
-      if (!serial) return null;
-      const relevantTvc = tvcsData.find(
-        (t) => String(t.serial_number) === String(serial)
-      );
-      if (
-        !relevantTvc ||
-        !Array.isArray(relevantTvc.corrections) ||
-        relevantTvc.corrections.length === 0
-      ) {
-        return null;
-      }
-      const sorted = [...relevantTvc.corrections].sort(
-        (a, b) => a.frequency - b.frequency
-      );
-      const exactMatch = sorted.find((m) => m.frequency === targetFreq);
-      if (exactMatch) {
-        return exactMatch.ac_dc_difference;
-      }
-      if (targetFreq < 1000) {
-        const next = sorted.find((m) => m.frequency > targetFreq);
-        return next ? next.ac_dc_difference : null;
-      }
-      let lower = null;
-      let upper = null;
-      for (let i = 0; i < sorted.length - 1; i++) {
-        if (
-          sorted[i].frequency < targetFreq &&
-          sorted[i + 1].frequency > targetFreq
-        ) {
-          lower = sorted[i];
-          upper = sorted[i + 1];
-          break;
-        }
-      }
-      if (lower && upper) {
-        const { frequency: f1, ac_dc_difference: d1 } = lower;
-        const { frequency: f2, ac_dc_difference: d2 } = upper;
-        const interpolated = d1 + ((targetFreq - f1) * (d2 - d1)) / (f2 - f1);
-        return interpolated;
-      } else {
-        if (sorted.length >= 2) {
-          if (targetFreq < sorted[0].frequency) {
-            const { frequency: f1, ac_dc_difference: d1 } = sorted[0];
-            const { frequency: f2, ac_dc_difference: d2 } = sorted[1];
-            const extrapolated =
-              d1 + ((targetFreq - f1) * (d2 - d1)) / (f2 - f1);
-            return extrapolated;
-          } else if (targetFreq > sorted[sorted.length - 1].frequency) {
-            const { frequency: f1, ac_dc_difference: d1 } =
-              sorted[sorted.length - 2];
-            const { frequency: f2, ac_dc_difference: d2 } =
-              sorted[sorted.length - 1];
-            const extrapolated =
-              d2 + ((targetFreq - f2) * (d2 - d1)) / (f2 - f1);
-            return extrapolated;
-          }
-        }
-      }
-      return null;
-    };
-    const stdCorrection = findCorrectionForSerial(standardTvcSerial);
-    const testCorrection = findCorrectionForSerial(testTvcSerial);
-    return [stdCorrection, testCorrection];
-  }, [focusedTP, tvcsData, standardTvcSerial, testTvcSerial]);
-
-  const getTVCGain = useCallback(() => {
-    if (!focusedTP || tvcsData.length === 0) return [null, null];
-    
-    const targetFreq = parseFloat(focusedTP.frequency);
-    const targetCurrent = parseFloat(focusedTP.current);
-
-    const findGainForSerial = (serial) => {
-      if (!serial) return null;
-      const relevantTvc = tvcsData.find(
-        (t) => String(t.serial_number) === String(serial)
-      );
-      if (
-        !relevantTvc ||
-        !Array.isArray(relevantTvc.sensitivities) ||
-        relevantTvc.sensitivities.length === 0
-      ) {
-        return null;
-      }
-      
-      // Look for an exact match on Current and Frequency
-      const exactMatch = relevantTvc.sensitivities.find(
-        (s) => parseFloat(s.frequency) === targetFreq && parseFloat(s.current) === targetCurrent
-      );
-      
-      return exactMatch ? exactMatch.gain_eta : null;
-    };
-
-    const stdGain = findGainForSerial(standardTvcSerial);
-    const testGain = findGainForSerial(testTvcSerial);
-    
-    return [stdGain, testGain];
-  }, [focusedTP, tvcsData, standardTvcSerial, testTvcSerial]);
 
   useEffect(() => {
     const formatReadingsForChart = (readingsArray) => {
@@ -1097,7 +947,6 @@ function Calibration({
     }
     const forwardResult = focusedTP.forward?.results?.delta_uut_ppm;
     const reverseResult = focusedTP.reverse?.results?.delta_uut_ppm;
-    const existingAverage = focusedTP.forward?.results?.delta_uut_ppm_avg;
 
     if (
       forwardResult !== undefined &&
@@ -1109,43 +958,10 @@ function Calibration({
         (parseFloat(forwardResult) + parseFloat(reverseResult)) / 2;
       const averagePpmFormatted = averagePpm.toFixed(3);
       setAveragedPpmDifference(averagePpmFormatted);
-
-      if (String(existingAverage) !== averagePpmFormatted) {
-        const saveAverage = async () => {
-          try {
-            const forwardPayload = {
-              ...focusedTP.forward.results,
-              delta_uut_ppm_avg: averagePpmFormatted,
-            };
-            const reversePayload = {
-              ...focusedTP.reverse.results,
-              delta_uut_ppm_avg: averagePpmFormatted,
-            };
-            await Promise.all([
-              axios.put(
-                `${API_BASE_URL}/calibration_sessions/${selectedSessionId}/test_points/${focusedTP.forward.id}/update-results/`,
-                forwardPayload
-              ),
-              axios.put(
-                `${API_BASE_URL}/calibration_sessions/${selectedSessionId}/test_points/${focusedTP.reverse.id}/update-results/`,
-                reversePayload
-              ),
-            ]);
-            // showNotification(
-            //   `Saved Averaged δ UUT: ${averagePpmFormatted} PPM`,
-            //   "success"
-            // );
-            onDataUpdate();
-          } catch (error) {
-            showNotification("Error saving the averaged result.", "error");
-          }
-        };
-        saveAverage();
-      }
     } else {
       setAveragedPpmDifference(null);
     }
-  }, [focusedTP, selectedSessionId, showNotification, onDataUpdate]);
+  }, [focusedTP]);
 
   const handleCorrectionInputChange = (e) =>
     setCorrectionInputs((prev) => ({
@@ -1153,285 +969,19 @@ function Calibration({
       [e.target.name]: e.target.value,
     }));
 
-  const performFinalCalculation = useCallback(
-    async (currentCorrectionInputs) => {
-      const calculatePpmFor = (point) => {
-        const fetchedResults = point?.results;
-        if (
-          !point ||
-          !fetchedResults ||
-          ![
-            "std_dc_pos_avg",
-            "std_dc_neg_avg",
-            "std_ac_open_avg",
-            "std_ac_close_avg",
-            "ti_dc_pos_avg",
-            "ti_dc_neg_avg",
-            "ti_ac_open_avg",
-            "ti_ac_close_avg",
-          ].every((key) => fetchedResults[key] != null)
-        ) {
-          return null;
-        }
-        const V_DCSTD =
-          (Math.abs(fetchedResults.std_dc_pos_avg) +
-            Math.abs(fetchedResults.std_dc_neg_avg)) /
-          2;
-        const V_ACSTD =
-          (Math.abs(fetchedResults.std_ac_open_avg) +
-            Math.abs(fetchedResults.std_ac_close_avg)) /
-          2;
-        const V_DCUUT =
-          (Math.abs(fetchedResults.ti_dc_pos_avg) +
-            Math.abs(fetchedResults.ti_dc_neg_avg)) /
-          2;
-        const V_ACUUT =
-          (Math.abs(fetchedResults.ti_ac_open_avg) +
-            Math.abs(fetchedResults.ti_ac_close_avg)) /
-          2;
-        const { eta_std, eta_ti, delta_std, delta_ti, delta_std_known } =
-          Object.fromEntries(
-            Object.entries(currentCorrectionInputs).map(([k, v]) => [
-              k,
-              parseFloat(v),
-            ])
-          );
-        const term_STD = ((V_ACSTD - V_DCSTD) * 1000000) / (eta_std * V_DCSTD);
-        const term_UUT = ((V_ACUUT - V_DCUUT) * 1000000) / (eta_ti * V_DCUUT);
-        return (
-          delta_std_known +
-          term_STD -
-          term_UUT +
-          delta_std -
-          delta_ti
-        ).toFixed(3);
-      };
-
-      const newForwardPpm = hasAllReadings(focusedTP.forward)
-        ? calculatePpmFor(focusedTP.forward)
-        : null;
-      const newReversePpm = hasAllReadings(focusedTP.reverse)
-        ? calculatePpmFor(focusedTP.reverse)
-        : null;
-
-      if (hasAllReadings(focusedTP.forward) && newForwardPpm === null) {
-        showNotification(
-          "Forward calculation failed: required average values are missing.",
-          "error"
-        );
-      }
-      if (hasAllReadings(focusedTP.reverse) && newReversePpm === null) {
-        showNotification(
-          "Reverse calculation failed: required average values are missing.",
-          "error"
-        );
-      }
-
-      if (newForwardPpm === null && newReversePpm === null) {
-        return showNotification(
-          "No directions have complete readings to calculate.",
-          "warning"
-        );
-      }
-
-      try {
-        const updatePromises = [];
-        const sharedPayload = { ...currentCorrectionInputs };
-
-        if (focusedTP.forward && focusedTP.forward.id) {
-          const forwardPayload = {
-            ...(focusedTP.forward.results || {}),
-            ...sharedPayload,
-          };
-          if (newForwardPpm !== null) {
-            forwardPayload.delta_uut_ppm = newForwardPpm;
-          }
-          updatePromises.push(
-            axios.put(
-              `${API_BASE_URL}/calibration_sessions/${selectedSessionId}/test_points/${focusedTP.forward.id}/update-results/`,
-              forwardPayload
-            )
-          );
-        }
-
-        if (focusedTP.reverse && focusedTP.reverse.id) {
-          const reversePayload = {
-            ...(focusedTP.reverse.results || {}),
-            ...sharedPayload,
-          };
-          if (newReversePpm !== null) {
-            reversePayload.delta_uut_ppm = newReversePpm;
-          }
-          updatePromises.push(
-            axios.put(
-              `${API_BASE_URL}/calibration_sessions/${selectedSessionId}/test_points/${focusedTP.reverse.id}/update-results/`,
-              reversePayload
-            )
-          );
-        }
-
-        if (updatePromises.length > 0) {
-          await Promise.all(updatePromises);
-          showNotification(`AC-DC Difference successfully saved!`, "success");
-        }
-
-        onDataUpdate();
-        setIsCorrectionModalOpen(false);
-      } catch (error) {
-        showNotification("Error saving results.", "error");
-        console.error(
-          "Error saving calculation results:",
-          error.response ? error.response.data : error.message
-        );
-      }
-    },
-    [
-      focusedTP,
-      hasAllReadings,
-      onDataUpdate,
-      selectedSessionId,
-      showNotification,
-    ]
-  );
-
-  useEffect(() => {
-    const attemptAutoCalculation = async () => {
-      if (!focusedTP) return;
-
-      const averagesArePresent = (point) => {
-        const results = point?.results;
-        if (!results) return false;
-        return [
-          "std_dc_pos_avg",
-          "std_dc_neg_avg",
-          "std_ac_open_avg",
-          "std_ac_close_avg",
-          "ti_dc_pos_avg",
-          "ti_dc_neg_avg",
-          "ti_ac_open_avg",
-          "ti_ac_close_avg",
-        ].every((key) => results[key] != null);
-      };
-
-      const hasFwdReadings = hasAllReadings(focusedTP.forward);
-      const hasRevReadings = hasAllReadings(focusedTP.reverse);
-      const fwdAveragesPresent = averagesArePresent(focusedTP.forward);
-      const revAveragesPresent = averagesArePresent(focusedTP.reverse);
-      const fwdPpmMissing =
-        focusedTP.forward?.results?.delta_uut_ppm === undefined ||
-        focusedTP.forward?.results?.delta_uut_ppm === null;
-      const revPpmMissing =
-        focusedTP.reverse?.results?.delta_uut_ppm === undefined ||
-        focusedTP.reverse?.results?.delta_uut_ppm === null;
-
-      const isReadyForAutoCalc =
-        hasFwdReadings &&
-        hasRevReadings &&
-        fwdAveragesPresent &&
-        revAveragesPresent &&
-        fwdPpmMissing &&
-        revPpmMissing;
-
-      if (isReadyForAutoCalc) {
-        const [stdTVC, tiTVC] = getTVCCorrection();
-        const shuntCorrection = getShuntCorrection();
-        const [stdGain, tiGain] = getTVCGain();
-
-        const autoCorrectionInputs = {
-          eta_std: focusedTP.forward?.results?.eta_std || (stdGain !== null ? String(stdGain) : "1"),
-          eta_ti: focusedTP.forward?.results?.eta_ti || (tiGain !== null ? String(tiGain) : "1"),
-          delta_std: stdTVC !== null ? String(stdTVC) : "0",
-          delta_ti: tiTVC !== null ? String(tiTVC) : "0",
-          delta_std_known:
-            shuntCorrection !== null ? String(shuntCorrection) : "0",
-        };
-
-        showNotification(
-          "Forward and Reverse readings complete. Automatically calculating results...",
-          "info"
-        );
-
-        await performFinalCalculation(autoCorrectionInputs);
-      }
-    };
-
-    attemptAutoCalculation();
-  }, [
-    focusedTP,
-    hasAllReadings,
-    getTVCCorrection,
-    getShuntCorrection,
-    performFinalCalculation,
-    showNotification,
-    getTVCGain
-  ]);
-
   const handleOpenCorrectionModal = () => {
-    const primaryPoint = focusedTP.forward || focusedTP.reverse;
+    const primaryPoint = activeDirection === "Forward" ? focusedTP.forward : focusedTP.reverse;
     const existingResults = primaryPoint?.results || {};
-    const tvcCorrection = getTVCCorrection();
-    const shuntCorrection = getShuntCorrection();
-    const [stdGain, tiGain] = getTVCGain();
 
     setCorrectionInputs({
-      eta_std: existingResults.eta_std || (stdGain !== null ? String(stdGain) : "1"),
-      eta_ti: existingResults.eta_ti || (tiGain !== null ? String(tiGain) : "1"),
-      delta_std:
-        existingResults.delta_std !== undefined
-          ? existingResults.delta_std
-          : tvcCorrection[0] !== null
-            ? tvcCorrection[0]
-            : "",
-      delta_ti:
-        existingResults.delta_ti !== undefined
-          ? existingResults.delta_ti
-          : tvcCorrection[1] !== null
-            ? tvcCorrection[1]
-            : "",
-      delta_std_known:
-        existingResults.delta_std_known !== undefined
-          ? existingResults.delta_std_known
-          : shuntCorrection !== null
-            ? shuntCorrection
-            : "",
+      eta_std: existingResults.eta_std || "",
+      eta_ti: existingResults.eta_ti || "",
+      delta_std: existingResults.delta_std ?? "",
+      delta_ti: existingResults.delta_ti ?? "",
+      delta_std_known: existingResults.delta_std_known ?? "",
     });
 
     setIsCorrectionModalOpen(true);
-  };
-
-  const handleGetCorrection = () => {
-    const [stdTVC, tiTVC] = getTVCCorrection();
-    const shuntCorrection = getShuntCorrection();
-    const [stdGain, tiGain] = getTVCGain();
-
-    const updatedFieldDetails = [];
-    if (stdTVC !== null)
-      updatedFieldDetails.push(`Standard TVC (${stdTVC.toFixed(3)})`);
-    if (tiTVC !== null)
-      updatedFieldDetails.push(`Test TVC (${tiTVC.toFixed(3)})`);
-    if (shuntCorrection !== null)
-      updatedFieldDetails.push(`Shunt correction (${shuntCorrection})`);
-
-    if (updatedFieldDetails.length === 0) {
-      showNotification(
-        "No correction found for the selected test point parameters.",
-        "info"
-      );
-    } else {
-      setCorrectionInputs((prev) => ({
-        ...prev,
-        delta_std: stdTVC ?? prev.delta_std,
-        delta_ti: tiTVC ?? prev.delta_ti,
-        delta_std_known: shuntCorrection ?? prev.delta_std_known,
-        eta_std: stdGain ?? prev.eta_std,
-        eta_ti: tiGain ?? prev.eta_ti,
-      }));
-
-      const successMessage = `Successfully updated: ${updatedFieldDetails.join(
-        ", "
-      )}.`;
-      showNotification(successMessage, "success");
-    }
   };
 
   const runMeasurement = useCallback(
@@ -1631,7 +1181,8 @@ function Calibration({
           })
           .catch((error) => {
             showNotification(
-              `Operation failed: ${error.message || "An unknown error occurred."
+              `Operation failed: ${
+                error.message || "An unknown error occurred."
               }`,
               "error"
             );
@@ -1649,25 +1200,34 @@ function Calibration({
       }
     };
 
-    // Evaluate conditions for warnings
-    const changingHardware = activeDirection !== lastCollectionDirection && lastCollectionDirection !== null;
-    const bypassingForward = activeDirection === "Reverse" && forwardIsInProgress;
-    const bypassingReverse = activeDirection === "Forward" && reverseIsInProgress;
+    // --- NEW TARGETED LOCK LOGIC ---
+    const oppositeDirection = activeDirection === "Forward" ? "reverse" : "forward";
+    const partialPoints = [];
 
-    // 1. Check if they are bypassing the completion lock
-    if (bypassingForward || bypassingReverse) {
-      let warningMessage = bypassingForward
-        ? "Forward readings are not fully complete. Are you sure you want to bypass the lock and switch to Reverse?"
-        : "Reverse readings are not fully complete. Are you sure you want to bypass the lock and switch to Forward?";
-
-      // Append hardware change reminder if they are also switching directions physically
-      if (changingHardware) {
-        warningMessage += `\n\nAlso, please ensure you have physically configured the hardware for the '${activeDirection}' direction.`;
+    // Check ONLY the selected points for abandoned opposite directions
+    orderedTestPoints.filter(p => selectedTPs.has(p.key)).forEach(p => {
+      const oppositeData = p[oppositeDirection];
+      if (isPartial(oppositeData)) {
+        partialPoints.push(`${formatCurrent(p.current)}A @ ${formatFrequency(p.frequency)}`);
       }
+    });
 
+    let warningMessage = "";
+    if (partialPoints.length > 0) {
+      warningMessage = `The following test point(s) have incomplete ${oppositeDirection === "forward" ? "Forward" : "Reverse"} readings:\n\n${partialPoints.map(p => `• ${p}`).join("\n")}\n\nAre you sure you want to bypass the lock and proceed to ${activeDirection}?`;
+    }
+
+    // Hardware change check
+    const changingHardware = activeDirection !== lastCollectionDirection && lastCollectionDirection !== null;
+    if (changingHardware) {
+      if (warningMessage) warningMessage += "\n\n";
+      warningMessage += `Please ensure you have physically configured the hardware for the '${activeDirection}' direction.`;
+    }
+
+    if (warningMessage) {
       setConfirmationModal({
         isOpen: true,
-        title: "Bypass Completion Lock?",
+        title: partialPoints.length > 0 ? "Bypass Completion Lock?" : "Confirm Hardware Change",
         message: warningMessage,
         onConfirm: () => {
           setConfirmationModal((prev) => ({ ...prev, isOpen: false }));
@@ -1679,23 +1239,7 @@ function Calibration({
       return;
     }
 
-    // 2. Standard hardware change check (if no bypass was needed)
-    if (changingHardware) {
-      setConfirmationModal({
-        isOpen: true,
-        title: "Confirm Hardware Change",
-        message: `Please ensure you have physically configured the hardware for the '${activeDirection}' direction before proceeding.`,
-        onConfirm: () => {
-          setConfirmationModal((prev) => ({ ...prev, isOpen: false }));
-          setLastCollectionDirection(activeDirection);
-          runBatchSequence();
-        },
-        onCancel: () => setConfirmationModal((prev) => ({ ...prev, isOpen: false })),
-      });
-      return;
-    }
-
-    // 3. No warnings needed, just run
+    // No warnings needed, just run
     setLastCollectionDirection(activeDirection);
     runBatchSequence();
   };
@@ -1717,7 +1261,8 @@ function Calibration({
           })
           .catch((error) => {
             showNotification(
-              `Operation failed: ${error.message || "An unknown error occurred."
+              `Operation failed: ${
+                error.message || "An unknown error occurred."
               }`,
               "error"
             );
@@ -1728,20 +1273,31 @@ function Calibration({
           });
       };
 
-      if (
-        activeDirection !== lastCollectionDirection &&
-        lastCollectionDirection !== null
-      ) {
+      // --- NEW TARGETED LOCK LOGIC ---
+      const oppositeDirection = activeDirection === "Forward" ? "reverse" : "forward";
+      const oppositeData = focusedTP?.[oppositeDirection];
+
+      let warningMessage = "";
+      if (isPartial(oppositeData)) {
+        warningMessage = `The test point ${formatCurrent(focusedTP?.current)}A @ ${formatFrequency(focusedTP?.frequency)} has incomplete ${oppositeDirection === "forward" ? "Forward" : "Reverse"} readings.\n\nAre you sure you want to bypass the lock and proceed to ${activeDirection}?`;
+      }
+
+      const changingHardware = activeDirection !== lastCollectionDirection && lastCollectionDirection !== null;
+      if (changingHardware) {
+        if (warningMessage) warningMessage += "\n\n";
+        warningMessage += `Please ensure you have physically configured the hardware for the '${activeDirection}' direction.`;
+      }
+
+      if (warningMessage) {
         setConfirmationModal({
           isOpen: true,
-          title: "Confirm Hardware Change",
-          message: `Please ensure you have physically configured the hardware for the '${activeDirection}' direction before proceeding.`,
+          title: isPartial(oppositeData) ? "Bypass Completion Lock?" : "Confirm Hardware Change",
+          message: warningMessage,
           onConfirm: () => {
             setConfirmationModal((prev) => ({ ...prev, isOpen: false }));
             run();
           },
-          onCancel: () =>
-            setConfirmationModal((prev) => ({ ...prev, isOpen: false })),
+          onCancel: () => setConfirmationModal((prev) => ({ ...prev, isOpen: false })),
         });
       } else {
         run();
@@ -1754,7 +1310,10 @@ function Calibration({
       runMeasurement,
       showNotification,
       onDataUpdate,
-      setFailedTPKeys
+      setFailedTPKeys,
+      isPartial,
+      formatCurrent,
+      formatFrequency
     ]
   );
 
@@ -1851,97 +1410,141 @@ function Calibration({
         showNotification("No test points selected for batch run.", "warning");
         return;
       }
-      setActiveChartView("calibration");
-      setFailedTPKeys(new Set());
 
-      const pointsToRunData = orderedTestPoints
-        .filter((p) => selectedTPs.has(p.key))
-        .map((p) => {
-          const pointForDirection =
-            activeDirection === "Forward" ? p.forward : p.reverse;
-          return {
-            id: pointForDirection?.id,
-            current: p.current,
-            frequency: p.frequency,
-            direction: activeDirection,
-          };
-        });
+      const runBatchStageSequence = async () => {
+        setActiveChartView("calibration");
+        setFailedTPKeys(new Set());
 
-      if (pointsToRunData.length === 0) {
-        showNotification(
-          `No valid test points could be prepared for the ${activeDirection} direction.`,
-          "error"
-        );
-        return;
-      }
+        const pointsToRunData = orderedTestPoints
+          .filter((p) => selectedTPs.has(p.key))
+          .map((p) => {
+            const pointForDirection =
+              activeDirection === "Forward" ? p.forward : p.reverse;
+            return {
+              id: pointForDirection?.id,
+              current: p.current,
+              frequency: p.frequency,
+              direction: activeDirection,
+            };
+          });
 
-      setIsBulkRunning(true);
-
-      const firstPointToRun = uniqueTestPoints.find(
-        (p) => p.key === pointsToRunData[0].key
-      );
-      if (firstPointToRun) {
-        setFocusedTP(firstPointToRun);
-      }
-
-      const firstPointSettings =
-        firstPointToRun?.forward?.settings ||
-        firstPointToRun?.reverse?.settings ||
-        calibrationSettings;
-
-      const params = {
-        command: "start_single_stage_batch",
-        reading_type: readingKey,
-        test_points: pointsToRunData,
-        direction: activeDirection,
-        initial_warm_up_time:
-          parseFloat(firstPointSettings.initial_warm_up_time) || 0,
-        num_samples: parseInt(firstPointSettings.num_samples, 10),
-        settling_time: parseFloat(firstPointSettings.settling_time),
-        nplc: parseFloat(firstPointSettings.nplc),
-        measurement_params: {
-          stability_check_method: firstPointSettings.stability_check_method,
-          window: parseInt(firstPointSettings.stability_window, 10),
-          threshold_ppm: parseFloat(firstPointSettings.stability_threshold_ppm),
-          max_attempts: parseInt(firstPointSettings.stability_max_attempts, 10),
-          ppm_threshold: parseFloat(firstPointSettings.iqr_filter_ppm_threshold),
-          ignore_instability_after_lock: firstPointSettings.ignore_instability_after_lock || false,
-        },
-        std_reader_model: stdReaderModel,
-        ti_reader_model: tiReaderModel,
-        amplifier_range: calibrationConfigurations.amplifier_range,
-      };
-
-      if (startReadingCollection(params)) {
-        try {
-          const result = await waitForCollection();
-          if (result === "collection_stopped" || result === "error") {
-            showNotification(`Batch sequence stopped.`, "warning");
-          } else {
-            showNotification("Batch sequence finished.", "success");
-          }
-        } catch (error) {
+        if (pointsToRunData.length === 0) {
           showNotification(
-            `Operation failed: ${error.message || "An unknown error occurred."
-            }`,
+            `No valid test points could be prepared for the ${activeDirection} direction.`,
             "error"
           );
-        } finally {
-          setIsBulkRunning(false);
-          onDataUpdate();
+          return;
         }
-      } else {
-        showNotification(
-          "WebSocket is not connected. Please refresh the page.",
-          "error"
+
+        setIsBulkRunning(true);
+
+        const firstPointToRun = uniqueTestPoints.find(
+          (p) => p.key === pointsToRunData[0].key
         );
-        setIsBulkRunning(false);
+        if (firstPointToRun) {
+          setFocusedTP(firstPointToRun);
+        }
+
+        const firstPointSettings =
+          firstPointToRun?.forward?.settings ||
+          firstPointToRun?.reverse?.settings ||
+          calibrationSettings;
+
+        const params = {
+          command: "start_single_stage_batch",
+          reading_type: readingKey,
+          test_points: pointsToRunData,
+          direction: activeDirection,
+          initial_warm_up_time:
+            parseFloat(firstPointSettings.initial_warm_up_time) || 0,
+          num_samples: parseInt(firstPointSettings.num_samples, 10),
+          settling_time: parseFloat(firstPointSettings.settling_time),
+          nplc: parseFloat(firstPointSettings.nplc),
+          measurement_params: {
+            stability_check_method: firstPointSettings.stability_check_method,
+            window: parseInt(firstPointSettings.stability_window, 10),
+            threshold_ppm: parseFloat(firstPointSettings.stability_threshold_ppm),
+            max_attempts: parseInt(firstPointSettings.stability_max_attempts, 10),
+            ppm_threshold: parseFloat(firstPointSettings.iqr_filter_ppm_threshold),
+            ignore_instability_after_lock: firstPointSettings.ignore_instability_after_lock || false,
+          },
+          std_reader_model: stdReaderModel,
+          ti_reader_model: tiReaderModel,
+          amplifier_range: calibrationConfigurations.amplifier_range,
+        };
+
+        if (startReadingCollection(params)) {
+          try {
+            const result = await waitForCollection();
+            if (result === "collection_stopped" || result === "error") {
+              showNotification(`Batch sequence stopped.`, "warning");
+            } else {
+              showNotification("Batch sequence finished.", "success");
+            }
+          } catch (error) {
+            showNotification(
+              `Operation failed: ${
+                error.message || "An unknown error occurred."
+              }`,
+              "error"
+            );
+          } finally {
+            setIsBulkRunning(false);
+            onDataUpdate();
+          }
+        } else {
+          showNotification(
+            "WebSocket is not connected. Please refresh the page.",
+            "error"
+          );
+          setIsBulkRunning(false);
+        }
+      };
+
+      // --- NEW TARGETED LOCK LOGIC ---
+      const oppositeDirection = activeDirection === "Forward" ? "reverse" : "forward";
+      const partialPoints = [];
+
+      orderedTestPoints.filter(p => selectedTPs.has(p.key)).forEach(p => {
+        const oppositeData = p[oppositeDirection];
+        if (isPartial(oppositeData)) {
+          partialPoints.push(`${formatCurrent(p.current)}A @ ${formatFrequency(p.frequency)}`);
+        }
+      });
+
+      let warningMessage = "";
+      if (partialPoints.length > 0) {
+        warningMessage = `The following test point(s) have incomplete ${oppositeDirection === "forward" ? "Forward" : "Reverse"} readings:\n\n${partialPoints.map(p => `• ${p}`).join("\n")}\n\nAre you sure you want to bypass the lock and proceed to ${activeDirection}?`;
+      }
+
+      const changingHardware = activeDirection !== lastCollectionDirection && lastCollectionDirection !== null;
+      if (changingHardware) {
+        if (warningMessage) warningMessage += "\n\n";
+        warningMessage += `Please ensure you have physically configured the hardware for the '${activeDirection}' direction.`;
+      }
+
+      if (warningMessage) {
+        setConfirmationModal({
+          isOpen: true,
+          title: partialPoints.length > 0 ? "Bypass Completion Lock?" : "Confirm Hardware Change",
+          message: warningMessage,
+          onConfirm: () => {
+            setConfirmationModal((prev) => ({ ...prev, isOpen: false }));
+            setLastCollectionDirection(activeDirection);
+            runBatchStageSequence();
+          },
+          onCancel: () => setConfirmationModal((prev) => ({ ...prev, isOpen: false })),
+        });
+      } else {
+        setLastCollectionDirection(activeDirection);
+        runBatchStageSequence();
       }
     },
     [
       selectedTPs,
       orderedTestPoints,
       activeDirection,
+      lastCollectionDirection,
       calibrationSettings,
       stdReaderModel,
       tiReaderModel,
@@ -1951,7 +1554,10 @@ function Calibration({
       onDataUpdate,
       uniqueTestPoints,
       setFocusedTP,
-      setFailedTPKeys
+      setFailedTPKeys,
+      isPartial,
+      formatCurrent,
+      formatFrequency
     ]
   );
 
@@ -1986,23 +1592,6 @@ function Calibration({
         };
       }),
     };
-  };
-
-  const formatFrequency = useCallback((value) => {
-    return (
-      AVAILABLE_FREQUENCIES.find((f) => f.value === value) || {
-        text: `${value}Hz`,
-      }
-    ).text;
-  }, []);
-
-  const formatCurrent = (value) => {
-    const numValue = parseFloat(value);
-    const epsilon = 1e-9;
-    const found = AVAILABLE_CURRENTS.find(
-      (c) => Math.abs(c.value - numValue) < epsilon
-    );
-    return found ? found.text : `${numValue}`;
   };
 
   const handleSettingsSubmit = async (e) => {
@@ -2282,6 +1871,26 @@ function Calibration({
     calibrationSettings.stability_threshold_ppm,
   ]);
 
+  const handleSaveCorrections = async (currentCorrectionInputs) => {
+    try {
+      const pointToUpdate = activeDirection === "Forward" ? focusedTP.forward : focusedTP.reverse;
+      
+      if (!pointToUpdate || !pointToUpdate.id) return;
+
+      // Push the user's manual overrides to the backend
+      await axios.put(
+        `${API_BASE_URL}/calibration_sessions/${selectedSessionId}/test_points/${pointToUpdate.id}/update-results/`,
+        currentCorrectionInputs
+      );
+
+      showNotification(`Corrections updated and recalculated!`, "success");
+      onDataUpdate(); // Refreshes the UI to show the newly calculated delta_uut_ppm
+      setIsCorrectionModalOpen(false);
+    } catch (error) {
+      showNotification("Error saving corrections.", "error");
+    }
+  };
+
   return (
     <>
       <ConfigurationSummaryModal
@@ -2306,10 +1915,9 @@ function Calibration({
       <CorrectionFactorsModal
         isOpen={isCorrectionModalOpen}
         onClose={() => setIsCorrectionModalOpen(false)}
-        onSubmit={performFinalCalculation}
+        onSubmit={handleSaveCorrections}
         initialValues={correctionInputs}
         onInputChange={handleCorrectionInputChange}
-        onGetCorrection={handleGetCorrection}
       />
       <ConfirmationModal
         isOpen={confirmationModal.isOpen}

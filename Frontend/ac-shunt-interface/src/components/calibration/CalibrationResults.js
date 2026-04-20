@@ -135,18 +135,16 @@ const SummaryTable = ({ results, prefix }) => {
         >
           <button
             type="button"
-            className={`cal-results-pill ${
-              stdDevUnit === "ppm" ? "is-active" : ""
-            }`}
+            className={`cal-results-pill ${stdDevUnit === "ppm" ? "is-active" : ""
+              }`}
             onClick={() => setStdDevUnit("ppm")}
           >
             ppm
           </button>
           <button
             type="button"
-            className={`cal-results-pill ${
-              stdDevUnit === "volts" ? "is-active" : ""
-            }`}
+            className={`cal-results-pill ${stdDevUnit === "volts" ? "is-active" : ""
+              }`}
             onClick={() => setStdDevUnit("volts")}
           >
             Volts
@@ -278,7 +276,15 @@ function CalibrationResults({
           }
         });
 
-        combinedResults.delta_uut_ppm = forward.results.delta_uut_ppm_avg;
+        const fwdPpm = forward.results.delta_uut_ppm;
+        const revPpm = reverse.results.delta_uut_ppm;
+
+        if (fwdPpm != null && revPpm != null) {
+          combinedResults.delta_uut_ppm = (parseFloat(fwdPpm) + parseFloat(revPpm)) / 2;
+        } else {
+          combinedResults.delta_uut_ppm = null;
+        }
+
         setCalResults(combinedResults);
       } else {
         setCalResults(null);
@@ -293,64 +299,64 @@ function CalibrationResults({
   }, [focusedTP, activeDirection]);
 
   const handleMarkStability = useCallback(async (stabilityData) => {
-      if (!focusedTP || !selectedSessionId) {
-        showNotification("No focused test point selected.", "error");
-        return;
-      }
-      
-      const pointForDirection = activeDirection === "Forward" 
-        ? focusedTP.forward 
-        : activeDirection === "Reverse"
+    if (!focusedTP || !selectedSessionId) {
+      showNotification("No focused test point selected.", "error");
+      return;
+    }
+
+    const pointForDirection = activeDirection === "Forward"
+      ? focusedTP.forward
+      : activeDirection === "Reverse"
         ? focusedTP.reverse
         : focusedTP.forward; // Default to forward for "Combined"
-        
-      if (!pointForDirection || !pointForDirection.id) {
-        showNotification("No valid test point selected for this direction.", "error");
-        return;
-      }
-      
-      const prefix = activeInstrument === "std" ? "std_" : "ti_"; 
-      const readingType = READING_TYPES.find(rt => rt.label === stabilityData.type);
-      
-      if (!readingType) {
-         showNotification("Invalid reading type selected.", "error");
-         return;
-      }
-      
-      const reading_key = `${prefix}${readingType.value}`;
-      
-      const payload = {
-        reading_key: reading_key,
-        start_index: parseInt(stabilityData.start, 10),
-        end_index: parseInt(stabilityData.end, 10),
-        is_stable: stabilityData.mark_as === 'stable'
-      };
-      
-      let testPointIdsToUpdate = [pointForDirection.id];
-      if (activeDirection === "Combined" && focusedTP.reverse && focusedTP.reverse.id !== pointForDirection.id) {
-          testPointIdsToUpdate.push(focusedTP.reverse.id);
+
+    if (!pointForDirection || !pointForDirection.id) {
+      showNotification("No valid test point selected for this direction.", "error");
+      return;
+    }
+
+    const prefix = activeInstrument === "std" ? "std_" : "ti_";
+    const readingType = READING_TYPES.find(rt => rt.label === stabilityData.type);
+
+    if (!readingType) {
+      showNotification("Invalid reading type selected.", "error");
+      return;
+    }
+
+    const reading_key = `${prefix}${readingType.value}`;
+
+    const payload = {
+      reading_key: reading_key,
+      start_index: parseInt(stabilityData.start, 10),
+      end_index: parseInt(stabilityData.end, 10),
+      is_stable: stabilityData.mark_as === 'stable'
+    };
+
+    let testPointIdsToUpdate = [pointForDirection.id];
+    if (activeDirection === "Combined" && focusedTP.reverse && focusedTP.reverse.id !== pointForDirection.id) {
+      testPointIdsToUpdate.push(focusedTP.reverse.id);
+    }
+
+    try {
+      for (const tpId of testPointIdsToUpdate) {
+        await axios.post(
+          `${API_BASE_URL}/calibration_sessions/${selectedSessionId}/test_points/${tpId}/mark-readings-stability/`,
+          payload
+        );
       }
 
-      try {
-        for (const tpId of testPointIdsToUpdate) {
-            await axios.post(
-              `${API_BASE_URL}/calibration_sessions/${selectedSessionId}/test_points/${tpId}/mark-readings-stability/`,
-              payload
-            );
-        }
-        
-        let successMessage = `Readings ${payload.start_index}-${payload.end_index} for ${activeInstrument.toUpperCase()} ${readingType.label} marked as ${stabilityData.mark_as}. Averages recalculated.`;
-        if (activeDirection === "Combined" && testPointIdsToUpdate.length > 1) {
-            successMessage = `Updated stability for Forward and Reverse directions. Averages recalculated.`;
-        }
-
-        showNotification(successMessage, "success");
-        await onDataUpdate(); 
-      } catch (error) {
-        const errorMsg = error.response?.data?.detail || "Failed to update reading stability.";
-        showNotification(errorMsg, "error");
-        console.error(error);
+      let successMessage = `Readings ${payload.start_index}-${payload.end_index} for ${activeInstrument.toUpperCase()} ${readingType.label} marked as ${stabilityData.mark_as}. Averages recalculated.`;
+      if (activeDirection === "Combined" && testPointIdsToUpdate.length > 1) {
+        successMessage = `Updated stability for Forward and Reverse directions. Averages recalculated.`;
       }
+
+      showNotification(successMessage, "success");
+      await onDataUpdate();
+    } catch (error) {
+      const errorMsg = error.response?.data?.detail || "Failed to update reading stability.";
+      showNotification(errorMsg, "error");
+      console.error(error);
+    }
   }, [focusedTP, selectedSessionId, activeDirection, activeInstrument, onDataUpdate, showNotification]);
 
   const formatFrequency = (value) =>
@@ -433,19 +439,15 @@ function CalibrationResults({
     const term_UUT =
       ((V_ACUUT - V_DCUUT) * 1000000) / (results.eta_ti * V_DCUUT);
     const mainFormula = `$$ \\delta_{UUT} \\approx \\delta_{STD} + \\left( \\frac{V_{AC} - V_{DC}}{\\eta \\times V_{DC}} \\right)_{STD} \\times 10^6 - \\left( \\frac{V_{AC} - V_{DC}}{\\eta \\times V_{DC}} \\right)_{UUT} \\times 10^6 + \\delta_{USTD:TVC} - \\delta_{UUT:TVC} $$`;
-    const appliedValues = `$$ \\delta_{UUT} \\approx ${
-      results.delta_std_known
-    } + \\left( \\frac{${V_ACSTD.toPrecision(8)} - ${V_DCSTD.toPrecision(8)}}{${
-      results.eta_std
-    } \\times ${V_DCSTD.toPrecision(
-      8
-    )}} \\right) \\times 10^6 - \\left( \\frac{${V_ACUUT.toPrecision(
-      8
-    )} - ${V_DCUUT.toPrecision(8)}}{${
-      results.eta_ti
-    } \\times ${V_DCUUT.toPrecision(8)}} \\right) \\times 10^6 + ${
-      results.delta_std
-    } - ${results.delta_ti} $$`;
+    const appliedValues = `$$ \\delta_{UUT} \\approx ${results.delta_std_known
+      } + \\left( \\frac{${V_ACSTD.toPrecision(8)} - ${V_DCSTD.toPrecision(8)}}{${results.eta_std
+      } \\times ${V_DCSTD.toPrecision(
+        8
+      )}} \\right) \\times 10^6 - \\left( \\frac{${V_ACUUT.toPrecision(
+        8
+      )} - ${V_DCUUT.toPrecision(8)}}{${results.eta_ti
+      } \\times ${V_DCUUT.toPrecision(8)}} \\right) \\times 10^6 + ${results.delta_std
+      } - ${results.delta_ti} $$`;
     const intermediateBreakdown = `$$ \\delta_{UUT} \\approx ${results.delta_std_known.toFixed(
       3
     )} + ${term_STD.toFixed(3)} - ${term_UUT.toFixed(
@@ -519,242 +521,234 @@ function CalibrationResults({
               aria-label="Calibration results for selected test point"
             >
               <>
-                    <header className="cal-results-bar">
-                      <div className="cal-results-bar-meta" aria-live="polite">
-                        <span className="cal-results-bar-amps">
-                          {focusedTP.current} A
-                        </span>
-                        <span className="cal-results-bar-freq">
-                          {formatFrequency(focusedTP.frequency)}
-                        </span>
-                      </div>
+                <header className="cal-results-bar">
+                  <div className="cal-results-bar-meta" aria-live="polite">
+                    <span className="cal-results-bar-amps">
+                      {focusedTP.current} A
+                    </span>
+                    <span className="cal-results-bar-freq">
+                      {formatFrequency(focusedTP.frequency)}
+                    </span>
+                  </div>
 
-                      <div className="cal-results-tabs-cluster">
-                        <nav
-                          className="cal-results-tabs"
-                          role="tablist"
-                          aria-label="Results view"
-                        >
-                          <button
-                            type="button"
-                            role="tab"
-                            aria-selected={activeTab === "summary"}
-                            className={`cal-results-tab ${
-                              activeTab === "summary" ? "is-active" : ""
-                            }`}
-                            onClick={() => setActiveTab("summary")}
-                          >
-                            Summary
-                          </button>
-                          <button
-                            type="button"
-                            role="tab"
-                            aria-selected={activeTab === "details"}
-                            className={`cal-results-tab ${
-                              activeTab === "details" ? "is-active" : ""
-                            }`}
-                            onClick={() => setActiveTab("details")}
-                          >
-                            Raw data
-                          </button>
-                        </nav>
+                  <div className="cal-results-tabs-cluster">
+                    <nav
+                      className="cal-results-tabs"
+                      role="tablist"
+                      aria-label="Results view"
+                    >
+                      <button
+                        type="button"
+                        role="tab"
+                        aria-selected={activeTab === "summary"}
+                        className={`cal-results-tab ${activeTab === "summary" ? "is-active" : ""
+                          }`}
+                        onClick={() => setActiveTab("summary")}
+                      >
+                        Summary
+                      </button>
+                      <button
+                        type="button"
+                        role="tab"
+                        aria-selected={activeTab === "details"}
+                        className={`cal-results-tab ${activeTab === "details" ? "is-active" : ""
+                          }`}
+                        onClick={() => setActiveTab("details")}
+                      >
+                        Raw data
+                      </button>
+                    </nav>
+                    <button
+                      type="button"
+                      className="cal-results-excel-icon-btn"
+                      aria-label="Export session to Excel"
+                      title="Export session to Excel — AC–DC summary and all raw readings"
+                      disabled={!uniqueTestPoints?.length}
+                      onClick={async () => {
+                        const r = await downloadFullSessionExcel({
+                          uniqueTestPoints,
+                          sessionName: selectedSessionName,
+                          sessionId: selectedSessionId,
+                        });
+                        if (!r.ok) {
+                          showNotification(r.error, "warning");
+                        } else {
+                          showNotification("Workbook downloaded.", "success");
+                        }
+                      }}
+                    >
+                      <FaDownload aria-hidden />
+                    </button>
+                  </div>
+
+                  <div className="cal-results-bar-tools">
+                    <select
+                      className="cal-results-dir-select"
+                      value={activeDirection}
+                      onChange={(e) =>
+                        setActiveDirection(e.target.value)
+                      }
+                      aria-label="Measurement direction"
+                    >
+                      <option value="Forward">Forward</option>
+                      <option value="Reverse">Reverse</option>
+                      <option
+                        value="Combined"
+                        disabled={!hasBothDirections}
+                      >
+                        Combined
+                      </option>
+                    </select>
+                  </div>
+                </header>
+
+                {activeTab === "summary" && (
+                  <div className="cal-results-summary">
+                    <div className="cal-results-kpi-wrap">
+                      <ResultsKpi
+                        title="AC–DC difference (UUT)"
+                        value={calResults?.delta_uut_ppm}
+                        formula={
+                          activeDirection === "Combined"
+                            ? `$$ \\text{Avg} = (\\delta_{Fwd} + \\delta_{Rev}) / 2 $$`
+                            : `$$ \\delta_{${activeDirection === "Forward"
+                              ? "Fwd"
+                              : "Rev"
+                            }} $$`
+                        }
+                      />
+                    </div>
+
+                    {activeDirection !== "Combined" && (
+                      <details className="cal-results-disclosure cal-results-disclosure--math">
+                        <summary className="cal-results-disclosure-summary">
+                          Calculation breakdown
+                        </summary>
+                        <div className="cal-results-disclosure-body">
+                          <CalculationBreakdown results={calResults} />
+                        </div>
+                      </details>
+                    )}
+
+                    <details className="cal-results-disclosure" open>
+                      <summary className="cal-results-disclosure-summary">
+                        Standard instrument
+                      </summary>
+                      <div className="cal-results-disclosure-body">
+                        <SummaryTable results={calResults} prefix="std_" />
+                      </div>
+                    </details>
+
+                    <details className="cal-results-disclosure">
+                      <summary className="cal-results-disclosure-summary">
+                        Test instrument
+                      </summary>
+                      <div className="cal-results-disclosure-body">
+                        <SummaryTable results={calResults} prefix="ti_" />
+                      </div>
+                    </details>
+                  </div>
+                )}
+
+                {activeTab === "details" && (
+                  <div className="cal-results-details">
+                    <div className="cal-results-strip">
+                      <div
+                        className="cal-results-pill-group"
+                        role="group"
+                        aria-label="Instrument"
+                      >
                         <button
                           type="button"
-                          className="cal-results-excel-icon-btn"
-                          aria-label="Export session to Excel"
-                          title="Export session to Excel — AC–DC summary and all raw readings"
-                          disabled={!uniqueTestPoints?.length}
-                          onClick={async () => {
-                            const r = await downloadFullSessionExcel({
-                              uniqueTestPoints,
-                              sessionName: selectedSessionName,
-                              sessionId: selectedSessionId,
-                            });
-                            if (!r.ok) {
-                              showNotification(r.error, "warning");
-                            } else {
-                              showNotification("Workbook downloaded.", "success");
-                            }
-                          }}
+                          className={`cal-results-pill ${activeInstrument === "std" ? "is-active" : ""
+                            }`}
+                          onClick={() => setActiveInstrument("std")}
                         >
-                          <FaDownload aria-hidden />
+                          Standard
+                        </button>
+                        <button
+                          type="button"
+                          className={`cal-results-pill ${activeInstrument === "ti" ? "is-active" : ""
+                            }`}
+                          onClick={() => setActiveInstrument("ti")}
+                        >
+                          UUT
                         </button>
                       </div>
-
-                      <div className="cal-results-bar-tools">
-                        <select
-                          className="cal-results-dir-select"
-                          value={activeDirection}
-                          onChange={(e) =>
-                            setActiveDirection(e.target.value)
-                          }
-                          aria-label="Measurement direction"
+                      <div
+                        className="cal-results-pill-group"
+                        role="group"
+                        aria-label="Data view"
+                      >
+                        <button
+                          type="button"
+                          className={`cal-results-pill ${detailsView === "chart" ? "is-active" : ""
+                            }`}
+                          onClick={() => setDetailsView("chart")}
                         >
-                          <option value="Forward">Forward</option>
-                          <option value="Reverse">Reverse</option>
-                          <option
-                            value="Combined"
-                            disabled={!hasBothDirections}
-                          >
-                            Combined
-                          </option>
+                          Chart
+                        </button>
+                        <button
+                          type="button"
+                          className={`cal-results-pill ${detailsView === "table" ? "is-active" : ""
+                            }`}
+                          onClick={() => setDetailsView("table")}
+                        >
+                          Table
+                        </button>
+                      </div>
+                      {detailsView === "table" && (
+                        <select
+                          id="cal-results-measurement-type"
+                          className="cal-results-inline-select"
+                          value={selectedReadingType}
+                          onChange={(e) =>
+                            setSelectedReadingType(e.target.value)
+                          }
+                          aria-label="Measurement type"
+                        >
+                          {READING_TYPES.map((opt) => (
+                            <option key={opt.value} value={opt.value}>
+                              {opt.label}
+                            </option>
+                          ))}
                         </select>
-                      </div>
-                    </header>
+                      )}
+                    </div>
 
-                    {activeTab === "summary" && (
-                      <div className="cal-results-summary">
-                        <div className="cal-results-kpi-wrap">
-                          <ResultsKpi
-                            title="AC–DC difference (UUT)"
-                            value={calResults?.delta_uut_ppm}
-                            formula={
-                              activeDirection === "Combined"
-                                ? `$$ \\text{Avg} = (\\delta_{Fwd} + \\delta_{Rev}) / 2 $$`
-                                : `$$ \\delta_{${
-                                    activeDirection === "Forward"
-                                      ? "Fwd"
-                                      : "Rev"
-                                  }} $$`
-                            }
-                          />
-                        </div>
-
-                        {activeDirection !== "Combined" && (
-                          <details className="cal-results-disclosure cal-results-disclosure--math">
-                            <summary className="cal-results-disclosure-summary">
-                              Calculation breakdown
-                            </summary>
-                            <div className="cal-results-disclosure-body">
-                              <CalculationBreakdown results={calResults} />
-                            </div>
-                          </details>
-                        )}
-
-                        <details className="cal-results-disclosure" open>
-                          <summary className="cal-results-disclosure-summary">
-                            Standard instrument
-                          </summary>
-                          <div className="cal-results-disclosure-body">
-                            <SummaryTable results={calResults} prefix="std_" />
-                          </div>
-                        </details>
-
-                        <details className="cal-results-disclosure">
-                          <summary className="cal-results-disclosure-summary">
-                            Test instrument
-                          </summary>
-                          <div className="cal-results-disclosure-body">
-                            <SummaryTable results={calResults} prefix="ti_" />
-                          </div>
-                        </details>
+                    {detailsView === "table" && (
+                      <div className="cal-results-table-panel">
+                        <DetailedReadingsTable
+                          readingsArray={
+                            calReadings
+                              ? calReadings[
+                              `${activeInstrument}_${selectedReadingType}`
+                              ]
+                              : []
+                          }
+                        />
                       </div>
                     )}
 
-                    {activeTab === "details" && (
-                      <div className="cal-results-details">
-                        <div className="cal-results-strip">
-                          <div
-                            className="cal-results-pill-group"
-                            role="group"
-                            aria-label="Instrument"
-                          >
-                            <button
-                              type="button"
-                              className={`cal-results-pill ${
-                                activeInstrument === "std" ? "is-active" : ""
-                              }`}
-                              onClick={() => setActiveInstrument("std")}
-                            >
-                              Standard
-                            </button>
-                            <button
-                              type="button"
-                              className={`cal-results-pill ${
-                                activeInstrument === "ti" ? "is-active" : ""
-                              }`}
-                              onClick={() => setActiveInstrument("ti")}
-                            >
-                              UUT
-                            </button>
-                          </div>
-                          <div
-                            className="cal-results-pill-group"
-                            role="group"
-                            aria-label="Data view"
-                          >
-                            <button
-                              type="button"
-                              className={`cal-results-pill ${
-                                detailsView === "chart" ? "is-active" : ""
-                              }`}
-                              onClick={() => setDetailsView("chart")}
-                            >
-                              Chart
-                            </button>
-                            <button
-                              type="button"
-                              className={`cal-results-pill ${
-                                detailsView === "table" ? "is-active" : ""
-                              }`}
-                              onClick={() => setDetailsView("table")}
-                            >
-                              Table
-                            </button>
-                          </div>
-                          {detailsView === "table" && (
-                            <select
-                              id="cal-results-measurement-type"
-                              className="cal-results-inline-select"
-                              value={selectedReadingType}
-                              onChange={(e) =>
-                                setSelectedReadingType(e.target.value)
-                              }
-                              aria-label="Measurement type"
-                            >
-                              {READING_TYPES.map((opt) => (
-                                <option key={opt.value} value={opt.value}>
-                                  {opt.label}
-                                </option>
-                              ))}
-                            </select>
+                    {detailsView === "chart" && (
+                      <div className="chart-container cal-results-chart-wrap">
+                        <CalibrationChart
+                          title={`${activeInstrument === "std"
+                              ? "Standard"
+                              : "Test"
+                            } · ${activeDirection}`}
+                          chartData={buildRawReadingsChartData(
+                            `${activeInstrument}_`
                           )}
-                        </div>
-
-                        {detailsView === "table" && (
-                          <div className="cal-results-table-panel">
-                            <DetailedReadingsTable
-                              readingsArray={
-                                calReadings
-                                  ? calReadings[
-                                      `${activeInstrument}_${selectedReadingType}`
-                                    ]
-                                  : []
-                              }
-                            />
-                          </div>
-                        )}
-
-                        {detailsView === "chart" && (
-                          <div className="chart-container cal-results-chart-wrap">
-                            <CalibrationChart
-                              title={`${
-                                activeInstrument === "std"
-                                  ? "Standard"
-                                  : "Test"
-                              } · ${activeDirection}`}
-                              chartData={buildRawReadingsChartData(
-                                `${activeInstrument}_`
-                              )}
-                              theme={theme}
-                              chartType="line"
-                              onMarkStability={handleMarkStability}
-                              instrumentType={activeInstrument}
-                            />
-                          </div>
-                        )}
+                          theme={theme}
+                          chartType="line"
+                          onMarkStability={handleMarkStability}
+                          instrumentType={activeInstrument}
+                        />
                       </div>
                     )}
+                  </div>
+                )}
               </>
             </section>
           )}

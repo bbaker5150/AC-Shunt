@@ -962,9 +962,10 @@ class TestPointViewSet(viewsets.ModelViewSet):
 
             serializer = CalibrationResultsSerializer(results, data=request.data, partial=True)
             serializer.is_valid(raise_exception=True)
-            serializer.save()
+            saved_results = serializer.save()
+            saved_results.calculate_ac_dc_difference()
 
-            return Response(serializer.data, status=status.HTTP_200_OK)
+            return Response(CalibrationResultsSerializer(saved_results).data, status=status.HTTP_200_OK)
 
         except TestPoint.DoesNotExist:
             return Response({"detail": "Test point not found."}, status=status.HTTP_404_NOT_FOUND)

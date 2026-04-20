@@ -249,74 +249,63 @@ class CalibrationReadings(models.Model):
         results.ti_dc_neg_avg, results.ti_dc_neg_stddev = calculate_stats(self.ti_dc_neg_readings, "TI DC Neg")
         results.ti_ac_close_avg, results.ti_ac_close_stddev = calculate_stats(self.ti_ac_close_readings, "TI AC Close")
 
-        # --- 2. TVC Characterization Averages ---
-        print("[MODELS] Calculating TVC Characterization Averages...", flush=True)
-        std_char_plus1_avg, _ = calculate_stats(self.std_char_plus1_readings, "STD Char +500ppm (1)")
-        std_char_minus_avg, _ = calculate_stats(self.std_char_minus_readings, "STD Char -500ppm")
-        std_char_plus2_avg, _ = calculate_stats(self.std_char_plus2_readings, "STD Char +500ppm (2)")
+        # --- 2 & 3. TVC Characterization Averages & Eta (η) Calculation ---
+        # ONLY run this if characterization readings actually exist
+        has_std_char = bool(self.std_char_plus1_readings and self.std_char_minus_readings and self.std_char_plus2_readings)
+        has_ti_char = bool(self.ti_char_plus1_readings and self.ti_char_minus_readings and self.ti_char_plus2_readings)
 
-        ti_char_plus1_avg, _ = calculate_stats(self.ti_char_plus1_readings, "TI Char +500ppm (1)")
-        ti_char_minus_avg, _ = calculate_stats(self.ti_char_minus_readings, "TI Char -500ppm")
-        ti_char_plus2_avg, _ = calculate_stats(self.ti_char_plus2_readings, "TI Char +500ppm (2)")
+        if has_std_char or has_ti_char:
+            print("[MODELS] Characterization data detected. Calculating Averages and Eta...", flush=True)
 
-        # --- 3. Eta (η) Calculation ---
-        def calculate_eta(v_out_1, v_out_2, v_out_3, label="Unknown"):
-            print(f"[MODELS - ETA CALC - {label}] Checking variables: v1={v_out_1}, v2={v_out_2}, v3={v_out_3}", flush=True)
-            if None in [v_out_1, v_out_2, v_out_3] or v_out_2 == 0: 
-                print(f"[MODELS - ETA CALC - {label}] Missing or invalid data. Skipping calculation.", flush=True)
-                return None
-            
-            denominator = 0.00100050025 
-            numerator = ((v_out_1 + v_out_3) / (2 * v_out_2)) - 1
-            calculated_eta = numerator / denominator
-            
-            print(f"[MODELS - ETA CALC - {label}] Math Execution:", flush=True)
-            print(f"   -> Numerator: (( {v_out_1} + {v_out_3} ) / (2 * {v_out_2})) - 1 = {numerator}", flush=True)
-            print(f"   -> Denominator: 0.00100050025", flush=True)
-            print(f"   -> Final Gain (eta): {calculated_eta}", flush=True)
-            return calculated_eta
+            def calculate_eta(v_out_1, v_out_2, v_out_3, label="Unknown"):
+                if None in [v_out_1, v_out_2, v_out_3] or v_out_2 == 0: 
+                    return None
+                denominator = 0.00100050025 
+                numerator = ((v_out_1 + v_out_3) / (2 * v_out_2)) - 1
+                return numerator / denominator
 
-        # Helper to save global TVC gain
-        def save_global_tvc_gain(tvc_serial, gain_val):
-            if not tvc_serial or gain_val is None: 
-                print(f"[MODELS - GLOBAL SAVE] Skipping save. Serial: {tvc_serial}, Gain: {gain_val}", flush=True)
-                return
-            try:
-                # Find the TVC by serial
-                tvc_obj = TVC.objects.get(serial_number=tvc_serial)
-                tp = self.test_point
-                # Create or update the specific gain profile for this current/freq
-                TVCSensitivity.objects.update_or_create(
-                    tvc=tvc_obj,
-                    current=float(tp.current),
-                    frequency=tp.frequency,
-                    defaults={'gain_eta': gain_val}
-                )
-                print(f"[MODELS - GLOBAL SAVE] SUCCESS: Saved Gain {gain_val} to global TVC SN {tvc_serial} for TP {tp.current}A @ {tp.frequency}Hz.", flush=True)
-            except TVC.DoesNotExist:
-                print(f"[MODELS - GLOBAL SAVE] ERROR: TVC SN {tvc_serial} not found in global DB. Gain not saved globally.", flush=True)
+            def save_global_tvc_gain(tvc_serial, gain_val):
+                if not tvc_serial or gain_val is None: return
+                try:
+                    tvc_obj = TVC.objects.get(serial_number=tvc_serial)
+                    tp = self.test_point
+                    TVCSensitivity.objects.update_or_create(
+                        tvc=tvc_obj,
+                        current=float(tp.current),
+                        frequency=tp.frequency,
+                        defaults={'gain_eta': gain_val}
+                    )
+                    print(f"[MODELS - GLOBAL SAVE] SUCCESS: Saved Gain {gain_val} to global TVC SN {tvc_serial}.", flush=True)
+                except TVC.DoesNotExist:
+                    print(f"[MODELS - GLOBAL SAVE] ERROR: TVC SN {tvc_serial} not found in global DB.", flush=True)
 
-        session = self.test_point.test_point_set.session
+            session = self.test_point.test_point_set.session
 
-        new_eta_std = calculate_eta(std_char_plus1_avg, std_char_minus_avg, std_char_plus2_avg, "STD TVC")
-        if new_eta_std is not None:
-            if results.eta_std is None or abs(results.eta_std - new_eta_std) > 1e-9:
-                results.eta_std = new_eta_std
-                print(f"[MODELS] Triggering global save for STD Gain {new_eta_std}...", flush=True)
-                save_global_tvc_gain(session.standard_tvc_serial, new_eta_std)
-            else:
-                print(f"[MODELS] STD Gain unchanged ({results.eta_std}). Skipping global save.", flush=True)
+            # Process Standard TVC Characterization
+            if has_std_char:
+                std_char_plus1_avg, _ = calculate_stats(self.std_char_plus1_readings, "STD Char +500ppm (1)")
+                std_char_minus_avg, _ = calculate_stats(self.std_char_minus_readings, "STD Char -500ppm")
+                std_char_plus2_avg, _ = calculate_stats(self.std_char_plus2_readings, "STD Char +500ppm (2)")
+                
+                new_eta_std = calculate_eta(std_char_plus1_avg, std_char_minus_avg, std_char_plus2_avg, "STD TVC")
+                if new_eta_std is not None and (results.eta_std is None or abs(results.eta_std - new_eta_std) > 1e-9):
+                    results.eta_std = new_eta_std
+                    save_global_tvc_gain(session.standard_tvc_serial, new_eta_std)
 
-        new_eta_ti = calculate_eta(ti_char_plus1_avg, ti_char_minus_avg, ti_char_plus2_avg, "TI TVC")
-        if new_eta_ti is not None:
-            if results.eta_ti is None or abs(results.eta_ti - new_eta_ti) > 1e-9:
-                results.eta_ti = new_eta_ti
-                print(f"[MODELS] Triggering global save for TI Gain {new_eta_ti}...", flush=True)
-                save_global_tvc_gain(session.test_tvc_serial, new_eta_ti)
-            else:
-                print(f"[MODELS] TI Gain unchanged ({results.eta_ti}). Skipping global save.", flush=True)
+            # Process Test Instrument TVC Characterization
+            if has_ti_char:
+                ti_char_plus1_avg, _ = calculate_stats(self.ti_char_plus1_readings, "TI Char +500ppm (1)")
+                ti_char_minus_avg, _ = calculate_stats(self.ti_char_minus_readings, "TI Char -500ppm")
+                ti_char_plus2_avg, _ = calculate_stats(self.ti_char_plus2_readings, "TI Char +500ppm (2)")
+                
+                new_eta_ti = calculate_eta(ti_char_plus1_avg, ti_char_minus_avg, ti_char_plus2_avg, "TI TVC")
+                if new_eta_ti is not None and (results.eta_ti is None or abs(results.eta_ti - new_eta_ti) > 1e-9):
+                    results.eta_ti = new_eta_ti
+                    save_global_tvc_gain(session.test_tvc_serial, new_eta_ti)
 
+        # --- 4. Final Save and Math Trigger ---
         results.save()
+        results.calculate_ac_dc_difference()
         print(f"[MODELS] --- Result Calculation Complete ---", flush=True)
 
 class CalibrationResults(models.Model):
@@ -328,6 +317,110 @@ class CalibrationResults(models.Model):
         blank=True
     )
     
+    def fetch_automatic_corrections(self):
+        """Automatically fetches DB correction factors if they haven't been manually set."""
+        session = self.test_point.test_point_set.session
+        target_freq = float(self.test_point.frequency)
+        target_current = float(self.test_point.current)
+
+        # 1. Shunt Correction
+        if self.delta_std_known is None and session.standard_instrument_serial:
+            cal_config = getattr(session.calibration, 'configurations', None)
+            if cal_config and cal_config.ac_shunt_range:
+                from .models import Shunt
+                try:
+                    shunt = Shunt.objects.get(
+                        serial_number=session.standard_instrument_serial, 
+                        range=cal_config.ac_shunt_range, 
+                        current=target_current
+                    )
+                    corr = shunt.corrections.filter(frequency=target_freq).first()
+                    if corr:
+                        self.delta_std_known = corr.correction
+                except Shunt.DoesNotExist:
+                    pass
+
+        # 2. TVC Interpolation Logic
+        def get_tvc_corr(serial):
+            if not serial: return None
+            from .models import TVC
+            try:
+                tvc = TVC.objects.get(serial_number=serial)
+                corrs = list(tvc.corrections.all().order_by('frequency'))
+                if not corrs: return None
+                
+                # Exact Match
+                for c in corrs:
+                    if float(c.frequency) == target_freq: return c.ac_dc_difference
+                
+                # Interpolation / Extrapolation
+                sorted_corrs = sorted(corrs, key=lambda x: x.frequency)
+                if target_freq < 1000:
+                    next_corr = next((c for c in sorted_corrs if c.frequency > target_freq), None)
+                    return next_corr.ac_dc_difference if next_corr else None
+                
+                for i in range(len(sorted_corrs) - 1):
+                    lower, upper = sorted_corrs[i], sorted_corrs[i+1]
+                    if lower.frequency < target_freq < upper.frequency:
+                        # Linear Interpolation
+                        return lower.ac_dc_difference + ((target_freq - lower.frequency) * (upper.ac_dc_difference - lower.ac_dc_difference)) / (upper.frequency - lower.frequency)
+                
+                # Extrapolation
+                if len(sorted_corrs) >= 2:
+                    if target_freq < sorted_corrs[0].frequency:
+                        f1, d1 = sorted_corrs[0].frequency, sorted_corrs[0].ac_dc_difference
+                        f2, d2 = sorted_corrs[1].frequency, sorted_corrs[1].ac_dc_difference
+                        return d1 + ((target_freq - f1) * (d2 - d1)) / (f2 - f1)
+                    elif target_freq > sorted_corrs[-1].frequency:
+                        f1, d1 = sorted_corrs[-2].frequency, sorted_corrs[-2].ac_dc_difference
+                        f2, d2 = sorted_corrs[-1].frequency, sorted_corrs[-1].ac_dc_difference
+                        return d2 + ((target_freq - f2) * (d2 - d1)) / (f2 - f1)
+            except TVC.DoesNotExist:
+                return None
+            return None
+
+        if self.delta_std is None: self.delta_std = get_tvc_corr(session.standard_tvc_serial)
+        if self.delta_ti is None: self.delta_ti = get_tvc_corr(session.test_tvc_serial)
+
+        # Set defaults so math doesn't crash
+        if self.eta_std is None: self.eta_std = 1.0
+        if self.eta_ti is None: self.eta_ti = 1.0
+        if self.delta_std is None: self.delta_std = 0.0
+        if self.delta_ti is None: self.delta_ti = 0.0
+        if self.delta_std_known is None: self.delta_std_known = 0.0
+
+        self.save(update_fields=['delta_std', 'delta_ti', 'delta_std_known', 'eta_std', 'eta_ti'])
+
+    def calculate_ac_dc_difference(self):
+        """Performs the final math formulation."""
+        # 1. Check if all required averages exist
+        required_avgs = [
+            self.std_dc_pos_avg, self.std_dc_neg_avg, self.std_ac_open_avg, self.std_ac_close_avg,
+            self.ti_dc_pos_avg, self.ti_dc_neg_avg, self.ti_ac_open_avg, self.ti_ac_close_avg
+        ]
+        if any(v is None for v in required_avgs):
+            return None # Not ready to calculate yet
+
+        # 2. Fetch corrections automatically if not already set
+        self.fetch_automatic_corrections()
+
+        # 3. Perform Math
+        try:
+            V_DCSTD = (abs(self.std_dc_pos_avg) + abs(self.std_dc_neg_avg)) / 2
+            V_ACSTD = (abs(self.std_ac_open_avg) + abs(self.std_ac_close_avg)) / 2
+            V_DCUUT = (abs(self.ti_dc_pos_avg) + abs(self.ti_dc_neg_avg)) / 2
+            V_ACUUT = (abs(self.ti_ac_open_avg) + abs(self.ti_ac_close_avg)) / 2
+
+            term_STD = ((V_ACSTD - V_DCSTD) * 1000000) / (self.eta_std * V_DCSTD)
+            term_UUT = ((V_ACUUT - V_DCUUT) * 1000000) / (self.eta_ti * V_DCUUT)
+
+            self.delta_uut_ppm = self.delta_std_known + term_STD - term_UUT + self.delta_std - self.delta_ti
+            self.save(update_fields=['delta_uut_ppm'])
+            
+            return self.delta_uut_ppm
+        except ZeroDivisionError:
+            return None
+
     std_ac_open_avg = models.FloatField(null=True, blank=True)
     std_ac_open_stddev = models.FloatField(null=True, blank=True)
     std_dc_pos_avg = models.FloatField(null=True, blank=True)

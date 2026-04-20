@@ -417,7 +417,7 @@ export async function downloadFullSessionExcel({
   sumSheet.mergeCells(`A${r}:E${r}`);
   applySectionBar(
     sumSheet.getCell(`A${r}`),
-    "Standard (derived)",
+    "Standard",
     SUBHDR_STD_BG,
     SUBHDR_STD_TXT
   );
