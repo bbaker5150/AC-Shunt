@@ -378,10 +378,29 @@ class CalibrationConsumer(AsyncWebsocketConsumer):
 
             std_addr, ti_addr = session_details.get('std_reader_address'), session_details.get('ti_reader_address')
             std_model, ti_model = session_details.get('std_reader_model'), session_details.get('ti_reader_model')
+
+            # --- Source routing driven by the "characterization_source" setting ---
+            # Default is "DC" (more stable, frequency-independent shunt gain);
+            # "AC" preserves the legacy per-frequency behavior for users who
+            # explicitly opt in from the Characterization section of Settings.
+            char_source_kind = (data.get('characterization_source') or 'DC').upper()
+            if char_source_kind not in ('AC', 'DC'):
+                char_source_kind = 'DC'
+            print(f"[TVC_CHAR] Source kind: {char_source_kind}", flush=True)
+
             ac_source_address = session_details.get('ac_source_address')
-            
-            if ac_source_address: 
-                ac_source = await sync_to_async(Instrument5730A, thread_sensitive=True)(model="5730A", gpib=ac_source_address)
+            dc_source_address = session_details.get('dc_source_address')
+
+            # Handle the common case where the same physical unit (e.g. 5730A)
+            # serves as both AC and DC source.
+            if ac_source_address and dc_source_address and ac_source_address == dc_source_address:
+                shared_source = await sync_to_async(Instrument5730A, thread_sensitive=True)(model="5730A", gpib=ac_source_address)
+                ac_source, dc_source = shared_source, shared_source
+            else:
+                if ac_source_address:
+                    ac_source = await sync_to_async(Instrument5730A, thread_sensitive=True)(model="5730A", gpib=ac_source_address)
+                if dc_source_address:
+                    dc_source = await sync_to_async(Instrument5730A, thread_sensitive=True)(model="5730A", gpib=dc_source_address)
 
             std_reader_class, ti_reader_class = INSTRUMENT_CLASS_MAP.get(std_model), INSTRUMENT_CLASS_MAP.get(ti_model)
             std_reader = await sync_to_async(std_reader_class, thread_sensitive=True)(gpib=std_addr) if std_reader_class == Instrument34420A else await sync_to_async(std_reader_class, thread_sensitive=True)(model=std_model, gpib=std_addr)
@@ -389,25 +408,32 @@ class CalibrationConsumer(AsyncWebsocketConsumer):
 
             if session_details.get('switch_driver_address'):
                 switch_driver = await sync_to_async(Instrument11713C, thread_sensitive=True)(gpib=session_details.get('switch_driver_address'))
-                await self.send(text_data=json.dumps({'type': 'status_update', 'message': "Switching to AC source for Characterization..."}))
-                await sync_to_async(switch_driver.select_ac_source, thread_sensitive=True)()
-                await self.send(text_data=json.dumps({'type': 'switch_status_update', 'active_source': 'AC'}))
+                await self.send(text_data=json.dumps({'type': 'status_update', 'message': f"Switching to {char_source_kind} source for Characterization..."}))
+                if char_source_kind == 'AC':
+                    await sync_to_async(switch_driver.select_ac_source, thread_sensitive=True)()
+                else:
+                    await sync_to_async(switch_driver.select_dc_source, thread_sensitive=True)()
+                await self.send(text_data=json.dumps({'type': 'switch_status_update', 'active_source': char_source_kind}))
                 await asyncio.sleep(1)
 
             original_tp = data.get('test_point')
             nominal_current = float(original_tp.get('current'))
-            
+
             # --- EXTRACT TARGET FROM PAYLOAD ---
-            target_tvc = data.get('target_tvc', 'BOTH') 
+            target_tvc = data.get('target_tvc', 'BOTH')
             print(f"[TVC_CHAR] Targeting: {target_tvc}", flush=True)
-            
-            await self._configure_sources(original_tp, data.get('bypass_tvc'), data.get('amplifier_range'), ac_source=ac_source)
-            
+
+            # Only configure/activate the source we actually intend to drive
+            # for this characterization run.
+            configure_kwargs = {'ac_source': ac_source} if char_source_kind == 'AC' else {'dc_source': dc_source}
+            await self._configure_sources(original_tp, data.get('bypass_tvc'), data.get('amplifier_range'), **configure_kwargs)
+
             if session_details.get('amplifier_address'):
                 amplifier = await sync_to_async(Instrument8100, thread_sensitive=True)(model='8100', gpib=session_details.get('amplifier_address'))
                 if not await self._handle_amplifier_confirmation(amplifier, data.get('amplifier_range'), data): return
-            
-            await self._activate_sources(ac_source=ac_source)
+
+            activate_kwargs = {'ac_source': ac_source} if char_source_kind == 'AC' else {'dc_source': dc_source}
+            await self._activate_sources(**activate_kwargs)
             
             warmup_time = data.get('initial_warm_up_time', 0)
             if warmup_time > 0:
@@ -443,20 +469,25 @@ class CalibrationConsumer(AsyncWebsocketConsumer):
             ]
 
             print("[TVC_CHAR] ===== STARTING CHARACTERIZATION LOOP =====", flush=True)
+            active_source = ac_source if char_source_kind == 'AC' else dc_source
             for stage, ppm_multiplier in tvc_sequence:
                 if self.stop_event.is_set(): break
-                
+
                 ppm_shifted_tp = original_tp.copy()
                 ppm_shifted_tp['current'] = nominal_current * ppm_multiplier
-                
-                # --- INJECT TARGET INTO TEST POINT ---
-                ppm_shifted_tp['target_tvc'] = target_tvc 
+
+                # --- INJECT TARGET + SOURCE KIND INTO TEST POINT ---
+                # characterization_source lets _perform_single_measurement
+                # decide whether this char stage should be treated as an AC
+                # or DC reading (instrument config, reader mode, etc.).
+                ppm_shifted_tp['target_tvc'] = target_tvc
+                ppm_shifted_tp['characterization_source'] = char_source_kind
 
                 await self.send(text_data=json.dumps({'type': 'calibration_stage_update', 'stage': stage, 'total': num_samples}))
-                
+
                 success = await self._perform_single_measurement(
-                    stage, num_samples, ppm_shifted_tp, data.get('bypass_tvc'), 
-                    data.get('amplifier_range'), ac_source, std_reader, ti_reader, 
+                    stage, num_samples, ppm_shifted_tp, data.get('bypass_tvc'),
+                    data.get('amplifier_range'), active_source, std_reader, ti_reader,
                     amplifier, settling_time, nplc_setting, measurement_params
                 )
                 
@@ -476,13 +507,15 @@ class CalibrationConsumer(AsyncWebsocketConsumer):
             await self.send(text_data=json.dumps({'type': 'error', 'message': f"An instrument error occurred: {e}"}))
         finally:
             self.state = "IDLE"
-            if switch_driver and hasattr(switch_driver, 'close'): 
+            if switch_driver and hasattr(switch_driver, 'close'):
                 await sync_to_async(switch_driver.close, thread_sensitive=True)()
-            if ac_source:
-                await sync_to_async(ac_source.reset, thread_sensitive=True)()
-            if amplifier: 
+            # Reset whichever source(s) we actually instantiated. When
+            # AC and DC share the same physical unit, the set dedupes for us.
+            for src in filter(None, {ac_source, dc_source}):
+                await sync_to_async(src.reset, thread_sensitive=True)()
+            if amplifier:
                 await sync_to_async(amplifier.set_standby, thread_sensitive=True)()
-            for inst in filter(None, {std_reader, ti_reader, amplifier, ac_source}):
+            for inst in filter(None, {std_reader, ti_reader, amplifier, ac_source, dc_source}):
                 if hasattr(inst, 'close'):
                     await sync_to_async(inst.close, thread_sensitive=True)()
 
@@ -493,7 +526,14 @@ class CalibrationConsumer(AsyncWebsocketConsumer):
         2. Phase 2 (Collection): Collects num_samples while monitoring stability.
         3. Abort: Returns False if max_attempts is reached.
         """
-        is_ac_reading = 'ac' in reading_type_base or 'char' in reading_type_base
+        # Standard stages are classified purely by their name; characterization
+        # stages ("char_*") defer to the caller's chosen source kind
+        # (DC by default, AC only when explicitly selected in Settings).
+        if 'char' in reading_type_base:
+            char_source = (test_point_data.get('characterization_source') or 'DC').upper()
+            is_ac_reading = (char_source == 'AC')
+        else:
+            is_ac_reading = 'ac' in reading_type_base
         target_tvc = test_point_data.get('target_tvc', 'BOTH')
         
         input_current = float(test_point_data.get('current'))

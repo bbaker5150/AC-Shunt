@@ -291,6 +291,7 @@ function Calibration({
     iqr_filter_ppm_threshold: 15,
     ignore_instability_after_lock: false,
     characterize_std_first: false,
+    characterization_source: "DC",
   });
   const [correctionInputs, setCorrectionInputs] = useState({
     eta_std: "",
@@ -1363,6 +1364,12 @@ function Calibration({
     const params = {
       command: "tvc_characterization",
       target_tvc: target_tvc, // <-- Pass the target to the backend
+      // AC or DC selects the source used for the ppm-shift sensitivity (η)
+      // measurement. DC is the default and is more stable; AC is available
+      // for legacy/per-frequency characterization when a user explicitly
+      // opts in from the Characterization section of Settings.
+      characterization_source:
+        calibrationSettings.characterization_source === "AC" ? "AC" : "DC",
       test_point: {
         id: pointData.id,
         current: tp.current,
@@ -1631,6 +1638,8 @@ function Calibration({
       iqr_filter_ppm_threshold: parseFloat(calibrationSettings.iqr_filter_ppm_threshold) || 15,
       ignore_instability_after_lock: calibrationSettings.ignore_instability_after_lock || false,
       characterize_std_first: calibrationSettings.characterize_std_first || false,
+      characterization_source:
+        calibrationSettings.characterization_source === "AC" ? "AC" : "DC",
     };
 
     let pointToUpdate =
@@ -1692,6 +1701,8 @@ function Calibration({
         iqr_filter_ppm_threshold: parseFloat(calibrationSettings.iqr_filter_ppm_threshold) || 15,
         ignore_instability_after_lock: calibrationSettings.ignore_instability_after_lock || false,
         characterize_std_first: calibrationSettings.characterize_std_first || false,
+        characterization_source:
+          calibrationSettings.characterization_source === "AC" ? "AC" : "DC",
       };
 
       try {
@@ -1799,7 +1810,11 @@ function Calibration({
     tiReaderModel === "3458A";
 
   const dropdownOptions = useMemo(() => {
-    // Define the targeted characterization options
+    // Characterization is a single-point operation regardless of how many
+    // test points the user has checkboxed in the sidebar: per the
+    // "Option A" design, one characterization runs on the focused point
+    // and the resulting η is reused for the whole batch that follows.
+    // So these options always appear, independent of selection count.
     const charOptions = [
       {
         key: "tvc_char_both",
@@ -1815,7 +1830,7 @@ function Calibration({
         key: "tvc_char_ti",
         label: "Characterize TI TVC (η)",
         onClick: () => handleCharacterizationRequest("TI"),
-      }
+      },
     ];
 
     // Filter out internal characterization stages from the individual "Take" options
@@ -1823,22 +1838,20 @@ function Calibration({
       (type) => !type.key.startsWith("char_")
     );
 
-    if (selectedTPs.size > 1) {
-      return visibleReadingTypes.map(({ key, label }) => ({
-        key: key,
-        label: `Take ${label} on ${selectedTPs.size} Points`,
-        onClick: () => handleRunSingleStageOnSelected(key),
-      }));
-    } else {
-      const standardOptions = visibleReadingTypes.map(({ key, label }) => ({
-        key: key,
-        label: `Take ${label} Readings`,
-        onClick: () => handleCollectReadingsRequest(key),
-      }));
+    const takeOptions =
+      selectedTPs.size > 1
+        ? visibleReadingTypes.map(({ key, label }) => ({
+            key: key,
+            label: `Take ${label} on ${selectedTPs.size} Points`,
+            onClick: () => handleRunSingleStageOnSelected(key),
+          }))
+        : visibleReadingTypes.map(({ key, label }) => ({
+            key: key,
+            label: `Take ${label} Readings`,
+            onClick: () => handleCollectReadingsRequest(key),
+          }));
 
-      // Prepend the char options so they appear at the top
-      return [...charOptions, ...standardOptions];
-    }
+    return [...charOptions, ...takeOptions];
   }, [
     selectedTPs.size,
     handleCollectReadingsRequest,
@@ -2269,6 +2282,28 @@ function Calibration({
                               Characterization
                             </span>
                             <div className="form-section-group">
+                              <div className="form-section">
+                                <label htmlFor="characterization_source">
+                                  Source
+                                </label>
+                                <select
+                                  id="characterization_source"
+                                  name="characterization_source"
+                                  value={
+                                    calibrationSettings.characterization_source ||
+                                    "DC"
+                                  }
+                                  onChange={(e) =>
+                                    setCalibrationSettings((prev) => ({
+                                      ...prev,
+                                      characterization_source: e.target.value,
+                                    }))
+                                  }
+                                >
+                                  <option value="DC">DC</option>
+                                  <option value="AC">AC</option>
+                                </select>
+                              </div>
                               <div className="form-section form-section--checkbox full-width">
                                 <label className="form-section-checkbox-label">
                                   <input
