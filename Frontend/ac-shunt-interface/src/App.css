@@ -434,10 +434,16 @@ body {
   letter-spacing: 0.02em;
 }
 
-/* Make destructive sidebar buttons pop on hover */
+/* Destructive variant — borderless tinted hover using the theme-aware
+   danger tokens, matching the caption close button and excel danger btn. */
 .sidebar-action-button--danger:hover:not(:disabled) {
-  color: var(--status-bad) !important;
-  background-color: var(--status-bad-bg) !important;
+  color: var(--danger-color) !important;
+  background-color: var(--danger-color-light) !important;
+}
+
+.sidebar-action-button--danger:focus-visible {
+  color: var(--danger-color);
+  box-shadow: 0 0 0 3px var(--danger-color-light);
 }
 
 /* Sidebar empty state */
@@ -711,14 +717,77 @@ body {
 .app-chrome-bar {
   display: flex;
   align-items: center;
-  justify-content: flex-start;
+  justify-content: space-between;
   gap: 20px;
-  /* Reserve ~150px on the right for the Windows caption buttons drawn by
-     titleBarOverlay (minimize / maximize / close). Nothing interactive
-     lives up here anymore — meta controls moved to the nav row — but the
-     reservation still keeps the brand from sliding under the caption
-     buttons if the window is narrowed. */
-  padding: 14px 160px 10px 28px;
+  padding: 14px 20px 10px 28px;
+}
+
+/* -------------------------------------------------------------------
+   Custom window caption controls (Electron, Windows)
+   Always-visible ghost icons that match the other header meta
+   buttons (theme toggle, session-info). Sized a touch smaller than
+   regular meta icons so they read as chrome rather than actions.
+   ------------------------------------------------------------------- */
+.app-chrome-caption {
+  display: inline-flex;
+  align-items: center;
+  gap: 2px;
+  flex: 0 0 auto;
+  -webkit-app-region: no-drag;
+}
+
+.app-chrome-caption-btn {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 28px;
+  height: 28px;
+  padding: 0;
+  margin: 0;
+  border: none;
+  border-radius: 8px;
+  background: transparent;
+  color: var(--text-color-muted);
+  cursor: pointer;
+  box-shadow: none;
+  transition: color 0.15s ease, background-color 0.15s ease;
+}
+
+.app-chrome-caption-btn:hover {
+  background-color: var(--primary-color-soft);
+  color: var(--text-color);
+}
+
+.app-chrome-caption-btn:focus-visible {
+  outline: none;
+  color: var(--primary-color);
+  box-shadow: var(--focus-ring);
+}
+
+.app-chrome-caption-btn:active {
+  background-color: var(--primary-color-soft);
+  color: var(--primary-color);
+}
+
+.app-chrome-caption-btn--close:hover {
+  background-color: var(--danger-color-light);
+  color: var(--danger-color);
+}
+
+.app-chrome-caption-btn--close:focus-visible {
+  color: var(--danger-color);
+  box-shadow: 0 0 0 3px var(--danger-color-light);
+}
+
+.app-chrome-caption-btn--close:active {
+  background-color: var(--danger-color-light);
+  color: var(--danger-color);
+}
+
+.app-chrome-caption-btn svg {
+  width: 9px;
+  height: 9px;
+  display: block;
 }
 
 /* Brand mark + wordmark */
@@ -813,7 +882,15 @@ body {
   flex-shrink: 0;
 }
 
-.app-chrome-meta-icon {
+/* -------------------------------------------------------------------
+   Header meta buttons (session info icon + theme toggle)
+   Shared "ghost" look so they feel built into the chrome rather than
+   mounted on top of it — no visible border at rest, no background,
+   just a soft tint on hover. Both share identical geometry so the
+   cluster reads as one cohesive row.
+   ------------------------------------------------------------------- */
+.app-chrome-meta-icon,
+.app-chrome-theme-btn {
   display: inline-flex;
   align-items: center;
   justify-content: center;
@@ -825,48 +902,29 @@ body {
   border-radius: 8px;
   background: transparent;
   color: var(--text-color-muted);
-  font-size: 1.05rem;
-  cursor: pointer;
-  transition: color 0.15s ease, background-color 0.15s ease,
-    border-color 0.15s ease;
-  box-shadow: none;
-}
-
-.app-chrome-meta-icon:hover {
-  color: var(--primary-color);
-  background-color: var(--background-color);
-  border-color: var(--border-color);
-}
-
-.app-chrome-theme-btn {
-  display: inline-flex;
-  align-items: center;
-  justify-content: center;
-  width: 36px;
-  height: 36px;
-  padding: 0;
-  margin: 0;
-  border: 1px solid var(--border-color);
-  border-radius: 10px;
-  background-color: var(--content-background);
-  color: var(--text-color);
   font-size: 0.95rem;
   cursor: pointer;
-  transition: border-color 0.15s ease, color 0.15s ease,
-    background-color 0.15s ease, box-shadow 0.15s ease, transform 0.15s ease;
-  box-shadow: 0 1px 2px rgba(15, 23, 42, 0.04);
+  box-shadow: none;
+  transition: color 0.15s ease, background-color 0.15s ease;
 }
 
+.app-chrome-meta-icon:hover,
 .app-chrome-theme-btn:hover {
-  border-color: var(--primary-color);
-  color: var(--primary-color);
-  transform: translateY(-1px);
+  color: var(--text-color);
+  background-color: var(--primary-color-soft);
 }
 
+.app-chrome-meta-icon:focus-visible,
 .app-chrome-theme-btn:focus-visible {
   outline: none;
-  border-color: var(--primary-color);
+  color: var(--primary-color);
   box-shadow: var(--focus-ring);
+}
+
+.app-chrome-meta-icon:active,
+.app-chrome-theme-btn:active {
+  background-color: var(--primary-color-soft);
+  color: var(--primary-color);
 }
 
 /* Primary nav — pill tabs on the left, meta cluster on the right.
@@ -891,11 +949,18 @@ body {
   flex: 1 1 auto;
 }
 
-/* Nav-row meta cluster: slightly tighter so it balances the tab row */
+/* Nav-row meta cluster: tight, borderless group that reads as a single
+   chrome element — DB status pill sits on the left, then the
+   session-info icon, then the theme toggle. Small left-shoulder on
+   the info icon so the pill and icons don't optically merge. */
 .app-chrome-meta--nav {
   flex: 0 0 auto;
   padding: 4px 0;
-  gap: 10px;
+  gap: 2px;
+}
+
+.app-chrome-meta--nav .db-indicator-pill {
+  margin-right: 4px;
 }
 
 /* Nudge the session-info panel down a touch more now that it anchors
@@ -1455,18 +1520,20 @@ body.dark-mode .calibration-content-header {
   border-color: var(--border-color);
 }
 
+/* Ghost icon button — same organic language as the header meta icons,
+   the caption controls, and the session-panel add/delete buttons.
+   Borderless at rest, soft primary tint on hover, theme-aware focus. */
 .sidebar-action-button {
   background: none;
   border: none;
   color: var(--text-color-muted);
   font-weight: 600;
   font-size: 1.5rem;
-  /* Larger icon size */
   padding: 5px;
   margin: 0;
   cursor: pointer;
-  border-radius: 50%;
-  transition: all 0.2s ease-in-out;
+  border-radius: 10px;
+  transition: background-color 0.15s ease, color 0.15s ease;
   box-shadow: none;
   width: 36px;
   height: 36px;
@@ -1476,10 +1543,19 @@ body.dark-mode .calibration-content-header {
 }
 
 .sidebar-action-button:hover:not(:disabled) {
-  background-color: var(--background-color);
+  background-color: var(--primary-color-soft);
+  color: var(--text-color);
+}
+
+.sidebar-action-button:active:not(:disabled) {
+  background-color: var(--primary-color-soft);
   color: var(--primary-color);
-  box-shadow: none;
-  transform: none;
+}
+
+.sidebar-action-button:focus-visible {
+  outline: none;
+  color: var(--primary-color);
+  box-shadow: var(--focus-ring);
 }
 
 .sidebar-action-button:disabled {
@@ -1961,38 +2037,43 @@ body.dark-mode .premium-action-button-item:hover {
 
 /* Styling for the new database indicator pill */
 .db-indicator-pill {
-  display: flex;
+  display: inline-flex;
   align-items: center;
-  gap: 8px;
-  background-color: var(--background-color);
-  border: 1px solid var(--border-color);
-  padding: 6px 14px;
-  border-radius: 20px;
-  font-size: 0.85rem;
-  font-weight: 500;
+  gap: 7px;
+  background-color: transparent;
+  border: 1px solid transparent;
+  padding: 4px 10px 4px 8px;
+  border-radius: 999px;
+  font-size: 0.75rem;
+  font-weight: 600;
+  letter-spacing: 0.02em;
+  text-transform: uppercase;
   color: var(--text-color-muted);
   transition: all 0.2s ease-in-out;
 }
 
-/* Adds a pulsing green dot for a "live" feel */
+/* Soft live-status dot — subtle pulse, no hard ring */
 .db-status-dot {
-  width: 8px;
-  height: 8px;
+  width: 6px;
+  height: 6px;
   border-radius: 50%;
   background-color: var(--success-color);
-  box-shadow: 0 0 0 rgba(40, 167, 69, 0.4);
-  animation: pulse-dot 2s infinite;
+  box-shadow: 0 0 0 0 rgba(5, 150, 105, 0.35);
+  animation: pulse-dot 2.4s ease-in-out infinite;
+  flex-shrink: 0;
 }
 
 @keyframes pulse-dot {
-  0% { box-shadow: 0 0 0 0 rgba(40, 167, 69, 0.4); }
-  70% { box-shadow: 0 0 0 6px rgba(40, 167, 69, 0); }
-  100% { box-shadow: 0 0 0 0 rgba(40, 167, 69, 0); }
+  0%   { box-shadow: 0 0 0 0 rgba(5, 150, 105, 0.30); }
+  70%  { box-shadow: 0 0 0 5px rgba(5, 150, 105, 0); }
+  100% { box-shadow: 0 0 0 0 rgba(5, 150, 105, 0); }
 }
 
-/* Dark mode override for the pill */
-body.dark-mode .db-indicator-pill {
-  background-color: var(--input-background);
+/* Optional: gentle tint on hover so the pill feels interactive when
+   the user mouses over the data-source indicator. */
+.db-indicator-pill:hover {
+  background-color: var(--primary-color-soft);
+  color: var(--text-color);
 }
 
 /* --- Theme Switcher --- */
@@ -2720,8 +2801,11 @@ body.dark-mode .confirm-modal-action--danger:hover {
   background-color: var(--surface-raised, transparent);
 }
 
-/* Icon-only footer buttons — square, hover reveals intent via tooltip.
-   Keeps visual parity with the rest of the app where actions are icons. */
+/* Icon-only footer buttons — borderless ghost pattern so they feel
+   organic to the modal chrome instead of being framed controls.
+   Ghost variants (Back) use the standard muted-icon hover tint; the
+   primary variant (Next / Generate) uses the same tint but keeps the
+   primary color on the icon so intent is still unambiguous. */
 .add-tp-action--icon {
   width: 40px;
   height: 40px;
@@ -2729,13 +2813,57 @@ body.dark-mode .confirm-modal-action--danger:hover {
   gap: 0;
   flex: 0 0 auto;
   justify-content: center;
+  background-color: transparent;
+  border: none;
+  box-shadow: none;
+  transition: background-color 0.15s ease, color 0.15s ease;
 }
 
 .add-tp-action--icon svg {
   font-size: 0.95rem;
 }
 
-/* Icon-only "add custom frequency" button — matches the custom input height */
+.add-tp-action--ghost.add-tp-action--icon {
+  color: var(--text-color-muted);
+}
+
+.add-tp-action--ghost.add-tp-action--icon:hover:not(:disabled) {
+  background-color: var(--primary-color-soft);
+  border-color: transparent;
+  color: var(--text-color);
+}
+
+.add-tp-action--primary.add-tp-action--icon {
+  background-color: transparent;
+  border-color: transparent;
+  color: var(--primary-color);
+}
+
+.add-tp-action--primary.add-tp-action--icon:hover:not(:disabled) {
+  background-color: var(--primary-color-soft);
+  border-color: transparent;
+  color: var(--primary-color);
+}
+
+.add-tp-action--primary.add-tp-action--icon:focus-visible {
+  box-shadow: var(--focus-ring);
+  background-color: var(--primary-color-soft);
+  border-color: transparent;
+}
+
+.add-tp-action--primary.add-tp-action--icon:active {
+  transform: none;
+  background-color: var(--primary-color-soft);
+}
+
+.add-tp-action--primary.add-tp-action--icon:disabled {
+  opacity: 0.4;
+  background-color: transparent;
+  color: var(--text-color-muted);
+}
+
+/* Icon-only "add custom frequency" button — borderless, matches the
+   custom input height, same organic tint as the footer icons. */
 .add-tp-custom-add--icon {
   width: 42px;
   height: 42px;
@@ -2743,6 +2871,25 @@ body.dark-mode .confirm-modal-action--danger:hover {
   display: inline-flex;
   align-items: center;
   justify-content: center;
+  background-color: transparent;
+  border: none;
+  color: var(--text-color-muted);
+  box-shadow: none;
+  transition: background-color 0.15s ease, color 0.15s ease;
+}
+
+.add-tp-custom-add--icon:hover:not(:disabled) {
+  background-color: var(--primary-color-soft);
+  border-color: transparent;
+  color: var(--primary-color);
+}
+
+.add-tp-custom-add--icon:focus-visible {
+  outline: none;
+  background-color: var(--primary-color-soft);
+  border-color: transparent;
+  box-shadow: var(--focus-ring);
+  color: var(--primary-color);
 }
 
 .add-tp-custom-add--icon svg {
@@ -2782,15 +2929,19 @@ body.dark-mode .confirm-modal-action--danger:hover {
   overflow-x: hidden;
 }
 
-/* --- Danger icon button variant --- */
+/* --- Danger icon button variant (borderless, theme-aware) --- */
 .cal-results-excel-icon-btn--danger {
-  color: #dc3545;
+  color: var(--danger-color);
 }
 
 .cal-results-excel-icon-btn--danger:hover:not(:disabled) {
-  color: #b21e2d;
-  background: rgba(220, 53, 69, 0.08);
-  border-color: rgba(220, 53, 69, 0.25);
+  color: var(--danger-color);
+  background-color: var(--danger-color-light);
+}
+
+.cal-results-excel-icon-btn--danger:active:not(:disabled) {
+  color: var(--danger-color);
+  background-color: var(--danger-color-light);
 }
 
 /* --- Entity card (shared by AC Shunt, Std/Test/Aux TVC, Manual form sections) --- */
@@ -3325,13 +3476,13 @@ body.dark-mode .styled-table tbody tr:hover td {
 }
 
 body.dark-mode .custom-dropdown-options li:hover {
-  background-color: var(--background-color);
-  color: var(--primary-color);
+  background-color: var(--primary-color-soft);
+  color: var(--text-color);
 }
 
 body.dark-mode .custom-dropdown-options li.active {
-  background-color: var(--primary-color);
-  color: #fff;
+  background-color: var(--primary-color-soft);
+  color: var(--primary-color);
 }
 
 body.dark-mode .custom-dropdown-trigger.open,
@@ -3681,13 +3832,20 @@ body.dark-mode .corrections-card-select:focus-visible {
   border-radius: 10px;
   cursor: pointer;
   text-align: left;
-  transition: border-color 0.15s ease, box-shadow 0.15s ease;
+  transition: border-color 0.15s ease, background-color 0.15s ease,
+    box-shadow 0.15s ease;
 }
 
-.custom-dropdown-trigger:hover:not(:disabled) {
-  border-color: var(--primary-color);
+/* Rest-hover uses a soft border step + a barely-there background warmth
+   rather than a saturated primary border, so closed dropdowns hover
+   with the same quiet confidence as the rest of the form controls. */
+.custom-dropdown-trigger:hover:not(:disabled):not(.open) {
+  border-color: var(--border-color-strong);
+  background-color: var(--surface-raised);
 }
 
+/* Open / keyboard-focus still lift to the primary color so the "this
+   control is active" signal remains unambiguous. */
 .custom-dropdown-trigger.open,
 .custom-dropdown-trigger:focus-visible {
   outline: none;
@@ -3786,15 +3944,22 @@ body.dark-mode .corrections-card-select:focus-visible {
   transition: background-color 0.15s ease, color 0.15s ease;
 }
 
+/* Option hover uses the same soft primary tint as the rest of the app's
+   ghost buttons and list rows instead of swapping to the canvas color +
+   a saturated blue text, which felt heavy and "selected-looking" even
+   on just mouse-over. */
 .custom-dropdown-options li:hover {
-  background-color: var(--background-color);
-  color: var(--primary-color);
+  background-color: var(--primary-color-soft);
+  color: var(--text-color);
 }
 
+/* Currently-selected option: a soft primary tint with primary-colored
+   bold text instead of the loud solid blue fill. Still unmistakable as
+   "selected" but sits quietly alongside the muted hover state. */
 .custom-dropdown-options li.active,
 .custom-dropdown-options li.active:hover {
-  background-color: var(--primary-color);
-  color: #fff;
+  background-color: var(--primary-color-soft);
+  color: var(--primary-color);
   font-weight: 600;
 }
 
@@ -5133,6 +5298,9 @@ body.dark-mode .chart-options-result {
   }
 }
 
+/* Ghost icon button — borderless at rest, soft primary tint on hover,
+   so it reads as a quiet chrome element that belongs to whatever panel
+   or modal it sits in rather than a framed control pasted on top. */
 .cal-results-excel-icon-btn {
   display: inline-flex;
   align-items: center;
@@ -5145,16 +5313,21 @@ body.dark-mode .chart-options-result {
   font-size: 1rem;
   color: var(--text-color-muted);
   background: transparent;
-  border: 1px solid transparent;
+  border: none;
   border-radius: 10px;
   cursor: pointer;
-  transition: background 0.15s ease, color 0.15s ease, border-color 0.15s ease;
+  box-shadow: none;
+  transition: background-color 0.15s ease, color 0.15s ease;
 }
 
 .cal-results-excel-icon-btn:hover:not(:disabled) {
+  color: var(--text-color);
+  background-color: var(--primary-color-soft);
+}
+
+.cal-results-excel-icon-btn:active:not(:disabled) {
   color: var(--primary-color);
-  background: var(--background-color);
-  border-color: var(--border-color);
+  background-color: var(--primary-color-soft);
 }
 
 .cal-results-excel-icon-btn:disabled {
@@ -5458,10 +5631,20 @@ body.dark-mode .chart-options-result {
 .cal-results-pill:focus-visible,
 .cal-results-dir-select:focus-visible,
 .cal-results-inline-select:focus-visible,
-.cal-results-icon-btn:focus-visible,
-.cal-results-excel-icon-btn:focus-visible {
+.cal-results-icon-btn:focus-visible {
   outline: 2px solid var(--primary-color);
   outline-offset: 2px;
+}
+
+.cal-results-excel-icon-btn:focus-visible {
+  outline: none;
+  color: var(--primary-color);
+  box-shadow: var(--focus-ring);
+}
+
+.cal-results-excel-icon-btn--danger:focus-visible {
+  color: var(--danger-color);
+  box-shadow: 0 0 0 3px var(--danger-color-light);
 }
 
 @media (max-width: 640px) {
@@ -7038,12 +7221,7 @@ body.dark-mode .data-table-open-button {
   }
 }
 
-/** TVC Corrections **/
-body.dark-mode {
-  background-color: #2b323b;
-  color: #e2e8f0;
-}
-
+/** TVC Corrections (legacy-scoped dark-mode overrides) **/
 body.dark-mode .tvc-corrections-main-container {
   background-color: #363f4a;
   box-shadow: 0 5px 18px rgba(0, 0, 0, 0.3);

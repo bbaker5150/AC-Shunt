@@ -19,14 +19,6 @@ const THEME_BACKGROUND = {
     dark: '#0b1220',
 };
 
-// The title bar overlay (Windows only) is painted by Electron natively, so
-// it needs its own color pair. We match the app-chrome (header) background
-// and the primary text color so the window controls feel part of the app.
-const TITLE_BAR_OVERLAY = {
-    light: { color: '#ffffff', symbolColor: '#0f172a' },
-    dark:  { color: '#0d1526', symbolColor: '#e2e8f0' },
-};
-
 function getThemeConfigPath() {
     return path.join(app.getPath('userData'), 'theme.json');
 }
@@ -59,15 +51,6 @@ function applyTheme(theme) {
     nativeTheme.themeSource = theme;
     if (mainWindow && !mainWindow.isDestroyed()) {
         mainWindow.setBackgroundColor(THEME_BACKGROUND[theme]);
-        // Re-paint the native title bar caption buttons to match on Windows.
-        if (process.platform === 'win32' && typeof mainWindow.setTitleBarOverlay === 'function') {
-            try {
-                mainWindow.setTitleBarOverlay(TITLE_BAR_OVERLAY[theme]);
-            } catch (err) {
-                // setTitleBarOverlay only works when titleBarStyle !== 'default'.
-                // Ignore failures on unsupported configurations.
-            }
-        }
     }
     persistTheme(theme);
 }
@@ -84,10 +67,11 @@ function createWindow() {
     // platforms, dialogs) matches from the first paint.
     nativeTheme.themeSource = initialTheme;
 
-    // Use the Windows "hidden" title bar style so we can paint the caption
-    // area with our own color. Electron will still draw the minimize /
-    // maximize / close buttons as an overlay — we just theme them.
-    const useWindowsOverlay = process.platform === 'win32';
+    // Use a fully frameless window on Windows so we can draw our own
+    // minimize / maximize / close buttons inside the React chrome. The
+    // renderer reveals them on hover of the top bar and invokes window
+    // controls over IPC. macOS keeps its native traffic lights.
+    const isWindows = process.platform === 'win32';
 
     mainWindow = new BrowserWindow({
         width: 1280,
@@ -96,16 +80,24 @@ function createWindow() {
         icon: path.join(__dirname, 'favicon.ico'),
         autoHideMenuBar: true,
         backgroundColor: THEME_BACKGROUND[initialTheme],
-        titleBarStyle: useWindowsOverlay ? 'hidden' : 'default',
-        titleBarOverlay: useWindowsOverlay
-            ? { ...TITLE_BAR_OVERLAY[initialTheme], height: 32 }
-            : false,
+        frame: !isWindows,
+        titleBarStyle: isWindows ? 'hidden' : 'default',
         webPreferences: {
             nodeIntegration: true,
             contextIsolation: false,
             spellcheck: false
         },
     });
+
+    // Forward maximize / unmaximize events to the renderer so the custom
+    // caption toggle icon can swap between maximize and restore glyphs.
+    const sendMaximizeState = () => {
+        if (!mainWindow || mainWindow.isDestroyed()) return;
+        mainWindow.webContents.send('window-maximize-state', mainWindow.isMaximized());
+    };
+    mainWindow.on('maximize', sendMaximizeState);
+    mainWindow.on('unmaximize', sendMaximizeState);
+    mainWindow.webContents.on('did-finish-load', sendMaximizeState);
 
     const isDev = !app.isPackaged;
 
@@ -164,6 +156,29 @@ ipcMain.on('theme-changed', (event, theme) => {
 // with what Electron already painted (prevents a mid-load flash).
 ipcMain.handle('theme-get', () => {
     return resolveInitialTheme();
+});
+
+// -------------------------------------------------------------------
+// Custom caption controls — the React header renders its own
+// minimize / maximize / close buttons (hover-to-reveal) and asks the
+// main process to perform the actual window ops.
+// -------------------------------------------------------------------
+ipcMain.on('window-minimize', () => {
+    if (mainWindow && !mainWindow.isDestroyed()) mainWindow.minimize();
+});
+
+ipcMain.on('window-maximize-toggle', () => {
+    if (!mainWindow || mainWindow.isDestroyed()) return;
+    if (mainWindow.isMaximized()) mainWindow.unmaximize();
+    else mainWindow.maximize();
+});
+
+ipcMain.on('window-close', () => {
+    if (mainWindow && !mainWindow.isDestroyed()) mainWindow.close();
+});
+
+ipcMain.handle('window-is-maximized', () => {
+    return !!mainWindow && !mainWindow.isDestroyed() && mainWindow.isMaximized();
 });
 
 function startBackend() {

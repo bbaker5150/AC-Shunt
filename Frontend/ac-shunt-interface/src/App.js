@@ -1,5 +1,5 @@
 // src/App.js
-import React, { useState, useCallback, useEffect, useMemo } from "react";
+import React, { useState, useCallback, useEffect, useMemo, useRef } from "react";
 import axios from "axios";
 import SessionSetup from "./components/session/SessionSetup";
 import InstrumentStatusTab from "./components/session/InstrumentStatusTab";
@@ -248,6 +248,97 @@ const Notification = ({ message, type, onDismiss }) => {
     </div>
   );
 };
+
+// ---------------------------------------------------------------------
+// Custom window caption controls (Windows/Electron only)
+// Renders minimize / maximize-restore / close buttons inside the React
+// header. They're hidden at rest and fade in when the user hovers the
+// top chrome bar (handled in App.css). On non-Electron environments
+// (dev browser, future web build) this component renders nothing.
+// ---------------------------------------------------------------------
+const getIpcRenderer = () => {
+  try {
+    if (typeof window !== "undefined" && typeof window.require === "function") {
+      return window.require("electron").ipcRenderer;
+    }
+  } catch (_) {
+    // Not running inside Electron (e.g. plain browser dev). Swallow.
+  }
+  return null;
+};
+
+function CaptionControls() {
+  const ipcRendererRef = useRef(getIpcRenderer());
+  const [isMaximized, setIsMaximized] = useState(false);
+
+  useEffect(() => {
+    const ipc = ipcRendererRef.current;
+    if (!ipc) return;
+    let cancelled = false;
+
+    ipc
+      .invoke("window-is-maximized")
+      .then((value) => {
+        if (!cancelled) setIsMaximized(Boolean(value));
+      })
+      .catch(() => {});
+
+    const onState = (_event, value) => setIsMaximized(Boolean(value));
+    ipc.on("window-maximize-state", onState);
+    return () => {
+      cancelled = true;
+      ipc.removeListener("window-maximize-state", onState);
+    };
+  }, []);
+
+  const ipc = ipcRendererRef.current;
+  if (!ipc) return null;
+
+  return (
+    <div className="app-chrome-caption" aria-label="Window controls">
+      <button
+        type="button"
+        className="app-chrome-caption-btn"
+        onClick={() => ipc.send("window-minimize")}
+        aria-label="Minimize"
+        title="Minimize"
+      >
+        <svg viewBox="0 0 10 10" aria-hidden="true">
+          <path d="M0 5 H10" stroke="currentColor" strokeWidth="1" fill="none" />
+        </svg>
+      </button>
+      <button
+        type="button"
+        className="app-chrome-caption-btn"
+        onClick={() => ipc.send("window-maximize-toggle")}
+        aria-label={isMaximized ? "Restore" : "Maximize"}
+        title={isMaximized ? "Restore" : "Maximize"}
+      >
+        {isMaximized ? (
+          <svg viewBox="0 0 10 10" aria-hidden="true">
+            <rect x="0.5" y="2.5" width="7" height="7" stroke="currentColor" strokeWidth="1" fill="none" />
+            <path d="M2.5 2.5 V0.5 H9.5 V7.5 H7.5" stroke="currentColor" strokeWidth="1" fill="none" />
+          </svg>
+        ) : (
+          <svg viewBox="0 0 10 10" aria-hidden="true">
+            <rect x="0.5" y="0.5" width="9" height="9" stroke="currentColor" strokeWidth="1" fill="none" />
+          </svg>
+        )}
+      </button>
+      <button
+        type="button"
+        className="app-chrome-caption-btn app-chrome-caption-btn--close"
+        onClick={() => ipc.send("window-close")}
+        aria-label="Close"
+        title="Close"
+      >
+        <svg viewBox="0 0 10 10" aria-hidden="true">
+          <path d="M0 0 L10 10 M10 0 L0 10" stroke="currentColor" strokeWidth="1.1" fill="none" />
+        </svg>
+      </button>
+    </div>
+  );
+}
 
 function AppContent() {
   const [activeTab, setActiveTab] = useState("sessionSetup");
@@ -698,10 +789,11 @@ function AppContent() {
             </div>
           </div>
 
-          {/* Top row right-side is intentionally empty: on Windows this is
-              where the native minimize / maximize / close caption buttons
-              are drawn. All interactive meta controls (session info, db,
-              theme toggle) live on the nav row below to avoid a collision. */}
+          {/* Custom minimize / maximize / close controls — hidden at rest
+              and revealed on hover of the top chrome bar (see .app-chrome
+              -caption CSS). All interactive meta controls (session info,
+              db, theme toggle) live on the nav row below. */}
+          <CaptionControls />
         </div>
 
         <nav className="app-chrome-nav" role="tablist" aria-label="Primary">
@@ -741,6 +833,17 @@ function AppContent() {
           </div>
 
           <div className="app-chrome-meta app-chrome-meta--nav">
+            {dbInfo && (
+              <div
+                className="db-indicator-pill"
+                title={`Data source: ${dbInfo.database_type === 'sqlite3' ? 'SQLite' : 'MSSQL'}`}
+              >
+                <span className="db-status-dot"></span>
+                <span className="db-name-text">
+                  {dbInfo.database_type === 'sqlite3' ? 'SQLite' : 'MSSQL'}
+                </span>
+              </div>
+            )}
             {selectedSessionName && (
               <div className="tooltip-container session-info-popover">
                 <button
@@ -826,14 +929,6 @@ function AppContent() {
                     </div>
                   </div>
                 </div>
-              </div>
-            )}
-            {dbInfo && (
-              <div className="db-indicator-pill" title={`Data source: ${dbInfo.database_type === 'sqlite3' ? 'SQLite' : 'MSSQL'}`}>
-                <span className="db-status-dot"></span>
-                <span className="db-name-text">
-                  {dbInfo.database_type === 'sqlite3' ? 'SQLite' : 'MSSQL'}
-                </span>
               </div>
             )}
             <button
