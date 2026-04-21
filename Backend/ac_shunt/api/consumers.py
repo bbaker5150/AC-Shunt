@@ -14,7 +14,7 @@ import math
 import numpy as np
 
 from npsl_tools.instruments import Instrument11713C, Instrument3458A, Instrument5730A, Instrument5790B, Instrument34420A, Instrument8100
-from .models import CalibrationReadings, CalibrationSession, CalibrationSettings, TestPoint, TestPointSet
+from .models import CalibrationReadings, CalibrationResults, CalibrationSession, CalibrationSettings, TestPoint, TestPointSet
 
 INSTRUMENT_CLASS_MAP = {
     '5730A': Instrument5730A,
@@ -498,6 +498,25 @@ class CalibrationConsumer(AsyncWebsocketConsumer):
 
             if not self.stop_event.is_set():
                 print("[TVC_CHAR] Sequence completed successfully!", flush=True)
+
+                # --- Propagate freshly-computed eta to sibling points in the session ---
+                # update_related_results() in save_readings_to_db has already written
+                # eta_std / eta_ti onto this TP's CalibrationResults row. For a batch
+                # that only characterizes once (e.g. "Characterize STD TVC before run"),
+                # every other selected point would otherwise fall back to eta=1.0
+                # inside calculate_ac_dc_difference(). Backfill them now so the real
+                # gain is used downstream.
+                try:
+                    tp_id_for_prop = (original_tp or {}).get('id')
+                    if tp_id_for_prop:
+                        await self._propagate_characterization_eta(
+                            tp_id_for_prop, target_tvc, char_source_kind
+                        )
+                except Exception as prop_err:
+                    # Propagation is best-effort; never block the user-visible
+                    # "characterization complete" signal because of it.
+                    print(f"[TVC_CHAR] Eta propagation step failed: {prop_err}", flush=True)
+
                 await self.send(text_data=json.dumps({'type': 'collection_finished', 'message': 'Sensitivity Characterization complete.'}))
 
         except asyncio.CancelledError:
@@ -1226,6 +1245,124 @@ class CalibrationConsumer(AsyncWebsocketConsumer):
         except Exception as e:
             print(f"Error saving readings to DB: {e}")
     
+    @database_sync_to_async
+    def _propagate_characterization_eta(self, characterized_tp_id, target_tvc, char_source_kind):
+        """
+        After a successful characterization run on `characterized_tp_id`, copy the
+        freshly-computed eta_std / eta_ti onto every other TestPoint in the same
+        session that shares the same physical characterization context, so the
+        downstream AC-DC math uses the real gain instead of silently defaulting
+        to 1.0.
+
+        Match rules:
+          - Same session
+          - DC characterization: same nominal current (freq-independent).
+          - AC characterization: same nominal current AND same frequency
+            (AC gain is frequency-dependent, so it only applies per-frequency).
+          - Direction is ignored (Forward/Reverse share the same physical gain).
+
+        Guardrail: never overwrite a sibling that has its own characterization
+        readings for the targeted side - that point will compute its own eta
+        from its own data, and that value must win.
+
+        Returns the number of sibling rows updated (for logging).
+        """
+        try:
+            source_tp = TestPoint.objects.select_related(
+                'results', 'test_point_set__session'
+            ).get(pk=characterized_tp_id)
+        except TestPoint.DoesNotExist:
+            print(f"[PROP_ETA] Source TP {characterized_tp_id} not found, nothing to propagate.", flush=True)
+            return 0
+
+        source_results = getattr(source_tp, 'results', None)
+        if source_results is None:
+            print("[PROP_ETA] Source TP has no results row; skipping propagation.", flush=True)
+            return 0
+
+        session = source_tp.test_point_set.session
+        source_eta_std = source_results.eta_std if target_tvc in ('STD', 'BOTH') else None
+        source_eta_ti = source_results.eta_ti if target_tvc in ('TI', 'BOTH') else None
+
+        if source_eta_std is None and source_eta_ti is None:
+            print("[PROP_ETA] No fresh eta values on source TP; nothing to propagate.", flush=True)
+            return 0
+
+        # Build sibling filter
+        sibling_qs = TestPoint.objects.filter(
+            test_point_set__session=session,
+            current=source_tp.current,
+        ).exclude(pk=source_tp.pk)
+
+        if char_source_kind == 'AC':
+            sibling_qs = sibling_qs.filter(frequency=source_tp.frequency)
+
+        sibling_qs = sibling_qs.select_related('results')
+
+        updated = 0
+        for sibling in sibling_qs:
+            sib_results = getattr(sibling, 'results', None)
+            if sib_results is None:
+                # No results row yet -> create one so eta can be pinned;
+                # calculate_ac_dc_difference will early-return if avgs aren't ready.
+                sib_results = CalibrationResults.objects.create(test_point=sibling)
+
+            # Inspect the sibling's own char readings; if they've characterized
+            # themselves, don't clobber their values.
+            sib_readings = CalibrationReadings.objects.filter(test_point=sibling).first()
+
+            changed_fields = []
+
+            if source_eta_std is not None:
+                sib_has_own_std_char = bool(
+                    sib_readings and (
+                        sib_readings.std_char_plus1_readings or
+                        sib_readings.std_char_minus_readings or
+                        sib_readings.std_char_plus2_readings
+                    )
+                )
+                if not sib_has_own_std_char:
+                    if sib_results.eta_std is None or abs((sib_results.eta_std or 0.0) - source_eta_std) > 1e-12:
+                        sib_results.eta_std = source_eta_std
+                        changed_fields.append('eta_std')
+
+            if source_eta_ti is not None:
+                sib_has_own_ti_char = bool(
+                    sib_readings and (
+                        sib_readings.ti_char_plus1_readings or
+                        sib_readings.ti_char_minus_readings or
+                        sib_readings.ti_char_plus2_readings
+                    )
+                )
+                if not sib_has_own_ti_char:
+                    if sib_results.eta_ti is None or abs((sib_results.eta_ti or 0.0) - source_eta_ti) > 1e-12:
+                        sib_results.eta_ti = source_eta_ti
+                        changed_fields.append('eta_ti')
+
+            if changed_fields:
+                sib_results.save(update_fields=changed_fields)
+                # Recompute delta_uut_ppm with the new gain. If averages are
+                # not ready yet, calculate_ac_dc_difference short-circuits.
+                try:
+                    sib_results.calculate_ac_dc_difference()
+                except Exception as calc_err:
+                    print(f"[PROP_ETA] Recalc failed for TP {sibling.pk}: {calc_err}", flush=True)
+                updated += 1
+
+        if updated:
+            print(
+                f"[PROP_ETA] Propagated {char_source_kind} eta ({target_tvc}) from TP "
+                f"{source_tp.pk} to {updated} sibling point(s).",
+                flush=True,
+            )
+        else:
+            print(
+                f"[PROP_ETA] No sibling points eligible for {char_source_kind} "
+                f"eta propagation from TP {source_tp.pk}.",
+                flush=True,
+            )
+        return updated
+
     @database_sync_to_async
     def set_test_point_failed_status(self, test_point_id, status: bool):
         if not test_point_id: 

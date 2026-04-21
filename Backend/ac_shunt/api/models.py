@@ -264,44 +264,34 @@ class CalibrationReadings(models.Model):
                 numerator = ((v_out_1 + v_out_3) / (2 * v_out_2)) - 1
                 return numerator / denominator
 
-            def save_global_tvc_gain(tvc_serial, gain_val):
-                if not tvc_serial or gain_val is None: return
-                try:
-                    tvc_obj = TVC.objects.get(serial_number=tvc_serial)
-                    tp = self.test_point
-                    TVCSensitivity.objects.update_or_create(
-                        tvc=tvc_obj,
-                        current=float(tp.current),
-                        frequency=tp.frequency,
-                        defaults={'gain_eta': gain_val}
-                    )
-                    print(f"[MODELS - GLOBAL SAVE] SUCCESS: Saved Gain {gain_val} to global TVC SN {tvc_serial}.", flush=True)
-                except TVC.DoesNotExist:
-                    print(f"[MODELS - GLOBAL SAVE] ERROR: TVC SN {tvc_serial} not found in global DB.", flush=True)
-
-            session = self.test_point.test_point_set.session
+            # NOTE: The characterized gain (η) is intentionally stored ONLY on the
+            # per-point CalibrationResults row (and propagated to in-session
+            # siblings by consumers._propagate_characterization_eta). Historically
+            # we also wrote to the global TVCSensitivity table here, but that
+            # table was session-agnostic and would silently leak a newer
+            # session's characterization into older sessions if anything ever
+            # read from it. Session isolation is now enforced by keeping η
+            # strictly per-session on CalibrationResults.
 
             # Process Standard TVC Characterization
             if has_std_char:
                 std_char_plus1_avg, _ = calculate_stats(self.std_char_plus1_readings, "STD Char +500ppm (1)")
                 std_char_minus_avg, _ = calculate_stats(self.std_char_minus_readings, "STD Char -500ppm")
                 std_char_plus2_avg, _ = calculate_stats(self.std_char_plus2_readings, "STD Char +500ppm (2)")
-                
+
                 new_eta_std = calculate_eta(std_char_plus1_avg, std_char_minus_avg, std_char_plus2_avg, "STD TVC")
                 if new_eta_std is not None and (results.eta_std is None or abs(results.eta_std - new_eta_std) > 1e-9):
                     results.eta_std = new_eta_std
-                    save_global_tvc_gain(session.standard_tvc_serial, new_eta_std)
 
             # Process Test Instrument TVC Characterization
             if has_ti_char:
                 ti_char_plus1_avg, _ = calculate_stats(self.ti_char_plus1_readings, "TI Char +500ppm (1)")
                 ti_char_minus_avg, _ = calculate_stats(self.ti_char_minus_readings, "TI Char -500ppm")
                 ti_char_plus2_avg, _ = calculate_stats(self.ti_char_plus2_readings, "TI Char +500ppm (2)")
-                
+
                 new_eta_ti = calculate_eta(ti_char_plus1_avg, ti_char_minus_avg, ti_char_plus2_avg, "TI TVC")
                 if new_eta_ti is not None and (results.eta_ti is None or abs(results.eta_ti - new_eta_ti) > 1e-9):
                     results.eta_ti = new_eta_ti
-                    save_global_tvc_gain(session.test_tvc_serial, new_eta_ti)
 
         # --- 4. Final Save and Math Trigger ---
         results.save()
