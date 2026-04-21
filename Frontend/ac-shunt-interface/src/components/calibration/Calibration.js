@@ -216,6 +216,12 @@ const SubNav = ({ activeTab, setActiveTab }) => (
 
 // DirectionToggle component definition removed
 
+// Remembers the last sub-tab the user was viewing in the Calibration pane
+// (Settings / Readings / Calculations) so that navigating away to another
+// main tab and coming back restores their place. Module scope keeps it
+// alive across unmount/remount for the app session without any persistence.
+let rememberedCalSubTab = "settings";
+
 function Calibration({
   showNotification,
   orderedTestPoints,
@@ -265,7 +271,11 @@ function Calibration({
   } = useInstruments();
   const { theme } = useTheme();
 
-  const [activeTab, setActiveTab] = useState("settings");
+  const [activeTab, setActiveTabState] = useState(rememberedCalSubTab);
+  const setActiveTab = useCallback((value) => {
+    rememberedCalSubTab = value;
+    setActiveTabState(value);
+  }, []);
   const [calibrationConfigurations, setCalibrationConfigurations] = useState(
     {}
   );
@@ -280,6 +290,7 @@ function Calibration({
     stability_max_attempts: 10,
     iqr_filter_ppm_threshold: 15,
     ignore_instability_after_lock: false,
+    characterize_std_first: false,
   });
   const [correctionInputs, setCorrectionInputs] = useState({
     eta_std: "",
@@ -1089,20 +1100,21 @@ function Calibration({
     }
     setFailedTPKeys(new Set());
 
-    const runBatchSequence = () => {
+    const runBatchSequence = async () => {
       setActiveChartView("calibration");
-      const pointsToRunData = orderedTestPoints
-        .filter((p) => selectedTPs.has(p.key))
-        .map((p) => {
-          const pointForDirection =
-            activeDirection === "Forward" ? p.forward : p.reverse;
-          return {
-            id: pointForDirection?.id,
-            current: p.current,
-            frequency: p.frequency,
-            direction: activeDirection,
-          };
-        });
+      const selectedOrderedTPs = orderedTestPoints.filter((p) =>
+        selectedTPs.has(p.key)
+      );
+      const pointsToRunData = selectedOrderedTPs.map((p) => {
+        const pointForDirection =
+          activeDirection === "Forward" ? p.forward : p.reverse;
+        return {
+          id: pointForDirection?.id,
+          current: p.current,
+          frequency: p.frequency,
+          direction: activeDirection,
+        };
+      });
 
       if (pointsToRunData.length === 0) {
         showNotification(
@@ -1112,9 +1124,31 @@ function Calibration({
         return;
       }
 
-      const firstPointInBatch = orderedTestPoints.find(
-        (p) => p.key === pointsToRunData[0].key
-      );
+      const firstPointInBatch = selectedOrderedTPs[0];
+
+      // Pre-run hook: if the user opted in, characterize the STD TVC first
+      // so its η is fresh before the batch/single run uses it downstream.
+      if (calibrationSettings.characterize_std_first && firstPointInBatch) {
+        showNotification("Characterizing STD TVC first…", "info");
+        const charResult = await handleCharacterizationRequest("STD", {
+          silent: true,
+          testPoint: firstPointInBatch,
+        });
+        if (
+          charResult === "collection_stopped" ||
+          charResult === "error"
+        ) {
+          showNotification(
+            "STD TVC characterization did not complete. Batch aborted.",
+            "warning"
+          );
+          return;
+        }
+        // Swap the chart view back to the main calibration view for the
+        // actual run that follows the characterization.
+        setActiveChartView("calibration");
+      }
+
       if (firstPointInBatch) {
         setFocusedTP(firstPointInBatch);
       }
@@ -1295,19 +1329,23 @@ function Calibration({
     ]
   );
 
-  const handleCharacterizationRequest = useCallback(async (target_tvc = "BOTH") => {
-    if (!focusedTP) return;
+  const handleCharacterizationRequest = useCallback(async (
+    target_tvc = "BOTH",
+    { silent = false, testPoint: overrideTP = null } = {}
+  ) => {
+    const tp = overrideTP || focusedTP;
+    if (!tp) return "error";
     setActiveChartView("characterization");
 
     // 1. Initialize the point in the DB if it hasn't been run before
-    let pointData = activeDirection === "Forward" ? focusedTP.forward : focusedTP.reverse;
+    let pointData = activeDirection === "Forward" ? tp.forward : tp.reverse;
     if (!pointData) {
       try {
         const response = await axios.post(
           `${API_BASE_URL}/calibration_sessions/${selectedSessionId}/test_points/`,
           {
-            current: focusedTP.current,
-            frequency: focusedTP.frequency,
+            current: tp.current,
+            frequency: tp.frequency,
             direction: activeDirection,
           }
         );
@@ -1315,7 +1353,7 @@ function Calibration({
         await onDataUpdate();
       } catch (error) {
         showNotification(`Error creating ${activeDirection} configuration.`, "error");
-        return;
+        return "error";
       }
     }
 
@@ -1327,8 +1365,8 @@ function Calibration({
       target_tvc: target_tvc, // <-- Pass the target to the backend
       test_point: {
         id: pointData.id,
-        current: focusedTP.current,
-        frequency: focusedTP.frequency,
+        current: tp.current,
+        frequency: tp.frequency,
         direction: activeDirection,
       },
       test_point_id: pointData.id,
@@ -1350,23 +1388,24 @@ function Calibration({
     };
 
     // 3. Trigger the standard collection flow so the UI activates
-    if (startReadingCollection(params)) {
-      waitForCollection()
-        .then((result) => {
-          if (result === "collection_stopped" || result === "error") {
-            showNotification("Characterization stopped or failed.", "warning");
-          } else {
-            showNotification("Characterization complete!", "success");
-          }
-        })
-        .catch((err) => {
-          showNotification(`Operation failed: ${err.message}`, "error");
-        })
-        .finally(() => {
-          onDataUpdate();
-        });
-    } else {
+    if (!startReadingCollection(params)) {
       showNotification("WebSocket not connected.", "error");
+      return "error";
+    }
+
+    try {
+      const result = await waitForCollection();
+      if (result === "collection_stopped" || result === "error") {
+        if (!silent) showNotification("Characterization stopped or failed.", "warning");
+      } else {
+        if (!silent) showNotification("Characterization complete!", "success");
+      }
+      return result;
+    } catch (err) {
+      if (!silent) showNotification(`Operation failed: ${err.message}`, "error");
+      return "error";
+    } finally {
+      onDataUpdate();
     }
   }, [
     focusedTP,
@@ -1591,6 +1630,7 @@ function Calibration({
         parseInt(calibrationSettings.stability_max_attempts, 10) || 50,
       iqr_filter_ppm_threshold: parseFloat(calibrationSettings.iqr_filter_ppm_threshold) || 15,
       ignore_instability_after_lock: calibrationSettings.ignore_instability_after_lock || false,
+      characterize_std_first: calibrationSettings.characterize_std_first || false,
     };
 
     let pointToUpdate =
@@ -1651,6 +1691,7 @@ function Calibration({
           parseInt(calibrationSettings.stability_max_attempts, 10) || 50,
         iqr_filter_ppm_threshold: parseFloat(calibrationSettings.iqr_filter_ppm_threshold) || 15,
         ignore_instability_after_lock: calibrationSettings.ignore_instability_after_lock || false,
+        characterize_std_first: calibrationSettings.characterize_std_first || false,
       };
 
       try {
@@ -2220,6 +2261,35 @@ function Calibration({
                                   />
                                 </div>
                               )}
+                            </div>
+                          </div>
+
+                          <div className="settings-form-group">
+                            <span className="settings-form-group-eyebrow">
+                              Characterization
+                            </span>
+                            <div className="form-section-group">
+                              <div className="form-section form-section--checkbox full-width">
+                                <label className="form-section-checkbox-label">
+                                  <input
+                                    type="checkbox"
+                                    className="form-section-checkbox-input"
+                                    checked={
+                                      calibrationSettings.characterize_std_first ||
+                                      false
+                                    }
+                                    onChange={(e) =>
+                                      setCalibrationSettings((prev) => ({
+                                        ...prev,
+                                        characterize_std_first: e.target.checked,
+                                      }))
+                                    }
+                                  />
+                                  <span>
+                                    Characterize STD TVC before run
+                                  </span>
+                                </label>
+                              </div>
                             </div>
                           </div>
 

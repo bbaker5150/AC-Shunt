@@ -1,9 +1,10 @@
 // src/components/calibration/CalibrationResults.js
-import React, { useState, useEffect, useRef, useCallback } from "react";
+import React, { useState, useEffect, useRef, useCallback, useMemo } from "react";
 import { useInstruments } from "../../contexts/InstrumentContext";
-import { FaDownload } from "react-icons/fa";
+import { FaDownload, FaArrowRight } from "react-icons/fa";
 import CalibrationChart from "./CalibrationChart";
 import { downloadFullSessionExcel } from "./sessionExcelExport";
+import CustomDropdown from "../shared/CustomDropdown";
 import { useTheme } from "../../contexts/ThemeContext";
 import { API_BASE_URL } from "../../constants/constants";
 import axios from "axios";
@@ -214,10 +215,26 @@ function CalibrationResults({
   const [activeInstrument, setActiveInstrument] = useState("std");
   const [selectedReadingType, setSelectedReadingType] =
     useState("ac_open_readings");
-  const [activeDirection, setActiveDirection] = useState("Forward");
+  const [activeDirection, setActiveDirection] = useState("Overview");
 
   const hasBothDirections =
     focusedTP?.forward?.results && focusedTP?.reverse?.results;
+
+  // At-a-glance deltas (used by the Overview summary view)
+  const overviewStats = useMemo(() => {
+    const fwd = focusedTP?.forward?.results?.delta_uut_ppm;
+    const rev = focusedTP?.reverse?.results?.delta_uut_ppm;
+    const fwdNum = fwd != null ? parseFloat(fwd) : null;
+    const revNum = rev != null ? parseFloat(rev) : null;
+    const combined =
+      fwdNum != null && revNum != null ? (fwdNum + revNum) / 2 : null;
+    return {
+      forward: fwdNum,
+      reverse: revNum,
+      combined,
+      hasAny: fwdNum != null || revNum != null,
+    };
+  }, [focusedTP]);
 
   // Refetch data when the WebSocket sends a 'connection_sync' signal
   useEffect(() => {
@@ -228,6 +245,13 @@ function CalibrationResults({
 
   useEffect(() => {
     if (!focusedTP) {
+      setCalResults(null);
+      setCalReadings(null);
+      return;
+    }
+
+    if (activeDirection === "Overview") {
+      // Overview uses focusedTP directly; no per-direction hydrate needed.
       setCalResults(null);
       setCalReadings(null);
       return;
@@ -553,7 +577,12 @@ function CalibrationResults({
                         aria-selected={activeTab === "details"}
                         className={`cal-results-tab ${activeTab === "details" ? "is-active" : ""
                           }`}
-                        onClick={() => setActiveTab("details")}
+                        onClick={() => {
+                          setActiveTab("details");
+                          if (activeDirection === "Overview") {
+                            setActiveDirection("Forward");
+                          }
+                        }}
                       >
                         Raw data
                       </button>
@@ -582,27 +611,147 @@ function CalibrationResults({
                   </div>
 
                   <div className="cal-results-bar-tools">
-                    <select
-                      className="cal-results-dir-select"
+                    <CustomDropdown
+                      className="cal-results-dir-dropdown"
+                      ariaLabel="Measurement direction"
+                      searchable={false}
                       value={activeDirection}
-                      onChange={(e) =>
-                        setActiveDirection(e.target.value)
-                      }
-                      aria-label="Measurement direction"
-                    >
-                      <option value="Forward">Forward</option>
-                      <option value="Reverse">Reverse</option>
-                      <option
-                        value="Combined"
-                        disabled={!hasBothDirections}
-                      >
-                        Combined
-                      </option>
-                    </select>
+                      onChange={setActiveDirection}
+                      options={[
+                        // Overview is a Summary-only concept; hide it from
+                        // the picker while viewing raw readings.
+                        ...(activeTab === "summary"
+                          ? [{ label: "Overview", value: "Overview" }]
+                          : []),
+                        { label: "Forward", value: "Forward" },
+                        { label: "Reverse", value: "Reverse" },
+                        {
+                          label: "Combined",
+                          value: "Combined",
+                          disabled: !hasBothDirections,
+                        },
+                      ]}
+                    />
                   </div>
                 </header>
 
-                {activeTab === "summary" && (
+                {activeTab === "summary" && activeDirection === "Overview" && (
+                  <div className="cal-results-summary cal-results-overview">
+                    {overviewStats.hasAny ? (
+                      <>
+                        {overviewStats.combined != null && (
+                          <button
+                            type="button"
+                            className="cal-calc-kpi cal-calc-kpi--primary cal-results-overview-card"
+                            onClick={() => setActiveDirection("Combined")}
+                            aria-label="View combined details"
+                          >
+                            <p className="cal-calc-kpi-label">
+                              Combined · δ UUT
+                            </p>
+                            <div className="cal-calc-kpi-value-row">
+                              <span className="cal-calc-kpi-num">
+                                {overviewStats.combined.toFixed(3)}
+                              </span>
+                              <span className="cal-calc-kpi-unit">ppm</span>
+                            </div>
+                            <span className="cal-results-overview-hint">
+                              View combined
+                              <FaArrowRight aria-hidden />
+                            </span>
+                          </button>
+                        )}
+
+                        <div className="cal-calc-direction-grid">
+                          <button
+                            type="button"
+                            className={`cal-calc-kpi cal-results-overview-card ${overviewStats.forward == null
+                                ? "cal-results-overview-card--empty"
+                                : ""
+                              }`}
+                            onClick={() =>
+                              overviewStats.forward != null &&
+                              setActiveDirection("Forward")
+                            }
+                            disabled={overviewStats.forward == null}
+                            aria-label="View forward details"
+                          >
+                            <p className="cal-calc-kpi-label">
+                              Forward · δ UUT
+                            </p>
+                            <div className="cal-calc-kpi-value-row">
+                              <span className="cal-calc-kpi-num">
+                                {overviewStats.forward != null
+                                  ? overviewStats.forward.toFixed(3)
+                                  : "—"}
+                              </span>
+                              <span className="cal-calc-kpi-unit">ppm</span>
+                            </div>
+                            <span className="cal-results-overview-hint">
+                              {overviewStats.forward != null ? (
+                                <>
+                                  View forward
+                                  <FaArrowRight aria-hidden />
+                                </>
+                              ) : (
+                                "Not yet calculated"
+                              )}
+                            </span>
+                          </button>
+
+                          <button
+                            type="button"
+                            className={`cal-calc-kpi cal-results-overview-card ${overviewStats.reverse == null
+                                ? "cal-results-overview-card--empty"
+                                : ""
+                              }`}
+                            onClick={() =>
+                              overviewStats.reverse != null &&
+                              setActiveDirection("Reverse")
+                            }
+                            disabled={overviewStats.reverse == null}
+                            aria-label="View reverse details"
+                          >
+                            <p className="cal-calc-kpi-label">
+                              Reverse · δ UUT
+                            </p>
+                            <div className="cal-calc-kpi-value-row">
+                              <span className="cal-calc-kpi-num">
+                                {overviewStats.reverse != null
+                                  ? overviewStats.reverse.toFixed(3)
+                                  : "—"}
+                              </span>
+                              <span className="cal-calc-kpi-unit">ppm</span>
+                            </div>
+                            <span className="cal-results-overview-hint">
+                              {overviewStats.reverse != null ? (
+                                <>
+                                  View reverse
+                                  <FaArrowRight aria-hidden />
+                                </>
+                              ) : (
+                                "Not yet calculated"
+                              )}
+                            </span>
+                          </button>
+                        </div>
+                      </>
+                    ) : (
+                      <div className="cal-calc-empty">
+                        <h3 className="cal-calc-empty-title">
+                          No results yet
+                        </h3>
+                        <p className="cal-calc-empty-text">
+                          Complete readings and calculate AC–DC difference in
+                          the Calibration tab to see an at-a-glance summary
+                          here.
+                        </p>
+                      </div>
+                    )}
+                  </div>
+                )}
+
+                {activeTab === "summary" && activeDirection !== "Overview" && (
                   <div className="cal-results-summary">
                     <div className="cal-results-kpi-wrap">
                       <ResultsKpi
@@ -620,7 +769,10 @@ function CalibrationResults({
                     </div>
 
                     {activeDirection !== "Combined" && (
-                      <details className="cal-results-disclosure cal-results-disclosure--math">
+                      <details
+                        className="cal-results-disclosure cal-results-disclosure--math"
+                        open
+                      >
                         <summary className="cal-results-disclosure-summary">
                           Calculation breakdown
                         </summary>
@@ -630,27 +782,51 @@ function CalibrationResults({
                       </details>
                     )}
 
-                    <details className="cal-results-disclosure" open>
-                      <summary className="cal-results-disclosure-summary">
-                        Standard instrument
-                      </summary>
-                      <div className="cal-results-disclosure-body">
-                        <SummaryTable results={calResults} prefix="std_" />
-                      </div>
-                    </details>
+                    {activeDirection !== "Combined" && (
+                      <>
+                        <details className="cal-results-disclosure">
+                          <summary className="cal-results-disclosure-summary">
+                            Standard instrument
+                          </summary>
+                          <div className="cal-results-disclosure-body">
+                            <SummaryTable
+                              results={calResults}
+                              prefix="std_"
+                            />
+                          </div>
+                        </details>
 
-                    <details className="cal-results-disclosure">
-                      <summary className="cal-results-disclosure-summary">
-                        Test instrument
-                      </summary>
-                      <div className="cal-results-disclosure-body">
-                        <SummaryTable results={calResults} prefix="ti_" />
-                      </div>
-                    </details>
+                        <details className="cal-results-disclosure">
+                          <summary className="cal-results-disclosure-summary">
+                            Test instrument
+                          </summary>
+                          <div className="cal-results-disclosure-body">
+                            <SummaryTable
+                              results={calResults}
+                              prefix="ti_"
+                            />
+                          </div>
+                        </details>
+                      </>
+                    )}
                   </div>
                 )}
 
-                {activeTab === "details" && (
+                {activeTab === "details" && activeDirection === "Overview" && (
+                  <div className="cal-results-details">
+                    <div className="cal-calc-empty">
+                      <h3 className="cal-calc-empty-title">
+                        Pick a direction
+                      </h3>
+                      <p className="cal-calc-empty-text">
+                        Choose Forward, Reverse, or Combined above to view raw
+                        readings for that direction.
+                      </p>
+                    </div>
+                  </div>
+                )}
+
+                {activeTab === "details" && activeDirection !== "Overview" && (
                   <div className="cal-results-details">
                     <div className="cal-results-strip">
                       <div

@@ -9,6 +9,7 @@ import axios from "axios";
 import { useInstruments } from "../../contexts/InstrumentContext";
 import { FaTimes, FaSave, FaArrowLeft, FaPlus, FaEdit, FaTrash } from "react-icons/fa";
 import { AMPLIFIER_RANGES_A, API_BASE_URL } from "../../constants/constants";
+import CustomDropdown from "../shared/CustomDropdown";
 
 // --- Static Initial State (Moved outside component to fix dependency warnings) ---
 const initialManualFormState = {
@@ -38,99 +39,6 @@ const IconBtn = ({ icon, onClick, title, variant, disabled, type = "button" }) =
     >
       {icon}
     </button>
-  );
-};
-
-// --- Custom Dropdown (searchable, clean) ---
-const CustomDropdown = ({
-  label,
-  options,
-  value,
-  onChange,
-  placeholder,
-  disabled = false,
-  isLoading = false,
-}) => {
-  const [isOpen, setIsOpen] = useState(false);
-  const [searchTerm, setSearchTerm] = useState("");
-  const dropdownRef = useRef(null);
-
-  const handleToggle = () => {
-    if (!disabled) setIsOpen((prev) => !prev);
-  };
-
-  const handleSelect = (optionValue) => {
-    onChange(optionValue);
-    setIsOpen(false);
-    setSearchTerm("");
-  };
-
-  useEffect(() => {
-    const handleClickOutside = (event) => {
-      if (dropdownRef.current && !dropdownRef.current.contains(event.target)) {
-        setIsOpen(false);
-      }
-    };
-    document.addEventListener("mousedown", handleClickOutside);
-    return () => document.removeEventListener("mousedown", handleClickOutside);
-  }, []);
-
-  const filteredOptions = options.filter((option) =>
-    option.label.toLowerCase().includes(searchTerm.toLowerCase())
-  );
-
-  const selectedOption = options.find((option) => option.value === value);
-
-  return (
-    <div
-      className={`custom-dropdown-container ${disabled ? "disabled" : ""} ${isLoading ? "loading" : ""
-        }`}
-      ref={dropdownRef}
-    >
-      {label && <label>{label}</label>}
-      <button
-        type="button"
-        className={`custom-dropdown-trigger ${isOpen ? "open" : ""}`}
-        onClick={handleToggle}
-        disabled={disabled}
-      >
-        {selectedOption ? (
-          <span>{selectedOption.label}</span>
-        ) : (
-          <span className="placeholder">{placeholder}</span>
-        )}
-        <span className="custom-dropdown-chevron" aria-hidden>▾</span>
-      </button>
-      {isOpen && (
-        <div className="custom-dropdown-panel">
-          <div className="custom-dropdown-search-wrapper">
-            <input
-              type="text"
-              className="custom-dropdown-search"
-              placeholder="Search..."
-              value={searchTerm}
-              onChange={(e) => setSearchTerm(e.target.value)}
-              autoFocus
-            />
-          </div>
-          <ul className="custom-dropdown-options">
-            {filteredOptions.length > 0 ? (
-              filteredOptions.map((option) => (
-                <li
-                  key={option.value}
-                  className={value === option.value ? "active" : ""}
-                  onClick={() => handleSelect(option.value)}
-                >
-                  {option.label}
-                </li>
-              ))
-            ) : (
-              <li className="no-options">No matches found</li>
-            )}
-          </ul>
-        </div>
-      )}
-    </div>
   );
 };
 

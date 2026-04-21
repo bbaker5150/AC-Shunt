@@ -971,34 +971,34 @@ body {
 
 .app-chrome-tab {
   position: relative;
-  padding: 12px 18px;
+  padding: 10px 16px;
+  margin: 2px 2px 0 2px;
   border: none;
-  border-radius: 0;
-  background: transparent;
+  border-radius: 8px 8px 0 0;
+  background-color: transparent;
   color: var(--text-color-muted);
   font-size: 0.9375rem;
   font-weight: 600;
   letter-spacing: 0.01em;
   cursor: pointer;
-  transition: color 0.15s ease;
   box-shadow: none;
-  margin: 0;
+  transition: color 0.15s ease, background-color 0.15s ease;
 }
 
 .app-chrome-tab:hover {
   color: var(--text-color);
-  background: transparent;
+  background-color: var(--primary-color-soft);
 }
 
 .app-chrome-tab::after {
   content: "";
   position: absolute;
-  left: 12px;
-  right: 12px;
-  bottom: -1px;
+  left: 14px;
+  right: 14px;
+  bottom: -3px;
   height: 2px;
   border-radius: 2px 2px 0 0;
-  background: var(--primary-color);
+  background-color: var(--primary-color);
   transform: scaleX(0);
   transform-origin: center;
   transition: transform 0.2s ease;
@@ -1006,7 +1006,7 @@ body {
 
 .app-chrome-tab.is-active {
   color: var(--primary-color);
-  background: transparent;
+  background-color: transparent;
 }
 
 .app-chrome-tab.is-active::after {
@@ -1016,7 +1016,7 @@ body {
 .app-chrome-tab:focus-visible {
   outline: none;
   color: var(--primary-color);
-  box-shadow: inset 0 0 0 2px rgba(0, 123, 255, 0.18);
+  box-shadow: var(--focus-ring);
   border-radius: 8px;
 }
 
@@ -1156,70 +1156,122 @@ body {
   white-space: nowrap;
 }
 
-/* (Legacy .tab-button retained below for sub-tab buttons; primary app nav uses .app-chrome-tab) */
+/* Legacy .tab-button — aligned to the same organic underline language
+   as .app-chrome-tab so sub-tabs feel like a natural continuation of
+   the primary nav instead of a separate control vocabulary. */
 .tab-button {
-  padding: 12px 20px;
+  position: relative;
+  margin: 2px 2px 0 2px;
+  padding: 10px 16px;
   cursor: pointer;
   border: none;
-  border-bottom: 3px solid transparent;
   background-color: transparent;
-  color: var(--text-color);
-  font-size: 1.1rem;
-  font-weight: 500;
-  letter-spacing: 0.5px;
-  border-radius: 0;
-  transition: all 0.2s ease-in-out;
-  margin-bottom: -1px;
+  color: var(--text-color-muted);
+  font-size: 0.9375rem;
+  font-weight: 600;
+  letter-spacing: 0.01em;
+  border-radius: 8px 8px 0 0;
+  box-shadow: none;
+  transition: color 0.15s ease, background-color 0.15s ease;
 }
 
 .tab-button:hover {
-  color: var(--primary-color);
-  background-color: transparent;
+  color: var(--text-color);
+  background-color: var(--primary-color-soft);
+}
+
+.tab-button::after {
+  content: "";
+  position: absolute;
+  left: 14px;
+  right: 14px;
+  bottom: -3px;
+  height: 2px;
+  border-radius: 2px 2px 0 0;
+  background-color: var(--primary-color);
+  transform: scaleX(0);
+  transform-origin: center;
+  transition: transform 0.2s ease;
 }
 
 .tab-button.active {
   color: var(--primary-color);
-  font-weight: 700;
-  border-bottom-color: var(--primary-color);
   background-color: transparent;
+}
+
+.tab-button.active::after {
+  transform: scaleX(1);
+}
+
+.tab-button:focus-visible {
+  outline: none;
+  color: var(--primary-color);
+  box-shadow: var(--focus-ring);
+  border-radius: 8px;
 }
 
 .sub-nav {
   display: flex;
   justify-content: flex-start;
-  margin-bottom: 25px; /* This is correct, it separates nav from status-bar */
-  padding-left: 0px;
-  padding-top: 0; /* Remove top padding */
-  position: static; /* Reset position */
-  z-index: auto; /* Reset z-index */
+  margin-bottom: 25px;
+  padding-left: 0;
+  padding-top: 0;
+  position: static;
+  z-index: auto;
+  border-bottom: 1px solid var(--border-color);
 }
 
+/* Calibration sub-tabs — identical treatment to .app-chrome-tab so the
+   two nav levels read as the same component at different scales. */
 .sub-nav button {
-  margin: 0;
-  border: none; /* No borders on the button itself */
+  position: relative;
+  margin: 2px 2px 0 2px;
+  padding: 10px 16px;
+  border: none;
   background-color: transparent;
-  padding: 12px 20px;
-  font-weight: 600;
   color: var(--text-color-muted);
-  border-radius: 0;
-  border-bottom: 3px solid transparent; 
-  transition: all 0.2s ease;
-  position: static;
-  margin-bottom: -1px;
-  margin-right: none;
+  font-size: 0.9375rem;
+  font-weight: 600;
+  letter-spacing: 0.01em;
+  border-radius: 8px 8px 0 0;
+  cursor: pointer;
+  box-shadow: none;
+  transition: color 0.15s ease, background-color 0.15s ease;
 }
 
 .sub-nav button:hover {
-  color: var(--primary-color);
-  background-color: transparent;
+  color: var(--text-color);
+  background-color: var(--primary-color-soft);
+}
+
+.sub-nav button::after {
+  content: "";
+  position: absolute;
+  left: 14px;
+  right: 14px;
+  bottom: -3px;
+  height: 2px;
+  border-radius: 2px 2px 0 0;
+  background-color: var(--primary-color);
+  transform: scaleX(0);
+  transform-origin: center;
+  transition: transform 0.2s ease;
 }
 
 .sub-nav button.active {
   background-color: transparent;
   color: var(--primary-color);
-  border-bottom: 3px solid var(--primary-color); /* Highlights the active tab */
-  z-index: auto; /* Reset z-index */
-  /* No margin-bottom or border-color tricks needed */
+}
+
+.sub-nav button.active::after {
+  transform: scaleX(1);
+}
+
+.sub-nav button:focus-visible {
+  outline: none;
+  color: var(--primary-color);
+  box-shadow: var(--focus-ring);
+  border-radius: 8px;
 }
 
 .sub-tab-content {
@@ -1708,41 +1760,69 @@ body.dark-mode .calibration-content-header {
   z-index: 25;
 }
 
+/* Borderless / organic pill cluster for the play + caret action in the
+   status bar. Each button is its own ghost button; only the icon tints
+   on hover (no pill border or drop shadow around the whole group). */
 .premium-action-button-wrapper {
   display: flex;
+  align-items: center;
+  gap: 4px;
   border: none;
-  border-radius: 6px;
-  overflow: hidden;
-  box-shadow: none; /* Remove the floating shadow */
-  transition: all 0.2s ease-in-out;
+  background: transparent;
+  box-shadow: none;
+  border-radius: 10px;
+  overflow: visible;
+  transition: none;
 }
 
 .premium-action-button-wrapper:hover:not(:disabled) {
-  box-shadow: 0 6px 15px rgba(0, 123, 255, 0.3);
+  box-shadow: none;
 }
 
 .premium-action-button-wrapper .button {
   margin: 0;
   border: none;
-  border-radius: 0;
-  box-shadow: none;
-  background: var(--content-background);
+  background: transparent;
   color: var(--primary-color);
-  transition: background-color 0.2s ease;
+  box-shadow: none;
+  border-radius: 8px;
+  padding: 8px 12px;
+  min-width: auto;
+  font-size: 1rem;
+  transition: background-color 0.15s ease, color 0.15s ease,
+    transform 0.15s ease;
 }
 
 .premium-action-button-wrapper .button:hover:not(:disabled) {
-  background: var(--background-color);
+  background-color: var(--primary-color-soft);
+  color: var(--primary-color);
   transform: none;
   box-shadow: none;
-  color: var(--primary-color);
+}
+
+.premium-action-button-wrapper .button:active:not(:disabled) {
+  transform: scale(0.96);
+  background-color: var(--primary-color-soft);
+}
+
+.premium-action-button-wrapper .button:focus-visible {
+  outline: none;
+  box-shadow: var(--focus-ring);
+}
+
+.premium-action-button-wrapper .button:disabled {
+  color: var(--text-color-muted);
+  opacity: 0.4;
+  cursor: not-allowed;
+  background: transparent;
+  box-shadow: none;
+  transform: none;
 }
 
 .premium-action-button-primary {
-  flex-grow: 1;
-  font-size: 1.2rem; /* Increased icon size */
+  font-size: 1.15rem;
   font-weight: 600;
-  padding: 12px 20px;
+  padding: 10px 14px;
   display: flex;
   align-items: center;
   justify-content: center;
@@ -1750,10 +1830,8 @@ body.dark-mode .calibration-content-header {
 }
 
 .premium-action-button-caret {
-  border-left: none;
-  padding-left: 14px;
-  padding-right: 14px;
-  font-size: 0.9rem;
+  padding: 10px 10px;
+  font-size: 0.8rem;
 }
 
 .premium-action-button-menu {
@@ -1788,11 +1866,24 @@ body.dark-mode .calibration-content-header {
   white-space: nowrap;
 }
 
+/* Dropdown items match the app-wide soft primary hover tint used in
+   the custom dropdowns, so selecting a run option doesn't feel like a
+   loud blue flash. */
 .premium-action-button-item:hover {
-  background-color: var(--primary-color);
-  color: white;
+  background-color: var(--primary-color-soft);
+  color: var(--text-color);
   transform: none;
   box-shadow: none;
+}
+
+.premium-action-button-item:active {
+  transform: none;
+  box-shadow: none;
+}
+
+.premium-action-button-item:focus-visible {
+  outline: none;
+  box-shadow: var(--focus-ring);
 }
 
 body.dark-mode .premium-action-button-wrapper {
@@ -1800,12 +1891,12 @@ body.dark-mode .premium-action-button-wrapper {
 }
 
 body.dark-mode .premium-action-button-wrapper:hover:not(:disabled) {
-  box-shadow: 0 6px 15px rgba(66, 153, 225, 0.3);
+  box-shadow: none;
 }
 
 body.dark-mode .premium-action-button-item:hover {
-  background-color: var(--button-primary-bg);
-  color: white;
+  background-color: var(--primary-color-soft);
+  color: var(--text-color);
 }
 
 /* --- Modals & Overlays --- */
@@ -3963,6 +4054,17 @@ body.dark-mode .corrections-card-select:focus-visible {
   font-weight: 600;
 }
 
+/* Per-option disabled state (e.g. "Combined" when only one direction
+   has results). Sits quietly, ignores pointer, still readable. */
+.custom-dropdown-options li.disabled,
+.custom-dropdown-options li.disabled:hover {
+  background: transparent;
+  color: var(--text-color-muted);
+  cursor: not-allowed;
+  opacity: 0.55;
+  font-weight: 500;
+}
+
 .custom-dropdown-options .no-options {
   padding: 12px;
   color: var(--text-color-muted);
@@ -5082,12 +5184,16 @@ body.dark-mode .chart-options-result {
   min-width: 0;
 }
 
+/* Organic pill-tab cluster — no cluster background/shadow so it reads
+   as floating chrome, hover tint matches the dropdown/ghost language,
+   active pill uses the soft primary tint + bold primary text (same
+   selection signal as the dropdown active state). */
 .cal-results-tabs {
   display: inline-flex;
-  gap: 4px;
-  padding: 2px;
+  gap: 2px;
+  padding: 0;
   border-radius: 999px;
-  background: var(--background-color);
+  background-color: transparent;
 }
 
 .cal-results-tab {
@@ -5098,16 +5204,23 @@ body.dark-mode .chart-options-result {
   font-family: inherit;
   border: none;
   border-radius: 999px;
-  background: transparent;
+  background-color: transparent;
   color: var(--text-color-muted);
   cursor: pointer;
-  transition: background 0.15s ease, color 0.15s ease;
+  box-shadow: none;
+  transition: background-color 0.15s ease, color 0.15s ease;
+}
+
+.cal-results-tab:hover:not(.is-active) {
+  background-color: var(--primary-color-soft);
+  color: var(--text-color);
 }
 
 .cal-results-tab.is-active {
-  background: var(--content-background);
-  color: var(--text-color);
-  box-shadow: 0 1px 3px rgba(0, 0, 0, 0.07);
+  background-color: var(--primary-color-soft);
+  color: var(--primary-color);
+  font-weight: 600;
+  box-shadow: none;
 }
 
 .cal-results-bar-tools {
@@ -5117,17 +5230,22 @@ body.dark-mode .chart-options-result {
   margin-left: auto;
 }
 
-.cal-results-dir-select {
-  margin: 0;
-  padding: 6px 28px 6px 10px;
-  font-size: 0.8125rem;
-  font-family: inherit;
-  color: var(--text-color);
-  background: var(--input-background);
-  border: 1px solid var(--border-color);
+/* Compact dropdown variant used in the Calibration Results toolbar for the
+   Forward / Reverse / Combined / Overview direction picker. */
+.cal-results-dir-dropdown {
+  width: clamp(140px, 14rem, 180px);
+  flex: 0 0 auto;
+}
+
+.cal-results-dir-dropdown .custom-dropdown-trigger {
+  padding: 7px 12px;
   border-radius: 8px;
-  cursor: pointer;
-  min-width: 7.5rem;
+  font-size: 0.8125rem;
+}
+
+.cal-results-dir-dropdown .custom-dropdown-trigger > span:not(.custom-dropdown-chevron) {
+  font-size: 0.8125rem;
+  font-weight: 500;
 }
 
 .cal-results-icon-btn {
@@ -5389,6 +5507,108 @@ body.dark-mode .chart-options-result {
   opacity: 0.8;
 }
 
+/* ----------------------------------------------------------------- */
+/* At-a-glance Overview (Calibration Results → Summary default view) */
+/* ----------------------------------------------------------------- */
+.cal-results-overview {
+  display: flex;
+  flex-direction: column;
+  gap: 16px;
+  padding: 4px 0 8px;
+}
+
+/* Native <button> element styled as a KPI card. Neutralise button defaults
+   so .cal-calc-kpi / .cal-calc-kpi--primary shine through. */
+button.cal-results-overview-card {
+  appearance: none;
+  font: inherit;
+  color: inherit;
+  text-align: center;
+  width: 100%;
+  cursor: pointer;
+  position: relative;
+  transition: transform 0.18s ease, box-shadow 0.18s ease,
+    border-color 0.18s ease, background 0.18s ease;
+}
+
+button.cal-results-overview-card:hover:not(:disabled) {
+  transform: translateY(-1px);
+  box-shadow: var(--shadow-md, 0 6px 18px rgba(15, 23, 42, 0.08));
+  border-color: var(--border-color-strong, var(--border-color));
+}
+
+button.cal-results-overview-card:focus-visible {
+  outline: none;
+  box-shadow: var(--focus-ring);
+}
+
+button.cal-results-overview-card:active:not(:disabled) {
+  transform: translateY(0);
+}
+
+/* Primary (combined) hero variant keeps its gradient tint on hover by
+   layering the inset ring a shade stronger rather than a raw shadow. */
+button.cal-results-overview-card.cal-calc-kpi--primary:hover:not(:disabled) {
+  box-shadow: inset 0 0 0 1px rgba(16, 185, 129, 0.4),
+    0 6px 18px rgba(16, 185, 129, 0.12);
+}
+
+.cal-results-overview-hint {
+  margin-top: 14px;
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  font-size: 0.78rem;
+  font-weight: 500;
+  letter-spacing: 0.02em;
+  color: var(--text-color-muted);
+  opacity: 0.85;
+  transition: color 0.18s ease, opacity 0.18s ease, gap 0.18s ease;
+}
+
+.cal-results-overview-hint svg {
+  width: 0.7rem;
+  height: 0.7rem;
+}
+
+button.cal-results-overview-card:hover:not(:disabled)
+  .cal-results-overview-hint {
+  color: var(--primary-color);
+  opacity: 1;
+  gap: 10px;
+}
+
+button.cal-results-overview-card.cal-calc-kpi--primary
+  .cal-results-overview-hint {
+  color: var(--success-color);
+  opacity: 0.95;
+}
+
+button.cal-results-overview-card.cal-calc-kpi--primary:hover:not(:disabled)
+  .cal-results-overview-hint {
+  color: var(--success-color);
+}
+
+/* Missing / not-yet-calculated card */
+button.cal-results-overview-card--empty,
+button.cal-results-overview-card--empty:disabled {
+  cursor: default;
+  background: var(--background-color);
+  border-style: dashed;
+  opacity: 0.85;
+}
+
+button.cal-results-overview-card--empty .cal-calc-kpi-num {
+  color: var(--text-color-muted);
+  font-weight: 500;
+}
+
+button.cal-results-overview-card--empty:hover {
+  transform: none;
+  box-shadow: none;
+  border-color: var(--border-color);
+}
+
 .cal-results-disclosure {
   border: 1px solid var(--border-color);
   border-radius: 12px;
@@ -5545,11 +5765,13 @@ body.dark-mode .chart-options-result {
   gap: 10px 14px;
 }
 
+/* Pill toggle cluster — matches .cal-results-tabs language: no cluster
+   background, soft primary tint on hover/active, no raised shadow. */
 .cal-results-pill-group {
   display: inline-flex;
-  padding: 3px;
+  padding: 0;
   border-radius: 999px;
-  background: var(--background-color);
+  background-color: transparent;
   gap: 2px;
 }
 
@@ -5561,16 +5783,23 @@ body.dark-mode .chart-options-result {
   font-family: inherit;
   border: none;
   border-radius: 999px;
-  background: transparent;
+  background-color: transparent;
   color: var(--text-color-muted);
   cursor: pointer;
-  transition: background 0.15s ease, color 0.15s ease;
+  box-shadow: none;
+  transition: background-color 0.15s ease, color 0.15s ease;
+}
+
+.cal-results-pill:hover:not(.is-active) {
+  background-color: var(--primary-color-soft);
+  color: var(--text-color);
 }
 
 .cal-results-pill.is-active {
-  background: var(--content-background);
-  color: var(--text-color);
-  box-shadow: 0 1px 3px rgba(0, 0, 0, 0.07);
+  background-color: var(--primary-color-soft);
+  color: var(--primary-color);
+  font-weight: 600;
+  box-shadow: none;
 }
 
 .cal-results-inline-select {
@@ -5629,7 +5858,6 @@ body.dark-mode .chart-options-result {
 
 .cal-results-tab:focus-visible,
 .cal-results-pill:focus-visible,
-.cal-results-dir-select:focus-visible,
 .cal-results-inline-select:focus-visible,
 .cal-results-icon-btn:focus-visible {
   outline: 2px solid var(--primary-color);
@@ -5683,10 +5911,9 @@ body.dark-mode .chart-options-result {
   }
 }
 
-body.dark-mode .cal-results-tab.is-active,
-body.dark-mode .cal-results-pill.is-active {
-  box-shadow: 0 1px 3px rgba(0, 0, 0, 0.35);
-}
+/* Active cal-results pills now use the theme-aware primary-color-soft
+   tint, so the old dark-mode raised-shadow override is no longer
+   needed — the token system carries the theme difference on its own. */
 
 body.dark-mode .cal-results-disclosure {
   box-shadow: 0 2px 10px rgba(0, 0, 0, 0.28);
@@ -6818,40 +7045,13 @@ body.dark-mode .form-group label {
   color: #a0aec0;
 }
 
-/* --- Header & Navigation --- */
-body.dark-mode .tab-button {
-  color: #a0aec0;
-}
-
-body.dark-mode .tab-button:hover {
-  color: var(--primary-color);
-  background-color: transparent;
-}
-
-body.dark-mode .tab-button.active {
-  color: var(--primary-color);
-  border-bottom-color: var(--primary-color);
-  background-color: transparent;
-}
-
+/* --- Header & Navigation ---
+   Legacy dark-mode overrides for the tab buttons are intentionally
+   minimal: the canonical rules above already pull every color from CSS
+   custom properties, so the theme cross-fades automatically without
+   per-tab overrides. */
 body.dark-mode .sub-nav {
   border-bottom-color: var(--border-color);
-}
-
-body.dark-mode .sub-nav button {
-  background-color: transparent;
-  border-color: transparent;
-  color: var(--text-color-muted);
-}
-
-body.dark-mode .sub-nav button:hover {
-  color: var(--primary-color);
-}
-
-body.dark-mode .sub-nav button.active {
-  background-color: transparent;
-  color: var(--primary-color);
-  border-bottom-color: var(--primary-color);
 }
 
 /* --- Components --- */
@@ -7963,26 +8163,40 @@ body.dark-mode .window-stability-section {
   border-left-color: var(--border-color);
 }
 
+/* Borderless / organic stop button to match the ghost icon language
+   used in the status bar play/caret cluster and the rest of the app. */
 .button-stop {
-  background: var(--content-background);
-  border: 1px solid var(--border-color);
-  color: var(--status-bad);
-  font-size: 1.1rem;
+  background: transparent;
+  border: none;
+  color: var(--danger-color, var(--status-bad));
+  font-size: 1.15rem;
   cursor: pointer;
-  transition: background-color 0.2s ease, color 0.2s ease;
-  padding: 10px 15px;
+  padding: 8px 12px;
   display: flex;
   align-items: center;
   justify-content: center;
   width: auto;
   height: auto;
-  border-radius: 6px;
+  border-radius: 8px;
+  box-shadow: none;
+  transition: background-color 0.15s ease, color 0.15s ease,
+    transform 0.15s ease;
 }
 
 .button-stop:hover {
-  background-color: var(--status-bad-bg);
-  color: var(--status-bad);
+  background-color: var(--danger-color-light, var(--status-bad-bg));
+  color: var(--danger-color, var(--status-bad));
   transform: none;
+  box-shadow: none;
+}
+
+.button-stop:focus-visible {
+  outline: none;
+  box-shadow: var(--focus-ring);
+}
+
+.button-stop:active {
+  transform: scale(0.96);
 }
 
 .status-bar-progress-container {
@@ -8018,34 +8232,9 @@ body.dark-mode .window-stability-section {
   }
 }
 
-.button-stop {
-  background: none;
-  border: none;
-  color: #dc3545;
-  font-size: 28px;
-  cursor: pointer;
-  transition: transform 0.2s ease, color 0.2s ease;
-  padding: 0;
-  display: flex;
-  align-items: center;
-  justify-content: center;
-}
-
-.button-stop:hover {
-  color: #a71d2a;
-  transform: scale(1.15);
-}
-
-body.dark-mode .button-stop {
-  background: var(--content-background);
-  border-color: var(--border-color);
-  color: var(--status-bad);
-}
-
-body.dark-mode .button-stop:hover {
-  background-color: var(--status-bad-bg);
-  color: var(--status-bad);
-}
+/* Legacy .button-stop overrides removed in favor of the canonical
+   ghost-styled block above, which already handles dark-mode via
+   CSS variables (--danger-color, --danger-color-light). */
 
 .status-bar-progress-container {
   position: absolute;
