@@ -12,7 +12,7 @@
     "@testing-library/jest-dom": "^6.6.3",
     "@testing-library/react": "^16.3.0",
     "@testing-library/user-event": "^13.5.0",
-    "axios": "^1.9.0",
+    "axios": "1.7.9",
     "bootstrap": "^5.3.7",
     "chart.js": "^4.4.9",
     "chartjs-plugin-zoom": "^2.2.0",

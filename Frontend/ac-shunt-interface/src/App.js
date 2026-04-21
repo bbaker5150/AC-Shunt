@@ -15,7 +15,7 @@ import {
 } from "./contexts/InstrumentContext";
 import { ThemeProvider, useTheme } from "./contexts/ThemeContext";
 import "bootstrap/dist/css/bootstrap.min.css";
-import { FaInfoCircle } from "react-icons/fa";
+import { FaInfoCircle, FaTimes, FaSun, FaMoon } from "react-icons/fa";
 import "./App.css";
 import { arrayMove } from "@dnd-kit/sortable";
 import { AVAILABLE_FREQUENCIES, API_BASE_URL } from "./constants/constants";
@@ -111,45 +111,73 @@ const CorrectionsDetailsModal = ({
       }
     ).text;
 
+  const formatShunt = (val) =>
+    val !== "N/A" && val !== null && val !== undefined
+      ? `${val} PPM`
+      : "N/A";
+  const formatTvc = (val) =>
+    val !== null && val !== undefined ? `${val.toFixed(2)} PPM` : "N/A";
+
   return (
-    <div className="modal-overlay">
-      <div className="details-modal-content">
-        <h3>
-          Corrections for {point.current}A @ {formatFrequency(point.frequency)}
-        </h3>
-        <div className="details-modal-body">
-          <div className="detail-item">
-            <span className="detail-label">Shunt Correction:</span>
-            <span className="detail-value">
-              {shuntCorr.correction !== "N/A"
-                ? `${shuntCorr.correction} PPM`
-                : "N/A"}
-            </span>
+    <div className="modal-overlay" onClick={onClose}>
+      <div
+        className="point-corrections-modal"
+        role="dialog"
+        aria-modal="true"
+        aria-labelledby="point-corrections-title"
+        onClick={(e) => e.stopPropagation()}
+      >
+        <header className="point-corrections-header">
+          <div className="point-corrections-header-text">
+            <span className="point-corrections-eyebrow">Test point</span>
+            <h3
+              id="point-corrections-title"
+              className="point-corrections-title"
+            >
+              {point.current} A
+              <span className="point-corrections-title-sep">·</span>
+              {formatFrequency(point.frequency)}
+            </h3>
           </div>
-          <div className="detail-item">
-            <span className="detail-label">STD TVC Correction:</span>
-            <span className="detail-value">
-              {stdTvcCorr !== null ? `${stdTvcCorr.toFixed(2)} PPM` : "N/A"}
-            </span>
-          </div>
-          <div className="detail-item">
-            <span className="detail-label">TI TVC Correction:</span>
-            <span className="detail-value">
-              {tiTvcCorr !== null ? `${tiTvcCorr.toFixed(2)} PPM` : "N/A"}
-            </span>
-          </div>
-        </div>
-        <div className="modal-actions">
-          <button onClick={onClose} className="button">
-            Close
+          <button
+            type="button"
+            onClick={onClose}
+            className="cal-results-excel-icon-btn"
+            title="Close"
+            aria-label="Close"
+          >
+            <FaTimes aria-hidden />
           </button>
+        </header>
+
+        <div className="point-corrections-body">
+          <div className="point-corrections-row">
+            <span className="point-corrections-label">Shunt correction</span>
+            <span className="point-corrections-value">
+              {formatShunt(shuntCorr.correction)}
+            </span>
+          </div>
+          <div className="point-corrections-row">
+            <span className="point-corrections-label">STD TVC correction</span>
+            <span className="point-corrections-value">
+              {formatTvc(stdTvcCorr)}
+            </span>
+          </div>
+          <div className="point-corrections-row">
+            <span className="point-corrections-label">TI TVC correction</span>
+            <span className="point-corrections-value">
+              {formatTvc(tiTvcCorr)}
+            </span>
+          </div>
         </div>
       </div>
     </div>
   );
 };
 
-// ConfirmationModal and Notification components
+// Confirmation modal — cohesive with the view-corrections / point-corrections
+// modal design (eyebrow + title header, icon-only close, single action pinned
+// at the bottom-right). The destructive variant gets a red action button.
 const ConfirmationModal = ({
   isOpen,
   title,
@@ -160,24 +188,51 @@ const ConfirmationModal = ({
   confirmButtonClass = "",
 }) => {
   if (!isOpen) return null;
+  const isDanger = /danger/.test(confirmButtonClass);
   return (
-    <div className="modal-overlay">
-      <div className="modal-content">
-        <h3>{title}</h3>
-        <p style={{ marginBottom: "25px", whiteSpace: "pre-wrap" }}>
-          {message}
-        </p>
-        <div className="modal-actions">
-          <button onClick={onCancel} className="button button-secondary">
-            Cancel
-          </button>
+    <div className="modal-overlay" onClick={onCancel}>
+      <div
+        className="confirm-modal"
+        role="dialog"
+        aria-modal="true"
+        aria-labelledby="confirm-modal-title"
+        onClick={(e) => e.stopPropagation()}
+      >
+        <header className="confirm-modal-header">
+          <div className="confirm-modal-header-text">
+            <span className="confirm-modal-eyebrow">
+              {isDanger ? "Destructive action" : "Confirm"}
+            </span>
+            <h3 id="confirm-modal-title" className="confirm-modal-title">
+              {title}
+            </h3>
+          </div>
           <button
+            type="button"
+            onClick={onCancel}
+            className="cal-results-excel-icon-btn"
+            title="Close"
+            aria-label="Close"
+          >
+            <FaTimes aria-hidden />
+          </button>
+        </header>
+
+        <div className="confirm-modal-body">
+          <p className="confirm-modal-message">{message}</p>
+        </div>
+
+        <footer className="confirm-modal-footer">
+          <button
+            type="button"
             onClick={onConfirm}
-            className={`button ${confirmButtonClass}`}
+            className={`confirm-modal-action${
+              isDanger ? " confirm-modal-action--danger" : ""
+            }`}
           >
             {confirmText}
           </button>
-        </div>
+        </footer>
       </div>
     </div>
   );
@@ -627,103 +682,170 @@ function AppContent() {
         />
       )}
 
-      <header className="App-header">
-        <div className="header-top-bar">
-          <div className="header-left">
+      <header className="app-chrome">
+        <div className="app-chrome-bar">
+          <div className="app-chrome-brand">
+            <div className="app-chrome-brand-mark" aria-hidden="true">
+              <span className="app-chrome-brand-mark-glyph">Ω</span>
+            </div>
+            <div className="app-chrome-brand-text">
+              <span className="app-chrome-brand-name">
+                AC<span className="app-chrome-brand-dot">·</span>Shunt
+              </span>
+              <span className="app-chrome-brand-sub">
+                Calibration Platform
+              </span>
+            </div>
+          </div>
+
+          {/* Top row right-side is intentionally empty: on Windows this is
+              where the native minimize / maximize / close caption buttons
+              are drawn. All interactive meta controls (session info, db,
+              theme toggle) live on the nav row below to avoid a collision. */}
+        </div>
+
+        <nav className="app-chrome-nav" role="tablist" aria-label="Primary">
+          <div className="app-chrome-nav-tabs">
+            <button
+              role="tab"
+              aria-selected={activeTab === "sessionSetup"}
+              onClick={() => setActiveTab("sessionSetup")}
+              className={`app-chrome-tab${activeTab === "sessionSetup" ? " is-active" : ""}`}
+            >
+              Session
+            </button>
+            <button
+              role="tab"
+              aria-selected={activeTab === "instrumentStatus"}
+              onClick={() => setActiveTab("instrumentStatus")}
+              className={`app-chrome-tab${activeTab === "instrumentStatus" ? " is-active" : ""}`}
+            >
+              Instruments
+            </button>
+            <button
+              role="tab"
+              aria-selected={activeTab === "runCalibration"}
+              onClick={() => setActiveTab("runCalibration")}
+              className={`app-chrome-tab${activeTab === "runCalibration" ? " is-active" : ""}`}
+            >
+              Calibration
+            </button>
+            <button
+              role="tab"
+              aria-selected={activeTab === "calibrationResults"}
+              onClick={() => setActiveTab("calibrationResults")}
+              className={`app-chrome-tab${activeTab === "calibrationResults" ? " is-active" : ""}`}
+            >
+              Results
+            </button>
+          </div>
+
+          <div className="app-chrome-meta app-chrome-meta--nav">
             {selectedSessionName && (
-              <div className="tooltip-container header-tooltip">
-                <FaInfoCircle size="1.5em" />
-                <span className="tooltip-text">
-                  <div className="tooltip-header">Session Details</div>
-                  <div className="tooltip-content">
-                    <strong>Name:</strong> {selectedSessionName}<br />
-                    <strong>TI Model:</strong> {sessionInfo?.test_instrument_model || 'N/A'}<br />
-                    <strong>TI Serial:</strong> {sessionInfo?.test_instrument_serial || 'N/A'}<br />
-                    <strong>STD Model:</strong> {sessionInfo?.standard_instrument_model || 'N/A'}<br />
-                    <strong>STD Serial:</strong> {sessionInfo?.standard_instrument_serial || 'N/A'}<br />
-                    <strong>Date:</strong> {sessionInfo?.created_at ? new Date(sessionInfo.created_at).toLocaleDateString() : 'N/A'}<br />
-                    <strong>Temp:</strong> {sessionInfo?.temperature ? `${sessionInfo.temperature}°C` : 'N/A'}<br />
-                    <strong>Humidity:</strong> {sessionInfo?.humidity ? `${sessionInfo.humidity}%RH` : 'N/A'}
+              <div className="tooltip-container session-info-popover">
+                <button
+                  type="button"
+                  className="app-chrome-meta-icon"
+                  aria-label="Session details"
+                >
+                  <FaInfoCircle aria-hidden />
+                </button>
+                <div
+                  className="session-info-panel"
+                  role="tooltip"
+                  aria-label="Session details"
+                >
+                  <div className="session-info-panel-header">
+                    <span className="session-info-panel-eyebrow">
+                      Active session
+                    </span>
+                    <h4 className="session-info-panel-title" title={selectedSessionName}>
+                      {selectedSessionName}
+                    </h4>
                   </div>
-                </span>
+
+                  <div className="session-info-panel-body">
+                    <div className="session-info-panel-group">
+                      <span className="session-info-group-label">Test instrument</span>
+                      <div className="session-info-row">
+                        <span className="session-info-row-label">Model</span>
+                        <span className="session-info-row-value">
+                          {sessionInfo?.test_instrument_model || "—"}
+                        </span>
+                      </div>
+                      <div className="session-info-row">
+                        <span className="session-info-row-label">Serial</span>
+                        <span className="session-info-row-value">
+                          {sessionInfo?.test_instrument_serial || "—"}
+                        </span>
+                      </div>
+                    </div>
+
+                    <div className="session-info-panel-group">
+                      <span className="session-info-group-label">Standard</span>
+                      <div className="session-info-row">
+                        <span className="session-info-row-label">Model</span>
+                        <span className="session-info-row-value">
+                          {sessionInfo?.standard_instrument_model || "—"}
+                        </span>
+                      </div>
+                      <div className="session-info-row">
+                        <span className="session-info-row-label">Serial</span>
+                        <span className="session-info-row-value">
+                          {sessionInfo?.standard_instrument_serial || "—"}
+                        </span>
+                      </div>
+                    </div>
+
+                    <div className="session-info-panel-group">
+                      <span className="session-info-group-label">Environment</span>
+                      <div className="session-info-row">
+                        <span className="session-info-row-label">Created</span>
+                        <span className="session-info-row-value">
+                          {sessionInfo?.created_at
+                            ? new Date(sessionInfo.created_at).toLocaleDateString()
+                            : "—"}
+                        </span>
+                      </div>
+                      <div className="session-info-row">
+                        <span className="session-info-row-label">Temperature</span>
+                        <span className="session-info-row-value">
+                          {sessionInfo?.temperature
+                            ? `${sessionInfo.temperature} °C`
+                            : "—"}
+                        </span>
+                      </div>
+                      <div className="session-info-row">
+                        <span className="session-info-row-label">Humidity</span>
+                        <span className="session-info-row-value">
+                          {sessionInfo?.humidity
+                            ? `${sessionInfo.humidity} %RH`
+                            : "—"}
+                        </span>
+                      </div>
+                    </div>
+                  </div>
+                </div>
               </div>
             )}
             {dbInfo && (
-              <div className="db-indicator-pill">
+              <div className="db-indicator-pill" title={`Data source: ${dbInfo.database_type === 'sqlite3' ? 'SQLite' : 'MSSQL'}`}>
                 <span className="db-status-dot"></span>
                 <span className="db-name-text">
                   {dbInfo.database_type === 'sqlite3' ? 'SQLite' : 'MSSQL'}
                 </span>
               </div>
             )}
+            <button
+              type="button"
+              onClick={toggleTheme}
+              className="app-chrome-theme-btn"
+              aria-label={theme === "dark" ? "Switch to light mode" : "Switch to dark mode"}
+              title={theme === "dark" ? "Switch to light mode" : "Switch to dark mode"}
+            >
+              {theme === "dark" ? <FaSun aria-hidden /> : <FaMoon aria-hidden />}
+            </button>
           </div>
-          <div className="header-center">
-            <h1>AC Shunt Calibration</h1>
-          </div>
-          <div className="header-right">
-            <div className="theme-switcher">
-              <span>{theme === "light" ? "Light" : "Dark"} Mode</span>
-              <label className="switch">
-                <input
-                  type="checkbox"
-                  onChange={toggleTheme}
-                  checked={theme === "dark"}
-                />
-                <span className="slider round" />
-              </label>
-            </div>
-          </div>
-        </div>
-
-        <nav className="tab-navigation">
-          <button
-            onClick={() => setActiveTab("sessionSetup")}
-            className={
-              activeTab === "sessionSetup" ? "tab-button active" : "tab-button"
-            }
-          >
-            Session
-          </button>
-          <button
-            onClick={() => setActiveTab("instrumentStatus")}
-            className={
-              activeTab === "instrumentStatus"
-                ? "tab-button active"
-                : "tab-button"
-            }
-          >
-            Instruments
-          </button>
-          <button
-            onClick={() => setActiveTab("runCalibration")}
-            className={
-              activeTab === "runCalibration"
-                ? "tab-button active"
-                : "tab-button"
-            }
-          >
-            Calibration
-          </button>
-          <button
-            onClick={() => setActiveTab("calibrationResults")}
-            className={
-              activeTab === "calibrationResults"
-                ? "tab-button active"
-                : "tab-button"
-            }
-          >
-            Results
-          </button>
-          {/* <button
-            onClick={() => setActiveTab("uncertaintyAnalysis")}
-            className={
-              activeTab === "uncertaintyAnalysis"
-                ? "tab-button active"
-                : "tab-button"
-            }
-          >
-            Analysis
-          </button> */}
         </nav>
       </header>
 

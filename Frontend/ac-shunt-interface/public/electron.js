@@ -1,18 +1,105 @@
 const { app, BrowserWindow, Menu, MenuItem, ipcMain, nativeTheme } = require('electron');
 const path = require('path');
+const fs = require('fs');
 const { spawn } = require('child_process');
 
 let mainWindow;
 let backendProcess;
 
+// -------------------------------------------------------------------
+// Theme sync
+// Keep the native window chrome, resize/reload paint color, and OS
+// title bar aligned with the React app's current theme. The chosen
+// theme is persisted to userData so subsequent launches open with the
+// correct backgroundColor and don't flash the opposite theme.
+// -------------------------------------------------------------------
+const THEME_BACKGROUND = {
+    // Must match --background-color in App.css for both themes.
+    light: '#f5f7fb',
+    dark: '#0b1220',
+};
+
+// The title bar overlay (Windows only) is painted by Electron natively, so
+// it needs its own color pair. We match the app-chrome (header) background
+// and the primary text color so the window controls feel part of the app.
+const TITLE_BAR_OVERLAY = {
+    light: { color: '#ffffff', symbolColor: '#0f172a' },
+    dark:  { color: '#0d1526', symbolColor: '#e2e8f0' },
+};
+
+function getThemeConfigPath() {
+    return path.join(app.getPath('userData'), 'theme.json');
+}
+
+function readPersistedTheme() {
+    try {
+        const raw = fs.readFileSync(getThemeConfigPath(), 'utf-8');
+        const parsed = JSON.parse(raw);
+        if (parsed && (parsed.theme === 'light' || parsed.theme === 'dark')) {
+            return parsed.theme;
+        }
+    } catch (_) {
+        // file missing or invalid — treat as unset
+    }
+    return null;
+}
+
+function persistTheme(theme) {
+    try {
+        const filePath = getThemeConfigPath();
+        fs.mkdirSync(path.dirname(filePath), { recursive: true });
+        fs.writeFileSync(filePath, JSON.stringify({ theme }), 'utf-8');
+    } catch (err) {
+        console.error('Failed to persist theme:', err);
+    }
+}
+
+function applyTheme(theme) {
+    if (theme !== 'light' && theme !== 'dark') return;
+    nativeTheme.themeSource = theme;
+    if (mainWindow && !mainWindow.isDestroyed()) {
+        mainWindow.setBackgroundColor(THEME_BACKGROUND[theme]);
+        // Re-paint the native title bar caption buttons to match on Windows.
+        if (process.platform === 'win32' && typeof mainWindow.setTitleBarOverlay === 'function') {
+            try {
+                mainWindow.setTitleBarOverlay(TITLE_BAR_OVERLAY[theme]);
+            } catch (err) {
+                // setTitleBarOverlay only works when titleBarStyle !== 'default'.
+                // Ignore failures on unsupported configurations.
+            }
+        }
+    }
+    persistTheme(theme);
+}
+
+function resolveInitialTheme() {
+    const persisted = readPersistedTheme();
+    if (persisted) return persisted;
+    return nativeTheme.shouldUseDarkColors ? 'dark' : 'light';
+}
+
 function createWindow() {
+    const initialTheme = resolveInitialTheme();
+    // Prime nativeTheme so OS-level chrome (title bar, scrollbars on some
+    // platforms, dialogs) matches from the first paint.
+    nativeTheme.themeSource = initialTheme;
+
+    // Use the Windows "hidden" title bar style so we can paint the caption
+    // area with our own color. Electron will still draw the minimize /
+    // maximize / close buttons as an overlay — we just theme them.
+    const useWindowsOverlay = process.platform === 'win32';
+
     mainWindow = new BrowserWindow({
         width: 1280,
         height: 800,
         title: "AC Shunt Calibration",
         icon: path.join(__dirname, 'favicon.ico'),
         autoHideMenuBar: true,
-        backgroundColor: '#2b2b2b', 
+        backgroundColor: THEME_BACKGROUND[initialTheme],
+        titleBarStyle: useWindowsOverlay ? 'hidden' : 'default',
+        titleBarOverlay: useWindowsOverlay
+            ? { ...TITLE_BAR_OVERLAY[initialTheme], height: 32 }
+            : false,
         webPreferences: {
             nodeIntegration: true,
             contextIsolation: false,
@@ -69,7 +156,14 @@ function createWindow() {
 }
 
 ipcMain.on('theme-changed', (event, theme) => {
-    nativeTheme.themeSource = theme;
+    applyTheme(theme);
+});
+
+// Allow the renderer to read back the theme the main process booted
+// with — useful if the React app wants to reconcile its in-memory state
+// with what Electron already painted (prevents a mid-load flash).
+ipcMain.handle('theme-get', () => {
+    return resolveInitialTheme();
 });
 
 function startBackend() {

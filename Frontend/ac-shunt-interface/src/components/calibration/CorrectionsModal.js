@@ -1135,44 +1135,43 @@ function CorrectionsModal({ isOpen, onClose, showNotification, onUpdate, uniqueT
             <span className="corrections-modal-eyebrow">Reference data</span>
             <h3 className="corrections-modal-title">Corrections &amp; Uncertainties</h3>
           </div>
-          <button
-            onClick={onClose}
-            className="cal-results-excel-icon-btn"
-            title="Close"
-            aria-label="Close"
-          >
-            <FaTimes aria-hidden />
-          </button>
+          <div className="corrections-modal-header-actions">
+            {!isManualFormOpen && (
+              <div
+                className="cal-results-tabs corrections-modal-type-toggle"
+                role="tablist"
+                aria-label="Correction data type"
+              >
+                <button
+                  type="button"
+                  role="tab"
+                  aria-selected={primaryTab === "AC Shunt"}
+                  className={`cal-results-tab${primaryTab === "AC Shunt" ? " is-active" : ""}`}
+                  onClick={() => setPrimaryTab("AC Shunt")}
+                >
+                  AC Shunt
+                </button>
+                <button
+                  type="button"
+                  role="tab"
+                  aria-selected={primaryTab === "TVC"}
+                  className={`cal-results-tab${primaryTab === "TVC" ? " is-active" : ""}`}
+                  onClick={() => setPrimaryTab("TVC")}
+                >
+                  TVC
+                </button>
+              </div>
+            )}
+            <button
+              onClick={onClose}
+              className="cal-results-excel-icon-btn"
+              title="Close"
+              aria-label="Close"
+            >
+              <FaTimes aria-hidden />
+            </button>
+          </div>
         </header>
-
-        {!isManualFormOpen && (
-          <nav
-            className="corrections-tab-nav"
-            role="tablist"
-            aria-label="Correction data type"
-          >
-            <div className="cal-results-tabs">
-              <button
-                type="button"
-                role="tab"
-                aria-selected={primaryTab === "AC Shunt"}
-                className={`cal-results-tab${primaryTab === "AC Shunt" ? " is-active" : ""}`}
-                onClick={() => setPrimaryTab("AC Shunt")}
-              >
-                AC Shunt
-              </button>
-              <button
-                type="button"
-                role="tab"
-                aria-selected={primaryTab === "TVC"}
-                className={`cal-results-tab${primaryTab === "TVC" ? " is-active" : ""}`}
-                onClick={() => setPrimaryTab("TVC")}
-              >
-                TVC
-              </button>
-            </div>
-          </nav>
-        )}
 
         <main className="corrections-modal-body">
           {isManualFormOpen ? (

@@ -1,5 +1,6 @@
 import React, { useState, useEffect } from "react";
 import axios from "axios";
+import { FaTimes, FaArrowLeft, FaArrowRight, FaBolt, FaPlus } from "react-icons/fa";
 import {
   AMPLIFIER_RANGES_A,
   API_BASE_URL,
@@ -276,116 +277,212 @@ function ConfigurationModal({
 
   if (!isOpen) return null;
 
+  const stepTitle = step === 1 ? "Test point setup" : "Select frequencies";
+  const stepSubtitle =
+    step === 1 ? "Define the shunt range and input current." : "Pick the frequencies to generate.";
+
   return (
-    <div className="modal-overlay">
-      <div className="modal-content modal-content--wide">
-        {step === 1 && (
-          <>
-            <div className="config-header">
-              <h2 className="modal-section-title">Test Point Configuration</h2>
-            </div>
-            <div className="config-grid">
-              <div className="config-column">
-                <div className="form-section">
-                  <label htmlFor="shunt-range">AC Shunt Range</label>
-                  <div className="input-with-unit">
-                    <input type="number" id="shunt-range" value={shuntRange} onChange={(e) => setShuntRange(e.target.value)} disabled={uniqueTestPoints.length > 0} placeholder="e.g., 20" />
-                    <select value={shuntRangeUnit} onChange={(e) => setShuntRangeUnit(e.target.value)} disabled={uniqueTestPoints.length > 0}>
-                      <option value="A">A</option>
-                      <option value="mA">mA</option>
-                    </select>
-                  </div>
-                </div>
-                <div className="form-section">
-                  <label htmlFor="amplifier-range">8100 Amplifier Range</label>
-                  <input type="text" id="amplifier-range" value={amplifierRange ? `${amplifierRange} A` : ""} disabled readOnly />
-                </div>
-              </div>
-              <div className="config-column">
-                <div className="form-section">
-                  <label htmlFor="input-current">Input Current</label>
+    <div className="modal-overlay" onClick={onClose}>
+      <div
+        className="add-tp-modal"
+        role="dialog"
+        aria-modal="true"
+        aria-labelledby="add-tp-modal-title"
+        onClick={(e) => e.stopPropagation()}
+      >
+        <header className="add-tp-modal-header">
+          <div className="add-tp-modal-header-text">
+            <span className="add-tp-modal-eyebrow">
+              Add test points · Step {step} of 2
+            </span>
+            <h3 id="add-tp-modal-title" className="add-tp-modal-title">
+              {stepTitle}
+            </h3>
+            <p className="add-tp-modal-subtitle">{stepSubtitle}</p>
+          </div>
+          <button
+            type="button"
+            onClick={onClose}
+            className="cal-results-excel-icon-btn"
+            title="Close"
+            aria-label="Close"
+          >
+            <FaTimes aria-hidden />
+          </button>
+        </header>
+
+        <div className="add-tp-modal-body">
+          {step === 1 && (
+            <div className="add-tp-form-grid">
+              <div className="form-section">
+                <label htmlFor="shunt-range">AC shunt range</label>
+                <div className="input-with-unit">
+                  <input
+                    type="number"
+                    id="shunt-range"
+                    value={shuntRange}
+                    onChange={(e) => setShuntRange(e.target.value)}
+                    disabled={uniqueTestPoints.length > 0}
+                    placeholder="e.g., 20"
+                  />
                   <select
-                    id="input-current"
-                    value={inputCurrent}
-                    onChange={(e) => setInputCurrent(e.target.value ? parseFloat(e.target.value) : "")}
-                    disabled={uniqueTestPoints.length > 0 || filteredCurrents.length === 0}
+                    value={shuntRangeUnit}
+                    onChange={(e) => setShuntRangeUnit(e.target.value)}
+                    disabled={uniqueTestPoints.length > 0}
                   >
-                    <option value="">
-                      {uniqueTestPoints.length > 0
-                        ? "Current is locked"
-                        : !shuntRange
-                        ? "-- Set AC Shunt Range First --"
-                        : "-- Select Current --"}
-                    </option>
-                    {filteredCurrents.map((current) => (
-                      <option key={current.value} value={current.value}>
-                        {current.text}
-                      </option>
-                    ))}
+                    <option value="A">A</option>
+                    <option value="mA">mA</option>
                   </select>
                 </div>
               </div>
-            </div>
-            <div className="modal-actions">
-              <button onClick={onClose} className="button button-secondary">Cancel</button>
-              <button
-                onClick={handleNextStep}
-                className="button"
-                disabled={!inputCurrent}
-              >
-                Next: Select Frequencies
-              </button>
-            </div>
-          </>
-        )}
 
-        {step === 2 && (
-          <>
-            <div className="modal-header-flex">
-                <h3 className="modal-section-title">Select Frequencies</h3>
-                <button type="button" className="modal-select-all-button" onClick={handleSelectAllFrequencies}>
-                    {areAllFrequenciesSelected ? 'Deselect All' : 'Select All'}
+              <div className="form-section">
+                <label htmlFor="amplifier-range">8100 amplifier range</label>
+                <input
+                  type="text"
+                  id="amplifier-range"
+                  value={amplifierRange ? `${amplifierRange} A` : ""}
+                  disabled
+                  readOnly
+                  placeholder="Auto-selected from current"
+                />
+              </div>
+
+              <div className="form-section full-width">
+                <label htmlFor="input-current">Input current</label>
+                <select
+                  id="input-current"
+                  value={inputCurrent}
+                  onChange={(e) =>
+                    setInputCurrent(e.target.value ? parseFloat(e.target.value) : "")
+                  }
+                  disabled={
+                    uniqueTestPoints.length > 0 || filteredCurrents.length === 0
+                  }
+                >
+                  <option value="">
+                    {uniqueTestPoints.length > 0
+                      ? "Current is locked"
+                      : !shuntRange
+                      ? "Set AC shunt range first"
+                      : "Select current"}
+                  </option>
+                  {filteredCurrents.map((current) => (
+                    <option key={current.value} value={current.value}>
+                      {current.text}
+                    </option>
+                  ))}
+                </select>
+              </div>
+            </div>
+          )}
+
+          {step === 2 && (
+            <>
+              <div className="add-tp-list-header">
+                <span className="add-tp-list-eyebrow">Available frequencies</span>
+                <button
+                  type="button"
+                  className="add-tp-list-toggle"
+                  onClick={handleSelectAllFrequencies}
+                >
+                  {areAllFrequenciesSelected ? "Deselect all" : "Select all"}
                 </button>
-            </div>
-            
-            <div className="frequency-list-container" style={{ maxHeight: "400px", overflowY: "auto", paddingLeft: "4px", paddingRight: "15px" }}>
-              {allAvailableFrequencies.map((freq) => (
-                <div key={freq.value} className="frequency-selection-row" style={{ padding: "8px 4px", display: "flex", alignItems: "center", gap: "10px" }}>
-                  <input type="checkbox" id={`freq-${freq.value}`} checked={selectedFrequencies.has(freq.value)} onChange={() => {
-                      const newSelected = new Set(selectedFrequencies);
-                      if (newSelected.has(freq.value)) newSelected.delete(freq.value);
-                      else newSelected.add(freq.value);
-                      setSelectedFrequencies(newSelected);
-                  }}/>
-                  <label htmlFor={`freq-${freq.value}`} style={{ cursor: "pointer", margin: 0 }}>{freq.text}</label>
-                </div>
-              ))}
-            </div>
+              </div>
 
-            <div className="custom-frequency-input" style={{ display: "flex", gap: "10px", marginTop: "15px", paddingLeft: "4px" }}>
-              <input 
-                type="number" 
-                placeholder="Enter custom frequency (Hz)" 
-                value={customFreqInput}
-                onChange={(e) => setCustomFreqInput(e.target.value)}
-                onKeyDown={(e) => e.key === 'Enter' && handleAddCustomFrequency()}
-                style={{ flex: 1, padding: "8px", borderRadius: "4px", border: "1px solid var(--border-color)" }}
-              />
-              <button 
-                className="button button-secondary" 
-                onClick={handleAddCustomFrequency}
-                disabled={!customFreqInput}
-              >
-                Add
-              </button>
-            </div>
-            
-            <div className="modal-actions" style={{ marginTop: "20px" }}>
-              <button onClick={() => setStep(1)} className="button button-secondary">Back to Configuration</button>
-              <button onClick={handleConfirmAndSaveFrequencies} className="button">Generate Test Points</button>
-            </div>
-          </>
-        )}
+              <div className="add-tp-freq-list">
+                {allAvailableFrequencies.map((freq) => {
+                  const checked = selectedFrequencies.has(freq.value);
+                  return (
+                    <label
+                      key={freq.value}
+                      className={`add-tp-freq-row${checked ? " is-checked" : ""}`}
+                      htmlFor={`freq-${freq.value}`}
+                    >
+                      <input
+                        type="checkbox"
+                        id={`freq-${freq.value}`}
+                        checked={checked}
+                        onChange={() => {
+                          const newSelected = new Set(selectedFrequencies);
+                          if (newSelected.has(freq.value))
+                            newSelected.delete(freq.value);
+                          else newSelected.add(freq.value);
+                          setSelectedFrequencies(newSelected);
+                        }}
+                      />
+                      <span className="add-tp-freq-label">{freq.text}</span>
+                    </label>
+                  );
+                })}
+              </div>
+
+              <div className="add-tp-custom-row">
+                <input
+                  type="number"
+                  placeholder="Custom frequency (Hz)"
+                  value={customFreqInput}
+                  onChange={(e) => setCustomFreqInput(e.target.value)}
+                  onKeyDown={(e) =>
+                    e.key === "Enter" && handleAddCustomFrequency()
+                  }
+                  className="add-tp-custom-input"
+                />
+                <button
+                  type="button"
+                  className="add-tp-custom-add add-tp-custom-add--icon"
+                  onClick={handleAddCustomFrequency}
+                  disabled={!customFreqInput}
+                  title="Add custom frequency"
+                  aria-label="Add custom frequency"
+                >
+                  <FaPlus aria-hidden />
+                </button>
+              </div>
+            </>
+          )}
+        </div>
+
+        <footer className="add-tp-modal-footer">
+          {step === 2 && (
+            <button
+              type="button"
+              onClick={() => setStep(1)}
+              className="add-tp-action add-tp-action--ghost add-tp-action--icon"
+              aria-label="Back to configuration"
+              title="Back"
+            >
+              <FaArrowLeft aria-hidden />
+            </button>
+          )}
+
+          <div className="add-tp-modal-footer-spacer" />
+
+          {step === 1 && (
+            <button
+              type="button"
+              onClick={handleNextStep}
+              className="add-tp-action add-tp-action--primary add-tp-action--icon"
+              disabled={!inputCurrent}
+              aria-label="Next: select frequencies"
+              title="Next"
+            >
+              <FaArrowRight aria-hidden />
+            </button>
+          )}
+          {step === 2 && (
+            <button
+              type="button"
+              onClick={handleConfirmAndSaveFrequencies}
+              className="add-tp-action add-tp-action--primary add-tp-action--icon"
+              aria-label="Generate test points"
+              title="Generate test points"
+              disabled={selectedFrequencies.size === 0}
+            >
+              <FaBolt aria-hidden />
+            </button>
+          )}
+        </footer>
       </div>
     </div>
   );

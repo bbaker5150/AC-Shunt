@@ -1,5 +1,5 @@
 import React, { useCallback, useState, useEffect, useRef } from "react";
-import { DndContext, closestCenter } from "@dnd-kit/core";
+import { DndContext, closestCenter, MeasuringStrategy } from "@dnd-kit/core";
 import {
   SortableContext,
   useSortable,
@@ -200,39 +200,50 @@ const SortableTestPointItem = ({
     isDragging,
   } = useSortable({ id: point.key });
 
-  // Prioritize "Failed" -> "Complete" -> "Partial"
-  const getBorderStyle = () => {
-    if (isFailed) return "4px solid var(--status-bad, #e74c3c)";
-    if (isComplete) return "4px solid var(--status-good, #2ecc71)";
-    if (isPartial) return "4px solid var(--status-warning, #f1c40f)";
-    return "4px solid transparent";
-  };
+  // Prioritize "Failed" -> "Complete" -> "Partial" -> "Idle"
+  const statusModifier = isFailed
+    ? "is-failed"
+    : isComplete
+    ? "is-complete"
+    : isPartial
+    ? "is-partial"
+    : "is-idle";
 
   const style = {
     transform: CSS.Transform.toString(transform),
     transition,
-    opacity: isDragging ? 0.5 : 1,
-    borderLeft: getBorderStyle(), // <-- Applied here
+    opacity: isDragging ? 0.6 : 1,
   };
+
+  const classes = [
+    "test-point-item-selectable",
+    statusModifier,
+    isFocused ? "active" : "",
+    isComplete ? "completed" : "",
+    isDragging ? "dragging" : "",
+    isContextMenuTarget ? "context-active" : "",
+  ]
+    .filter(Boolean)
+    .join(" ");
 
   return (
     <div
       ref={setNodeRef}
       style={style}
-      className={`test-point-item-selectable ${isFocused ? "active" : ""} ${isComplete ? "completed" : ""
-        } ${isDragging ? "dragging" : ""} ${isContextMenuTarget ? "context-active" : ""
-        }`}
+      className={classes}
       onClick={() => onFocus(point)}
       onContextMenu={(e) => onContextMenu(e, point)}
       {...attributes}
     >
+      <span className="tp-status-rail" aria-hidden />
       <div
         className="drag-handle"
         {...listeners}
         onClick={(e) => e.stopPropagation()}
         title="Drag to reorder"
+        aria-label="Drag to reorder"
       >
-        <FaGripVertical />
+        <FaGripVertical aria-hidden />
       </div>
       <input
         type="checkbox"
@@ -244,24 +255,30 @@ const SortableTestPointItem = ({
         onClick={(e) => e.stopPropagation()}
         disabled={areControlsDisabled}
         className="tp-checkbox"
+        aria-label={`Select ${formatCurrent(point.current)} at ${formatFrequency(
+          point.frequency
+        )}`}
       />
-      <div className="tp-label" style={{ display: "flex", alignItems: "center", flex: 1 }}>
+      <div className="tp-label">
         <span className="test-point-name">
-          {formatCurrent(point.current)} @ {formatFrequency(point.frequency)}
+          <span className="tp-current">{formatCurrent(point.current)}</span>
+          <span className="tp-sep" aria-hidden>
+            ·
+          </span>
+          <span className="tp-frequency">
+            {formatFrequency(point.frequency)}
+          </span>
         </span>
-
-        {/* Warning Icon moved directly next to the text */}
         {isFailed && (
           <FaExclamationCircle
-            style={{ color: "var(--status-bad, #e74c3c)", fontSize: "0.9em", marginLeft: "8px", flexShrink: 0 }}
+            className="tp-failed-icon"
             title="Failed stability check"
+            aria-label="Failed stability check"
           />
         )}
-
-        {/* Pushes the animated loading dot to the far right */}
-        <div style={{ marginLeft: "auto", display: "flex", alignItems: "center" }}>
-          {isCurrentlyExecuting && <span className="status-indicator"></span>}
-        </div>
+        {isCurrentlyExecuting && (
+          <span className="status-indicator" aria-label="Running" />
+        )}
       </div>
     </div>
   );
@@ -384,58 +401,110 @@ function TestPointSidebar({
     none: "Select All",
   }[selectAllState];
 
+  const totalPoints = uniqueTestPoints.length;
+  const selectedCount = selectedTPs.size;
+
   return (
-    <div className="test-point-sidebar-content">
-      <div className="sidebar-header">
-        <h4>{activeDirection === 'Forward' ? 'Forward' : 'Reverse'} Test Points</h4>
+    <div className="test-point-sidebar-content tp-sidebar">
+      <header className="tp-sidebar-header">
+        <div className="tp-sidebar-header-text">
+          <span className="tp-sidebar-eyebrow">Test points</span>
+          <h4 className="tp-sidebar-title">
+            {activeDirection === "Forward" ? "Forward" : "Reverse"}
+            <span className="tp-sidebar-count" aria-hidden>
+              {totalPoints}
+            </span>
+          </h4>
+        </div>
         <DirectionToggle
           activeDirection={activeDirection}
           setActiveDirection={setActiveDirection}
         />
+      </header>
+
+      <div className="tp-sidebar-toolbar">
+        <div className="tp-sidebar-toolbar-group">
+          <button
+            onClick={onToggleSelectAll}
+            className="sidebar-action-button"
+            disabled={
+              isBulkRunning || isCollecting || uniqueTestPoints.length === 0
+            }
+            aria-label={selectAllTooltip}
+            title={selectAllTooltip}
+          >
+            <SelectAllIcon />
+          </button>
+          <button
+            onClick={onDeleteSelected}
+            className="sidebar-action-button sidebar-action-button--danger"
+            disabled={isBulkRunning || isCollecting || selectedTPs.size === 0}
+            aria-label="Delete selected test points"
+            title="Delete selected"
+          >
+            <FaTrashAlt />
+          </button>
+          <button
+            onClick={onAddTestPoints}
+            className="sidebar-action-button"
+            disabled={isBulkRunning || isCollecting || !selectedSessionId}
+            aria-label="Add new test points"
+            title="Add new test points"
+          >
+            <FaPlus />
+          </button>
+        </div>
+        <div className="tp-sidebar-toolbar-meta">
+          {selectedCount > 0 && (
+            <span className="tp-sidebar-selection-count">
+              {selectedCount} selected
+            </span>
+          )}
+          <button
+            onClick={onViewCorrections}
+            className="sidebar-action-button"
+            disabled={isBulkRunning || isCollecting || !selectedSessionId}
+            aria-label="View corrections data"
+            title="View corrections data"
+          >
+            <IoDocumentText />
+          </button>
+        </div>
       </div>
 
-      {/* Actions Bar Below Header */}
-      <div className="sidebar-actions-bar">
-        <button
-          onClick={onToggleSelectAll}
-          className="sidebar-action-button"
-          disabled={
-            isBulkRunning || isCollecting || uniqueTestPoints.length === 0
-          }
-          title={selectAllTooltip}
-        >
-          <SelectAllIcon />
-        </button>
-        <button
-          onClick={onDeleteSelected}
-          className="sidebar-action-button"
-          disabled={isBulkRunning || isCollecting || selectedTPs.size === 0}
-          title="Delete Selected"
-        >
-          <FaTrashAlt />
-        </button>
-        <button
-          onClick={onAddTestPoints}
-          className="sidebar-action-button"
-          disabled={isBulkRunning || isCollecting || !selectedSessionId}
-          title="Add New Test Points"
-        >
-          <FaPlus />
-        </button>
-        {/* Spacer */}
-        <div style={{ flexGrow: 1 }} />
-        <button
-          onClick={onViewCorrections}
-          className="sidebar-action-button"
-          disabled={isBulkRunning || isCollecting || !selectedSessionId}
-          title="View Corrections Data"
-        >
-          <IoDocumentText />
-        </button>
-      </div>
-      {/* End Actions Bar */}
+      {orderedTestPoints.length === 0 && (
+        <div className="tp-sidebar-empty" role="status">
+          <p className="tp-sidebar-empty-title">No test points yet</p>
+          <p className="tp-sidebar-empty-text">
+            Use the + button above to add a point to this session.
+          </p>
+        </div>
+      )}
 
-      <DndContext collisionDetection={closestCenter} onDragEnd={onDragEnd}>
+      <DndContext
+        collisionDetection={closestCenter}
+        onDragEnd={onDragEnd}
+        /*
+          autoScroll: keep the convenience of auto-scrolling while dragging
+          near the edges of the sidebar list, but tighten the threshold
+          and disable layout-shift compensation. Without this, dragging a
+          point below the last item would cause the list's scrollable
+          content height to keep growing (feedback loop between the ghost
+          transform and auto-scroll), producing an "infinitely growing
+          scrollbar" effect.
+        */
+        autoScroll={{
+          threshold: { x: 0, y: 0.15 },
+          layoutShiftCompensation: false,
+        }}
+        /*
+          Only measure droppable rects while dragging, so the container's
+          scrollHeight isn't re-measured during an auto-scroll tick.
+        */
+        measuring={{
+          droppable: { strategy: MeasuringStrategy.WhileDragging },
+        }}
+      >
         <SortableContext
           items={orderedTestPoints.map((p) => p.key)}
           strategy={verticalListSortingStrategy}

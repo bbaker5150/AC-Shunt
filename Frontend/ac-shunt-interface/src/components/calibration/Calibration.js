@@ -1985,119 +1985,133 @@ function Calibration({
 
                     <div className="sub-tab-content">
                       {activeTab === "settings" && (
-                        <form onSubmit={handleSettingsSubmit}>
-                          <h4>Calibration Settings</h4>
-                          <div className="config-grid">
-                            <div className="form-section">
-                              <label htmlFor="initial_warm_up_time">
-                                Initial Warm-up Wait (sec)
-                              </label>
-                              <input
-                                type="number"
-                                id="initial_warm_up_time"
-                                name="initial_warm_up_time"
-                                value={
-                                  calibrationSettings.initial_warm_up_time || 0
-                                }
-                                onChange={(e) =>
-                                  setCalibrationSettings((prev) => ({
-                                    ...prev,
-                                    initial_warm_up_time: e.target.value,
-                                  }))
-                                }
-                              />
-                            </div>
-                            <div className="form-section">
-                              <label htmlFor="num_samples"># of Samples</label>
-                              <input
-                                type="number"
-                                id="num_samples"
-                                name="num_samples"
-                                required
-                                min="2"
-                                value={calibrationSettings.num_samples || ""}
-                                onChange={(e) => {
-                                  const newSamples = parseInt(e.target.value, 10) || 0;
-                                  setCalibrationSettings((prev) => ({
-                                    ...prev,
-                                    num_samples: e.target.value,
-                                    stability_window: prev.stability_window > newSamples && newSamples > 0
-                                      ? newSamples
-                                      : prev.stability_window,
-                                  }));
-                                }}
-                              />
-                            </div>
-                            <div className="form-section">
-                              <label htmlFor="settling_time">
-                                Settling Time (sec)
-                              </label>
-                              <input
-                                type="number"
-                                id="settling_time"
-                                name="settling_time"
-                                required
-                                value={calibrationSettings.settling_time || 5}
-                                onChange={(e) =>
-                                  setCalibrationSettings((prev) => ({
-                                    ...prev,
-                                    settling_time: e.target.value,
-                                  }))
-                                }
-                              />
-                            </div>
-                            {isNplcInstrumentInUse && (
+                        <form
+                          onSubmit={handleSettingsSubmit}
+                          className="settings-form"
+                        >
+                          <div className="settings-form-group">
+                            <span className="settings-form-group-eyebrow">
+                              General
+                            </span>
+                            <div className="form-section-group">
                               <div className="form-section">
-                                <label htmlFor="nplc">
-                                  Reader Integration (NPLC)
+                                <label htmlFor="initial_warm_up_time">
+                                  Initial warm-up wait (sec)
                                 </label>
-                                <select
-                                  id="nplc"
-                                  name="nplc"
-                                  value={calibrationSettings.nplc || 20}
+                                <input
+                                  type="number"
+                                  id="initial_warm_up_time"
+                                  name="initial_warm_up_time"
+                                  value={
+                                    calibrationSettings.initial_warm_up_time || 0
+                                  }
                                   onChange={(e) =>
                                     setCalibrationSettings((prev) => ({
                                       ...prev,
-                                      nplc: parseFloat(e.target.value),
+                                      initial_warm_up_time: e.target.value,
+                                    }))
+                                  }
+                                />
+                              </div>
+                              <div className="form-section">
+                                <label htmlFor="num_samples"># of samples</label>
+                                <input
+                                  type="number"
+                                  id="num_samples"
+                                  name="num_samples"
+                                  required
+                                  min="2"
+                                  value={calibrationSettings.num_samples || ""}
+                                  onChange={(e) => {
+                                    const newSamples = parseInt(e.target.value, 10) || 0;
+                                    setCalibrationSettings((prev) => ({
+                                      ...prev,
+                                      num_samples: e.target.value,
+                                      stability_window: prev.stability_window > newSamples && newSamples > 0
+                                        ? newSamples
+                                        : prev.stability_window,
+                                    }));
+                                  }}
+                                />
+                              </div>
+                              <div className="form-section">
+                                <label htmlFor="settling_time">
+                                  Settling time (sec)
+                                </label>
+                                <input
+                                  type="number"
+                                  id="settling_time"
+                                  name="settling_time"
+                                  required
+                                  value={calibrationSettings.settling_time || 5}
+                                  onChange={(e) =>
+                                    setCalibrationSettings((prev) => ({
+                                      ...prev,
+                                      settling_time: e.target.value,
+                                    }))
+                                  }
+                                />
+                              </div>
+                              {isNplcInstrumentInUse && (
+                                <div className="form-section">
+                                  <label htmlFor="nplc">
+                                    Reader integration (NPLC)
+                                  </label>
+                                  <select
+                                    id="nplc"
+                                    name="nplc"
+                                    value={calibrationSettings.nplc || 20}
+                                    onChange={(e) =>
+                                      setCalibrationSettings((prev) => ({
+                                        ...prev,
+                                        nplc: parseFloat(e.target.value),
+                                      }))
+                                    }
+                                  >
+                                    {NPLC_OPTIONS.map((val) => (
+                                      <option key={val} value={val}>
+                                        {val} PLC
+                                      </option>
+                                    ))}
+                                  </select>
+                                </div>
+                              )}
+                            </div>
+                          </div>
+
+                          <div className="settings-form-group">
+                            <span className="settings-form-group-eyebrow">
+                              Stability
+                            </span>
+                            <div className="form-section-group">
+                              <div className="form-section">
+                                <label htmlFor="stability_check_method">
+                                  Check method
+                                </label>
+                                <select
+                                  id="stability_check_method"
+                                  name="stability_check_method"
+                                  value={calibrationSettings.stability_check_method}
+                                  onChange={(e) =>
+                                    setCalibrationSettings((prev) => ({
+                                      ...prev,
+                                      stability_check_method: e.target.value,
                                     }))
                                   }
                                 >
-                                  {NPLC_OPTIONS.map((val) => (
-                                    <option key={val} value={val}>
-                                      {val} PLC
-                                    </option>
-                                  ))}
+                                  <option value="sliding_window">
+                                    Sliding window
+                                  </option>
+                                  <option value="iqr_filter">IQR filter</option>
                                 </select>
                               </div>
-                            )}
-                            <div className="form-section">
-                              <label htmlFor="stability_check_method">
-                                Stability Check Method
-                              </label>
-                              <select
-                                id="stability_check_method"
-                                name="stability_check_method"
-                                value={calibrationSettings.stability_check_method}
-                                onChange={(e) =>
-                                  setCalibrationSettings((prev) => ({
-                                    ...prev,
-                                    stability_check_method: e.target.value,
-                                  }))
-                                }
-                              >
-                                <option value="sliding_window">
-                                  Sliding Window
-                                </option>
-                                <option value="iqr_filter">IQR Filter</option>
-                              </select>
-                            </div>
 
-                            {calibrationSettings.stability_check_method ===
-                              "sliding_window" && (
+                              {calibrationSettings.stability_check_method ===
+                                "sliding_window" && (
                                 <>
                                   <div className="form-section">
                                     <label htmlFor="stability_window">
-                                      Stability Window (# Samples)
+                                      Stability window (# samples)
                                     </label>
                                     <input
                                       type="number"
@@ -2120,7 +2134,7 @@ function Calibration({
                                   </div>
                                   <div className="form-section">
                                     <label htmlFor="stability_threshold_ppm">
-                                      Stability Threshold (PPM)
+                                      Stability threshold (PPM)
                                     </label>
                                     <input
                                       type="number"
@@ -2142,7 +2156,7 @@ function Calibration({
                                   </div>
                                   <div className="form-section">
                                     <label htmlFor="stability_max_attempts">
-                                      Max Stability Attempts
+                                      Max stability attempts
                                     </label>
                                     <input
                                       type="number"
@@ -2163,11 +2177,11 @@ function Calibration({
                                       }
                                     />
                                   </div>
-                                  <div className="form-section checkbox-section" style={{ display: 'flex', alignItems: 'flex-end', paddingBottom: '10px' }}>
-                                    <label style={{ display: 'flex', alignItems: 'center', gap: '10px', cursor: 'pointer', fontWeight: 'normal' }}>
+                                  <div className="form-section form-section--checkbox full-width">
+                                    <label className="form-section-checkbox-label">
                                       <input
                                         type="checkbox"
-                                        style={{ width: 'auto', margin: 0 }}
+                                        className="form-section-checkbox-input"
                                         checked={calibrationSettings.ignore_instability_after_lock || false}
                                         onChange={(e) =>
                                           setCalibrationSettings((prev) => ({
@@ -2176,17 +2190,17 @@ function Calibration({
                                           }))
                                         }
                                       />
-                                      Bypass Stability Attempts (Post Initial)
+                                      <span>Bypass stability attempts (post initial)</span>
                                     </label>
                                   </div>
                                 </>
                               )}
 
-                            {calibrationSettings.stability_check_method ===
-                              "iqr_filter" && (
+                              {calibrationSettings.stability_check_method ===
+                                "iqr_filter" && (
                                 <div className="form-section">
                                   <label htmlFor="iqr_filter_ppm_threshold">
-                                    IQR Filter Threshold (PPM)
+                                    IQR filter threshold (PPM)
                                   </label>
                                   <input
                                     type="number"
@@ -2206,20 +2220,24 @@ function Calibration({
                                   />
                                 </div>
                               )}
+                            </div>
                           </div>
+
                           <div className="form-section-action-icons">
                             <button
                               type="button"
                               onClick={handleApplySettingsToAll}
                               className="sidebar-action-button"
-                              title="Apply to All Test Points"
+                              aria-label="Apply to all test points"
+                              title="Apply to all test points"
                             >
                               <LuSaveAll />
                             </button>
                             <button
                               type="submit"
                               className="sidebar-action-button"
-                              title="Save Settings for This Point"
+                              aria-label="Save settings for this point"
+                              title="Save settings for this point"
                             >
                               <FaSave />
                             </button>
