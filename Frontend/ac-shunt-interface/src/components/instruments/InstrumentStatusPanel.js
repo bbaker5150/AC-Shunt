@@ -5,7 +5,7 @@
 import React, { useState, useEffect, useMemo } from 'react';
 import axios from 'axios';
 import { useInstruments } from '../../contexts/InstrumentContext';
-import { FaSave, FaUndo, FaTimes, FaSearch, FaSync, FaEdit } from 'react-icons/fa';
+import { FaSave, FaUndo, FaTimes, FaSearch, FaSync, FaEdit, FaBullseye } from 'react-icons/fa';
 import { API_BASE_URL } from '../../constants/constants';
 const ASSIGNABLE_MODELS = ['34420A', '3458A', '5790B'];
 const ACDC_ASSIGNABLE_MODELS = ['5730A'];
@@ -335,227 +335,275 @@ function InstrumentStatusPanel({ showNotification }) {
     const activeInstruments = workstations.find(ws => ws.ip === activeWorkstationIp)?.instruments || [];
     const hasAssignedInstruments = stdInstrumentAddress || tiInstrumentAddress || acSourceAddress || dcSourceAddress || switchDriverAddress || amplifierAddress;
 
+    const assignedRoleChips = [
+        stdInstrumentAddress && { key: 'std', label: 'Standard DMM', identity: [stdReaderModel, stdReaderSN && `S/N ${stdReaderSN}`].filter(Boolean).join(' '), address: stdInstrumentAddress },
+        tiInstrumentAddress && { key: 'ti', label: 'Test Instrument DMM', identity: [tiReaderModel, tiReaderSN && `S/N ${tiReaderSN}`].filter(Boolean).join(' '), address: tiInstrumentAddress },
+        acSourceAddress && { key: 'ac', label: 'AC Source', identity: acSourceSN ? `S/N ${acSourceSN}` : '—', address: acSourceAddress },
+        dcSourceAddress && { key: 'dc', label: 'DC Source', identity: dcSourceSN ? `S/N ${dcSourceSN}` : '—', address: dcSourceAddress },
+        amplifierAddress && { key: 'amp', label: 'Amplifier', identity: amplifierSN ? `S/N ${amplifierSN}` : '—', address: amplifierAddress },
+        switchDriverAddress && { key: 'sw', label: 'Switch Driver', identity: [switchDriverModel, switchDriverSN && `S/N ${switchDriverSN}`].filter(Boolean).join(' '), address: switchDriverAddress },
+    ].filter(Boolean);
+
     return (
         <div className="content-area instrument-status-panel">
             <div className="instrument-status-header">
-                <h2>Instrument Status Overview</h2>
-                <div className="header-buttons" style={{ display: 'flex', gap: '10px' }}>
-                    <button 
-                        type="button" 
-                        onClick={handleScanInstruments} 
-                        className="sidebar-action-button" 
+                <div className="instrument-status-header-heading">
+                    <span className="instrument-status-header-eyebrow">Instruments</span>
+                    <h2>Status &amp; Role Assignment</h2>
+                </div>
+                <div className="instrument-status-header-tools">
+                    <button
+                        type="button"
+                        onClick={handleScanInstruments}
+                        className="cal-results-excel-icon-btn"
                         disabled={isScanning}
                         title={isScanning ? "Scanning..." : "Scan for Instruments"}
+                        aria-label="Scan for instruments"
                     >
                         <FaSearch />
                     </button>
                     <button
                         type="button"
                         onClick={handleInitializeInstruments}
-                        className="sidebar-action-button"
+                        className="cal-results-excel-icon-btn"
                         disabled={isInitializing || !selectedSessionId || !hasAssignedInstruments}
                         title={isInitializing ? "Initializing..." : "Initialize assigned instruments"}
+                        aria-label="Initialize assigned instruments"
                     >
                         <FaSync />
                     </button>
                 </div>
             </div>
-            <div className="test-set-details" style={{ flexWrap: 'wrap' }}>
-                {stdInstrumentAddress && <div><strong>Standard DMM:</strong> {stdReaderModel || ''} {stdReaderSN && `S/N ${stdReaderSN}`} ({stdInstrumentAddress})</div>}
-                {tiInstrumentAddress && <div><strong>TI DMM:</strong> {tiReaderModel || ''} {tiReaderSN && `S/N ${tiReaderSN}`} ({tiInstrumentAddress})</div>}
-                {acSourceAddress && <div><strong>AC Source:</strong> {acSourceSN && `S/N ${acSourceSN}`} ({acSourceAddress})</div>}
-                {dcSourceAddress && <div><strong>DC Source:</strong> {dcSourceSN && `S/N ${dcSourceSN}`} ({dcSourceAddress})</div>}
-                {amplifierAddress && <div><strong>Amplifier:</strong> {amplifierSN && `S/N ${amplifierSN}`} ({amplifierAddress})</div>}
-                {switchDriverAddress && <div><strong>Switch Driver:</strong> {switchDriverModel || ''} {switchDriverSN && `S/N ${switchDriverSN}`} ({switchDriverAddress})</div>}
-            </div>
 
             {workstations.length > 0 && (
-                <div className="workstation-controls">
-                    <div className="form-section" style={{ flexGrow: 1, margin: 0, maxWidth: '900px' }}>
-                        <label htmlFor="workstation-select">Active Workstation</label>
-                        <div style={{ display: 'flex', alignItems: 'center', gap: '15px' }}>
-                            <select
-                                id="workstation-select"
-                                value={activeWorkstationIp}
-                                onChange={(e) => setActiveWorkstationIp(e.target.value)}
-                                style={{ margin: 0, flexGrow: 1, maxWidth: '350px' }}
-                                disabled={editingIp === activeWorkstationIp}
-                            >
-                                {workstations.map(({ ip, name, instruments }) => (
-                                    <option key={ip} value={ip}>{`${name} (${instruments.length} instruments)`}</option>
-                                ))}
-                            </select>
-                            
-                            <div className="workstation-editor" style={{ margin: 0 }}>
-                                {editingIp === activeWorkstationIp ? (
-                                    <>
-                                        <input 
-                                            type="text" 
-                                            value={editingName} 
-                                            onChange={e => setEditingName(e.target.value)} 
-                                            placeholder="Enter new name..." 
-                                            style={{ margin: 0, width: '220px' }} 
-                                        />
-                                        <button className="sidebar-action-button" onClick={handleSaveName} title="Save Workstation Name">
-                                            <FaSave />
-                                        </button>
-                                        <button className="sidebar-action-button" onClick={handleResetName} title="Reset Workstation Name">
-                                            <FaUndo />
-                                        </button>
-                                        <button className="sidebar-action-button" onClick={() => setEditingIp(null)} title="Cancel">
-                                            <FaTimes />
-                                        </button>
-                                    </>
-                                ) : (
-                                    <button className="sidebar-action-button" onClick={handleEditName} disabled={!activeWorkstationIp} title="Rename Workstation">
-                                        <FaEdit />
+                <section className="isp-section">
+                    <div className="isp-section-heading">
+                        <span className="isp-section-eyebrow">Active Workstation</span>
+                        <span className="isp-section-subtitle">Choose which discovered workstation to inspect.</span>
+                    </div>
+                    <div className="isp-workstation-row">
+                        <select
+                            id="workstation-select"
+                            className="isp-workstation-select"
+                            value={activeWorkstationIp}
+                            onChange={(e) => setActiveWorkstationIp(e.target.value)}
+                            disabled={editingIp === activeWorkstationIp}
+                            aria-label="Active workstation"
+                        >
+                            {workstations.map(({ ip, name, instruments }) => (
+                                <option key={ip} value={ip}>{`${name} (${instruments.length} instruments)`}</option>
+                            ))}
+                        </select>
+
+                        <div className="isp-workstation-editor">
+                            {editingIp === activeWorkstationIp ? (
+                                <>
+                                    <input
+                                        type="text"
+                                        value={editingName}
+                                        onChange={e => setEditingName(e.target.value)}
+                                        placeholder="Enter new name..."
+                                        aria-label="Workstation name"
+                                    />
+                                    <button className="cal-results-excel-icon-btn" onClick={handleSaveName} title="Save workstation name" aria-label="Save workstation name">
+                                        <FaSave />
                                     </button>
-                                )}
-                            </div>
+                                    <button className="cal-results-excel-icon-btn" onClick={handleResetName} title="Reset workstation name" aria-label="Reset workstation name">
+                                        <FaUndo />
+                                    </button>
+                                    <button className="cal-results-excel-icon-btn" onClick={() => setEditingIp(null)} title="Cancel" aria-label="Cancel rename">
+                                        <FaTimes />
+                                    </button>
+                                </>
+                            ) : (
+                                <button className="cal-results-excel-icon-btn" onClick={handleEditName} disabled={!activeWorkstationIp} title="Rename workstation" aria-label="Rename workstation">
+                                    <FaEdit />
+                                </button>
+                            )}
                         </div>
                     </div>
-                </div>
+                </section>
             )}
 
-            <div className="status-list">
-                {activeInstruments.length > 0 ? (
-                    activeInstruments.map(inst => {
-                        const status = instrumentStatuses[inst.address];
-                        const isFetching = isFetchingStatuses[inst.address];
-                        let isConnected = status && status.wsConnectionState === 'Status Received' && !status.error;
-                        const isAssignable = ASSIGNABLE_MODELS.some(m => inst.identity.includes(m));
-                        const isAcDcAssignable = ACDC_ASSIGNABLE_MODELS.some(m => inst.identity.includes(m));
-                        const isAmplifierAssignable = AMPLIFIER_MODELS.some(m => inst.identity.includes(m)); 
-                        const isStatusSupported = SUPPORTED_STATUS_MODELS.some(m => inst.identity.includes(m));
-                        const isSwitchDriverAssignable = SWITCH_DRIVER_MODELS.some(m => inst.identity.includes(m));
+            <section className="isp-section">
+                <div className="isp-section-heading">
+                    <span className="isp-section-eyebrow">Detected Instruments</span>
+                    <span className="isp-section-subtitle">
+                        {activeInstruments.length > 0
+                            ? `${activeInstruments.length} instrument${activeInstruments.length === 1 ? '' : 's'} on this workstation.`
+                            : 'Discover hardware connected to this machine.'}
+                    </span>
+                </div>
 
-                        const parts = inst.identity.split(',');
-                        let model = '';
-                        if (parts.length > 1 && parts[1]) {
-                            model = parts[1].trim();
-                        }
-                        if (model === "34420A" || model === "8100" || model === "11713C") {
-                            isConnected = true;
-                        }
+                <div className="status-list">
+                    {activeInstruments.length > 0 ? (
+                        activeInstruments.map(inst => {
+                            const status = instrumentStatuses[inst.address];
+                            const isFetching = isFetchingStatuses[inst.address];
+                            let isConnected = status && status.wsConnectionState === 'Status Received' && !status.error;
+                            const isAssignable = ASSIGNABLE_MODELS.some(m => inst.identity.includes(m));
+                            const isAcDcAssignable = ACDC_ASSIGNABLE_MODELS.some(m => inst.identity.includes(m));
+                            const isAmplifierAssignable = AMPLIFIER_MODELS.some(m => inst.identity.includes(m));
+                            const isStatusSupported = SUPPORTED_STATUS_MODELS.some(m => inst.identity.includes(m));
+                            const isSwitchDriverAssignable = SWITCH_DRIVER_MODELS.some(m => inst.identity.includes(m));
+                            const hasAnyRoleRow = isAssignable || isAcDcAssignable || isAmplifierAssignable || isSwitchDriverAssignable;
 
-                        // Determine if it is a 5730A for the Zero Cal button
-                        const is5730A = model.includes('5730');
-                        
-                        // Check if this specific instrument is zeroing based on status string
-                        const isZeroing = instrumentStatuses[inst.address]?.wsConnectionState === "Zeroing in Progress..." 
-                                          || instrumentStatuses[inst.address]?.wsConnectionState?.includes("Zeroing");
+                            const parts = inst.identity.split(',');
+                            let model = '';
+                            if (parts.length > 1 && parts[1]) {
+                                model = parts[1].trim();
+                            }
+                            if (model === "34420A" || model === "8100" || model === "11713C") {
+                                isConnected = true;
+                            }
 
-                        return (
-                            <div key={inst.address} className="status-card">
-                                <div className="status-card-header">
-                                    <div>
-                                        <p className="instrument-identity">{inst.identity}</p>
-                                        <p className="instrument-address">{inst.address}</p>
-                                    </div>
-                                    <div className={`status-badge ${isConnected ? 'connected' : 'disconnected'}`}>
-                                        <span className="status-badge-icon">●</span>
-                                        {isConnected ? 'Connected' : 'Disconnected'}
-                                    </div>
-                                </div>
-                                {isAssignable && (
-                                    <div className="role-assignment" style={{ marginTop: '10px', paddingTop: '10px', borderTop: '1px solid var(--border-color)', display: 'flex', alignItems: 'center', gap: '20px' }}>
-                                        <label style={{ fontWeight: '500' }}>Assign Reader Role:</label>
-                                        <div className="checkbox-group" style={{ display: 'flex', alignItems: 'center', gap: '5px' }}>
-                                            <input type="checkbox" id={`std-role-${inst.address}`} checked={stdInstrumentAddress === inst.address} onChange={(e) => handleStdTiRoleChange(inst, 'standard', e.target.checked)} disabled={!selectedSessionId || !isConnected || (stdInstrumentAddress && stdInstrumentAddress !== inst.address)} />
-                                            <label htmlFor={`std-role-${inst.address}`} style={{ marginBottom: 0 }}>Standard</label>
+                            const is5730A = model.includes('5730');
+
+                            const isZeroing = instrumentStatuses[inst.address]?.wsConnectionState === "Zeroing in Progress..."
+                                || instrumentStatuses[inst.address]?.wsConnectionState?.includes("Zeroing");
+
+                            return (
+                                <div key={inst.address} className="status-card">
+                                    <div className="status-card-header">
+                                        <div className="status-card-identity-wrap">
+                                            <p className="instrument-identity">{inst.identity}</p>
+                                            <p className="instrument-address">{inst.address}</p>
                                         </div>
-                                        <div className="checkbox-group" style={{ display: 'flex', alignItems: 'center', gap: '5px' }}>
-                                            <input type="checkbox" id={`test-role-${inst.address}`} checked={tiInstrumentAddress === inst.address} onChange={(e) => handleStdTiRoleChange(inst, 'test', e.target.checked)} disabled={!selectedSessionId || !isConnected || (tiInstrumentAddress && tiInstrumentAddress !== inst.address)} />
-                                            <label htmlFor={`test-role-${inst.address}`} style={{ marginBottom: 0 }}>Test Instrument</label>
-                                        </div>
-                                    </div>
-                                )}
-                                {isAcDcAssignable && (
-                                    <div className="role-assignment" style={{ marginTop: '10px', paddingTop: '10px', borderTop: '1px solid var(--border-color)', display: 'flex', alignItems: 'center', gap: '20px' }}>
-                                        <label style={{ fontWeight: '500' }}>Assign Source Function:</label>
-                                        <div className="checkbox-group" style={{ display: 'flex', alignItems: 'center', gap: '5px' }}>
-                                            <input type="checkbox" id={`ac-role-${inst.address}`} checked={acSourceAddress === inst.address} onChange={(e) => handleAcDcCheckboxChange(inst, 'ac', e.target.checked)} disabled={!selectedSessionId || !isConnected || (acSourceAddress && acSourceAddress !== inst.address)} />
-                                            <label htmlFor={`ac-role-${inst.address}`} style={{ marginBottom: 0 }}>AC Source</label>
-                                        </div>
-                                        <div className="checkbox-group" style={{ display: 'flex', alignItems: 'center', gap: '5px' }}>
-                                            <input type="checkbox" id={`dc-role-${inst.address}`} checked={dcSourceAddress === inst.address} onChange={(e) => handleAcDcCheckboxChange(inst, 'dc', e.target.checked)} disabled={!selectedSessionId || !isConnected || (dcSourceAddress && dcSourceAddress !== inst.address)} />
-                                            <label htmlFor={`dc-role-${inst.address}`} style={{ marginBottom: 0 }}>DC Source</label>
-                                        </div>
-                                    </div>
-                                )}
-                                {isAmplifierAssignable && (
-                                    <div className="role-assignment" style={{ marginTop: '10px', paddingTop: '10px', borderTop: '1px solid var(--border-color)', display: 'flex', alignItems: 'center', gap: '20px' }}>
-                                        <label style={{ fontWeight: '500' }}>Assign Amplifier Role:</label>
-                                        <div className="checkbox-group" style={{ display: 'flex', alignItems: 'center', gap: '5px' }}>
-                                            <input type="checkbox" id={`amp-role-${inst.address}`} checked={amplifierAddress === inst.address} onChange={(e) => handleAmplifierRoleChange(inst, e.target.checked)} disabled={!selectedSessionId || !isConnected || (amplifierAddress && amplifierAddress !== inst.address)} />
-                                            <label htmlFor={`amp-role-${inst.address}`} style={{ marginBottom: 0 }}>Amplifier</label>
-                                        </div>
-                                    </div>
-                                )}
-                                {isSwitchDriverAssignable && (
-                                    <div className="role-assignment" style={{ marginTop: '10px', paddingTop: '10px', borderTop: '1px solid var(--border-color)', display: 'flex', alignItems: 'center', gap: '20px' }}>
-                                        <label style={{ fontWeight: '500' }}>Assign Utility Role:</label>
-                                        <div className="checkbox-group" style={{ display: 'flex', alignItems: 'center', gap: '5px' }}>
-                                            <input type="checkbox" id={`switch-driver-role-${inst.address}`} checked={switchDriverAddress === inst.address} onChange={(e) => handleSwitchDriverRoleChange(inst, e.target.checked)} disabled={!selectedSessionId || !isConnected || (switchDriverAddress && switchDriverAddress !== inst.address)} />
-                                            <label htmlFor={`switch-driver-role-${inst.address}`} style={{ marginBottom: 0 }}>Switch Driver</label>
-                                        </div>
-                                    </div>
-                                )}
-                                {isStatusSupported && (
-                                    <div className="status-card-body">
-                                        {is5730A && (
-                                            <div style={{ marginBottom: '10px' }}>
+                                        <div className="status-card-actions-pill">
+                                            <div className={`status-badge ${isConnected ? 'connected' : 'disconnected'}${is5730A ? ' has-adjacent-action' : ''}`}>
+                                                <span className="status-badge-icon">●</span>
+                                                {isConnected ? 'Connected' : 'Disconnected'}
+                                            </div>
+                                            {is5730A && (
                                                 <button
-                                                    className="button button-small button-secondary"
+                                                    type="button"
+                                                    className={`isp-zero-cal-btn--compact${isZeroing ? ' is-zeroing' : ''}`}
                                                     onClick={() => runZeroCal(model, inst.address)}
                                                     disabled={!isConnected || isZeroing}
-                                                    style={isZeroing ? { backgroundColor: '#e6a800', cursor: 'wait' } : {}}
-                                                    title="Performs internal zero calibration (CAL_ZERO)"
+                                                    title={isZeroing ? 'Zeroing in progress…' : 'Run internal zero calibration'}
+                                                    aria-label={isZeroing ? 'Zeroing in progress' : 'Run zero calibration'}
                                                 >
-                                                     {isZeroing ? (
-                                                        <>
-                                                            <span className="spinner-border spinner-border-sm" role="status" aria-hidden="true" style={{marginRight: '5px'}}></span>
-                                                            Zeroing...
-                                                        </>
-                                                    ) : "Zero Cal"}
+                                                    {isZeroing ? (
+                                                        <span className="spinner-border spinner-border-sm" role="status" aria-hidden="true"></span>
+                                                    ) : (
+                                                        <FaBullseye />
+                                                    )}
                                                 </button>
-                                            </div>
-                                        )}
-                                        
-                                        {/* Overlay message during zeroing to prevent user confusion and hide stale flags */}
-                                        {isZeroing ? (
-                                            <div className="zeroing-message" style={{padding: '15px', backgroundColor: '#fff3cd', borderRadius: '4px', color: '#856404', border: '1px solid #ffeeba', textAlign: 'center'}}>
-                                                <strong>Zero Calibration in Progress</strong>
-                                                <br/>
-                                                <small>This process may take several minutes. Please wait.</small>
-                                            </div>
-                                        ) : (
-                                            <>
-                                                {isFetching && <p>Fetching status details...</p>}
-                                                {status?.decoded && !status.error && (
-                                                    <>
-                                                        <h4 style={{ marginTop: 0, marginBottom: '10px' }}>Active Status Flags</h4>
-                                                        <ul className="status-flags-list">
-                                                            {Object.entries(status.decoded).filter(([, value]) => value === true).length > 0 ?
-                                                                Object.entries(status.decoded).filter(([, value]) => value === true).map(([key]) => (
-                                                                    <li key={key}><span className="status-flag-icon">●</span>{statusBitDescriptions[key] || key}</li>
-                                                                )) : <li>No active status flags.</li>
-                                                            }
-                                                        </ul>
-                                                    </>
-                                                )}
-                                                {status?.error && <p>Could not retrieve status flags.</p>}
-                                            </>
-                                        )}
+                                            )}
+                                        </div>
                                     </div>
-                                )}
+
+                                    {hasAnyRoleRow && (
+                                        <div className="status-card-roles">
+                                            {isAssignable && (
+                                                <div className="role-assignment">
+                                                    <span className="role-assignment-label">Reader Role</span>
+                                                    <div className="checkbox-group">
+                                                        <input type="checkbox" id={`std-role-${inst.address}`} checked={stdInstrumentAddress === inst.address} onChange={(e) => handleStdTiRoleChange(inst, 'standard', e.target.checked)} disabled={!selectedSessionId || !isConnected || (stdInstrumentAddress && stdInstrumentAddress !== inst.address)} />
+                                                        <label htmlFor={`std-role-${inst.address}`}>Standard</label>
+                                                    </div>
+                                                    <div className="checkbox-group">
+                                                        <input type="checkbox" id={`test-role-${inst.address}`} checked={tiInstrumentAddress === inst.address} onChange={(e) => handleStdTiRoleChange(inst, 'test', e.target.checked)} disabled={!selectedSessionId || !isConnected || (tiInstrumentAddress && tiInstrumentAddress !== inst.address)} />
+                                                        <label htmlFor={`test-role-${inst.address}`}>Test Instrument</label>
+                                                    </div>
+                                                </div>
+                                            )}
+                                            {isAcDcAssignable && (
+                                                <div className="role-assignment">
+                                                    <span className="role-assignment-label">Source Function</span>
+                                                    <div className="checkbox-group">
+                                                        <input type="checkbox" id={`ac-role-${inst.address}`} checked={acSourceAddress === inst.address} onChange={(e) => handleAcDcCheckboxChange(inst, 'ac', e.target.checked)} disabled={!selectedSessionId || !isConnected || (acSourceAddress && acSourceAddress !== inst.address)} />
+                                                        <label htmlFor={`ac-role-${inst.address}`}>AC Source</label>
+                                                    </div>
+                                                    <div className="checkbox-group">
+                                                        <input type="checkbox" id={`dc-role-${inst.address}`} checked={dcSourceAddress === inst.address} onChange={(e) => handleAcDcCheckboxChange(inst, 'dc', e.target.checked)} disabled={!selectedSessionId || !isConnected || (dcSourceAddress && dcSourceAddress !== inst.address)} />
+                                                        <label htmlFor={`dc-role-${inst.address}`}>DC Source</label>
+                                                    </div>
+                                                </div>
+                                            )}
+                                            {isAmplifierAssignable && (
+                                                <div className="role-assignment">
+                                                    <span className="role-assignment-label">Amplifier Role</span>
+                                                    <div className="checkbox-group">
+                                                        <input type="checkbox" id={`amp-role-${inst.address}`} checked={amplifierAddress === inst.address} onChange={(e) => handleAmplifierRoleChange(inst, e.target.checked)} disabled={!selectedSessionId || !isConnected || (amplifierAddress && amplifierAddress !== inst.address)} />
+                                                        <label htmlFor={`amp-role-${inst.address}`}>Amplifier</label>
+                                                    </div>
+                                                </div>
+                                            )}
+                                            {isSwitchDriverAssignable && (
+                                                <div className="role-assignment">
+                                                    <span className="role-assignment-label">Utility Role</span>
+                                                    <div className="checkbox-group">
+                                                        <input type="checkbox" id={`switch-driver-role-${inst.address}`} checked={switchDriverAddress === inst.address} onChange={(e) => handleSwitchDriverRoleChange(inst, e.target.checked)} disabled={!selectedSessionId || !isConnected || (switchDriverAddress && switchDriverAddress !== inst.address)} />
+                                                        <label htmlFor={`switch-driver-role-${inst.address}`}>Switch Driver</label>
+                                                    </div>
+                                                </div>
+                                            )}
+                                        </div>
+                                    )}
+
+                                    {isStatusSupported && (
+                                        <div className="status-card-body">
+                                            {isZeroing ? (
+                                                <div className="isp-zeroing-banner" role="status" aria-live="polite">
+                                                    <span className="isp-zeroing-banner-title">Zero Calibration in Progress</span>
+                                                    <span className="isp-zeroing-banner-sub">This process may take several minutes. Please wait.</span>
+                                                </div>
+                                            ) : (
+                                                <>
+                                                    {isFetching && <p className="status-card-body-note">Fetching status details...</p>}
+                                                    {status?.decoded && !status.error && (
+                                                        <>
+                                                            <h4>Active Status Flags</h4>
+                                                            <ul className="status-flags-list">
+                                                                {Object.entries(status.decoded).filter(([, value]) => value === true).length > 0 ?
+                                                                    Object.entries(status.decoded).filter(([, value]) => value === true).map(([key]) => (
+                                                                        <li key={key}><span className="status-flag-icon">●</span>{statusBitDescriptions[key] || key}</li>
+                                                                    )) : <li className="status-card-body-note">No active status flags.</li>
+                                                                }
+                                                            </ul>
+                                                        </>
+                                                    )}
+                                                    {status?.error && <p className="status-card-body-note">Could not retrieve status flags.</p>}
+                                                </>
+                                            )}
+                                        </div>
+                                    )}
+                                </div>
+                            );
+                        })
+                    ) : (
+                        <div className="isp-empty-state">
+                            <span className="isp-empty-state-title">
+                                {isScanning ? 'Scanning for instruments…' : 'No instruments found'}
+                            </span>
+                            <span className="isp-empty-state-message">
+                                {isScanning
+                                    ? 'Please wait while the workstation is probed for connected hardware.'
+                                    : 'Use the scan icon in the header to discover instruments on this workstation.'}
+                            </span>
+                        </div>
+                    )}
+                </div>
+            </section>
+
+            {hasAssignedInstruments && (
+                <section className="isp-section">
+                    <div className="isp-section-heading">
+                        <span className="isp-section-eyebrow">Assigned Roles</span>
+                        <span className="isp-section-subtitle">Instruments currently bound to this session.</span>
+                    </div>
+                    <div className="isp-role-summary-grid">
+                        {assignedRoleChips.map(chip => (
+                            <div key={chip.key} className="isp-role-chip">
+                                <span className="isp-role-chip-label">{chip.label}</span>
+                                <span className="isp-role-chip-identity">{chip.identity || '—'}</span>
+                                <span className="isp-role-chip-address">{chip.address}</span>
                             </div>
-                        );
-                    })
-                ) : (
-                    <p className="no-instruments-text">{isScanning ? 'Scanning...' : `No instruments found. Click "Scan for Instruments" to begin.`}</p>
-                )}
-            </div>
+                        ))}
+                    </div>
+                </section>
+            )}
         </div>
     );
 }

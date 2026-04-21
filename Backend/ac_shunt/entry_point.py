@@ -13,6 +13,31 @@ def is_port_in_use(port):
     with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as s:
         return s.connect_ex(('127.0.0.1', int(port))) == 0
 
+
+def _bootstrap_outbox_db():
+    """
+    Ensure the local write-outbox SQLite database has its schema.
+
+    This is completely independent of the default DB — even if MSSQL is
+    unreachable at boot, the outbox must still be ready to accept enqueues
+    so an in-progress run can buffer stage saves.
+    """
+    try:
+        outbox_conn = connections['outbox']
+        outbox_conn.cursor()  # forces connection open / file creation
+        tables = outbox_conn.introspection.table_names()
+        if 'api_pendingreadingwrite' not in tables:
+            print("Bootstrapping outbox SQLite schema...")
+            call_command('migrate', database='outbox', interactive=False, verbosity=0)
+            print("Outbox schema ready.")
+        else:
+            print("Outbox schema already present.")
+    except Exception as e:
+        # The outbox failing is serious but non-fatal — the app still boots,
+        # and save_readings_to_db falls back to its direct path. Log loudly.
+        print(f"WARNING: outbox bootstrap failed: {e}")
+
+
 def main():
     # 1. Initialize Django environment
     os.environ.setdefault('DJANGO_SETTINGS_MODULE', 'ac_shunt.settings')
@@ -48,7 +73,14 @@ def main():
             print(f"Non-critical error during corrections sync: {e}")
 
     except Exception as e:
-        print(f"CRITICAL: Database initialization failed: {e}")
+        # The default DB being down at boot is EXACTLY the scenario the outbox
+        # is designed to survive — we continue booting so the drainer can
+        # replay once it comes back.
+        print(f"CRITICAL: Default database initialization failed: {e}")
+        print("Continuing boot so the outbox can buffer writes until the server returns.")
+
+    # 2b. Always bootstrap the local outbox — independent of default DB state.
+    _bootstrap_outbox_db()
 
     # 4. Handle Port Conflicts
     port = '8000'

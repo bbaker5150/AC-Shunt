@@ -522,3 +522,67 @@ class TVCCorrection(models.Model):
 
     class Meta:
         unique_together = ('tvc', 'frequency')
+
+
+class PendingReadingWrite(models.Model):
+    """
+    Durable local write-outbox for calibration stage saves.
+
+    Every call to `CalibrationConsumer.save_readings_to_db` enqueues one row
+    here BEFORE attempting the real write against the default database. If the
+    real write succeeds the row is marked `done`; if it fails (typical MSSQL
+    outage) the row stays `pending` and the background drainer in
+    `api.outbox.run_drainer_forever` retries with exponential backoff until
+    the server is reachable again.
+
+    This table lives on the dedicated `outbox` SQLite alias (see
+    `api.db_routers.OutboxRouter`) so it is completely independent of the
+    MSSQL connection state. All fields are plain JSON-serializable types so
+    the row carries everything needed to replay the write without re-reading
+    anything from the (possibly unreachable) default DB.
+    """
+
+    STATUS_PENDING = 'pending'
+    STATUS_IN_FLIGHT = 'in_flight'
+    STATUS_DONE = 'done'
+    STATUS_FAILED = 'failed'
+    STATUS_CHOICES = [
+        (STATUS_PENDING, 'Pending'),
+        (STATUS_IN_FLIGHT, 'In flight'),
+        (STATUS_DONE, 'Done'),
+        (STATUS_FAILED, 'Failed'),
+    ]
+
+    # Identifying context — enough to resolve the target row on replay.
+    session_id = models.IntegerField(db_index=True)
+    test_point_id = models.IntegerField(null=True, blank=True, db_index=True)
+    test_point_lookup = models.JSONField(
+        default=dict, blank=True,
+        help_text="Fallback {current, frequency, direction} used when test_point_id is missing."
+    )
+
+    # Payload.
+    reading_type_full = models.CharField(max_length=64)
+    readings_json = models.JSONField(default=list, blank=True)
+
+    # Replay bookkeeping.
+    status = models.CharField(
+        max_length=16, choices=STATUS_CHOICES, default=STATUS_PENDING, db_index=True
+    )
+    attempts = models.IntegerField(default=0)
+    last_error = models.TextField(blank=True, default='')
+    created_at = models.DateTimeField(auto_now_add=True, db_index=True)
+    last_attempt_at = models.DateTimeField(null=True, blank=True)
+
+    class Meta:
+        ordering = ['created_at', 'id']
+        indexes = [
+            models.Index(fields=['status', 'created_at']),
+        ]
+
+    def __str__(self):
+        return (
+            f"PendingReadingWrite[{self.status}] "
+            f"session={self.session_id} tp={self.test_point_id} "
+            f"stage={self.reading_type_full} attempts={self.attempts}"
+        )

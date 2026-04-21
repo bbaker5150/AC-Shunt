@@ -132,6 +132,15 @@
   --scrollbar-thumb: #cbd5e1;
   --scrollbar-thumb-hover: #94a3b8;
   --scrollbar-track: transparent;
+
+  /* Icon tokens — cool slate with a brushed-steel sheen. Dedicated from
+     --text-color-muted so icons can have a slightly different tint and
+     a subtle depth filter without affecting body text. */
+  --icon-color: #64748b;                /* slate-500 — cool metallic base */
+  --icon-color-hover: #334155;          /* slate-700 — deeper on hover */
+  --icon-color-disabled: #cbd5e1;       /* slate-300 */
+  --icon-sheen: rgba(255, 255, 255, 0.65);      /* top edge highlight */
+  --icon-shadow-depth: rgba(15, 23, 42, 0.12);  /* bottom edge shadow */
 }
 
 /* ---------------------------------------------------------------
@@ -219,6 +228,15 @@ body.dark-mode {
   --scrollbar-thumb: #334155;
   --scrollbar-thumb-hover: #475569;
   --scrollbar-track: transparent;
+
+  /* Icon tokens — cool gunmetal silver on dark canvas. Slightly cooler
+     and lighter than --text-color-muted so icons sit forward of body
+     text rather than fading into it. */
+  --icon-color: #94a3b8;                /* slate-400 — cool silver */
+  --icon-color-hover: #e2e8f0;          /* slate-200 — brightened hover */
+  --icon-color-disabled: #475569;       /* slate-600 */
+  --icon-sheen: rgba(255, 255, 255, 0.12);
+  --icon-shadow-depth: rgba(0, 0, 0, 0.55);
 }
 
 /* ---------------------------------------------------------------
@@ -1578,7 +1596,7 @@ body.dark-mode .calibration-content-header {
 .sidebar-action-button {
   background: none;
   border: none;
-  color: var(--text-color-muted);
+  color: var(--icon-color);
   font-weight: 600;
   font-size: 1.5rem;
   padding: 5px;
@@ -1594,14 +1612,39 @@ body.dark-mode .calibration-content-header {
   justify-content: center;
 }
 
+.sidebar-action-button svg {
+  fill: url(#icon-metallic-light);
+  filter: drop-shadow(0 1px 0 var(--icon-sheen))
+          drop-shadow(0 1px 1.5px var(--icon-shadow-depth));
+  transition: filter 0.15s ease;
+}
+
+body.dark-mode .sidebar-action-button svg {
+  fill: url(#icon-metallic-dark);
+}
+
 .sidebar-action-button:hover:not(:disabled) {
   background-color: var(--primary-color-soft);
-  color: var(--text-color);
+}
+
+.sidebar-action-button:hover:not(:disabled) svg {
+  fill: url(#icon-metallic-light-hover);
+  filter: drop-shadow(0 1px 0 var(--icon-sheen))
+          drop-shadow(0 2px 3px var(--icon-shadow-depth));
+}
+
+body.dark-mode .sidebar-action-button:hover:not(:disabled) svg {
+  fill: url(#icon-metallic-dark-hover);
 }
 
 .sidebar-action-button:active:not(:disabled) {
   background-color: var(--primary-color-soft);
   color: var(--primary-color);
+}
+
+.sidebar-action-button:active:not(:disabled) svg {
+  fill: currentColor;
+  filter: none;
 }
 
 .sidebar-action-button:focus-visible {
@@ -1611,9 +1654,14 @@ body.dark-mode .calibration-content-header {
 }
 
 .sidebar-action-button:disabled {
-  color: var(--border-color);
+  color: var(--icon-color-disabled);
   background: none;
   cursor: not-allowed;
+}
+
+.sidebar-action-button:disabled svg {
+  fill: currentColor;
+  filter: none;
 }
 
 .sidebar-header {
@@ -2165,6 +2213,69 @@ body.dark-mode .premium-action-button-item:hover {
 .db-indicator-pill:hover {
   background-color: var(--primary-color-soft);
   color: var(--text-color);
+}
+
+/* --- DB pill state variants (outbox-aware) ---
+   .is-buffering  -> default DB reachable but some stage saves are being
+                    replayed right now. Soft amber tint + visible count.
+   .is-offline    -> default DB not reachable; everything is going into the
+                    local outbox and will replay when the server returns.
+   .has-failed    -> some buffered rows have exhausted retries and need
+                    manual attention. Red tint, no pulse.
+*/
+.db-indicator-pill.is-buffering {
+  color: var(--warning-color, #b45309);
+}
+.db-indicator-pill.is-buffering .db-status-dot {
+  background-color: var(--warning-color, #b45309);
+  animation: pulse-dot-warn 1.6s ease-in-out infinite;
+  box-shadow: none;
+}
+.db-indicator-pill.is-offline {
+  color: var(--danger-color, #b91c1c);
+}
+.db-indicator-pill.is-offline .db-status-dot {
+  background-color: var(--danger-color, #b91c1c);
+  animation: pulse-dot-warn 1.2s ease-in-out infinite;
+  box-shadow: none;
+}
+.db-indicator-pill.has-failed {
+  color: var(--danger-color, #b91c1c);
+}
+.db-indicator-pill.has-failed .db-status-dot {
+  background-color: var(--danger-color, #b91c1c);
+  animation: none;
+  box-shadow: none;
+}
+
+@keyframes pulse-dot-warn {
+  0%   { opacity: 0.55; transform: scale(0.85); }
+  50%  { opacity: 1;    transform: scale(1.05); }
+  100% { opacity: 0.55; transform: scale(0.85); }
+}
+
+/* Numeric badge showing how many stage saves are currently buffered. Sits
+   flush inside the pill so the header layout never shifts. */
+.db-buffered-badge {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  min-width: 16px;
+  height: 16px;
+  padding: 0 5px;
+  margin-left: 2px;
+  font-size: 0.65rem;
+  font-weight: 700;
+  letter-spacing: 0;
+  line-height: 1;
+  text-transform: none;
+  color: var(--content-background, #ffffff);
+  background-color: var(--warning-color, #b45309);
+  border-radius: 999px;
+}
+.db-indicator-pill.is-offline .db-buffered-badge,
+.db-indicator-pill.has-failed .db-buffered-badge {
+  background-color: var(--danger-color, #b91c1c);
 }
 
 /* --- Theme Switcher --- */
@@ -4105,28 +4216,9 @@ body.dark-mode .corrections-card-select:focus-visible {
   }
 }
 
-.workstation-controls {
-  display: flex;
-  align-items: flex-end;
-  gap: 20px;
-  flex-wrap: wrap;
-  margin-bottom: 25px;
-}
-
-.workstation-editor {
-  display: flex;
-  align-items: center;
-  gap: 10px;
-}
-
-.workstation-editor input {
-  margin: 0;
-}
-
-.workstation-editor .button {
-  margin: 0;
-  flex-shrink: 0;
-}
+/* .workstation-controls / .workstation-editor retired in favor of the
+   .isp-workstation-row / .isp-workstation-editor polished variants
+   defined in the Instrument Status Panel section. */
 
 .calibration-content-header {
   display: flex;
@@ -5429,7 +5521,7 @@ body.dark-mode .chart-options-result {
   margin: 0;
   padding: 0;
   font-size: 1rem;
-  color: var(--text-color-muted);
+  color: var(--icon-color);
   background: transparent;
   border: none;
   border-radius: 10px;
@@ -5438,19 +5530,56 @@ body.dark-mode .chart-options-result {
   transition: background-color 0.15s ease, color 0.15s ease;
 }
 
+/* Metallic treatment: every nested SVG gets a vertical gradient fill +
+   a subtle drop-shadow for depth. The gradient ID is swapped by the
+   body.dark-mode override below; hover/active states swap to a brighter
+   gradient or fall back to a flat primary color. */
+.cal-results-excel-icon-btn svg {
+  fill: url(#icon-metallic-light);
+  filter: drop-shadow(0 1px 0 var(--icon-sheen))
+          drop-shadow(0 1px 1.5px var(--icon-shadow-depth));
+  transition: filter 0.15s ease;
+}
+
+body.dark-mode .cal-results-excel-icon-btn svg {
+  fill: url(#icon-metallic-dark);
+}
+
 .cal-results-excel-icon-btn:hover:not(:disabled) {
-  color: var(--text-color);
   background-color: var(--primary-color-soft);
 }
 
+.cal-results-excel-icon-btn:hover:not(:disabled) svg {
+  fill: url(#icon-metallic-light-hover);
+  filter: drop-shadow(0 1px 0 var(--icon-sheen))
+          drop-shadow(0 2px 3px var(--icon-shadow-depth));
+}
+
+body.dark-mode .cal-results-excel-icon-btn:hover:not(:disabled) svg {
+  fill: url(#icon-metallic-dark-hover);
+}
+
+/* Active: flatten to the brand color so the press reads as a decisive
+   "selected" state, not just another shade of metal. */
 .cal-results-excel-icon-btn:active:not(:disabled) {
   color: var(--primary-color);
   background-color: var(--primary-color-soft);
 }
 
+.cal-results-excel-icon-btn:active:not(:disabled) svg {
+  fill: currentColor;
+  filter: none;
+}
+
 .cal-results-excel-icon-btn:disabled {
-  opacity: 0.38;
+  color: var(--icon-color-disabled);
+  opacity: 0.55;
   cursor: not-allowed;
+}
+
+.cal-results-excel-icon-btn:disabled svg {
+  fill: currentColor;
+  filter: none;
 }
 
 .cal-results-summary {
@@ -6412,73 +6541,228 @@ body.dark-mode .uncertainty-budget-table tfoot td {
   background: none;
 }
 
-/* --- Instrument Status Panel --- */
+/* =====================================================================
+   INSTRUMENT STATUS PANEL
+   Polished to match the rest of the app's design language:
+   - Page bar (eyebrow + title + icon toolbar) matches cal-results-bar.
+   - Sections use the corrections-section-eyebrow typography scale.
+   - Cards use the corrections-card surface (12px radius, themed border,
+     shadow-xs elevation).
+   - Role rows use the ghost-pill language from the rest of the app.
+   - Empty state uses the shared dashed-border convention.
+   - Everything is driven by CSS variables so light/dark switch cleanly.
+   ===================================================================== */
+
 .instrument-status-panel {
-  margin-top: 30px;
-  border-top: 1px solid var(--border-color);
-  padding-top: 20px;
+  display: flex;
+  flex-direction: column;
+  gap: 24px;
 }
 
+/* --- Page header bar (title cluster + icon toolbar) --- */
 .instrument-status-header {
   display: flex;
+  align-items: flex-end;
   justify-content: space-between;
-  align-items: center;
-  margin-bottom: 20px;
+  gap: 16px;
+  padding: 4px 0 18px 0;
+  border-bottom: 1px solid var(--border-color);
+}
+
+.instrument-status-header-heading {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  min-width: 0;
+}
+
+.instrument-status-header-eyebrow {
+  font-size: 0.75rem;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0.09em;
+  color: var(--text-color-muted);
 }
 
 .instrument-status-header h2 {
-  font-size: 1.5rem;
-  color: #2c3e50;
+  font-size: 1.25rem;
+  font-weight: 600;
+  letter-spacing: -0.02em;
+  color: var(--text-color-strong);
   margin: 0;
 }
 
-.instrument-status-header .button {
+.instrument-status-header-tools {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex-shrink: 0;
+}
+
+/* --- Section shell (Assigned Roles / Workstation / Detected) --- */
+.isp-section {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+}
+
+.isp-section-heading {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  padding: 0 2px;
+}
+
+.isp-section-eyebrow {
+  font-size: 0.75rem;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0.09em;
+  color: var(--text-color);
+}
+
+.isp-section-subtitle {
+  font-size: 0.8125rem;
+  color: var(--text-color-muted);
+  line-height: 1.4;
+}
+
+/* --- Assigned roles summary grid (compact role chip cards) --- */
+.isp-role-summary-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(240px, 1fr));
+  gap: 10px;
+}
+
+.isp-role-chip {
+  display: flex;
+  flex-direction: column;
+  gap: 3px;
+  padding: 10px 14px;
+  background: var(--content-background);
+  border: 1px solid var(--border-color);
+  border-radius: 10px;
+  box-shadow: var(--shadow-xs);
+  min-width: 0;
+}
+
+.isp-role-chip-label {
+  font-size: 0.6875rem;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0.08em;
+  color: var(--primary-color);
+}
+
+.isp-role-chip-identity {
+  font-size: 0.875rem;
+  font-weight: 600;
+  color: var(--text-color);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.isp-role-chip-address {
+  font-size: 0.75rem;
+  color: var(--text-color-muted);
+  font-family: 'Roboto Mono', ui-monospace, monospace;
+  font-variant-numeric: tabular-nums;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+/* --- Workstation row (select + inline editor) --- */
+.isp-workstation-row {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  flex-wrap: wrap;
+}
+
+.isp-workstation-select {
+  flex: 1 1 260px;
+  max-width: 420px;
   margin: 0;
 }
 
+.isp-workstation-editor {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  flex-wrap: wrap;
+}
+
+.isp-workstation-editor input[type="text"] {
+  margin: 0;
+  min-width: 200px;
+}
+
+/* --- Detected instruments list --- */
 .status-list {
   display: flex;
   flex-direction: column;
-  gap: 16px;
+  gap: 12px;
 }
 
-.role-assignment .checkbox-group input[type="checkbox"] {
-  transform: scale(1.5);
-  margin-right: 10px;
-}
 .status-card {
-  background-color: var(--content-background);
-  padding: 16px;
-  border-radius: 8px;
+  background: var(--content-background);
   border: 1px solid var(--border-color);
-  box-shadow: 0 2px 4px rgba(0, 0, 0, 0.05);
+  border-radius: 12px;
+  box-shadow: var(--shadow-xs);
+  overflow: hidden;
+  animation: fadeIn 0.18s ease-out;
+  transition: border-color 0.15s ease, box-shadow 0.15s ease;
+}
+
+.status-card:hover {
+  border-color: var(--border-color-strong);
+  box-shadow: var(--shadow-sm);
 }
 
 .status-card-header {
   display: flex;
-  justify-content: space-between;
   align-items: center;
+  justify-content: space-between;
+  gap: 16px;
+  padding: 14px 18px;
+  flex-wrap: wrap;
+}
+
+.status-card-identity-wrap {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  min-width: 0;
 }
 
 .instrument-identity {
-  font-weight: bold;
-  color: #333;
+  font-size: 0.9375rem;
+  font-weight: 600;
+  color: var(--text-color);
   margin: 0;
+  line-height: 1.3;
 }
 
 .instrument-address {
-  font-size: 0.9em;
-  color: #6c757d;
-  margin: 2px 0 0 0;
+  font-size: 0.75rem;
+  color: var(--text-color-muted);
+  font-family: 'Roboto Mono', ui-monospace, monospace;
+  font-variant-numeric: tabular-nums;
+  margin: 0;
 }
 
 .status-badge {
   display: inline-flex;
   align-items: center;
-  padding: 4px 12px;
-  border-radius: 16px;
-  font-size: 0.85em;
-  font-weight: 500;
+  gap: 6px;
+  padding: 4px 10px;
+  border-radius: 999px;
+  font-size: 0.75rem;
+  font-weight: 600;
+  letter-spacing: 0.02em;
+  flex-shrink: 0;
 }
 
 .status-badge.connected {
@@ -6492,33 +6776,304 @@ body.dark-mode .uncertainty-budget-table tfoot td {
 }
 
 .status-badge-icon {
-  margin-right: 6px;
+  font-size: 0.6em;
+  line-height: 1;
 }
 
+/* --- Segmented pill cluster (status badge + inline action icon) ---
+   Wraps the status badge with adjacent actions (e.g. Zero Cal) so they
+   read as a single uniform pill control on the right of a status card. */
+.status-card-actions-pill {
+  display: inline-flex;
+  align-items: stretch;
+  flex-shrink: 0;
+  border-radius: 999px;
+  background-color: var(--disconnected-color-light);
+  box-shadow: inset 0 0 0 1px var(--border-color);
+  overflow: hidden;
+  transition: background-color 0.15s ease, box-shadow 0.15s ease;
+}
+
+.status-card-actions-pill .status-badge {
+  background-color: transparent;
+  border-radius: 0;
+  padding: 4px 12px;
+  align-self: center;
+}
+
+/* When there's an adjacent action icon the badge loses its right rounding
+   and gains a hairline divider to the next segment. */
+.status-card-actions-pill .status-badge.has-adjacent-action {
+  border-right: 1px solid var(--border-color);
+}
+
+/* The pill inherits the connected/disconnected tint from the badge inside
+   it so the whole segmented control reads as a single stateful unit. */
+.status-card-actions-pill:has(.status-badge.connected) {
+  background-color: var(--success-color-light);
+  box-shadow: inset 0 0 0 1px color-mix(in srgb, var(--success-color) 30%, transparent);
+}
+
+.status-card-actions-pill:has(.status-badge.connected) .status-badge.has-adjacent-action {
+  border-right-color: color-mix(in srgb, var(--success-color) 30%, transparent);
+}
+
+.status-card-actions-pill:has(.status-badge.disconnected) {
+  background-color: var(--disconnected-color-light);
+}
+
+/* Compact Zero Cal icon button that slots into the segmented pill.
+   Width is fixed so every card's pill is identical in size regardless of
+   whether the adjacent-action icon is rendered. */
+.isp-zero-cal-btn--compact {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 34px;
+  padding: 0;
+  font-size: 0.875rem;
+  line-height: 1;
+  color: var(--icon-color);
+  background: transparent;
+  border: none;
+  border-radius: 0;
+  cursor: pointer;
+  transition: background-color 0.15s ease, color 0.15s ease,
+    filter 0.15s ease;
+}
+
+.isp-zero-cal-btn--compact svg {
+  fill: url(#icon-metallic-light);
+  filter: drop-shadow(0 1px 0 var(--icon-sheen))
+          drop-shadow(0 1px 1.5px var(--icon-shadow-depth));
+  transition: filter 0.15s ease;
+}
+
+body.dark-mode .isp-zero-cal-btn--compact svg {
+  fill: url(#icon-metallic-dark);
+}
+
+.isp-zero-cal-btn--compact:hover:not(:disabled) {
+  background-color: color-mix(in srgb, var(--primary-color) 14%, transparent);
+}
+
+.isp-zero-cal-btn--compact:hover:not(:disabled) svg {
+  fill: url(#icon-metallic-light-hover);
+  filter: drop-shadow(0 1px 0 var(--icon-sheen))
+          drop-shadow(0 2px 3px var(--icon-shadow-depth));
+}
+
+body.dark-mode .isp-zero-cal-btn--compact:hover:not(:disabled) svg {
+  fill: url(#icon-metallic-dark-hover);
+}
+
+.isp-zero-cal-btn--compact:focus-visible {
+  outline: none;
+  box-shadow: inset 0 0 0 2px var(--primary-color);
+}
+
+.isp-zero-cal-btn--compact:disabled {
+  color: var(--icon-color-disabled);
+  cursor: not-allowed;
+}
+
+.isp-zero-cal-btn--compact:disabled svg {
+  fill: currentColor;
+  filter: none;
+}
+
+.isp-zero-cal-btn--compact.is-zeroing {
+  color: var(--warning-color);
+  background-color: var(--warning-color-light);
+  cursor: wait;
+}
+
+/* When zeroing, drop the metal and show warm warning amber so the state
+   transition is unmistakable. */
+.isp-zero-cal-btn--compact.is-zeroing svg {
+  fill: currentColor;
+  filter: none;
+}
+
+/* When zeroing, tint the whole segmented pill so the state reads at a
+   glance even from across the page. */
+.status-card-actions-pill:has(.is-zeroing) {
+  background-color: var(--warning-color-light);
+  box-shadow: inset 0 0 0 1px color-mix(in srgb, var(--warning-color) 40%, transparent);
+}
+
+.status-card-actions-pill:has(.is-zeroing) .status-badge {
+  color: var(--warning-text-color);
+}
+
+.status-card-actions-pill:has(.is-zeroing) .status-badge.has-adjacent-action {
+  border-right-color: color-mix(in srgb, var(--warning-color) 40%, transparent);
+}
+
+.isp-zero-cal-btn--compact .spinner-border {
+  width: 1em;
+  height: 1em;
+  border-width: 0.14em;
+}
+
+/* --- Role assignment rows inside a status card --- */
+.status-card-roles {
+  display: flex;
+  flex-direction: column;
+  gap: 0;
+  border-top: 1px solid var(--border-color);
+  background: var(--background-color);
+}
+
+.role-assignment {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 14px 20px;
+  padding: 12px 18px;
+}
+
+.role-assignment + .role-assignment {
+  border-top: 1px solid var(--divider-color);
+}
+
+.role-assignment-label {
+  font-size: 0.75rem;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0.08em;
+  color: var(--text-color-muted);
+  white-space: nowrap;
+}
+
+.role-assignment .checkbox-group {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.role-assignment .checkbox-group input[type="checkbox"] {
+  transform: scale(1.1);
+  margin: 0;
+  accent-color: var(--primary-color);
+  cursor: pointer;
+}
+
+.role-assignment .checkbox-group input[type="checkbox"]:disabled {
+  cursor: not-allowed;
+  opacity: 0.5;
+}
+
+.role-assignment .checkbox-group label {
+  margin: 0;
+  font-size: 0.8125rem;
+  font-weight: 500;
+  color: var(--text-color);
+  cursor: pointer;
+}
+
+.role-assignment .checkbox-group input[type="checkbox"]:disabled + label {
+  color: var(--text-color-subtle);
+  cursor: not-allowed;
+}
+
+/* --- Status flags body --- */
 .status-card-body {
-  margin-top: 16px;
-  padding-top: 16px;
-  border-top: 1px solid #f1f1f1;
+  padding: 14px 18px;
+  border-top: 1px solid var(--border-color);
+}
+
+.status-card-body h4 {
+  font-size: 0.75rem;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0.08em;
+  color: var(--text-color-muted);
+  margin: 0 0 10px 0;
 }
 
 .status-flags-list {
-  list-style-type: none;
-  padding-left: 0;
+  list-style: none;
+  padding: 0;
   margin: 0;
-  font-size: 0.9em;
+  font-size: 0.8125rem;
   columns: 2;
   column-gap: 20px;
 }
 
+.status-flags-list li {
+  color: var(--text-color);
+  line-height: 1.6;
+  break-inside: avoid;
+}
+
 .status-flag-icon {
-  color: #28a745;
+  color: var(--success-color);
   margin-right: 8px;
-  font-size: 0.7em;
+  font-size: 0.5em;
+  vertical-align: middle;
+}
+
+.status-card-body-note {
+  font-size: 0.8125rem;
+  color: var(--text-color-muted);
+  margin: 0;
+}
+
+/* --- Zero Cal in-progress banner --- */
+.isp-zeroing-banner {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  padding: 12px 16px;
+  text-align: center;
+  background-color: var(--warning-color-light);
+  border: 1px solid var(--warning-color);
+  border-radius: 10px;
+  color: var(--warning-text-color);
+}
+
+.isp-zeroing-banner-title {
+  font-size: 0.8125rem;
+  font-weight: 700;
+  letter-spacing: 0.02em;
+}
+
+.isp-zeroing-banner-sub {
+  font-size: 0.75rem;
+  opacity: 0.85;
+}
+
+/* --- Empty state (no instruments) --- */
+.isp-empty-state {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 6px;
+  text-align: center;
+  padding: 44px 20px;
+  border: 1px dashed var(--border-color);
+  border-radius: 12px;
+  background: var(--background-color);
+}
+
+.isp-empty-state-title {
+  font-size: 0.9rem;
+  font-weight: 600;
+  color: var(--text-color);
+}
+
+.isp-empty-state-message {
+  font-size: 0.8125rem;
+  color: var(--text-color-muted);
+  line-height: 1.5;
+  max-width: 480px;
 }
 
 .no-instruments-text {
   text-align: center;
-  color: #6c757d;
+  color: var(--text-color-muted);
   padding: 16px;
 }
 
@@ -6559,21 +7114,6 @@ body.dark-mode .uncertainty-budget-table tfoot td {
 
 .test-points-table td:last-child {
   text-align: center;
-}
-
-.test-set-details {
-  background-color: #f8f9fa;
-  border: 1px solid var(--border-color);
-  border-radius: 6px;
-  padding: 12px 16px;
-  margin-bottom: 20px;
-  display: flex;
-  gap: 24px;
-  font-size: 0.9rem;
-}
-
-.test-set-details div {
-  color: #495057;
 }
 
 /* --- Data Table in Modal --- */
@@ -7202,15 +7742,6 @@ body.dark-mode .final-result-card {
   box-shadow: 0 4px 15px rgba(66, 153, 225, 0.2);
 }
 
-body.dark-mode .test-set-details {
-  background-color: #1a202c;
-  border-color: var(--border-color);
-}
-
-body.dark-mode .test-set-details div {
-  color: #cbd5e0;
-}
-
 body.dark-mode .reading {
   background-color: #1a202c;
 }
@@ -7289,24 +7820,7 @@ body.dark-mode .legend-icon.not-started {
 
 
 /* --- Page-Specific: Instrument Status --- */
-body.dark-mode .instrument-identity,
-body.dark-mode .instrument-status-header h2 {
-  color: #e2e8f0;
-}
-
-body.dark-mode .status-badge.connected {
-  background-color: var(--success-color-light);
-  color: var(--success-text-color);
-}
-
-body.dark-mode .status-badge.disconnected {
-  background-color: var(--disconnected-color-light);
-  color: var(--disconnected-text-color);
-}
-
-body.dark-mode .status-card-body {
-  border-top-color: var(--border-color);
-}
+/* Fully driven by CSS variables — no dark-mode overrides required. */
 
 /* --- Page-Specific: Data Tables --- */
 body.dark-mode .test-points-table th,

@@ -19,6 +19,7 @@ from urllib.parse import unquote
 from npsl_tools.instruments import Instrument11713C, Instrument3458A, Instrument5730A, Instrument5790B, Instrument34420A, Instrument8100
 from .models import CalibrationReadings, CalibrationResults, CalibrationSession, CalibrationSettings, TestPoint, TestPointSet
 from .mock_instruments import is_mock_address, mock_isr_for_model
+from . import outbox as outbox_module
 
 INSTRUMENT_CLASS_MAP = {
     '5730A': Instrument5730A,
@@ -188,6 +189,10 @@ class CalibrationConsumer(AsyncWebsocketConsumer):
         self.session_group_name = f'session_{self.session_id}'
         await self.channel_layer.group_add(self.session_group_name, self.channel_name)
         await self.accept()
+
+        # Guarantee the outbox drainer is alive on the ASGI loop. Safe to call
+        # on every connect — subsequent calls are no-ops.
+        outbox_module.ensure_drainer_running()
 
         await self.send_session_sync_status()
         self.heartbeat_task = asyncio.create_task(self.send_heartbeat())
@@ -1262,26 +1267,77 @@ class CalibrationConsumer(AsyncWebsocketConsumer):
                 if hasattr(inst, 'close'):
                     await sync_to_async(inst.close, thread_sensitive=True)()
 
-    @database_sync_to_async
-    def save_readings_to_db(self, reading_type_full, readings_list, test_point):
+    async def save_readings_to_db(self, reading_type_full, readings_list, test_point):
+        """
+        Durable stage-save path.
+
+        Step 1: enqueue the payload to the local SQLite outbox. This is fast
+        and does NOT touch MSSQL, so a down server cannot lose data here.
+
+        Step 2: immediately try to replay the row against the default DB. If
+        it works we mark the row done and the UI just sees a normal save; if
+        it fails the row stays pending and the background drainer retries it
+        with exponential backoff until the server is reachable again.
+
+        This replaces the old single-attempt pattern which silently dropped
+        readings on any DB exception.
+        """
+        row_id = await sync_to_async(outbox_module.enqueue, thread_sensitive=True)(
+            self.session_id, test_point, reading_type_full, readings_list,
+        )
+        if row_id is None:
+            # Catastrophic: local SQLite write failed. Fall back to a direct
+            # attempt and a loud log so the user at least sees the error.
+            print(
+                f"[OUTBOX] CRITICAL: could not enqueue stage save for "
+                f"{reading_type_full}; attempting direct write as a last resort.",
+                flush=True,
+            )
+            await sync_to_async(self._direct_save_readings_fallback, thread_sensitive=True)(
+                reading_type_full, readings_list, test_point,
+            )
+            return
+
+        # Try the real write now. If it fails (MSSQL down) the row stays
+        # pending and the drainer picks it up later — either way the payload
+        # is durable.
+        ok = await sync_to_async(outbox_module.attempt_replay_row, thread_sensitive=True)(row_id)
+        if not ok:
+            # Make sure the drainer is alive and will retry, and push a status
+            # update so the UI's "Buffered: N" badge lights up immediately.
+            outbox_module.ensure_drainer_running()
+            await outbox_module.broadcast_db_status()
+
+    def _direct_save_readings_fallback(self, reading_type_full, readings_list, test_point):
+        """
+        Legacy best-effort write used only when the local outbox itself
+        can't accept a row (disk broken). Kept so we never silently lose the
+        very first write even if the outbox fails to initialize.
+        """
         try:
             session = CalibrationSession.objects.get(pk=self.session_id)
             test_point_set, _ = TestPointSet.objects.get_or_create(session=session)
-            
-            # Prioritize lookup by explicit ID to prevent phantom records during ppm shifting
             tp_id = test_point.get('id')
             if tp_id:
                 test_point_obj = TestPoint.objects.get(pk=tp_id)
             else:
-                current, frequency, direction = test_point.get('current'), test_point.get('frequency'), test_point.get('direction', 'Forward')
-                test_point_obj, _ = TestPoint.objects.get_or_create(test_point_set=test_point_set, current=current, frequency=frequency, direction=direction)
-            
+                current, frequency, direction = (
+                    test_point.get('current'),
+                    test_point.get('frequency'),
+                    test_point.get('direction', 'Forward'),
+                )
+                test_point_obj, _ = TestPoint.objects.get_or_create(
+                    test_point_set=test_point_set,
+                    current=current,
+                    frequency=frequency,
+                    direction=direction,
+                )
             readings, _ = CalibrationReadings.objects.get_or_create(test_point=test_point_obj)
             setattr(readings, f"{reading_type_full}_readings", readings_list)
             readings.save()
             readings.update_related_results()
         except Exception as e:
-            print(f"Error saving readings to DB: {e}")
+            print(f"[OUTBOX FALLBACK] direct save failed: {e}", flush=True)
     
     @database_sync_to_async
     def _propagate_characterization_eta(self, characterized_tp_id, target_tvc, char_source_kind):
@@ -1480,3 +1536,84 @@ class SwitchDriverConsumer(AsyncWebsocketConsumer):
     @sync_to_async(thread_sensitive=True)
     def get_status_sync(self):
         return self.instrument_instance.get_active_source()
+
+
+class DbHealthConsumer(AsyncWebsocketConsumer):
+    """
+    Streams the current default-DB reachability and outbox backlog to the UI.
+
+    Protocol (server -> client):
+        {
+            "type": "db_status",
+            "reachable": bool,
+            "pending_count": int,
+            "failed_count": int,
+            "timestamp": float,
+        }
+
+    The consumer:
+      * pushes a snapshot immediately on connect,
+      * re-probes on every periodic tick (10s) and when the drainer broadcasts,
+      * forwards any ``db.status`` events from the channel-layer group.
+
+    Protocol (client -> server), optional:
+        {"command": "refresh"}   -> force a fresh probe + snapshot
+        {"command": "retry_failed"} -> flip failed rows back to pending
+    """
+
+    GROUP = outbox_module.DB_STATUS_GROUP
+
+    async def connect(self):
+        await self.channel_layer.group_add(self.GROUP, self.channel_name)
+        await self.accept()
+
+        # Make sure the drainer is running now that an ASGI loop exists.
+        outbox_module.ensure_drainer_running()
+
+        # Initial snapshot.
+        payload = await sync_to_async(outbox_module.current_status_payload, thread_sensitive=True)()
+        await self.send(text_data=json.dumps(payload))
+
+        # Periodic heartbeat so the UI pill keeps itself honest even if the
+        # drainer is idle (no new rows to broadcast).
+        self._heartbeat_task = asyncio.create_task(self._heartbeat_loop())
+
+    async def disconnect(self, close_code):
+        hb = getattr(self, '_heartbeat_task', None)
+        if hb:
+            hb.cancel()
+        await self.channel_layer.group_discard(self.GROUP, self.channel_name)
+
+    async def receive(self, text_data):
+        try:
+            data = json.loads(text_data)
+        except Exception:
+            return
+        command = data.get('command')
+        if command == 'refresh':
+            payload = await sync_to_async(outbox_module.current_status_payload, thread_sensitive=True)()
+            await self.send(text_data=json.dumps(payload))
+        elif command == 'retry_failed':
+            updated = await sync_to_async(outbox_module.retry_failed_rows_sync, thread_sensitive=True)()
+            await self.send(text_data=json.dumps({
+                'type': 'retry_failed_result',
+                'updated': updated,
+            }))
+
+    async def _heartbeat_loop(self):
+        try:
+            while True:
+                await asyncio.sleep(10)
+                payload = await sync_to_async(outbox_module.current_status_payload, thread_sensitive=True)()
+                await self.send(text_data=json.dumps(payload))
+        except asyncio.CancelledError:
+            return
+        except Exception as e:
+            print(f"DbHealthConsumer heartbeat error: {e}", flush=True)
+
+    async def db_status(self, event):
+        """Channel-layer event handler — forwards broadcasts to the client."""
+        payload = event.get('payload') or {}
+        if not payload:
+            return
+        await self.send(text_data=json.dumps(payload))

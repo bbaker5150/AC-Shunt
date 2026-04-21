@@ -998,15 +998,36 @@ class TestPointViewSet(viewsets.ModelViewSet):
 @api_view(['GET'])
 def system_info(request):
     """
-    Returns basic system information, such as the active database engine.
+    Returns basic system information, such as the active database engine and
+    the current state of the local write outbox (buffered stage-save rows and
+    whether the default DB is reachable right now).
     """
-    # Extract the database engine (e.g., 'sqlite3', 'postgresql')
     db_engine = settings.DATABASES['default']['ENGINE'].split('.')[-1]
-    
-    # You can also fetch the database name if desired, though engine is usually safer
     db_name = str(settings.DATABASES['default']['NAME'])
-    
+
+    # Outbox snapshot — imported lazily so a broken outbox can't take down
+    # this lightweight endpoint.
+    pending_count = 0
+    failed_count = 0
+    reachable = True
+    try:
+        from .outbox import (
+            get_pending_count_sync,
+            get_failed_count_sync,
+            probe_default_reachable,
+        )
+        pending_count = get_pending_count_sync()
+        failed_count = get_failed_count_sync()
+        reachable = probe_default_reachable()
+    except Exception as e:
+        print(f"system_info: outbox snapshot failed: {e}")
+
     return JsonResponse({
         "database_type": db_engine,
-        "database_name": db_name
+        "database_name": db_name,
+        "outbox": {
+            "pending_count": pending_count,
+            "failed_count": failed_count,
+            "reachable": reachable,
+        },
     })

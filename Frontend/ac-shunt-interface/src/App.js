@@ -19,6 +19,7 @@ import { FaInfoCircle, FaTimes, FaSun, FaMoon } from "react-icons/fa";
 import "./App.css";
 import { arrayMove } from "@dnd-kit/sortable";
 import { AVAILABLE_FREQUENCIES, API_BASE_URL } from "./constants/constants";
+import useDbHealth from "./hooks/useDbHealth";
 
 // Helper functions for corrections (getShuntCorrectionForPoint, getTVCCorrectionForPoint)
 const getShuntCorrectionForPoint = (point, shuntRangeInAmps, shuntsData) => {
@@ -389,6 +390,8 @@ function AppContent() {
     point: null,
   });
   const [dbInfo, setDbInfo] = useState(null);
+  const dbHealth = useDbHealth();
+  const dbRecoveryToastShownRef = useRef(false);
 
   useEffect(() => {
     const fetchSystemInfo = async () => {
@@ -421,6 +424,29 @@ function AppContent() {
     },
     []
   );
+
+  // On boot, if the drainer started replaying leftover rows from a previous
+  // process lifetime, surface a one-time toast so the user knows it's
+  // recovering rather than silently succeeding.
+  useEffect(() => {
+    if (dbRecoveryToastShownRef.current) return;
+    if (!dbHealth.connected) return;
+    if (dbHealth.pendingCount > 0) {
+      dbRecoveryToastShownRef.current = true;
+      showNotification(
+        `Recovering ${dbHealth.pendingCount} buffered reading${dbHealth.pendingCount === 1 ? "" : "s"} to the database...`,
+        "info",
+        6000
+      );
+    } else if (dbHealth.failedCount > 0) {
+      dbRecoveryToastShownRef.current = true;
+      showNotification(
+        `${dbHealth.failedCount} buffered reading${dbHealth.failedCount === 1 ? "" : "s"} need attention. Check DB status.`,
+        "warning",
+        8000
+      );
+    }
+  }, [dbHealth.connected, dbHealth.pendingCount, dbHealth.failedCount, showNotification]);
 
   const fetchSessionsList = useCallback(async () => {
     setIsLoadingSessions(true);
@@ -718,6 +744,50 @@ function AppContent() {
 
   return (
     <div className="App">
+      {/* Hidden SVG holding metallic gradient definitions. Referenced by
+          CSS via `fill: url(#icon-metallic-light)` / `#icon-metallic-dark`
+          on shared icon-button classes, giving every toolbar/sidebar icon
+          a true vertical metal gradient (highlight → midtone → shadow)
+          instead of a flat grey. Rendered once at the app root so every
+          icon in the tree can pick up the reference. */}
+      <svg
+        width="0"
+        height="0"
+        aria-hidden="true"
+        style={{ position: 'absolute', width: 0, height: 0, overflow: 'hidden' }}
+      >
+        <defs>
+          {/* Light-mode: brushed steel. Slight blue undertone gives a cooler
+              metrology-instrument feel vs. neutral grey. */}
+          <linearGradient id="icon-metallic-light" x1="0%" y1="0%" x2="0%" y2="100%">
+            <stop offset="0%" stopColor="#b4bfcd" />
+            <stop offset="45%" stopColor="#6b7685" />
+            <stop offset="100%" stopColor="#3e4757" />
+          </linearGradient>
+
+          {/* Dark-mode: cool gunmetal silver — top highlight reads against
+              the deep navy canvas, bottom stays slightly warmer for depth. */}
+          <linearGradient id="icon-metallic-dark" x1="0%" y1="0%" x2="0%" y2="100%">
+            <stop offset="0%" stopColor="#e4ecf7" />
+            <stop offset="45%" stopColor="#97a4b7" />
+            <stop offset="100%" stopColor="#4d5869" />
+          </linearGradient>
+
+          {/* Hover variants: brighter highlight, same shape. Swapped in by
+              the hover selector so the icon visibly "lifts" under the cursor. */}
+          <linearGradient id="icon-metallic-light-hover" x1="0%" y1="0%" x2="0%" y2="100%">
+            <stop offset="0%" stopColor="#ced7e2" />
+            <stop offset="45%" stopColor="#4a5668" />
+            <stop offset="100%" stopColor="#232a36" />
+          </linearGradient>
+          <linearGradient id="icon-metallic-dark-hover" x1="0%" y1="0%" x2="0%" y2="100%">
+            <stop offset="0%" stopColor="#ffffff" />
+            <stop offset="45%" stopColor="#bac6d7" />
+            <stop offset="100%" stopColor="#6d7a8c" />
+          </linearGradient>
+        </defs>
+      </svg>
+
       <ConfigurationModal
         isOpen={isConfigModalOpen}
         onClose={() => setIsConfigModalOpen(false)}
@@ -833,17 +903,47 @@ function AppContent() {
           </div>
 
           <div className="app-chrome-meta app-chrome-meta--nav">
-            {dbInfo && (
-              <div
-                className="db-indicator-pill"
-                title={`Data source: ${dbInfo.database_type === 'sqlite3' ? 'SQLite' : 'MSSQL'}`}
-              >
-                <span className="db-status-dot"></span>
-                <span className="db-name-text">
-                  {dbInfo.database_type === 'sqlite3' ? 'SQLite' : 'MSSQL'}
-                </span>
-              </div>
-            )}
+            {dbInfo && (() => {
+              const dbLabel = dbInfo.database_type === 'sqlite3' ? 'SQLite' : 'MSSQL';
+              const isSqlite = dbInfo.database_type === 'sqlite3';
+              // SQLite is always local -> always "reachable". For MSSQL we
+              // trust the live WS status; fall back to reachable=true until
+              // the first WS frame arrives.
+              const reachable = isSqlite ? true : (dbHealth.reachable !== false);
+              const buffered = dbHealth.pendingCount || 0;
+              const failed = dbHealth.failedCount || 0;
+              const stateClass = !reachable
+                ? ' is-offline'
+                : buffered > 0
+                  ? ' is-buffering'
+                  : failed > 0
+                    ? ' has-failed'
+                    : '';
+              let title = `Data source: ${dbLabel}`;
+              if (!reachable) {
+                title = `${dbLabel} unreachable. ${buffered} reading${buffered === 1 ? '' : 's'} buffered locally.`;
+              } else if (buffered > 0) {
+                title = `${dbLabel}: replaying ${buffered} buffered reading${buffered === 1 ? '' : 's'}.`;
+              } else if (failed > 0) {
+                title = `${dbLabel}: ${failed} buffered reading${failed === 1 ? '' : 's'} need attention.`;
+              }
+              return (
+                <div
+                  className={`db-indicator-pill${stateClass}`}
+                  title={title}
+                  role="status"
+                  aria-live="polite"
+                >
+                  <span className="db-status-dot" aria-hidden />
+                  <span className="db-name-text">{dbLabel}</span>
+                  {buffered > 0 && (
+                    <span className="db-buffered-badge" aria-label={`${buffered} buffered`}>
+                      {buffered > 99 ? '99+' : buffered}
+                    </span>
+                  )}
+                </div>
+              );
+            })()}
             {selectedSessionName && (
               <div className="tooltip-container session-info-popover">
                 <button

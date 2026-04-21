@@ -158,6 +158,22 @@ else:
     }
 
 # ---------------------------------------------------------
+# 2b. LOCAL WRITE OUTBOX (durability during MSSQL outages)
+# ---------------------------------------------------------
+# A dedicated SQLite alias that is NEVER the default. Every stage save from a
+# calibration run is first persisted here, then attempted against `default`.
+# If `default` is unreachable (typical MSSQL outage), the row stays pending
+# and a background drainer replays it when the server comes back. The file
+# lives in the writable Portal dir so it survives process restarts.
+OUTBOX_DB_PATH = CREDENTIALS_DIR / 'ac_shunt_outbox.sqlite3'
+DATABASES['outbox'] = {
+    'ENGINE': 'django.db.backends.sqlite3',
+    'NAME': str(OUTBOX_DB_PATH),
+}
+
+DATABASE_ROUTERS = ['api.db_routers.OutboxRouter']
+
+# ---------------------------------------------------------
 # 3. STANDARD DJANGO SETTINGS
 # ---------------------------------------------------------
 SECRET_KEY = 'django-insecure-*#_^+sice+xmm)=9s@(7b%fz#nmtmim+=rap_6g1c_-az5wn_g'
