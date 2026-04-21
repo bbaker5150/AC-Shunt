@@ -90,7 +90,23 @@ def discover_instruments(request):
     """
     Scans for connected VISA resources, de-duplicates them robustly, and returns
     them with their identities and the local IP.
+
+    When settings.MOCK_INSTRUMENTS is True the pyvisa path is skipped entirely
+    and a deterministic mock inventory is returned instead, so the Instrument
+    Status page can be exercised on dev machines with no lab hardware.
     """
+    if getattr(settings, "MOCK_INSTRUMENTS", False):
+        from .mock_instruments import MOCK_INVENTORY
+        instruments = [
+            {"address": item["address"], "identity": item["identity"]}
+            for item in MOCK_INVENTORY
+        ]
+        print(f"[MOCK] Returning {len(instruments)} mock instruments.")
+        return JsonResponse({
+            "instruments": instruments,
+            "local_ip": request.META.get("REMOTE_ADDR"),
+        })
+
     try:
         rm = pyvisa.ResourceManager()
         resources = rm.list_resources()

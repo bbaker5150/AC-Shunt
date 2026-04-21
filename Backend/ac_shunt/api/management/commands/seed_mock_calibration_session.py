@@ -25,6 +25,7 @@ from api.models import (
     TestPoint,
     TestPointSet,
 )
+from api.mock_instruments import MOCK_SESSION_ROLE_ASSIGNMENT
 
 MOCK_SESSION_NAME = "[MOCK] UI Development"
 
@@ -63,6 +64,7 @@ class Command(BaseCommand):
         with transaction.atomic():
             CalibrationSession.objects.filter(session_name=MOCK_SESSION_NAME).delete()
 
+            roles = MOCK_SESSION_ROLE_ASSIGNMENT
             session = CalibrationSession.objects.create(
                 session_name=MOCK_SESSION_NAME,
                 standard_instrument_model="A40B",
@@ -71,8 +73,23 @@ class Command(BaseCommand):
                 test_instrument_serial="MOCK-UUT",
                 standard_tvc_serial="12345",
                 test_tvc_serial="67890",
-                standard_reader_model="3458A",
-                test_reader_model="5790B",
+                # Instrument role assignment wired up so the Instrument Status
+                # panel shows an "Assigned Roles" section out-of-the-box.
+                standard_reader_model=roles["standard_reader"]["model"],
+                standard_reader_serial=roles["standard_reader"]["serial"],
+                standard_reader_address=roles["standard_reader"]["address"],
+                test_reader_model=roles["test_reader"]["model"],
+                test_reader_serial=roles["test_reader"]["serial"],
+                test_reader_address=roles["test_reader"]["address"],
+                ac_source_serial=roles["ac_source"]["serial"],
+                ac_source_address=roles["ac_source"]["address"],
+                dc_source_serial=roles["dc_source"]["serial"],
+                dc_source_address=roles["dc_source"]["address"],
+                amplifier_serial=roles["amplifier"]["serial"],
+                amplifier_address=roles["amplifier"]["address"],
+                switch_driver_model=roles["switch_driver"]["model"],
+                switch_driver_serial=roles["switch_driver"]["serial"],
+                switch_driver_address=roles["switch_driver"]["address"],
                 temperature=23.0,
                 humidity=45.0,
                 notes="Seeded mock data for Calibration Results UI development.",
@@ -163,4 +180,9 @@ class Command(BaseCommand):
                 f'Mock session "{MOCK_SESSION_NAME}" created (id={session.pk}). '
                 "Select it in the app to work on Calibration Results."
             )
+        )
+        self.stdout.write(
+            "Tip: launch the server with MOCK_INSTRUMENTS=1 to also see mock "
+            "instruments in the Instrument Status panel. PowerShell example:\n"
+            '    $env:MOCK_INSTRUMENTS = "1"; python manage.py runserver'
         )

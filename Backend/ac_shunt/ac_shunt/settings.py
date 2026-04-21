@@ -211,6 +211,22 @@ ASGI_APPLICATION = 'ac_shunt.asgi.application'
 
 CORS_ALLOW_ALL_ORIGINS = True
 
+# ---------------------------------------------------------
+# 4. MOCK MODE (UI development without lab hardware)
+# ---------------------------------------------------------
+# When MOCK_INSTRUMENTS is truthy, the instrument discovery endpoint and
+# the per-instrument status WebSocket short-circuit their pyvisa calls and
+# return realistic fixture data instead. This lets the UI be developed
+# and visually QA'd from a workstation without any lab equipment attached.
+#
+# Toggle by setting an environment variable before launching the Django
+# server, e.g. (PowerShell):  $env:MOCK_INSTRUMENTS = "1"; python manage.py runserver
+MOCK_INSTRUMENTS = os.environ.get("MOCK_INSTRUMENTS", "").strip().lower() in {
+    "1", "true", "yes", "on"
+}
+if MOCK_INSTRUMENTS:
+    print("MOCK_INSTRUMENTS is ON - discovery and status WS will return mock fixtures.")
+
 AUTH_PASSWORD_VALIDATORS = [{'NAME': 'django.contrib.auth.password_validation.UserAttributeSimilarityValidator'}]
 LANGUAGE_CODE = 'en-us'
 TIME_ZONE = 'UTC'

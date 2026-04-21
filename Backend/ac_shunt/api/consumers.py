@@ -13,8 +13,12 @@ import statistics
 import math
 import numpy as np
 
+from django.conf import settings
+from urllib.parse import unquote
+
 from npsl_tools.instruments import Instrument11713C, Instrument3458A, Instrument5730A, Instrument5790B, Instrument34420A, Instrument8100
 from .models import CalibrationReadings, CalibrationResults, CalibrationSession, CalibrationSettings, TestPoint, TestPointSet
+from .mock_instruments import is_mock_address, mock_isr_for_model
 
 INSTRUMENT_CLASS_MAP = {
     '5730A': Instrument5730A,
@@ -32,11 +36,28 @@ class InstrumentStatusConsumer(AsyncWebsocketConsumer):
 
     async def connect(self):
         self.instrument_model = self.scope['url_route']['kwargs']['instrument_model']
-        self.gpib_address = self.scope['url_route']['kwargs']['gpib_address']
+        # gpib_address comes in URL-encoded (visa:// addresses contain /), undo
+        # that once here so downstream comparisons see the canonical value.
+        self.gpib_address = unquote(self.scope['url_route']['kwargs']['gpib_address'])
         self.instrument_class = INSTRUMENT_CLASS_MAP.get(self.instrument_model)
         if not self.instrument_class:
             await self.close(code=4001)
             return
+
+        # Mock-mode fast path: no pyvisa, no hardware. The frontend treats a
+        # "Status Received" WS message as "Connected", so simply accepting the
+        # socket and letting get_status_sync return a canned ISR is enough to
+        # populate the entire Instrument Status page.
+        self.is_mock = getattr(settings, "MOCK_INSTRUMENTS", False) and is_mock_address(self.gpib_address)
+        if self.is_mock:
+            await self.accept()
+            await self.send(text_data=json.dumps({
+                'connection_status': 'instrument_connected',
+                'instrument_model': self.instrument_model,
+                'gpib_address': self.gpib_address,
+            }))
+            return
+
         self.instrument_instance = await self.connect_instrument_sync()
         if self.instrument_instance:
             await self.accept()
@@ -49,6 +70,8 @@ class InstrumentStatusConsumer(AsyncWebsocketConsumer):
             await self.close(code=4004)
 
     async def disconnect(self, close_code):
+        if getattr(self, "is_mock", False):
+            return
         if self.instrument_instance:
             await self.close_instrument_sync()
             self.instrument_instance = None
@@ -57,8 +80,17 @@ class InstrumentStatusConsumer(AsyncWebsocketConsumer):
         data = json.loads(text_data)
         command = data.get('command')
         if command == 'get_instrument_status':
-            status_result = await self.get_status_sync()
-            payload = {'instrument_model': self.instrument_model, 'gpib_address': self.gpib_address, 'timestamp': time.time(), **status_result}
+            if getattr(self, "is_mock", False):
+                payload = {
+                    'instrument_model': self.instrument_model,
+                    'gpib_address': self.gpib_address,
+                    'timestamp': time.time(),
+                    'status_report': 'ok',
+                    'raw_isr': mock_isr_for_model(self.instrument_model),
+                }
+            else:
+                status_result = await self.get_status_sync()
+                payload = {'instrument_model': self.instrument_model, 'gpib_address': self.gpib_address, 'timestamp': time.time(), **status_result}
             await self.send(text_data=json.dumps(payload))
         elif command == 'run_zero_cal':
             print(f"[StatusConsumer] Processing Zero Cal request for {self.gpib_address}...")
@@ -67,9 +99,15 @@ class InstrumentStatusConsumer(AsyncWebsocketConsumer):
                 'type': 'zero_cal_started', 
                 'message': 'Zero Calibration started. Please wait...'
             }))
-            
-            # 2. Run the BLOCKING driver call
-            success = await self.run_zero_cal_sync()
+
+            # 2. Run the BLOCKING driver call (or simulate in mock mode)
+            if getattr(self, "is_mock", False):
+                # Give the UI a few seconds to show the "Zeroing..." banner
+                # so the warning styling can be visually verified.
+                await asyncio.sleep(2.5)
+                success = True
+            else:
+                success = await self.run_zero_cal_sync()
             
             if success:
                 print(f"[StatusConsumer] Zero Cal complete for {self.gpib_address}")
