@@ -12,18 +12,21 @@ const INITIAL_STATE = {
   connected: false,
 };
 
+/** Max reconnect delay when the server keeps rejecting the handshake (ms). */
+const MAX_BACKOFF_MS = 120_000;
+
 /**
- * Subscribe to the backend's /ws/db-health/ topic.
+ * Subscribe to the backend's /ws/db-health/ topic (MSSQL + outbox live status).
  *
- * Keeps the UI informed about:
- *   - reachable:       whether the default DB (usually MSSQL) is answering.
- *   - pendingCount:    stage-save rows buffered locally waiting for replay.
- *   - failedCount:     rows that have exhausted automatic retries.
+ * When `enabled` is false (e.g. SQLite is the default DB in dev), no socket is
+ * opened — avoids noisy failed handshakes in the console and unnecessary
+ * load. Counts for the header pill should come from `system_info.outbox` in
+ * that case.
  *
- * Auto-reconnects with a short backoff if the WS drops. The hook never
- * throws — on any parse/socket error it just keeps the previous snapshot.
+ * @param {{ enabled?: boolean }} options
  */
-export default function useDbHealth() {
+export default function useDbHealth(options = {}) {
+  const { enabled = true } = options;
   const [state, setState] = useState(INITIAL_STATE);
   const wsRef = useRef(null);
   const reconnectTimerRef = useRef(null);
@@ -32,6 +35,26 @@ export default function useDbHealth() {
 
   useEffect(() => {
     unmountedRef.current = false;
+
+    if (!enabled) {
+      if (reconnectTimerRef.current) {
+        window.clearTimeout(reconnectTimerRef.current);
+        reconnectTimerRef.current = null;
+      }
+      const ws = wsRef.current;
+      if (ws) {
+        try {
+          ws.close();
+        } catch {
+          /* noop */
+        }
+        wsRef.current = null;
+      }
+      setState({ ...INITIAL_STATE, connected: false });
+      return () => {
+        unmountedRef.current = true;
+      };
+    }
 
     const connect = () => {
       if (unmountedRef.current) return;
@@ -62,21 +85,20 @@ export default function useDbHealth() {
         };
 
         ws.onerror = () => {
-          // Let onclose handle the reconnect cycle so we don't double-schedule.
+          // Browser logs the failed handshake; avoid duplicating in onerror.
         };
 
         ws.onclose = () => {
           wsRef.current = null;
           setState((prev) => ({ ...prev, connected: false }));
           if (unmountedRef.current) return;
-          const attempt = Math.min(reconnectAttemptsRef.current, 6);
-          const backoffMs = Math.min(30000, 1000 * 2 ** attempt);
+          const attempt = Math.min(reconnectAttemptsRef.current, 10);
+          const backoffMs = Math.min(MAX_BACKOFF_MS, 1000 * 2 ** attempt);
           reconnectAttemptsRef.current = attempt + 1;
           reconnectTimerRef.current = window.setTimeout(connect, backoffMs);
         };
       } catch {
-        // Schedule a retry if even constructing the socket failed.
-        reconnectTimerRef.current = window.setTimeout(connect, 3000);
+        reconnectTimerRef.current = window.setTimeout(connect, 5000);
       }
     };
 
@@ -98,7 +120,7 @@ export default function useDbHealth() {
         wsRef.current = null;
       }
     };
-  }, []);
+  }, [enabled]);
 
   const refresh = () => {
     const ws = wsRef.current;

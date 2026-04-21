@@ -390,7 +390,13 @@ function AppContent() {
     point: null,
   });
   const [dbInfo, setDbInfo] = useState(null);
-  const dbHealth = useDbHealth();
+  // Live outbox / MSSQL reachability WS — only useful when the default DB is
+  // remote. SQLite dev setups skip the socket to avoid console noise and
+  // failed handshakes; the pill still uses system_info.outbox for snapshots.
+  const dbHealthWsEnabled = Boolean(
+    dbInfo && dbInfo.database_type && dbInfo.database_type !== "sqlite3"
+  );
+  const dbHealth = useDbHealth({ enabled: dbHealthWsEnabled });
   const dbRecoveryToastShownRef = useRef(false);
 
   useEffect(() => {
@@ -425,28 +431,42 @@ function AppContent() {
     []
   );
 
-  // On boot, if the drainer started replaying leftover rows from a previous
-  // process lifetime, surface a one-time toast so the user knows it's
-  // recovering rather than silently succeeding.
+  // On boot, if the drainer is replaying leftover rows from a previous run,
+  // surface a one-time toast. Uses system_info.outbox (works for SQLite dev
+  // without the db-health WebSocket) and live WS counts when connected.
   useEffect(() => {
     if (dbRecoveryToastShownRef.current) return;
-    if (!dbHealth.connected) return;
-    if (dbHealth.pendingCount > 0) {
+    if (!dbInfo) return;
+    const rest = dbInfo.outbox || {};
+    const pending = Math.max(
+      Number(rest.pending_count) || 0,
+      dbHealth.pendingCount || 0
+    );
+    const failed = Math.max(
+      Number(rest.failed_count) || 0,
+      dbHealth.failedCount || 0
+    );
+    if (pending > 0) {
       dbRecoveryToastShownRef.current = true;
       showNotification(
-        `Recovering ${dbHealth.pendingCount} buffered reading${dbHealth.pendingCount === 1 ? "" : "s"} to the database...`,
+        `Recovering ${pending} buffered reading${pending === 1 ? "" : "s"} to the database...`,
         "info",
         6000
       );
-    } else if (dbHealth.failedCount > 0) {
+    } else if (failed > 0) {
       dbRecoveryToastShownRef.current = true;
       showNotification(
-        `${dbHealth.failedCount} buffered reading${dbHealth.failedCount === 1 ? "" : "s"} need attention. Check DB status.`,
+        `${failed} buffered reading${failed === 1 ? "" : "s"} need attention. Check DB status.`,
         "warning",
         8000
       );
     }
-  }, [dbHealth.connected, dbHealth.pendingCount, dbHealth.failedCount, showNotification]);
+  }, [
+    dbInfo,
+    dbHealth.pendingCount,
+    dbHealth.failedCount,
+    showNotification,
+  ]);
 
   const fetchSessionsList = useCallback(async () => {
     setIsLoadingSessions(true);
@@ -906,12 +926,28 @@ function AppContent() {
             {dbInfo && (() => {
               const dbLabel = dbInfo.database_type === 'sqlite3' ? 'SQLite' : 'MSSQL';
               const isSqlite = dbInfo.database_type === 'sqlite3';
-              // SQLite is always local -> always "reachable". For MSSQL we
-              // trust the live WS status; fall back to reachable=true until
-              // the first WS frame arrives.
-              const reachable = isSqlite ? true : (dbHealth.reachable !== false);
-              const buffered = dbHealth.pendingCount || 0;
-              const failed = dbHealth.failedCount || 0;
+              const rest = dbInfo.outbox || {};
+              const restPending = Number(rest.pending_count) || 0;
+              const restFailed = Number(rest.failed_count) || 0;
+              // SQLite: no db-health WS; use REST snapshot only. MSSQL: prefer
+              // live WS counts when connected, else last system_info snapshot.
+              const buffered = isSqlite
+                ? restPending
+                : dbHealth.connected
+                  ? dbHealth.pendingCount
+                  : restPending;
+              const failed = isSqlite
+                ? restFailed
+                : dbHealth.connected
+                  ? dbHealth.failedCount
+                  : restFailed;
+              // SQLite is always local -> always "reachable". MSSQL: live WS
+              // when connected; otherwise trust system_info probe.
+              const reachable = isSqlite
+                ? true
+                : dbHealth.connected
+                  ? dbHealth.reachable !== false
+                  : rest.reachable !== false;
               const stateClass = !reachable
                 ? ' is-offline'
                 : buffered > 0

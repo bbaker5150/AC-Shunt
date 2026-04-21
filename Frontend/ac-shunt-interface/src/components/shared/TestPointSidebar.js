@@ -425,33 +425,36 @@ function TestPointSidebar({
       <div className="tp-sidebar-toolbar">
         <div className="tp-sidebar-toolbar-group">
           <button
+            type="button"
             onClick={onToggleSelectAll}
-            className="sidebar-action-button"
+            className="cal-results-excel-icon-btn"
             disabled={
               isBulkRunning || isCollecting || uniqueTestPoints.length === 0
             }
             aria-label={selectAllTooltip}
             title={selectAllTooltip}
           >
-            <SelectAllIcon />
+            <SelectAllIcon aria-hidden />
           </button>
           <button
+            type="button"
             onClick={onDeleteSelected}
-            className="sidebar-action-button sidebar-action-button--danger"
+            className="cal-results-excel-icon-btn cal-results-excel-icon-btn--danger"
             disabled={isBulkRunning || isCollecting || selectedTPs.size === 0}
             aria-label="Delete selected test points"
             title="Delete selected"
           >
-            <FaTrashAlt />
+            <FaTrashAlt aria-hidden />
           </button>
           <button
+            type="button"
             onClick={onAddTestPoints}
-            className="sidebar-action-button"
+            className="cal-results-excel-icon-btn"
             disabled={isBulkRunning || isCollecting || !selectedSessionId}
             aria-label="Add new test points"
             title="Add new test points"
           >
-            <FaPlus />
+            <FaPlus aria-hidden />
           </button>
         </div>
         <div className="tp-sidebar-toolbar-meta">
@@ -461,13 +464,14 @@ function TestPointSidebar({
             </span>
           )}
           <button
+            type="button"
             onClick={onViewCorrections}
-            className="sidebar-action-button"
+            className="cal-results-excel-icon-btn"
             disabled={isBulkRunning || isCollecting || !selectedSessionId}
             aria-label="View corrections data"
             title="View corrections data"
           >
-            <IoDocumentText />
+            <IoDocumentText aria-hidden />
           </button>
         </div>
       </div>

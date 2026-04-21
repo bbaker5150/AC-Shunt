@@ -182,6 +182,10 @@ ALLOWED_HOSTS = ['10.206.104.144', '127.0.0.1', 'localhost', '*']
 
 INSTALLED_APPS = [
     'daphne',
+    # Required so ``get_channel_layer()`` and WebSocket consumers (including
+    # DbHealthConsumer) initialize correctly. Without this, handshakes can
+    # fail with HTTP 500 even when CHANNEL_LAYERS is set.
+    'channels',
     'django.contrib.admin',
     'django.contrib.auth',
     'django.contrib.contenttypes',

@@ -553,21 +553,45 @@ body {
   background-color: var(--status-bad);
 }
 
+/* Match session-panel / cal-results icon scale (1rem glyphs in ~36px chrome) */
 .drag-handle {
-  color: var(--text-color-subtle, var(--text-color-muted));
-  padding: 4px;
+  color: var(--icon-color);
+  padding: 0;
+  width: 32px;
+  height: 32px;
+  flex-shrink: 0;
   cursor: grab;
-  display: flex;
+  display: inline-flex;
   align-items: center;
   justify-content: center;
-  border-radius: 6px;
-  font-size: 0.875rem;
-  transition: background-color 0.15s ease, color 0.15s ease;
+  border-radius: 10px;
+  font-size: 1rem;
+  transition: background-color 0.15s ease, color 0.15s ease, filter 0.15s ease;
+}
+
+.drag-handle svg {
+  fill: url(#icon-metallic-light);
+  filter: drop-shadow(0 1px 0 var(--icon-sheen))
+          drop-shadow(0 1px 1.5px var(--icon-shadow-depth));
+}
+
+body.dark-mode .drag-handle svg {
+  fill: url(#icon-metallic-dark);
 }
 
 .drag-handle:hover {
-  background-color: var(--surface-sunken, var(--border-color));
+  background-color: var(--primary-color-soft);
   color: var(--text-color);
+}
+
+.drag-handle:hover svg {
+  fill: url(#icon-metallic-light-hover);
+  filter: drop-shadow(0 1px 0 var(--icon-sheen))
+          drop-shadow(0 2px 3px var(--icon-shadow-depth));
+}
+
+body.dark-mode .drag-handle:hover svg {
+  fill: url(#icon-metallic-dark-hover);
 }
 
 .drag-handle:active {
@@ -634,7 +658,7 @@ body {
 
 .tp-failed-icon {
   color: var(--status-bad);
-  font-size: 0.9rem;
+  font-size: 1rem;
   flex-shrink: 0;
   margin-left: auto;
 }
@@ -4408,7 +4432,7 @@ body.dark-mode .corrections-card-select:focus-visible {
 }
 
 .context-menu-item svg {
-  font-size: 0.95rem;
+  font-size: 1rem;
   color: var(--text-color-muted);
   flex-shrink: 0;
   transition: color 0.12s ease;
@@ -5573,13 +5597,24 @@ body.dark-mode .cal-results-excel-icon-btn:hover:not(:disabled) svg {
 
 .cal-results-excel-icon-btn:disabled {
   color: var(--icon-color-disabled);
-  opacity: 0.55;
+  background: transparent;
+  background-color: transparent;
+  opacity: 1;
   cursor: not-allowed;
 }
 
 .cal-results-excel-icon-btn:disabled svg {
   fill: currentColor;
   filter: none;
+}
+
+/* Danger + disabled: keep the same quiet treatment as other ghost icons —
+   no danger tint or wash on the square (whole-button opacity was reading
+   as a muddy grey block next to enabled toolbar icons). */
+.cal-results-excel-icon-btn.cal-results-excel-icon-btn--danger:disabled {
+  color: var(--icon-color-disabled);
+  background: transparent;
+  background-color: transparent;
 }
 
 .cal-results-summary {

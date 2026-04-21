@@ -1564,14 +1564,43 @@ class DbHealthConsumer(AsyncWebsocketConsumer):
     GROUP = outbox_module.DB_STATUS_GROUP
 
     async def connect(self):
-        await self.channel_layer.group_add(self.GROUP, self.channel_name)
+        layer = getattr(self, 'channel_layer', None)
+        if layer is None:
+            print(
+                'DbHealthConsumer: channel_layer is None — check INSTALLED_APPS '
+                'includes "channels" and CHANNEL_LAYERS is configured.',
+                flush=True,
+            )
+            await self.close(code=4500)
+            return
+        try:
+            await layer.group_add(self.GROUP, self.channel_name)
+        except Exception as e:
+            print(f'DbHealthConsumer: group_add failed: {e}', flush=True)
+            await self.close(code=4500)
+            return
+
         await self.accept()
 
         # Make sure the drainer is running now that an ASGI loop exists.
-        outbox_module.ensure_drainer_running()
+        try:
+            outbox_module.ensure_drainer_running()
+        except Exception as e:
+            print(f'DbHealthConsumer: ensure_drainer_running failed: {e}', flush=True)
 
-        # Initial snapshot.
-        payload = await sync_to_async(outbox_module.current_status_payload, thread_sensitive=True)()
+        # Initial snapshot — never fail the socket after accept(); the UI can
+        # still render with a safe fallback payload.
+        try:
+            payload = await sync_to_async(outbox_module.current_status_payload, thread_sensitive=True)()
+        except Exception as e:
+            print(f'DbHealthConsumer: current_status_payload failed: {e}', flush=True)
+            payload = {
+                'type': 'db_status',
+                'reachable': True,
+                'pending_count': 0,
+                'failed_count': 0,
+                'timestamp': time.time(),
+            }
         await self.send(text_data=json.dumps(payload))
 
         # Periodic heartbeat so the UI pill keeps itself honest even if the
@@ -1582,7 +1611,12 @@ class DbHealthConsumer(AsyncWebsocketConsumer):
         hb = getattr(self, '_heartbeat_task', None)
         if hb:
             hb.cancel()
-        await self.channel_layer.group_discard(self.GROUP, self.channel_name)
+        layer = getattr(self, 'channel_layer', None)
+        if layer is not None:
+            try:
+                await layer.group_discard(self.GROUP, self.channel_name)
+            except Exception:
+                pass
 
     async def receive(self, text_data):
         try:
