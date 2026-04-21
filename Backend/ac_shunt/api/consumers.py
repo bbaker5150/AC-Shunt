@@ -1282,6 +1282,7 @@ class CalibrationConsumer(AsyncWebsocketConsumer):
         This replaces the old single-attempt pattern which silently dropped
         readings on any DB exception.
         """
+        print(f"[SAVE-TRACE] 1. Initiating save for {reading_type_full} with {len(readings_list)} readings.", flush=True)
         row_id = await sync_to_async(outbox_module.enqueue, thread_sensitive=True)(
             self.session_id, test_point, reading_type_full, readings_list,
         )
@@ -1301,10 +1302,13 @@ class CalibrationConsumer(AsyncWebsocketConsumer):
         # Try the real write now. If it fails (MSSQL down) the row stays
         # pending and the drainer picks it up later — either way the payload
         # is durable.
+        print(f"[SAVE-TRACE] 3. Calling attempt_replay_row for row_id={row_id}", flush=True)
         ok = await sync_to_async(outbox_module.attempt_replay_row, thread_sensitive=True)(row_id)
+        print(f"[SAVE-TRACE] 4. Replay completed. Success={ok} for row_id={row_id}", flush=True)
         if not ok:
             # Make sure the drainer is alive and will retry, and push a status
             # update so the UI's "Buffered: N" badge lights up immediately.
+            print(f"[SAVE-TRACE] 5. Replay failed. Ensuring drainer is running and broadcasting DB status.", flush=True)
             outbox_module.ensure_drainer_running()
             await outbox_module.broadcast_db_status()
 
@@ -1467,6 +1471,9 @@ class CalibrationConsumer(AsyncWebsocketConsumer):
             tp.save(update_fields=['is_stability_failed'])
         except TestPoint.DoesNotExist:
             pass
+        except Exception as e:
+            # Catch DB disconnection errors so they don't crash the measurement loop
+            print(f"[CONSUMER] Could not update stability status for TP {test_point_id} (DB offline): {e}", flush=True)
 
 
 class SwitchDriverConsumer(AsyncWebsocketConsumer):

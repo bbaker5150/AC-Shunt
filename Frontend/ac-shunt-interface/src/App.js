@@ -15,7 +15,7 @@ import {
 } from "./contexts/InstrumentContext";
 import { ThemeProvider, useTheme } from "./contexts/ThemeContext";
 import "bootstrap/dist/css/bootstrap.min.css";
-import { FaInfoCircle, FaTimes, FaSun, FaMoon } from "react-icons/fa";
+import { FaInfoCircle, FaTimes, FaSun, FaMoon, FaCheckCircle, FaExclamationTriangle, FaExclamationCircle } from "react-icons/fa";
 import "./App.css";
 import { arrayMove } from "@dnd-kit/sortable";
 import { AVAILABLE_FREQUENCIES, API_BASE_URL } from "./constants/constants";
@@ -202,7 +202,7 @@ const ConfirmationModal = ({
         <header className="confirm-modal-header">
           <div className="confirm-modal-header-text">
             <span className="confirm-modal-eyebrow">
-              {isDanger ? "Destructive action" : "Confirm"}
+              {isDanger ? "Warning" : "Confirm"}
             </span>
             <h3 id="confirm-modal-title" className="confirm-modal-title">
               {title}
@@ -227,9 +227,8 @@ const ConfirmationModal = ({
           <button
             type="button"
             onClick={onConfirm}
-            className={`confirm-modal-action${
-              isDanger ? " confirm-modal-action--danger" : ""
-            }`}
+            className={`confirm-modal-action${isDanger ? " confirm-modal-action--danger" : ""
+              }`}
           >
             {confirmText}
           </button>
@@ -240,11 +239,25 @@ const ConfirmationModal = ({
 };
 const Notification = ({ message, type, onDismiss }) => {
   if (!message) return null;
+
+  // Map the notification type to a contextual icon
+  const icons = {
+    info: <FaInfoCircle />,
+    success: <FaCheckCircle />,
+    warning: <FaExclamationTriangle />,
+    error: <FaExclamationCircle />
+  };
+
   return (
-    <div className={`notification-bar notification-${type}`}>
-      <span>{message}</span>
-      <button onClick={onDismiss} className="dismiss">
-        &times;
+    <div className={`notification-toast toast-${type}`} role="alert">
+      <div className="toast-icon">
+        {icons[type] || <FaInfoCircle />}
+      </div>
+      <div className="toast-content">
+        {message}
+      </div>
+      <button onClick={onDismiss} className="toast-dismiss" aria-label="Dismiss">
+        <FaTimes aria-hidden />
       </button>
     </div>
   );
@@ -282,7 +295,7 @@ function CaptionControls() {
       .then((value) => {
         if (!cancelled) setIsMaximized(Boolean(value));
       })
-      .catch(() => {});
+      .catch(() => { });
 
     const onState = (_event, value) => setIsMaximized(Boolean(value));
     ipc.on("window-maximize-state", onState);
@@ -634,7 +647,7 @@ function AppContent() {
         pointsToDelete.length > 1
           ? "Selected test points deleted."
           : "Test point deleted.",
-        "success"
+        "error"
       );
       await fetchSessionData();
       setSelectedTPs(new Set());
@@ -867,7 +880,7 @@ function AppContent() {
         <div className="app-chrome-bar">
           <div className="app-chrome-brand">
             <div className="app-chrome-brand-mark" aria-hidden="true">
-              <span className="app-chrome-brand-mark-glyph">Ω</span>
+              <span className="app-chrome-brand-mark-glyph">NPSL</span>
             </div>
             <div className="app-chrome-brand-text">
               <span className="app-chrome-brand-name">
@@ -955,13 +968,28 @@ function AppContent() {
                   : failed > 0
                     ? ' has-failed'
                     : '';
+              const detailsList = (dbHealth.pendingDetails || []).map(d => {
+                // Formats 'std_ac_open' to 'STD AC OPEN'
+                const formattedStage = (d.stage || '').replace('_', ' ').toUpperCase();
+                return `• ${formattedStage} (${d.current}A @ ${d.frequency}Hz)`;
+              });
+
+              let detailsText = "";
+              if (detailsList.length > 0) {
+                detailsText = `\n\nQueued Stages:\n${detailsList.join('\n')}`;
+                // If there are more than 10, add a "and X more" suffix
+                if (buffered > detailsList.length) {
+                  detailsText += `\n...and ${buffered - detailsList.length} more`;
+                }
+              }
+
               let title = `Data source: ${dbLabel}`;
               if (!reachable) {
-                title = `${dbLabel} unreachable. ${buffered} reading${buffered === 1 ? '' : 's'} buffered locally.`;
+                title = `${dbLabel} unreachable. ${buffered} stage${buffered === 1 ? '' : 's'} buffered locally.${detailsText}`;
               } else if (buffered > 0) {
-                title = `${dbLabel}: replaying ${buffered} buffered reading${buffered === 1 ? '' : 's'}.`;
+                title = `${dbLabel}: replaying ${buffered} buffered stage${buffered === 1 ? '' : 's'}.${detailsText}`;
               } else if (failed > 0) {
-                title = `${dbLabel}: ${failed} buffered reading${failed === 1 ? '' : 's'} need attention.`;
+                title = `${dbLabel}: ${failed} buffered stage${failed === 1 ? '' : 's'} need attention.`;
               }
               return (
                 <div

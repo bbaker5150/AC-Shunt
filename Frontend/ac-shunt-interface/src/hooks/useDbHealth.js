@@ -8,6 +8,7 @@ const INITIAL_STATE = {
   reachable: true,
   pendingCount: 0,
   failedCount: 0,
+  pendingDetails: [],
   timestamp: 0,
   connected: false,
 };
@@ -75,6 +76,7 @@ export default function useDbHealth(options = {}) {
                 reachable: !!data.reachable,
                 pendingCount: Number(data.pending_count) || 0,
                 failedCount: Number(data.failed_count) || 0,
+                pendingDetails: data.pending_details || [],
                 timestamp: Number(data.timestamp) || Date.now() / 1000,
                 connected: true,
               });

@@ -2429,7 +2429,7 @@ function Calibration({
                                 }
                                 className="cal-results-excel-icon-btn"
                                 aria-label="Calculate AC-DC difference"
-                                title="Calculate AC–DC difference"
+                                title="View or Edit Correction Inputs"
                               >
                                 <FaCalculator aria-hidden />
                               </button>

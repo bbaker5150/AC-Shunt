@@ -194,7 +194,7 @@ function startBackend() {
 
         backendDir = path.join(projectRoot, 'Backend', 'ac_shunt');
         backendPath = path.join(projectRoot, 'venv', 'Scripts', 'python.exe');
-        backendArgs = [path.join(backendDir, 'entry_point.py')]; 
+        backendArgs = ['-u', path.join(backendDir, 'entry_point.py')]; 
     } else {
         backendDir = path.join(process.resourcesPath, 'ac_shunt_backend');
         backendPath = path.join(backendDir, 'ac_shunt_backend.exe');
@@ -214,11 +214,12 @@ function startBackend() {
 
     backendProcess.stderr.on('data', (data) => {
         const message = data.toString();
-        if (message.includes('200') || message.includes('CONNECT') || message.includes('HANDSHAKE')) {
-            // console.log(`Backend Log: ${message}`);
-        } else {
-            // console.error(`Backend Error: ${message}`);
-        }
+        console.log(`[PYTHON] ${message.trim()}`);
+        // if (message.includes('200') || message.includes('CONNECT') || message.includes('HANDSHAKE')) {
+        //     console.log(`Backend Log: ${message}`);
+        // } else {
+        //     console.error(`Backend Error: ${message}`);
+        // }
     });
 
     backendProcess.on('error', (err) => {

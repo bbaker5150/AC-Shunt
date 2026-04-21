@@ -160,6 +160,8 @@ class CalibrationSettings(models.Model):
     iqr_filter_enabled = models.BooleanField(default=False)
     iqr_filter_ppm_threshold = models.FloatField(default=15.0, null=True, blank=True)
     ignore_instability_after_lock = models.BooleanField(default=False)
+    characterize_std_first = models.BooleanField(default=False)
+    characterization_source = models.CharField(max_length=10, default="DC")
 
 class CalibrationReadings(models.Model):
 
@@ -199,7 +201,7 @@ class CalibrationReadings(models.Model):
         return f"Calibration Readings for TestPoint ID: {self.test_point.id} | Session: {self.test_point.test_point_set.session.session_name}"
 
     def update_related_results(self):
-        print(f"\n[MODELS] --- Starting Result Calculation for TP ID {self.test_point.id} ---", flush=True)
+        # print(f"\n[MODELS] --- Starting Result Calculation for TP ID {self.test_point.id} ---", flush=True)
         results, _ = CalibrationResults.objects.get_or_create(test_point=self.test_point)
         
         def calculate_stats(readings, label="Reading"):
@@ -214,11 +216,11 @@ class CalibrationReadings(models.Model):
 
             # Fallback if no stable readings exist
             if len(stable_values) < 2:
-                print(f"[MODELS - {label}] Warning: < 2 stable readings. Using all {len(readings)} readings as fallback.", flush=True)
+                # print(f"[MODELS - {label}] Warning: < 2 stable readings. Using all {len(readings)} readings as fallback.", flush=True)
                 all_values = [r['value'] for r in readings if isinstance(r, dict) and 'value' in r]
                 
                 if len(all_values) < 2:
-                    print(f"[MODELS - {label}] Insufficient readings to calculate stats. Aborting.", flush=True)
+                    # print(f"[MODELS - {label}] Insufficient readings to calculate stats. Aborting.", flush=True)
                     return None, None
                 stable_values = all_values
 
@@ -233,11 +235,11 @@ class CalibrationReadings(models.Model):
             variance = M2 / (len(stable_values) - 1)
             std_dev = math.sqrt(variance)
             
-            print(f"[MODELS - {label}] Calculated from {len(stable_values)} points: Mean = {mean_val:.6f}, StdDev = {std_dev:.6e}", flush=True)
+            # print(f"[MODELS - {label}] Calculated from {len(stable_values)} points: Mean = {mean_val:.6f}, StdDev = {std_dev:.6e}", flush=True)
             return mean_val, std_dev
 
         # --- 1. Standard Averages Update ---
-        print("[MODELS] Calculating Standard Instrument AC/DC Averages...", flush=True)
+        # print("[MODELS] Calculating Standard Instrument AC/DC Averages...", flush=True)
         results.std_ac_open_avg, results.std_ac_open_stddev = calculate_stats(self.std_ac_open_readings, "STD AC Open")
         results.std_dc_pos_avg, results.std_dc_pos_stddev = calculate_stats(self.std_dc_pos_readings, "STD DC Pos")
         results.std_dc_neg_avg, results.std_dc_neg_stddev = calculate_stats(self.std_dc_neg_readings, "STD DC Neg")

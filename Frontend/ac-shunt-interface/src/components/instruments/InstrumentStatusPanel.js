@@ -5,7 +5,7 @@
 import React, { useState, useEffect, useMemo } from 'react';
 import axios from 'axios';
 import { useInstruments } from '../../contexts/InstrumentContext';
-import { FaSave, FaUndo, FaTimes, FaSearch, FaSync, FaEdit, FaBullseye } from 'react-icons/fa';
+import { FaSave, FaUndo, FaTimes, FaSearch, FaSync, FaEdit, FaCreativeCommonsZero } from 'react-icons/fa';
 import { API_BASE_URL } from '../../constants/constants';
 const ASSIGNABLE_MODELS = ['34420A', '3458A', '5790B'];
 const ACDC_ASSIGNABLE_MODELS = ['5730A'];
@@ -480,13 +480,13 @@ function InstrumentStatusPanel({ showNotification }) {
                                                     className={`isp-zero-cal-btn--compact${isZeroing ? ' is-zeroing' : ''}`}
                                                     onClick={() => runZeroCal(model, inst.address)}
                                                     disabled={!isConnected || isZeroing}
-                                                    title={isZeroing ? 'Zeroing in progress…' : 'Run internal zero calibration'}
+                                                    title={isZeroing ? 'Zeroing in progress…' : 'Run zero calibration'}
                                                     aria-label={isZeroing ? 'Zeroing in progress' : 'Run zero calibration'}
                                                 >
                                                     {isZeroing ? (
                                                         <span className="spinner-border spinner-border-sm" role="status" aria-hidden="true"></span>
                                                     ) : (
-                                                        <FaBullseye />
+                                                        <FaCreativeCommonsZero />
                                                     )}
                                                 </button>
                                             )}

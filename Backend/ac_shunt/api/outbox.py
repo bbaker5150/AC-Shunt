@@ -88,6 +88,7 @@ def enqueue(
     In that case the caller should log loudly and fall back to its previous
     best-effort behavior; there's nothing else we can do.
     """
+    logger.info("OUTBOX [ENQUEUE 1/2]: Request received for session_id=%s, stage=%s", session_id, reading_type_full)
     try:
         from .models import PendingReadingWrite  # local import — avoids app-ready races
 
@@ -104,6 +105,7 @@ def enqueue(
             readings_json=list(readings_list) if readings_list else [],
             status=PendingReadingWrite.STATUS_PENDING,
         )
+        logger.info("OUTBOX [ENQUEUE 2/2]: SUCCESS - created PendingReadingWrite row_id=%s", row.id)
         return row.id
     except Exception as e:
         logger.exception("OUTBOX: failed to enqueue stage save (%s): %s", reading_type_full, e)
@@ -131,6 +133,8 @@ def attempt_replay_row(row_id: int) -> bool:
         TestPointSet,
     )
 
+    logger.info("OUTBOX [REPLAY 1/4]: attempt_replay_row() started for row_id=%s", row_id)
+
     # 1. Claim the row (pending -> in_flight) so concurrent drainers don't
     #    double-process. The outbox is SQLite, so this transaction is local
     #    and never touches MSSQL.
@@ -139,19 +143,23 @@ def attempt_replay_row(row_id: int) -> bool:
             try:
                 row = PendingReadingWrite.objects.using('outbox').select_for_update().get(pk=row_id)
             except PendingReadingWrite.DoesNotExist:
+                logger.warning("OUTBOX [REPLAY]: row_id=%s DoesNotExist during claim.", row_id)
                 return False
             if row.status == PendingReadingWrite.STATUS_DONE:
+                logger.info("OUTBOX [REPLAY]: row_id=%s is already DONE.", row_id)
                 return True
             if row.status not in (
                 PendingReadingWrite.STATUS_PENDING,
                 PendingReadingWrite.STATUS_IN_FLIGHT,
             ):
                 # failed rows require manual intervention
+                logger.warning("OUTBOX [REPLAY]: row_id=%s is in status %s (needs manual intervention).", row_id, row.status)
                 return False
             row.status = PendingReadingWrite.STATUS_IN_FLIGHT
             row.save(update_fields=['status'])
+            logger.info("OUTBOX [REPLAY 2/4]: Claimed row_id=%s (IN_FLIGHT).", row_id)
     except Exception as claim_err:
-        logger.warning("OUTBOX: could not claim row %s: %s", row_id, claim_err)
+        logger.warning("OUTBOX [REPLAY ERROR]: could not claim row %s: %s", row_id, claim_err)
         return False
 
     # 2. Attempt the real write against the default DB.
@@ -188,10 +196,13 @@ def attempt_replay_row(row_id: int) -> bool:
         readings.save()
         readings.update_related_results()
 
+        logger.info("OUTBOX [REPLAY 3/4]: Successfully wrote row_id=%s to MSSQL.", row_id)
+
     except Exception as write_err:
         # Revert to pending and bump attempt counter. Transient errors stay
         # retryable; after _MAX_ATTEMPTS_BEFORE_FAILED we mark the row as
         # failed so the UI can surface it instead of retrying forever.
+        logger.warning("OUTBOX [REPLAY FAILED]: MSSQL write failed for row_id=%s. Error: %s", row_id, write_err)
         try:
             with transaction.atomic(using='outbox'):
                 row = PendingReadingWrite.objects.using('outbox').get(pk=row_id)
@@ -201,14 +212,15 @@ def attempt_replay_row(row_id: int) -> bool:
                 if row.attempts >= _MAX_ATTEMPTS_BEFORE_FAILED:
                     row.status = PendingReadingWrite.STATUS_FAILED
                     logger.error(
-                        "OUTBOX: row %s exhausted retries (%s). Last error: %s",
+                        "OUTBOX [REPLAY DEAD]: row %s exhausted retries (%s). Last error: %s",
                         row_id, row.attempts, row.last_error,
                     )
                 else:
                     row.status = PendingReadingWrite.STATUS_PENDING
                 row.save(update_fields=['attempts', 'last_error', 'last_attempt_at', 'status'])
+                logger.info("OUTBOX [REPLAY BOOKKEEPING]: row_id=%s set to %s (Attempt %s)", row_id, row.status, row.attempts)
         except Exception as bookkeeping_err:
-            logger.exception("OUTBOX: bookkeeping failed for row %s: %s", row_id, bookkeeping_err)
+            logger.exception("OUTBOX [REPLAY ERROR]: bookkeeping failed for row %s: %s", row_id, bookkeeping_err)
         return False
 
     # 3. Mark done. If this update fails (exceedingly unlikely — it's a local
@@ -221,8 +233,9 @@ def attempt_replay_row(row_id: int) -> bool:
             row.last_attempt_at = timezone.now()
             row.last_error = ''
             row.save(update_fields=['status', 'last_attempt_at', 'last_error'])
+            logger.info("OUTBOX [REPLAY 4/4]: Marked row_id=%s as DONE.", row_id)
     except Exception as mark_err:
-        logger.warning("OUTBOX: could not mark row %s done: %s", row_id, mark_err)
+        logger.warning("OUTBOX [REPLAY ERROR]: could not mark row %s done: %s", row_id, mark_err)
 
     return True
 
@@ -286,6 +299,30 @@ def get_failed_count_sync() -> int:
         logger.debug("OUTBOX: get_failed_count_sync failed: %s", e)
         return 0
 
+def get_pending_details_sync() -> list:
+    """Return a list of dicts describing the top 10 pending rows."""
+    from .models import PendingReadingWrite
+    try:
+        # Fetch the oldest 10 pending rows to show in the UI tooltip
+        qs = PendingReadingWrite.objects.using('outbox').filter(
+            status__in=(
+                PendingReadingWrite.STATUS_PENDING,
+                PendingReadingWrite.STATUS_IN_FLIGHT,
+            )
+        ).order_by('created_at')[:10]
+        
+        return [
+            {
+                'stage': row.reading_type_full,
+                'current': (row.test_point_lookup or {}).get('current', 'Unknown'),
+                'frequency': (row.test_point_lookup or {}).get('frequency', 'Unknown'),
+            }
+            for row in qs
+        ]
+    except Exception as e:
+        logger.debug("OUTBOX: get_pending_details_sync failed: %s", e)
+        return []
+
 
 # -----------------------------------------------------------------------------
 # Broadcast helpers
@@ -297,6 +334,7 @@ def current_status_payload() -> dict:
         'reachable': probe_default_reachable(),
         'pending_count': get_pending_count_sync(),
         'failed_count': get_failed_count_sync(),
+        'pending_details': get_pending_details_sync(),
         'timestamp': time.time(),
     }
 
@@ -370,8 +408,6 @@ async def drain_once() -> int:
     successfully replayed.
     """
     drained = 0
-    # Fast exit if the default DB is down — no point trying rows until the
-    # probe flips back to reachable.
     if not await sync_to_async(probe_default_reachable, thread_sensitive=True)(force=True):
         return 0
 
@@ -379,20 +415,28 @@ async def drain_once() -> int:
         row_id, _ = await sync_to_async(_pick_next_row_sync, thread_sensitive=True)()
         if row_id is None:
             break
+            
+        logger.info("OUTBOX [DRAINER]: Found pending row_id=%s, attempting background replay...", row_id)
         ok = await sync_to_async(attempt_replay_row, thread_sensitive=True)(row_id)
+        
         if ok:
             drained += 1
-            # Broadcast a status update every few rows so the UI counter ticks
-            # down visibly instead of jumping at the end.
+            logger.info("OUTBOX [DRAINER]: Background replay SUCCESS for row_id=%s.", row_id)
             if drained % 5 == 0:
                 await broadcast_db_status()
         else:
-            # The DB is flaking — bail out of this pass and let backoff run.
+            logger.warning("OUTBOX [DRAINER]: Background replay FAILED for row_id=%s. Aborting pass.", row_id)
             if not await sync_to_async(probe_default_reachable, thread_sensitive=True)(force=True):
                 break
 
     if drained:
+        logger.info("OUTBOX [DRAINER]: Pass complete. Successfully recovered %s rows.", drained)
         await broadcast_db_status()
+        
+        # --- POTENTIAL FIX FOR THE SILENT DRAIN ---
+        # You can force the UI to fetch the new data by broadcasting a sync event here
+        # to all active sessions, or handle it via DbHealthConsumer.
+        
     return drained
 
 
