@@ -525,6 +525,31 @@ class TVCCorrection(models.Model):
     class Meta:
         unique_together = ('tvc', 'frequency')
 
+class BugReport(models.Model):
+    SEVERITY_CHOICES = [
+        ('Low', 'Low'),
+        ('Medium', 'Medium'),
+        ('High', 'High'),
+        ('Critical', 'Critical')
+    ]
+    CATEGORY_CHOICES = [
+        ('UI/UX', 'UI/UX'),
+        ('Hardware Communication', 'Hardware Communication'),
+        ('Calculation Accuracy', 'Calculation Accuracy'),
+        ('Database/Sync', 'Database/Sync'),
+        ('Other', 'Other')
+    ]
+    
+    title = models.CharField(max_length=255)
+    severity = models.CharField(max_length=20, choices=SEVERITY_CHOICES, default='Medium')
+    category = models.CharField(max_length=50, choices=CATEGORY_CHOICES, default='UI/UX')
+    description = models.TextField()
+    steps = models.TextField(blank=True, null=True)
+    system_info = models.TextField(blank=True, null=True)
+    created_at = models.DateTimeField(auto_now_add=True)
+
+    def __str__(self):
+        return f"{self.severity} - {self.title}"
 
 class PendingReadingWrite(models.Model):
     """

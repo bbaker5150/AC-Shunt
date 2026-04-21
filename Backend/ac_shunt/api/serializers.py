@@ -4,7 +4,7 @@ from .models import (
     Message, Shunt, ShuntCorrection, TVC, TVCCorrection, TVCSensitivity,
     CalibrationSession, TestPoint, TestPointSet, Calibration, 
     CalibrationTVCCorrections, CalibrationConfigurations, CalibrationSettings, 
-    CalibrationReadings, CalibrationResults
+    CalibrationReadings, CalibrationResults, BugReport
 )
 from datetime import datetime
 
@@ -357,3 +357,8 @@ class CalibrationSerializer(serializers.ModelSerializer):
                 configurations_serializer.save()
 
         return instance
+
+class BugReportSerializer(serializers.ModelSerializer):
+    class Meta:
+        model = BugReport
+        fields = '__all__'

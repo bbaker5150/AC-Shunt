@@ -17,14 +17,14 @@ from asgiref.sync import async_to_sync
 from .models import (
     Message, CalibrationSession, TestPoint, TestPointSet, Calibration, 
     CalibrationConfigurations, CalibrationTVCCorrections, CalibrationSettings, 
-    CalibrationReadings, CalibrationResults, Shunt, TVC
+    CalibrationReadings, CalibrationResults, Shunt, TVC, BugReport
 )
 from .serializers import (
     MessageSerializer, CalibrationSerializer, CalibrationSessionSerializer, 
     TestPointSerializer, TestPointSetSerializer, 
     CalibrationTVCCorrectionsSerializer, CalibrationConfigurationsSerializer, 
     CalibrationSettingsSerializer, CalibrationReadingsSerializer, 
-    CalibrationResultsSerializer, ShuntSerializer, TVCSerializer
+    CalibrationResultsSerializer, ShuntSerializer, TVCSerializer, BugReportSerializer
 )
 from npsl_tools.instruments import (
     Instrument11713C, Instrument3458A, Instrument5730A, Instrument5790B, 
@@ -197,6 +197,10 @@ class TVCViewSet(viewsets.ModelViewSet):
         #     print(json.dumps(response.data[0], indent=2))
         # print("------------------------------------------------\n")
         return response
+
+class BugReportViewSet(viewsets.ModelViewSet):
+    queryset = BugReport.objects.all().order_by('-created_at')
+    serializer_class = BugReportSerializer
     
 class CalibrationViewSet(viewsets.ModelViewSet):
     """
@@ -994,7 +998,7 @@ class TestPointViewSet(viewsets.ModelViewSet):
             "calibration_session_id": int(self.kwargs['session_pk']),
             "test_points": serializer.data
         })
-    
+
 @api_view(['GET'])
 def system_info(request):
     """
