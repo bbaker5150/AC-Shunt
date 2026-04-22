@@ -21,6 +21,8 @@ from .models import CalibrationReadings, CalibrationResults, CalibrationSession,
 from .mock_instruments import is_mock_address, mock_isr_for_model
 from . import outbox as outbox_module
 
+HOST_ACTIVE_SESSION_ID = None
+
 INSTRUMENT_CLASS_MAP = {
     '5730A': Instrument5730A,
     '5790B': Instrument5790B,
@@ -29,7 +31,6 @@ INSTRUMENT_CLASS_MAP = {
     '11713C': Instrument11713C,
     '8100': Instrument8100
 }
-
 
 class InstrumentStatusConsumer(AsyncWebsocketConsumer):
     instrument_instance = None
@@ -1686,3 +1687,46 @@ class DbHealthConsumer(AsyncWebsocketConsumer):
         if not payload:
             return
         await self.send(text_data=json.dumps(payload))
+
+class HostSyncConsumer(AsyncWebsocketConsumer):
+    async def connect(self):
+        self.group_name = 'host_sync_group'
+        await self.channel_layer.group_add(self.group_name, self.channel_name)
+        await self.accept()
+
+        # The moment a Remote Viewer joins, immediately send them the Host's active session
+        global HOST_ACTIVE_SESSION_ID
+        if HOST_ACTIVE_SESSION_ID is not None:
+            await self.send(text_data=json.dumps({
+                'type': 'session_changed',
+                'session_id': HOST_ACTIVE_SESSION_ID
+            }))
+
+    async def disconnect(self, close_code):
+        await self.channel_layer.group_discard(self.group_name, self.channel_name)
+
+    async def receive(self, text_data):
+        data = json.loads(text_data)
+        command = data.get('command')
+
+        if command == 'set_session':
+            session_id = data.get('session_id')
+
+            # Store it globally so late-joiners get it instantly
+            global HOST_ACTIVE_SESSION_ID
+            HOST_ACTIVE_SESSION_ID = session_id
+
+            # Broadcast the change to all Remote Viewers
+            await self.channel_layer.group_send(
+                self.group_name,
+                {
+                    'type': 'broadcast_session',
+                    'session_id': session_id
+                }
+            )
+
+    async def broadcast_session(self, event):
+        await self.send(text_data=json.dumps({
+            'type': 'session_changed',
+            'session_id': event['session_id']
+        }))

@@ -79,6 +79,7 @@ function SessionManager({
   isLoadingSessions,
   showNotification,
   fetchSessionsList,
+  isRemoteViewer
 }) {
   const {
     selectedSessionId,
@@ -188,6 +189,7 @@ function SessionManager({
               className="cal-results-excel-icon-btn"
               aria-label="Start a new session"
               title="Start a new session"
+              disabled={isRemoteViewer}
             >
               <FaPlus aria-hidden />
             </button>
@@ -204,7 +206,7 @@ function SessionManager({
               value={selectedSessionId}
               onChange={handleSessionSelectChange}
               placeholder={isLoadingSessions ? "Loading sessions…" : "Select a session…"}
-              disabled={isLoadingSessions}
+              disabled={isLoadingSessions || isRemoteViewer}
             />
             <button
               type="button"
@@ -212,7 +214,7 @@ function SessionManager({
               className="cal-results-excel-icon-btn cal-results-excel-icon-btn--danger"
               aria-label="Delete selected session"
               title="Delete selected session"
-              disabled={!selectedSessionId}
+              disabled={!selectedSessionId || isRemoteViewer}
             >
               <FaTrashAlt aria-hidden />
             </button>

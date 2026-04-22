@@ -17,7 +17,7 @@ import SessionDetailsForm from './SessionDetailsForm';
  * @param {Function} props.showNotification - Function to display a notification.
  * @param {Function} props.fetchSessionsList - Function to refresh the sessions list.
  */
-function SessionSetup({ sessionsList, isLoadingSessions, showNotification, fetchSessionsList }) {
+function SessionSetup({ sessionsList, isLoadingSessions, showNotification, fetchSessionsList, isRemoteViewer }) {
     return (
         <div className="session-setup-container">
             <div className="session-setup-manager-pane">
@@ -26,6 +26,7 @@ function SessionSetup({ sessionsList, isLoadingSessions, showNotification, fetch
                     isLoadingSessions={isLoadingSessions}
                     showNotification={showNotification}
                     fetchSessionsList={fetchSessionsList}
+                    isRemoteViewer={isRemoteViewer}
                 />
             </div>
             <div className="session-setup-details-pane">
@@ -33,6 +34,7 @@ function SessionSetup({ sessionsList, isLoadingSessions, showNotification, fetch
                     sessionsList={sessionsList}
                     fetchSessionsList={fetchSessionsList}
                     showNotification={showNotification}
+                    isRemoteViewer={isRemoteViewer}
                 />
             </div>
         </div>

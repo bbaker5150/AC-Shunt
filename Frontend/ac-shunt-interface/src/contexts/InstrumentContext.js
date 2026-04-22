@@ -8,7 +8,7 @@ import React, {
   useContext,
 } from "react";
 
-import { WS_BASE_URL } from "../constants/constants";
+import { WS_BASE_URL, baseIp } from "../constants/constants";
 
 const initialLiveReadings = {
   char_plus1: [],
@@ -99,6 +99,14 @@ export const InstrumentContextProvider = ({ children }) => {
   const [lastMessage, setLastMessage] = useState(null);
   const [dataRefreshTrigger, setDataRefreshTrigger] = useState(0);
   const heartbeatTimeout = useRef(null);
+  const isRemoteViewer = baseIp !== "localhost" && baseIp !== "127.0.0.1";
+  const hostSyncWs = useRef(null);
+  const selectedSessionIdRef = useRef(selectedSessionId);
+
+  // Keep a ref of the session ID to avoid stale closures in the WebSocket events
+  useEffect(() => {
+    selectedSessionIdRef.current = selectedSessionId;
+  }, [selectedSessionId]);
 
   // --- Switch Driver WebSocket Logic ---
   useEffect(() => {
@@ -138,6 +146,56 @@ export const InstrumentContextProvider = ({ children }) => {
       setSwitchStatus({ status: "Disconnected", isConnected: false });
     }
   }, [switchDriverAddress, switchDriverModel]);
+
+  // --- Host Session Auto-Sync Logic ---
+  useEffect(() => {
+    const connectHostSync = () => {
+      hostSyncWs.current = new WebSocket(`${WS_BASE_URL}/host-sync/`);
+
+      hostSyncWs.current.onopen = () => {
+        // If the Host connects, assert their current session to the server
+        if (!isRemoteViewer && selectedSessionIdRef.current !== null) {
+          hostSyncWs.current.send(JSON.stringify({
+            command: "set_session",
+            session_id: selectedSessionIdRef.current
+          }));
+        }
+      };
+
+      hostSyncWs.current.onmessage = (event) => {
+        const data = JSON.parse(event.data);
+        if (data.type === "session_changed") {
+          // If we are a Remote Viewer, we SLAVE our UI to whatever the Host just broadcasted!
+          if (isRemoteViewer) {
+            setSelectedSessionId(data.session_id);
+          }
+        }
+      };
+
+      hostSyncWs.current.onclose = () => {
+        setTimeout(connectHostSync, 3000);
+      };
+    };
+
+    connectHostSync();
+
+    return () => {
+      if (hostSyncWs.current) {
+        hostSyncWs.current.onclose = null;
+        hostSyncWs.current.close();
+      }
+    };
+  }, [isRemoteViewer]);
+
+  // Broadcast changes whenever the Host clicks a different session
+  useEffect(() => {
+    if (!isRemoteViewer && hostSyncWs.current?.readyState === WebSocket.OPEN) {
+      hostSyncWs.current.send(JSON.stringify({
+        command: "set_session",
+        session_id: selectedSessionId
+      }));
+    }
+  }, [selectedSessionId, isRemoteViewer]);
 
   const setSwitchSource = useCallback(
     (source) => {

@@ -7,4 +7,5 @@ websocket_urlpatterns = [
     re_path(r'^ws/collect-readings/(?P<session_id>\w+)/$', consumers.CalibrationConsumer.as_asgi()),
     re_path(r'^ws/switch/(?P<instrument_model>\w+)/(?P<gpib_address>.+)/$', consumers.SwitchDriverConsumer.as_asgi()),
     re_path(r'^ws/db-health/$', consumers.DbHealthConsumer.as_asgi()),
+    re_path(r'^ws/host-sync/$', consumers.HostSyncConsumer.as_asgi()),
 ]

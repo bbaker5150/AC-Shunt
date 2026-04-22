@@ -22,7 +22,7 @@ const initialFormData = {
   notes: "",
 };
 
-function SessionDetailsForm({ sessionsList, fetchSessionsList, showNotification }) {
+function SessionDetailsForm({ sessionsList, fetchSessionsList, showNotification, isRemoteViewer }) {
   const {
     selectedSessionId,
     setSelectedSessionId,
@@ -189,7 +189,7 @@ function SessionDetailsForm({ sessionsList, fetchSessionsList, showNotification 
           <div className="form-section-group">
             <div className="form-section full-width">
               <label htmlFor="sessionName">Session name</label>
-              <input type="text" id="sessionName" name="sessionName" value={formData.sessionName} onChange={handleChange} required />
+              <input type="text" id="sessionName" name="sessionName" value={formData.sessionName} onChange={handleChange} required disabled={isRemoteViewer} />
             </div>
           </div>
         </div>
@@ -199,27 +199,27 @@ function SessionDetailsForm({ sessionsList, fetchSessionsList, showNotification 
           <div className="form-section-group">
             <div className="form-section">
               <label htmlFor="standardInstrumentModel">Standard instrument</label>
-              <input type="text" id="standardInstrumentModel" name="standardInstrumentModel" value={formData.standardInstrumentModel} onChange={handleChange} required />
+              <input type="text" id="standardInstrumentModel" name="standardInstrumentModel" value={formData.standardInstrumentModel} onChange={handleChange} required disabled={isRemoteViewer} />
             </div>
             <div className="form-section">
               <label htmlFor="standardInstrumentSerial">Standard serial</label>
-              <input type="text" id="standardInstrumentSerial" name="standardInstrumentSerial" value={formData.standardInstrumentSerial} onChange={handleChange} required />
+              <input type="text" id="standardInstrumentSerial" name="standardInstrumentSerial" value={formData.standardInstrumentSerial} onChange={handleChange} required disabled={isRemoteViewer} />
             </div>
             <div className="form-section">
               <label htmlFor="testInstrument">Test instrument</label>
-              <input type="text" id="testInstrument" name="testInstrument" value={formData.testInstrument} onChange={handleChange} required />
+              <input type="text" id="testInstrument" name="testInstrument" value={formData.testInstrument} onChange={handleChange} required disabled={isRemoteViewer} />
             </div>
             <div className="form-section">
               <label htmlFor="testInstrumentSerial">Test serial</label>
-              <input type="text" id="testInstrumentSerial" name="testInstrumentSerial" value={formData.testInstrumentSerial} onChange={handleChange} required />
+              <input type="text" id="testInstrumentSerial" name="testInstrumentSerial" value={formData.testInstrumentSerial} onChange={handleChange} required disabled={isRemoteViewer} />
             </div>
             <div className="form-section">
               <label htmlFor="standardTvcSerial">Standard TVC serial</label>
-              <input type="text" id="standardTvcSerial" name="standardTvcSerial" value={formData.standardTvcSerial} onChange={handleChange} />
+              <input type="text" id="standardTvcSerial" name="standardTvcSerial" value={formData.standardTvcSerial} onChange={handleChange} disabled={isRemoteViewer} />
             </div>
             <div className="form-section">
               <label htmlFor="testTvcSerial">Test TVC serial</label>
-              <input type="text" id="testTvcSerial" name="testTvcSerial" value={formData.testTvcSerial} onChange={handleChange} />
+              <input type="text" id="testTvcSerial" name="testTvcSerial" value={formData.testTvcSerial} onChange={handleChange} disabled={isRemoteViewer} />
             </div>
           </div>
         </div>
@@ -229,15 +229,15 @@ function SessionDetailsForm({ sessionsList, fetchSessionsList, showNotification 
           <div className="form-section-group">
             <div className="form-section">
               <label htmlFor="temperature">Temperature (°C)</label>
-              <input type="number" id="temperature" name="temperature" value={formData.temperature} onChange={handleChange} step="0.1" required />
+              <input type="number" id="temperature" name="temperature" value={formData.temperature} onChange={handleChange} step="0.1" required disabled={isRemoteViewer} />
             </div>
             <div className="form-section">
               <label htmlFor="humidity">Humidity (%RH)</label>
-              <input type="number" id="humidity" name="humidity" value={formData.humidity} onChange={handleChange} step="0.1" required />
+              <input type="number" id="humidity" name="humidity" value={formData.humidity} onChange={handleChange} step="0.1" required disabled={isRemoteViewer} />
             </div>
             <div className="form-section full-width">
               <label htmlFor="notes">Notes</label>
-              <textarea id="notes" name="notes" value={formData.notes} onChange={handleChange} rows="5" />
+              <textarea id="notes" name="notes" value={formData.notes} onChange={handleChange} rows="5" disabled={isRemoteViewer} />
             </div>
           </div>
         </div>
@@ -246,7 +246,7 @@ function SessionDetailsForm({ sessionsList, fetchSessionsList, showNotification 
           <button
             type="submit"
             className="sidebar-action-button"
-            disabled={isLoading}
+            disabled={isLoading || isRemoteViewer}
             aria-label={saveTitle}
             title={saveTitle}
           >

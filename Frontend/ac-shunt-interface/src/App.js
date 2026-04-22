@@ -1314,6 +1314,7 @@ function AppContent() {
               isLoadingSessions={isLoadingSessions}
               showNotification={showNotification}
               fetchSessionsList={fetchSessionsList}
+              isRemoteViewer={isRemoteViewer}
             />
           )}
           {activeTab === "instrumentStatus" && (
