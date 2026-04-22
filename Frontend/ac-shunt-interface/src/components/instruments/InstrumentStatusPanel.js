@@ -9,7 +9,7 @@ import { FaSave, FaUndo, FaTimes, FaSearch, FaSync, FaEdit, FaCreativeCommonsZer
 import { API_BASE_URL } from '../../constants/constants';
 const ASSIGNABLE_MODELS = ['34420A', '3458A', '5790B'];
 const ACDC_ASSIGNABLE_MODELS = ['5730A'];
-const AMPLIFIER_MODELS = ['8100']; 
+const AMPLIFIER_MODELS = ['8100'];
 const SUPPORTED_STATUS_MODELS = ['5730', '5790'];
 const SWITCH_DRIVER_MODELS = ['11713C'];
 
@@ -20,9 +20,9 @@ const statusBitDescriptions = {
     SETTLED: "Settled", ZERO_CAL: "Zero Cal Needed", AC_XFER: "AC/DC Transfer", UNUSED_15: "Unused"
 };
 
-function InstrumentStatusPanel({ showNotification }) {
+function InstrumentStatusPanel({ showNotification, isRemoteViewer }) {
     const {
-        selectedSessionId, instrumentStatuses, isFetchingStatuses, getInstrumentStatus, 
+        selectedSessionId, instrumentStatuses, isFetchingStatuses, getInstrumentStatus,
         runZeroCal, // Destructure runZeroCal
         discoveredInstruments, setDiscoveredInstruments,
         stdInstrumentAddress, setStdInstrumentAddress, stdReaderModel, setStdReaderModel, stdReaderSN, setStdReaderSN,
@@ -257,7 +257,7 @@ function InstrumentStatusPanel({ showNotification }) {
         if (!identity) return null;
         const parts = identity.split(',');
         if (parts.length > 1 && parts[1]) return parts[1].trim();
-        const allKnownModels = [...ASSIGNABLE_MODELS, ...ACDC_ASSIGNABLE_MODELS, ...AMPLIFIER_MODELS]; 
+        const allKnownModels = [...ASSIGNABLE_MODELS, ...ACDC_ASSIGNABLE_MODELS, ...AMPLIFIER_MODELS];
         for (const model of allKnownModels) if (identity.includes(model)) return model;
         return identity.trim();
     };
@@ -361,7 +361,7 @@ function InstrumentStatusPanel({ showNotification }) {
                         type="button"
                         onClick={handleScanInstruments}
                         className="cal-results-excel-icon-btn"
-                        disabled={isScanning}
+                        disabled={isScanning || isRemoteViewer}
                         title={isScanning ? "Scanning..." : "Scan for Instruments"}
                         aria-label="Scan for instruments"
                     >
@@ -371,7 +371,7 @@ function InstrumentStatusPanel({ showNotification }) {
                         type="button"
                         onClick={handleInitializeInstruments}
                         className="cal-results-excel-icon-btn"
-                        disabled={isInitializing || !selectedSessionId || !hasAssignedInstruments}
+                        disabled={isInitializing || !selectedSessionId || !hasAssignedInstruments || isRemoteViewer}
                         title={isInitializing ? "Initializing..." : "Initialize assigned instruments"}
                         aria-label="Initialize assigned instruments"
                     >
@@ -392,7 +392,7 @@ function InstrumentStatusPanel({ showNotification }) {
                             className="isp-workstation-select"
                             value={activeWorkstationIp}
                             onChange={(e) => setActiveWorkstationIp(e.target.value)}
-                            disabled={editingIp === activeWorkstationIp}
+                            disabled={editingIp === activeWorkstationIp || isRemoteViewer}
                             aria-label="Active workstation"
                         >
                             {workstations.map(({ ip, name, instruments }) => (
@@ -421,7 +421,7 @@ function InstrumentStatusPanel({ showNotification }) {
                                     </button>
                                 </>
                             ) : (
-                                <button className="cal-results-excel-icon-btn" onClick={handleEditName} disabled={!activeWorkstationIp} title="Rename workstation" aria-label="Rename workstation">
+                                <button className="cal-results-excel-icon-btn" onClick={handleEditName} disabled={!activeWorkstationIp || isRemoteViewer} title="Rename workstation" aria-label="Rename workstation">
                                     <FaEdit />
                                 </button>
                             )}
@@ -484,7 +484,7 @@ function InstrumentStatusPanel({ showNotification }) {
                                                     type="button"
                                                     className={`isp-zero-cal-btn--compact${isZeroing ? ' is-zeroing' : ''}`}
                                                     onClick={() => runZeroCal(model, inst.address)}
-                                                    disabled={!isConnected || isZeroing}
+                                                    disabled={!isConnected || isZeroing || isRemoteViewer}
                                                     title={isZeroing ? 'Zeroing in progress…' : 'Run zero calibration'}
                                                     aria-label={isZeroing ? 'Zeroing in progress' : 'Run zero calibration'}
                                                 >
@@ -504,7 +504,7 @@ function InstrumentStatusPanel({ showNotification }) {
                                                 <div className="role-assignment">
                                                     <span className="role-assignment-label">Reader Role</span>
                                                     <div className="checkbox-group">
-                                                        <input type="checkbox" id={`std-role-${inst.address}`} checked={stdInstrumentAddress === inst.address} onChange={(e) => handleStdTiRoleChange(inst, 'standard', e.target.checked)} disabled={!selectedSessionId || !isConnected || (stdInstrumentAddress && stdInstrumentAddress !== inst.address)} />
+                                                        <input type="checkbox" id={`std-role-${inst.address}`} checked={stdInstrumentAddress === inst.address} onChange={(e) => handleStdTiRoleChange(inst, 'standard', e.target.checked)} disabled={!selectedSessionId || !isConnected || (stdInstrumentAddress && stdInstrumentAddress !== inst.address) || isRemoteViewer} />
                                                         <label htmlFor={`std-role-${inst.address}`}>Standard</label>
                                                     </div>
                                                     <div className="checkbox-group">

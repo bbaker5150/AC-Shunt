@@ -8,10 +8,13 @@
 import React from 'react';
 import InstrumentStatusPanel from '../instruments/InstrumentStatusPanel';
 
-function InstrumentStatusTab({ showNotification }) {
+function InstrumentStatusTab({ showNotification, isRemoteViewer }) {
     return (
         <React.Fragment>
-            <InstrumentStatusPanel showNotification={showNotification} />
+            <InstrumentStatusPanel
+                showNotification={showNotification}
+                isRemoteViewer={isRemoteViewer}
+            />
         </React.Fragment>
     );
 }

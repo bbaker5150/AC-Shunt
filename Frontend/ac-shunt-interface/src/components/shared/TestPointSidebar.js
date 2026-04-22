@@ -23,7 +23,7 @@ import {
   AVAILABLE_CURRENTS,
 } from "../../constants/constants";
 import { useInstruments } from "../../contexts/InstrumentContext";
-import DirectionToggle from '../shared/DirectionToggle'; // <-- Ensure this is imported
+import DirectionToggle from '../shared/DirectionToggle';
 
 // Helper functions (getShuntCorrectionForPoint, getTVCCorrectionForPoint, etc.)
 const getShuntCorrectionForPoint = (point, shuntRangeInAmps, shuntsData) => {
@@ -47,6 +47,7 @@ const getShuntCorrectionForPoint = (point, shuntRangeInAmps, shuntsData) => {
   }
   return { correction: "N/A", uncertainty: "N/A" };
 };
+
 const getTVCCorrectionForPoint = (point, tvcSn, tvcsData) => {
   if (!point || !tvcsData || tvcsData.length === 0 || !tvcSn) return null;
   const tvc = tvcsData.find((t) => String(t.serial_number) === String(tvcSn));
@@ -80,10 +81,12 @@ const getTVCCorrectionForPoint = (point, tvcSn, tvcsData) => {
   }
   return null;
 };
+
 const formatFrequency = (value) =>
   (AVAILABLE_FREQUENCIES.find((f) => f.value === value) || {
     text: `${value} Hz`,
   }).text;
+
 const formatCurrent = (value) => {
   const numValue = parseFloat(value);
   const epsilon = 1e-9;
@@ -100,6 +103,7 @@ const ContextMenu = ({
   onDelete,
   onClearReadings,
   onViewCorrections,
+  isRemoteViewer // Added prop
 }) => {
   const menuRef = useRef(null);
 
@@ -137,41 +141,46 @@ const ContextMenu = ({
       >
         <FaEye /> View Corrections
       </button>
-      <div className="context-menu-separator" />
-      {(hasReadingsForward || hasReadingsReverse) && (
+      
+      {!isRemoteViewer && (
         <>
-          <button
-            className="context-menu-item"
-            disabled={!hasReadingsForward}
-            onClick={() => {
-              onClearReadings.prompt("Forward", point);
-              onClose();
-            }}
-          >
-            <FaEraser /> Clear Forward Readings
-          </button>
-          <button
-            className="context-menu-item"
-            disabled={!hasReadingsReverse}
-            onClick={() => {
-              onClearReadings.prompt("Reverse", point);
-              onClose();
-            }}
-          >
-            <FaEraser /> Clear Reverse Readings
-          </button>
           <div className="context-menu-separator" />
+          {(hasReadingsForward || hasReadingsReverse) && (
+            <>
+              <button
+                className="context-menu-item"
+                disabled={!hasReadingsForward}
+                onClick={() => {
+                  onClearReadings.prompt("Forward", point);
+                  onClose();
+                }}
+              >
+                <FaEraser /> Clear Forward Readings
+              </button>
+              <button
+                className="context-menu-item"
+                disabled={!hasReadingsReverse}
+                onClick={() => {
+                  onClearReadings.prompt("Reverse", point);
+                  onClose();
+                }}
+              >
+                <FaEraser /> Clear Reverse Readings
+              </button>
+              <div className="context-menu-separator" />
+            </>
+          )}
+          <button
+            className="context-menu-item danger"
+            onClick={() => {
+              onDelete(point);
+              onClose();
+            }}
+          >
+            <FaTrashAlt /> Delete Test Point
+          </button>
         </>
       )}
-      <button
-        className="context-menu-item danger"
-        onClick={() => {
-          onDelete(point);
-          onClose();
-        }}
-      >
-        <FaTrashAlt /> Delete Test Point
-      </button>
     </div>
   );
 };
@@ -184,12 +193,13 @@ const SortableTestPointItem = ({
   isComplete,
   isPartial,
   isCurrentlyExecuting,
-  isFailed, // <-- New Prop
+  isFailed,
   areControlsDisabled,
   onFocus,
   onToggle,
   onContextMenu,
   isContextMenuTarget,
+  isRemoteViewer // Added prop
 }) => {
   const {
     attributes,
@@ -236,15 +246,19 @@ const SortableTestPointItem = ({
       {...attributes}
     >
       <span className="tp-status-rail" aria-hidden />
-      <div
-        className="drag-handle"
-        {...listeners}
-        onClick={(e) => e.stopPropagation()}
-        title="Drag to reorder"
-        aria-label="Drag to reorder"
-      >
-        <FaGripVertical aria-hidden />
-      </div>
+      
+      {!isRemoteViewer && (
+        <div
+          className="drag-handle"
+          {...listeners}
+          onClick={(e) => e.stopPropagation()}
+          title="Drag to reorder"
+          aria-label="Drag to reorder"
+        >
+          <FaGripVertical aria-hidden />
+        </div>
+      )}
+
       <input
         type="checkbox"
         checked={isSelected}
@@ -253,7 +267,7 @@ const SortableTestPointItem = ({
           onToggle(point.key);
         }}
         onClick={(e) => e.stopPropagation()}
-        disabled={areControlsDisabled}
+        disabled={areControlsDisabled || isRemoteViewer}
         className="tp-checkbox"
         aria-label={`Select ${formatCurrent(point.current)} at ${formatFrequency(
           point.frequency
@@ -307,6 +321,7 @@ function TestPointSidebar({
   onAddTestPoints,
   onViewCorrections,
   onViewPointCorrections,
+  isRemoteViewer // Added prop
 }) {
   const { selectedSessionId, standardTvcSn, testTvcSn, failedTPKeys } = useInstruments();
   const [contextMenu, setContextMenu] = useState({
@@ -429,7 +444,7 @@ function TestPointSidebar({
             onClick={onToggleSelectAll}
             className="cal-results-excel-icon-btn"
             disabled={
-              isBulkRunning || isCollecting || uniqueTestPoints.length === 0
+              isBulkRunning || isCollecting || uniqueTestPoints.length === 0 || isRemoteViewer
             }
             aria-label={selectAllTooltip}
             title={selectAllTooltip}
@@ -440,7 +455,7 @@ function TestPointSidebar({
             type="button"
             onClick={onDeleteSelected}
             className="cal-results-excel-icon-btn cal-results-excel-icon-btn--danger"
-            disabled={isBulkRunning || isCollecting || selectedTPs.size === 0}
+            disabled={isBulkRunning || isCollecting || selectedTPs.size === 0 || isRemoteViewer}
             aria-label="Delete selected test points"
             title="Delete selected"
           >
@@ -450,7 +465,7 @@ function TestPointSidebar({
             type="button"
             onClick={onAddTestPoints}
             className="cal-results-excel-icon-btn"
-            disabled={isBulkRunning || isCollecting || !selectedSessionId}
+            disabled={isBulkRunning || isCollecting || !selectedSessionId || isRemoteViewer}
             aria-label="Add new test points"
             title="Add new test points"
           >
@@ -488,23 +503,10 @@ function TestPointSidebar({
       <DndContext
         collisionDetection={closestCenter}
         onDragEnd={onDragEnd}
-        /*
-          autoScroll: keep the convenience of auto-scrolling while dragging
-          near the edges of the sidebar list, but tighten the threshold
-          and disable layout-shift compensation. Without this, dragging a
-          point below the last item would cause the list's scrollable
-          content height to keep growing (feedback loop between the ghost
-          transform and auto-scroll), producing an "infinitely growing
-          scrollbar" effect.
-        */
         autoScroll={{
           threshold: { x: 0, y: 0.15 },
           layoutShiftCompensation: false,
         }}
-        /*
-          Only measure droppable rects while dragging, so the container's
-          scrollHeight isn't re-measured during an auto-scroll tick.
-        */
         measuring={{
           droppable: { strategy: MeasuringStrategy.WhileDragging },
         }}
@@ -552,6 +554,7 @@ function TestPointSidebar({
                   isContextMenuTarget={
                     contextMenu.isOpen && contextMenu.point?.key === point.key
                   }
+                  isRemoteViewer={isRemoteViewer}
                 />
               );
             })}
@@ -564,6 +567,7 @@ function TestPointSidebar({
         onDelete={onDeleteTestPoint}
         onClearReadings={{ ...onClearReadings, hasAnyReadings }}
         onViewCorrections={onViewPointCorrections}
+        isRemoteViewer={isRemoteViewer}
       />
     </div>
   );
