@@ -225,6 +225,9 @@ export const InstrumentContextProvider = ({ children }) => {
         } else {
           // It's a mid-run sync. Trigger the UI to update.
           setDataRefreshTrigger((prev) => prev + 1);
+          
+          setIsCollecting(true);
+          if (data.stage || data.tpId) setActiveCollectionDetails(prev => ({ ...prev, stage: data.stage, tpId: data.tpId }));
         }
         return;
       }
@@ -235,11 +238,15 @@ export const InstrumentContextProvider = ({ children }) => {
         const updates = { stage: data.stage };
         if (data.tpId) updates.tpId = data.tpId;
         setActiveCollectionDetails((prev) => ({ ...prev, ...updates }));
+
+        setIsCollecting(true);
+
         if (data.total !== undefined) setCollectionProgress({ count: 0, total: data.total });
         setLiveReadings((prev) => ({ ...prev, [data.stage]: [] }));
         setTiLiveReadings((prev) => ({ ...prev, [data.stage]: [] }));
         setTimerState({ isActive: false, duration: 0, label: "" });
       } else if (data.type === "dual_reading_update") {
+        setIsCollecting(true);
         const key = data.stage;
         if (key) {
           const stdReadingData = data.std_reading;
@@ -311,6 +318,8 @@ export const InstrumentContextProvider = ({ children }) => {
           const pointKey = `${test_point.current}-${test_point.frequency}`;
           setFocusedTPKey(pointKey);
           setBulkRunProgress({ current, total, pointKey });
+
+          setIsCollecting(true);
         }
       } else if (data.type === "status_update") {
         const message = data.message;
