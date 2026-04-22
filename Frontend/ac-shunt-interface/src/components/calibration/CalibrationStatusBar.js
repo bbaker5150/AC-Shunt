@@ -35,6 +35,7 @@ const CalibrationStatusBar = ({
   readingWsState,
   selectedTPs,
   dropdownOptions,
+  isRemoteViewer,
 }) => {
   const [isRunDropdownOpen, setIsRunDropdownOpen] = useState(false);
   const runDropdownRef = useRef(null);
@@ -111,8 +112,8 @@ const CalibrationStatusBar = ({
                 {timerState.isActive
                   ? null
                   : stabilizationStatus && stabilizationInfo
-                  ? `Attempt: ${stabilizationInfo.count}`
-                  : `${collectionProgress.count} / ${collectionProgress.total} Samples`}
+                    ? `Attempt: ${stabilizationInfo.count}`
+                    : `${collectionProgress.count} / ${collectionProgress.total} Samples`}
               </span>
             </div>
 
@@ -142,9 +143,8 @@ const CalibrationStatusBar = ({
                     <FaCrosshairs /> Window Stability
                   </span>
                   <span
-                    className={`window-ppm-value ${
-                      isStableNow ? "status-good" : "status-bad"
-                    }`}
+                    className={`window-ppm-value ${isStableNow ? "status-good" : "status-bad"
+                      }`}
                   >
                     {displayPpm != null ? `${displayPpm.toFixed(2)} PPM` : "..."}
                   </span>
@@ -164,11 +164,10 @@ const CalibrationStatusBar = ({
             <div
               className="status-bar-progress"
               style={{
-                width: `${
-                  collectionProgress.total > 0
+                width: `${collectionProgress.total > 0
                     ? (collectionProgress.count / collectionProgress.total) * 100
                     : 0
-                }%`,
+                  }%`,
               }}
             ></div>
           </div>
@@ -177,6 +176,7 @@ const CalibrationStatusBar = ({
               onClick={stopReadingCollection}
               className="button-stop"
               title="Stop Collection"
+              disabled={isRemoteViewer}
             >
               <FaStop />
             </button>
@@ -192,12 +192,13 @@ const CalibrationStatusBar = ({
                 disabled={
                   !focusedTP ||
                   readingWsState !== WebSocket.OPEN ||
-                  selectedTPs.size === 0
+                  selectedTPs.size === 0 ||
+                  isRemoteViewer // DISABLE
                 }
                 title={
-                  selectedTPs.size > 0
-                    ? `Run ${selectedTPs.size} Selected Point(s) (Full)`
-                    : "Select points to run"
+                  isRemoteViewer
+                    ? "Controls disabled in Observer Mode"
+                    : "Run Selected Points"
                 }
               >
                 <FaPlay />
@@ -205,7 +206,7 @@ const CalibrationStatusBar = ({
               <button
                 className="button premium-action-button-caret"
                 onClick={() => setIsRunDropdownOpen((prev) => !prev)}
-                disabled={!focusedTP || readingWsState !== WebSocket.OPEN}
+                disabled={!focusedTP || readingWsState !== WebSocket.OPEN || isRemoteViewer} // DISABLE
                 title="More run options"
               >
                 <FaChevronDown />

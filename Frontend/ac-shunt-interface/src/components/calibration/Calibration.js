@@ -237,6 +237,7 @@ function Calibration({
   onDataUpdate,
   activeDirection,
   onOpenResultsDirection,
+  isRemoteViewer,
 }) {
   const {
     selectedSessionId,
@@ -2076,6 +2077,7 @@ function Calibration({
               readingWsState={readingWsState}
               selectedTPs={selectedTPs}
               dropdownOptions={dropdownOptions}
+              isRemoteViewer={isRemoteViewer}
             />
           </div>
 

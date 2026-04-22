@@ -53,8 +53,15 @@ const AVAILABLE_FREQUENCIES = [
   { text: "30000 Hz", value: 30000 },
 ];
 
+// Grab the IP from local storage, default to localhost
+const baseIp = localStorage.getItem("REMOTE_HOST_IP") || "localhost";
+
 const API_BASE_URL =
-  process.env.REACT_APP_API_BASE_URL || "http://localhost:8000/api";
+  process.env.REACT_APP_API_BASE_URL || `http://${baseIp}:8000/api`;
+
+// We also define the WS URL here so both Axios and WebSockets share the same logic
+const WS_BASE_URL =
+  process.env.REACT_APP_WS_BASE_URL || `ws://${baseIp}:8000/ws`;
 
 const NPLC_OPTIONS = [0.02, 0.2, 1, 2, 10, 20, 100, 200];
 
@@ -64,5 +71,7 @@ export {
   AVAILABLE_FREQUENCIES,
   AMPLIFIER_RANGES_A,
   API_BASE_URL,
+  WS_BASE_URL,
+  baseIp, // Exported so App.js knows if we are in "Observer Mode"
   NPLC_OPTIONS,
-};
+}

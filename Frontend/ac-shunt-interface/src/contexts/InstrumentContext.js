@@ -8,9 +8,7 @@ import React, {
   useContext,
 } from "react";
 
-const WS_BASE_URL =
-  process.env.REACT_APP_WS_BASE_URL ||
-  `ws://${window.location.hostname}:8000/ws`;
+import { WS_BASE_URL } from "../constants/constants";
 
 const initialLiveReadings = {
   char_plus1: [],

@@ -89,11 +89,11 @@ def main():
         sys.exit(1)
 
     # 5. Start the Daphne/Django Server
-    print(f"Starting Django server on 127.0.0.1:{port}...")
+    print(f"Starting Django server on 0.0.0.0:{port}...")
     
     # execute_from_command_line expects a list where the first arg is the script name.
     # --noreload is used to prevent the double-boot behavior in the Electron environment.
-    server_args = [sys.argv[0], 'runserver', f'127.0.0.1:{port}', '--noreload']
+    server_args = [sys.argv[0], 'runserver', f'0.0.0.0:{port}', '--noreload']
     execute_from_command_line(server_args)
 
 if __name__ == '__main__':

@@ -16,10 +16,10 @@ import {
 } from "./contexts/InstrumentContext";
 import { ThemeProvider, useTheme } from "./contexts/ThemeContext";
 import "bootstrap/dist/css/bootstrap.min.css";
-import { FaInfoCircle, FaTimes, FaSun, FaMoon, FaCheckCircle, FaExclamationTriangle, FaExclamationCircle, FaBug } from "react-icons/fa";
+import { FaInfoCircle, FaTimes, FaSun, FaMoon, FaCheckCircle, FaExclamationTriangle, FaExclamationCircle, FaBug, FaNetworkWired } from "react-icons/fa";
 import "./App.css";
 import { arrayMove } from "@dnd-kit/sortable";
-import { AVAILABLE_FREQUENCIES, API_BASE_URL } from "./constants/constants";
+import { AVAILABLE_FREQUENCIES, API_BASE_URL, baseIp } from "./constants/constants";
 import useDbHealth from "./hooks/useDbHealth";
 
 const APP_VERSION = "v1.0.0";
@@ -184,6 +184,47 @@ const CorrectionsDetailsModal = ({
             </span>
           </div>
         </div>
+      </div>
+    </div>
+  );
+};
+
+const NetworkModal = ({ isOpen, onClose, ipInput, setIpInput }) => {
+  if (!isOpen) return null;
+
+  const handleSave = () => {
+    if (ipInput.trim() === "" || ipInput === "localhost" || ipInput === "127.0.0.1") {
+      localStorage.removeItem("REMOTE_HOST_IP");
+    } else {
+      localStorage.setItem("REMOTE_HOST_IP", ipInput.trim());
+    }
+    // Reload the app to re-evaluate constants.js and reconnect WebSockets
+    window.location.reload(); 
+  };
+
+  return (
+    <div className="modal-overlay" onClick={onClose}>
+      <div className="confirm-modal" onClick={(e) => e.stopPropagation()}>
+        <header className="confirm-modal-header">
+          <div className="confirm-modal-header-text">
+            <span className="confirm-modal-eyebrow">Settings</span>
+            <h3 className="confirm-modal-title">Network Connection</h3>
+          </div>
+          <button type="button" onClick={onClose} className="cal-results-excel-icon-btn"><FaTimes /></button>
+        </header>
+        <div className="confirm-modal-body">
+          <p>Enter the IP address of the Host PC running the hardware backend. Leave as 'localhost' for local operation.</p>
+          <input 
+            type="text" 
+            value={ipInput} 
+            onChange={(e) => setIpInput(e.target.value)} 
+            placeholder="e.g. 192.168.1.50"
+            style={{ width: "100%", padding: "8px", marginTop: "10px", borderRadius: "4px", border: "1px solid var(--border-color)", background: "var(--bg-secondary)", color: "var(--text-primary)" }}
+          />
+        </div>
+        <footer className="confirm-modal-footer">
+          <button type="button" onClick={handleSave} className="confirm-modal-action">Save & Restart</button>
+        </footer>
       </div>
     </div>
   );
@@ -481,6 +522,11 @@ function AppContent() {
   );
   const dbHealth = useDbHealth({ enabled: dbHealthWsEnabled });
   const dbRecoveryToastShownRef = useRef(false);
+  const [isNetworkModalOpen, setIsNetworkModalOpen] = useState(false);
+  const [networkIpInput, setNetworkIpInput] = useState(baseIp);
+  
+  // If the target IP is not localhost, lock the hardware controls
+  const isRemoteViewer = baseIp !== "localhost" && baseIp !== "127.0.0.1";
 
   useEffect(() => {
     const fetchSystemInfo = async () => {
@@ -931,6 +977,12 @@ function AppContent() {
         activeTab={activeTab}
         theme={theme}
       />
+      <NetworkModal
+        isOpen={isNetworkModalOpen}
+        onClose={() => setIsNetworkModalOpen(false)}
+        ipInput={networkIpInput}
+        setIpInput={setNetworkIpInput}
+      />
       <ReleaseNotesModal
         isOpen={isReleaseNotesOpen}
         onClose={() => setIsReleaseNotesOpen(false)}
@@ -1200,6 +1252,15 @@ function AppContent() {
             </button>
             <button
               type="button"
+              onClick={() => setIsNetworkModalOpen(true)}
+              className="app-chrome-theme-btn"
+              aria-label="Network Settings"
+              title={`Network: ${isRemoteViewer ? baseIp + " (Observer Mode)" : "Local"}`}
+            >
+              <FaNetworkWired aria-hidden color={isRemoteViewer ? "var(--accent-primary)" : "inherit"} />
+            </button>
+            <button
+              type="button"
               onClick={toggleTheme}
               className="app-chrome-theme-btn"
               aria-label={theme === "dark" ? "Switch to light mode" : "Switch to dark mode"}
@@ -1266,6 +1327,7 @@ function AppContent() {
               sharedSelectedTPs={selectedTPs}
               onDataUpdate={fetchSessionData}
               activeDirection={activeDirection}
+              isRemoteViewer={isRemoteViewer}
               onOpenResultsDirection={(direction) => {
                 setResultsNavigationRequest({
                   direction,
