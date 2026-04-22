@@ -466,19 +466,33 @@ class CalibrationConsumer(AsyncWebsocketConsumer):
             target_tvc = data.get('target_tvc', 'BOTH')
             print(f"[TVC_CHAR] Targeting: {target_tvc}", flush=True)
 
-            # Only configure/activate the source we actually intend to drive
-            # for this characterization run.
-            configure_kwargs = {'ac_source': ac_source} if char_source_kind == 'AC' else {'dc_source': dc_source}
-            await self._configure_sources(original_tp, data.get('bypass_tvc'), data.get('amplifier_range'), **configure_kwargs)
+            warmup_time = data.get('initial_warm_up_time', 0)
+
+            # During warm-up, always energize/configure both AC and DC sources so
+            # the timer preconditions the full source chain before calibration.
+            # For no-warmup characterization runs, keep existing single-source behavior.
+            if warmup_time > 0:
+                await self._configure_sources(
+                    original_tp,
+                    data.get('bypass_tvc'),
+                    data.get('amplifier_range'),
+                    ac_source=ac_source,
+                    dc_source=dc_source
+                )
+            else:
+                configure_kwargs = {'ac_source': ac_source} if char_source_kind == 'AC' else {'dc_source': dc_source}
+                await self._configure_sources(original_tp, data.get('bypass_tvc'), data.get('amplifier_range'), **configure_kwargs)
 
             if session_details.get('amplifier_address'):
                 amplifier = await sync_to_async(Instrument8100, thread_sensitive=True)(model='8100', gpib=session_details.get('amplifier_address'))
                 if not await self._handle_amplifier_confirmation(amplifier, data.get('amplifier_range'), data): return
 
-            activate_kwargs = {'ac_source': ac_source} if char_source_kind == 'AC' else {'dc_source': dc_source}
-            await self._activate_sources(**activate_kwargs)
-            
-            warmup_time = data.get('initial_warm_up_time', 0)
+            if warmup_time > 0:
+                await self._activate_sources(ac_source=ac_source, dc_source=dc_source)
+            else:
+                activate_kwargs = {'ac_source': ac_source} if char_source_kind == 'AC' else {'dc_source': dc_source}
+                await self._activate_sources(**activate_kwargs)
+
             if warmup_time > 0:
                 await self._perform_warmup(warmup_time)
 
@@ -545,7 +559,7 @@ class CalibrationConsumer(AsyncWebsocketConsumer):
                 # --- Propagate freshly-computed eta to sibling points in the session ---
                 # update_related_results() in save_readings_to_db has already written
                 # eta_std / eta_ti onto this TP's CalibrationResults row. For a batch
-                # that only characterizes once (e.g. "Characterize STD TVC before run"),
+                # that only characterizes once (e.g. "Characterize Test TVC before run"),
                 # every other selected point would otherwise fall back to eta=1.0
                 # inside calculate_ac_dc_difference(). Backfill them now so the real
                 # gain is used downstream.

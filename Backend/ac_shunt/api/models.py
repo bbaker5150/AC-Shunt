@@ -160,7 +160,7 @@ class CalibrationSettings(models.Model):
     iqr_filter_enabled = models.BooleanField(default=False)
     iqr_filter_ppm_threshold = models.FloatField(default=15.0, null=True, blank=True)
     ignore_instability_after_lock = models.BooleanField(default=False)
-    characterize_std_first = models.BooleanField(default=False)
+    characterize_test_first = models.BooleanField(default=False)
     characterization_source = models.CharField(max_length=10, default="DC")
 
 class CalibrationReadings(models.Model):

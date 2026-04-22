@@ -210,7 +210,7 @@ class CalibrationSettingsSerializer(serializers.ModelSerializer):
             'iqr_filter_enabled',
             'iqr_filter_ppm_threshold',
             'ignore_instability_after_lock',
-            'characterize_std_first',
+            'characterize_test_first',
             'characterization_source',
         ]
 

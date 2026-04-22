@@ -290,7 +290,7 @@ function Calibration({
     stability_max_attempts: 10,
     iqr_filter_ppm_threshold: 15,
     ignore_instability_after_lock: false,
-    characterize_std_first: false,
+    characterize_test_first: false,
     characterization_source: "DC",
   });
   const [correctionInputs, setCorrectionInputs] = useState({
@@ -1127,11 +1127,11 @@ function Calibration({
 
       const firstPointInBatch = selectedOrderedTPs[0];
 
-      // Pre-run hook: if the user opted in, characterize the STD TVC first
+      // Pre-run hook: if the user opted in, characterize the Test TVC first
       // so its η is fresh before the batch/single run uses it downstream.
-      if (calibrationSettings.characterize_std_first && firstPointInBatch) {
-        showNotification("Characterizing STD TVC first…", "info");
-        const charResult = await handleCharacterizationRequest("STD", {
+      if (calibrationSettings.characterize_test_first && firstPointInBatch) {
+        showNotification("Characterizing Test TVC first…", "info");
+        const charResult = await handleCharacterizationRequest("TI", {
           silent: true,
           testPoint: firstPointInBatch,
         });
@@ -1140,7 +1140,7 @@ function Calibration({
           charResult === "error"
         ) {
           showNotification(
-            "STD TVC characterization did not complete. Batch aborted.",
+            "Test TVC characterization did not complete. Batch aborted.",
             "warning"
           );
           return;
@@ -1637,7 +1637,7 @@ function Calibration({
         parseInt(calibrationSettings.stability_max_attempts, 10) || 50,
       iqr_filter_ppm_threshold: parseFloat(calibrationSettings.iqr_filter_ppm_threshold) || 15,
       ignore_instability_after_lock: calibrationSettings.ignore_instability_after_lock || false,
-      characterize_std_first: calibrationSettings.characterize_std_first || false,
+      characterize_test_first: calibrationSettings.characterize_test_first || false,
       characterization_source:
         calibrationSettings.characterization_source === "AC" ? "AC" : "DC",
     };
@@ -1700,7 +1700,7 @@ function Calibration({
           parseInt(calibrationSettings.stability_max_attempts, 10) || 50,
         iqr_filter_ppm_threshold: parseFloat(calibrationSettings.iqr_filter_ppm_threshold) || 15,
         ignore_instability_after_lock: calibrationSettings.ignore_instability_after_lock || false,
-        characterize_std_first: calibrationSettings.characterize_std_first || false,
+        characterize_test_first: calibrationSettings.characterize_test_first || false,
         characterization_source:
           calibrationSettings.characterization_source === "AC" ? "AC" : "DC",
       };
@@ -2310,18 +2310,18 @@ function Calibration({
                                     type="checkbox"
                                     className="form-section-checkbox-input"
                                     checked={
-                                      calibrationSettings.characterize_std_first ||
+                                      calibrationSettings.characterize_test_first ||
                                       false
                                     }
                                     onChange={(e) =>
                                       setCalibrationSettings((prev) => ({
                                         ...prev,
-                                        characterize_std_first: e.target.checked,
+                                        characterize_test_first: e.target.checked,
                                       }))
                                     }
                                   />
                                   <span>
-                                    Characterize STD TVC before run
+                                    Characterize Test TVC before run
                                   </span>
                                 </label>
                               </div>
