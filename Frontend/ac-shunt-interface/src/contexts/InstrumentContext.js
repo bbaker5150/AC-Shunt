@@ -225,9 +225,6 @@ export const InstrumentContextProvider = ({ children }) => {
         } else {
           // It's a mid-run sync. Trigger the UI to update.
           setDataRefreshTrigger((prev) => prev + 1);
-          
-          setIsCollecting(true);
-          if (data.stage || data.tpId) setActiveCollectionDetails(prev => ({ ...prev, stage: data.stage, tpId: data.tpId }));
         }
         return;
       }
