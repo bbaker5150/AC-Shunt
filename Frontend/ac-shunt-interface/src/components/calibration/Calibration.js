@@ -1821,17 +1821,36 @@ function Calibration({
       : focusedTP.reverse
     : null;
 
-  // [FIX] Convert both IDs to strings to prevent type mismatches (e.g. 123 vs "123")
   const isCurrentTPActive =
     isCollecting &&
     String(activeCollectionDetails?.tpId) === String(pointForDirection?.id);
 
+  const activeStageKey = isCurrentTPActive 
+    ? (activeCollectionDetails?.stage || activeCollectionDetails?.readingKey) 
+    : null;
+
+  const mergeDataSource = (historical, live, activeStage) => {
+    const merged = { ...historical };
+    Object.keys(live).forEach((key) => {
+      if (activeStage && key === activeStage) {
+        // Always use live data for the active stage (even if empty, to clear the chart for the new run)
+        merged[key] = live[key];
+      } else if (live[key] && live[key].length > 0) {
+        // For inactive stages, only overwrite historical if live actually has data
+        merged[key] = live[key];
+      }
+    });
+    return merged;
+  };
+
   const stdChartDataSource = isCurrentTPActive
-    ? { ...historicalReadings, ...liveReadings }
+    ? mergeDataSource(historicalReadings, liveReadings, activeStageKey)
     : historicalReadings;
+    
   const tiChartDataSource = isCurrentTPActive
-    ? { ...tiHistoricalReadings, ...tiLiveReadings }
+    ? mergeDataSource(tiHistoricalReadings, tiLiveReadings, activeStageKey)
     : tiHistoricalReadings;
+
   const stdChartData = buildChartData(stdChartDataSource);
   const tiChartData = buildChartData(tiChartDataSource);
   const showStdChart =
