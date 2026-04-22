@@ -539,10 +539,16 @@ class BugReport(models.Model):
         ('Database/Sync', 'Database/Sync'),
         ('Other', 'Other')
     ]
-    
+    STATUS_CHOICES = [
+        ('Not Started', 'Not Started'),
+        ('In Work', 'In Work'),
+        ('Solved', 'Solved'),
+    ]
+
     title = models.CharField(max_length=255)
     severity = models.CharField(max_length=20, choices=SEVERITY_CHOICES, default='Medium')
     category = models.CharField(max_length=50, choices=CATEGORY_CHOICES, default='UI/UX')
+    status = models.CharField(max_length=20, choices=STATUS_CHOICES, default='Not Started')
     description = models.TextField()
     steps = models.TextField(blank=True, null=True)
     system_info = models.TextField(blank=True, null=True)

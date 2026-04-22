@@ -8,6 +8,7 @@ import CalibrationResults from "./components/calibration/CalibrationResults";
 // import UncertaintyAnalysis from "./components/analysis/UncertaintyAnalysis";
 import TestPointSidebar from "./components/shared/TestPointSidebar";
 import ConfigurationModal from "./components/shared/ConfigurationModal";
+import BugReportModal from "./components/shared/BugReportModal";
 import CorrectionsModal from "./components/calibration/CorrectionsModal";
 import {
   InstrumentContextProvider,
@@ -15,7 +16,7 @@ import {
 } from "./contexts/InstrumentContext";
 import { ThemeProvider, useTheme } from "./contexts/ThemeContext";
 import "bootstrap/dist/css/bootstrap.min.css";
-import { FaInfoCircle, FaTimes, FaSun, FaMoon, FaCheckCircle, FaExclamationTriangle, FaExclamationCircle } from "react-icons/fa";
+import { FaInfoCircle, FaTimes, FaSun, FaMoon, FaCheckCircle, FaExclamationTriangle, FaExclamationCircle, FaBug } from "react-icons/fa";
 import "./App.css";
 import { arrayMove } from "@dnd-kit/sortable";
 import { AVAILABLE_FREQUENCIES, API_BASE_URL } from "./constants/constants";
@@ -398,6 +399,7 @@ function AppContent() {
   const [activeDirection, setActiveDirection] = useState("Forward");
   const [isConfigModalOpen, setIsConfigModalOpen] = useState(false);
   const [isCorrectionsModalOpen, setIsCorrectionsModalOpen] = useState(false);
+  const [isBugReportModalOpen, setIsBugReportModalOpen] = useState(false);
   const [pointCorrectionsModal, setPointCorrectionsModal] = useState({
     isOpen: false,
     point: null,
@@ -850,6 +852,17 @@ function AppContent() {
         standardTvcSn={standardTvcSn}
         testTvcSn={testTvcSn}
       />
+      <BugReportModal
+        isOpen={isBugReportModalOpen}
+        onClose={() => setIsBugReportModalOpen(false)}
+        showNotification={showNotification}
+        dbInfo={dbInfo}
+        sessionInfo={sessionInfo}
+        selectedSessionId={selectedSessionId}
+        selectedSessionName={selectedSessionName}
+        activeTab={activeTab}
+        theme={theme}
+      />
       <ConfirmationModal
         isOpen={clearConfirmationModal.isOpen}
         title={clearConfirmationModal.title}
@@ -1095,6 +1108,15 @@ function AppContent() {
                 </div>
               </div>
             )}
+            <button
+              type="button"
+              onClick={() => setIsBugReportModalOpen(true)}
+              className="app-chrome-meta-icon"
+              aria-label="Report an issue"
+              title="Report an issue"
+            >
+              <FaBug aria-hidden />
+            </button>
             <button
               type="button"
               onClick={toggleTheme}

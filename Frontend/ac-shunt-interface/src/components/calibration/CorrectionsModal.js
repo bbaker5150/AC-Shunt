@@ -888,37 +888,40 @@ function CorrectionsModal({ isOpen, onClose, showNotification, onUpdate, uniqueT
     );
   };
 
-  const renderSessionTvcCard = (eyebrow, serial) => {
+  const renderSessionTvcHeader = (rowKey, eyebrow, serial) => {
     const record = serial
       ? tvcsData.find((t) => String(t.serial_number) === String(serial))
       : null;
     const isManual = !!record?.is_manual;
 
     return (
-      <section className="corrections-card corrections-card--session-tvc">
-        <header className="corrections-card-header corrections-card-header--compact">
-          <div className="corrections-card-headline">
-            <span className="corrections-card-eyebrow">{eyebrow}</span>
-            <div className="corrections-card-title">
-              {serial ? (
-                <>
-                  <span className="corrections-card-identity">S/N&nbsp;{serial}</span>
-                  {isManual && <span className="corrections-manual-badge">Manual</span>}
-                </>
-              ) : (
-                <span className="corrections-card-identity corrections-card-identity--empty">
-                  Not assigned
-                </span>
-              )}
-            </div>
+      <header
+        className={`corrections-card-header corrections-card-header--compact corrections-session-tvc-${rowKey}-head`}
+      >
+        <div className="corrections-card-headline">
+          <span className="corrections-card-eyebrow">{eyebrow}</span>
+          <div className="corrections-card-title">
+            {serial ? (
+              <>
+                <span className="corrections-card-identity">S/N&nbsp;{serial}</span>
+                {isManual && <span className="corrections-manual-badge">Manual</span>}
+              </>
+            ) : (
+              <span className="corrections-card-identity corrections-card-identity--empty">
+                Not assigned
+              </span>
+            )}
           </div>
-        </header>
-        <div className="corrections-card-body">
-          {renderTVCTable(serial, { compact: true })}
         </div>
-      </section>
+      </header>
     );
   };
+
+  const renderSessionTvcBody = (rowKey, serial) => (
+    <div className={`corrections-card-body corrections-session-tvc-${rowKey}-body`}>
+      {renderTVCTable(serial, { compact: true })}
+    </div>
+  );
 
   const renderTvcDatabasePanels = () => {
     return (
@@ -930,9 +933,11 @@ function CorrectionsModal({ isOpen, onClose, showNotification, onUpdate, uniqueT
               Corrections on file for the TVCs assigned to this session.
             </span>
           </div>
-          <div className="corrections-card-grid">
-            {renderSessionTvcCard("Standard TVC", standardTvcSn)}
-            {renderSessionTvcCard("Test TVC", testTvcSn)}
+          <div className="corrections-session-tvc-grid">
+            {renderSessionTvcHeader("std", "Standard TVC", standardTvcSn)}
+            {renderSessionTvcHeader("test", "Test TVC", testTvcSn)}
+            {renderSessionTvcBody("std", standardTvcSn)}
+            {renderSessionTvcBody("test", testTvcSn)}
           </div>
         </div>
 
@@ -949,20 +954,15 @@ function CorrectionsModal({ isOpen, onClose, showNotification, onUpdate, uniqueT
               <div className="corrections-card-headline">
                 <span className="corrections-card-eyebrow">Auxiliary TVC</span>
                 <div className="corrections-card-picker">
-                  <select
-                    id="aux-tvc-select"
-                    className="corrections-card-select"
-                    value={auxiliaryTvcSn}
-                    onChange={(e) => setAuxiliaryTvcSn(e.target.value)}
-                    disabled={isLoading}
-                  >
-                    <option value="">Select a serial number…</option>
-                    {tvcOptions.map((option) => (
-                      <option key={option.value} value={option.value}>
-                        {option.label}
-                      </option>
-                    ))}
-                  </select>
+                  <CustomDropdown
+                    key="aux-tvc-dropdown"
+                    menuPortal
+                    options={tvcOptions}
+                    value={auxiliaryTvcSn || null}
+                    onChange={setAuxiliaryTvcSn}
+                    placeholder="Select a serial number…"
+                    ariaLabel="Auxiliary TVC serial number"
+                  />
                   {isSelectedTvcManual && (
                     <span className="corrections-manual-badge">Manual</span>
                   )}
@@ -1085,13 +1085,14 @@ function CorrectionsModal({ isOpen, onClose, showNotification, onUpdate, uniqueT
           {isManualFormOpen ? (
             renderManualEntry()
           ) : primaryTab === "AC Shunt" ? (
-            <section className="corrections-card">
+            <section className="corrections-card corrections-card--shunt-picker">
               <header className="corrections-card-header">
                 <div className="corrections-card-headline">
                   <span className="corrections-card-eyebrow">AC Shunt</span>
                   <div className="corrections-card-picker">
                     <CustomDropdown
                       key="shunt-dropdown"
+                      menuPortal
                       options={uniqueShuntInfo.map((info) => ({
                         value: info.serial_number,
                         label: info.size

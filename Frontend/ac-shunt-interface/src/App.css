@@ -252,6 +252,7 @@ body,
 .session-info-panel,
 .corrections-modal-content,
 .point-corrections-modal,
+.bug-report-modal,
 .modal-content,
 .confirm-modal,
 .add-tp-modal,
@@ -933,7 +934,7 @@ body.dark-mode .drag-handle:hover svg {
 }
 
 /* -------------------------------------------------------------------
-   Header meta buttons (session info icon + theme toggle)
+   Header meta buttons (session info, report issue, theme toggle)
    Shared "ghost" look so they feel built into the chrome rather than
    mounted on top of it — no visible border at rest, no background,
    just a soft tint on hover. Both share identical geometry so the
@@ -2623,6 +2624,7 @@ input:checked+.slider:before {
   max-width: min(1180px, 92vw);
   width: 100%;
   max-height: 90vh;
+  min-height: 0;
   display: flex;
   flex-direction: column;
   background-color: var(--content-background);
@@ -2757,6 +2759,720 @@ input:checked+.slider:before {
   font-weight: 600;
   color: var(--text-color);
   white-space: nowrap;
+}
+
+/* --- Bug report modal (header chrome matches point-corrections-modal) --- */
+.bug-report-modal {
+  width: min(640px, 94vw);
+  max-height: min(92vh, 780px);
+  background-color: var(--content-background);
+  border: 1px solid var(--border-color);
+  border-radius: 16px;
+  box-shadow: var(--shadow-xl);
+  overflow: hidden;
+  display: flex;
+  flex-direction: column;
+  animation: fadeIn 0.15s ease-out;
+  font-family: "Inter", "Segoe UI", system-ui, -apple-system, sans-serif;
+  -webkit-font-smoothing: antialiased;
+  -moz-osx-font-smoothing: grayscale;
+}
+
+.bug-report-modal-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 16px;
+  padding: 16px 20px 16px 24px;
+  border-bottom: 1px solid var(--border-color);
+  flex-shrink: 0;
+}
+
+.bug-report-modal-header-text {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  min-width: 0;
+}
+
+.bug-report-modal-eyebrow {
+  font-size: 0.6875rem;
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.08em;
+  color: var(--text-color-muted);
+}
+
+.bug-report-modal-title {
+  margin: 0;
+  font-size: 1.0625rem;
+  font-weight: 600;
+  letter-spacing: -0.01em;
+  color: var(--text-color);
+  line-height: 1.3;
+  display: inline-flex;
+  align-items: center;
+  gap: 10px;
+}
+
+.bug-report-modal-title-icon {
+  font-size: 1.05rem;
+  color: var(--icon-color);
+  flex-shrink: 0;
+}
+
+.bug-report-modal-body {
+  display: flex;
+  flex-direction: column;
+  flex: 1;
+  min-height: 0;
+  overflow: hidden;
+}
+
+.bug-report-modal-body .session-details-form {
+  padding: 18px 24px 8px 24px;
+  overflow-y: auto;
+  flex: 1;
+  min-height: 0;
+}
+
+.bug-report-modal-body .session-form-group:first-child {
+  padding-top: 0;
+  border-top: none;
+}
+
+.bug-report-modal .session-details-form .form-section input[type="text"],
+.bug-report-modal .session-details-form .form-section textarea {
+  font-family: inherit;
+}
+
+.bug-report-optional {
+  font-weight: 500;
+  text-transform: none;
+  letter-spacing: normal;
+  color: var(--text-color-muted);
+  font-size: 0.8125rem;
+}
+
+.bug-report-modal-footer {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  gap: 16px;
+  padding: 14px 20px 18px 24px;
+  border-top: 1px solid var(--border-color);
+  flex-shrink: 0;
+  background: linear-gradient(
+    180deg,
+    color-mix(in srgb, var(--content-background) 88%, var(--border-color)) 0%,
+    var(--content-background) 100%
+  );
+}
+
+.bug-report-footer-hint {
+  margin: 0;
+  font-size: 0.8125rem;
+  line-height: 1.45;
+  color: var(--text-color-muted);
+  flex: 1;
+  min-width: 0;
+}
+
+/* Segmented tabs — inset rail reads as one control (chrome-adjacent). */
+.bug-report-modal-tabs {
+  display: flex;
+  align-items: stretch;
+  gap: 4px;
+  padding: 10px 16px 12px 24px;
+  flex-shrink: 0;
+  border-bottom: 1px solid var(--border-color);
+  background: color-mix(in srgb, var(--content-background) 94%, var(--border-color));
+}
+
+.bug-report-tab {
+  flex: 1;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 8px;
+  padding: 9px 14px;
+  border: none;
+  border-radius: 10px;
+  font-size: 0.8125rem;
+  font-weight: 600;
+  letter-spacing: 0.01em;
+  color: var(--text-color-muted);
+  background: transparent;
+  cursor: pointer;
+  transition: color 0.15s ease, background-color 0.15s ease,
+    box-shadow 0.15s ease;
+}
+
+.bug-report-tab:hover {
+  color: var(--text-color);
+  background-color: color-mix(in srgb, var(--primary-color) 8%, transparent);
+}
+
+.bug-report-tab:focus-visible {
+  outline: none;
+  color: var(--primary-color);
+  box-shadow: var(--focus-ring);
+}
+
+.bug-report-tab.is-active {
+  color: var(--text-color);
+  background-color: var(--content-background);
+  box-shadow: 0 1px 2px rgba(15, 23, 42, 0.06),
+    inset 0 0 0 1px var(--border-color);
+}
+
+body.dark-mode .bug-report-tab.is-active {
+  box-shadow: 0 1px 3px rgba(0, 0, 0, 0.35),
+    inset 0 0 0 1px var(--border-color);
+}
+
+.bug-report-tab-count {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  min-width: 1.25rem;
+  height: 1.25rem;
+  padding: 0 6px;
+  border-radius: 999px;
+  font-size: 0.6875rem;
+  font-weight: 700;
+  letter-spacing: 0.02em;
+  color: var(--text-color-muted);
+  background: color-mix(in srgb, var(--border-color) 55%, transparent);
+}
+
+.bug-report-tab.is-active .bug-report-tab-count {
+  color: var(--primary-color);
+  background: color-mix(in srgb, var(--primary-color) 16%, transparent);
+}
+
+.bug-report-modal-body--browse {
+  min-height: 320px;
+}
+
+.bug-report-browse-toolbar {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 12px;
+  padding: 14px 24px 10px 24px;
+  flex-shrink: 0;
+}
+
+.bug-report-browse-intro {
+  margin: 0;
+  font-size: 0.8125rem;
+  line-height: 1.5;
+  color: var(--text-color-muted);
+  max-width: 42rem;
+}
+
+.bug-report-refresh-btn {
+  flex-shrink: 0;
+}
+
+.bug-report-sync--spin {
+  animation: bug-report-spin 0.85s linear infinite;
+  transform-origin: center center;
+}
+
+.cal-results-excel-icon-btn svg.bug-report-sync--spin {
+  animation: bug-report-spin 0.85s linear infinite;
+  transform-origin: center center;
+}
+
+@keyframes bug-report-spin {
+  to {
+    transform: rotate(360deg);
+  }
+}
+
+.bug-report-list-wrap {
+  flex: 1;
+  min-height: 0;
+  overflow-y: auto;
+  padding: 0 24px 20px 24px;
+}
+
+.bug-report-list {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.bug-report-list-item {
+  width: 100%;
+  text-align: left;
+  padding: 12px 14px;
+  border: 1px solid var(--border-color);
+  border-radius: 12px;
+  background: color-mix(in srgb, var(--content-background) 92%, var(--border-color));
+  cursor: pointer;
+  transition: border-color 0.15s ease, background-color 0.15s ease,
+    box-shadow 0.15s ease;
+}
+
+.bug-report-list-item:hover {
+  border-color: color-mix(in srgb, var(--primary-color) 35%, var(--border-color));
+  background: color-mix(in srgb, var(--primary-color) 5%, var(--content-background));
+  box-shadow: 0 2px 8px rgba(15, 23, 42, 0.05);
+}
+
+body.dark-mode .bug-report-list-item:hover {
+  box-shadow: 0 2px 12px rgba(0, 0, 0, 0.25);
+}
+
+.bug-report-list-item:focus-visible {
+  outline: none;
+  box-shadow: var(--focus-ring);
+}
+
+.bug-report-list-item-top {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 10px;
+}
+
+.bug-report-list-item-mid {
+  display: flex;
+  align-items: center;
+  justify-content: flex-start;
+  flex-wrap: wrap;
+  gap: 8px 12px;
+  margin-top: 10px;
+}
+
+.bug-report-list-item-bottom {
+  margin-top: 8px;
+  font-size: 0.75rem;
+  color: var(--text-color-muted);
+  font-variant-numeric: tabular-nums;
+}
+
+.bug-report-list-title {
+  font-size: 0.9375rem;
+  font-weight: 600;
+  color: var(--text-color);
+  line-height: 1.35;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  display: -webkit-box;
+  -webkit-line-clamp: 2;
+  -webkit-box-orient: vertical;
+}
+
+.bug-report-list-category {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  flex: 1;
+  min-width: 0;
+}
+
+.bug-report-list-placeholder,
+.bug-report-list-error {
+  margin: 0 0 12px 0;
+  font-size: 0.875rem;
+  color: var(--text-color-muted);
+}
+
+.bug-report-list-error {
+  color: var(--danger-text-color);
+}
+
+.bug-report-empty-state {
+  padding: 28px 16px 36px;
+  text-align: center;
+  border: 1px dashed var(--border-color);
+  border-radius: 14px;
+  background: color-mix(in srgb, var(--content-background) 88%, var(--border-color));
+}
+
+.bug-report-empty-eyebrow {
+  display: block;
+  font-size: 0.6875rem;
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.1em;
+  color: var(--text-color-muted);
+  margin-bottom: 8px;
+}
+
+.bug-report-empty-title {
+  margin: 0 0 8px 0;
+  font-size: 1.05rem;
+  font-weight: 600;
+  color: var(--text-color);
+}
+
+.bug-report-empty-copy {
+  margin: 0 auto;
+  max-width: 26rem;
+  font-size: 0.875rem;
+  line-height: 1.55;
+  color: var(--text-color-muted);
+}
+
+.bug-report-severity {
+  display: inline-flex;
+  align-items: center;
+  flex-shrink: 0;
+  padding: 3px 9px;
+  border-radius: 999px;
+  font-size: 0.6875rem;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+}
+
+.bug-report-severity--low {
+  background: var(--disconnected-color-light);
+  color: var(--text-color-muted);
+}
+
+.bug-report-severity--medium {
+  background: color-mix(in srgb, var(--primary-color) 14%, transparent);
+  color: var(--primary-color);
+}
+
+.bug-report-severity--high {
+  background: var(--warning-color-light);
+  color: var(--warning-text-color);
+}
+
+.bug-report-severity--critical {
+  background: var(--danger-color-light);
+  color: var(--danger-text-color);
+}
+
+/* Workflow status — green / yellow / red (Solved / In work / Not started) */
+.bug-report-status-pill {
+  display: inline-flex;
+  align-items: center;
+  flex-shrink: 0;
+  padding: 3px 10px;
+  border-radius: 999px;
+  font-size: 0.6875rem;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+  max-width: 100%;
+}
+
+.bug-report-status-pill--solved {
+  background: var(--success-color-light);
+  color: var(--success-text-color);
+  box-shadow: inset 0 0 0 1px color-mix(in srgb, var(--success-color) 22%, transparent);
+}
+
+.bug-report-status-pill--in-work {
+  background: var(--warning-color-light);
+  color: var(--warning-text-color);
+  box-shadow: inset 0 0 0 1px color-mix(in srgb, var(--warning-color) 25%, transparent);
+}
+
+.bug-report-status-pill--not-started {
+  background: var(--danger-color-light);
+  color: var(--danger-text-color);
+  box-shadow: inset 0 0 0 1px color-mix(in srgb, var(--danger-color) 22%, transparent);
+}
+
+.bug-report-detail {
+  padding: 8px 24px 24px 24px;
+  overflow-y: auto;
+  flex: 1;
+  min-height: 0;
+}
+
+.bug-report-detail-toolbar {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  margin-bottom: 14px;
+}
+
+.bug-report-detail-toolbar-actions {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  flex-shrink: 0;
+}
+
+.bug-report-detail-status-row {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+  margin-bottom: 6px;
+}
+
+.bug-report-status-dropdown {
+  margin-bottom: 0;
+}
+
+.bug-report-status-dropdown .custom-dropdown-container {
+  width: 100%;
+  max-width: none;
+}
+
+.bug-report-detail-meta-inline {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px 12px;
+}
+
+.bug-report-detail-meta-inline .bug-report-detail-date {
+  margin-left: auto;
+}
+
+.bug-report-detail-category-line {
+  margin: 0 0 14px 0;
+  font-size: 0.8125rem;
+  font-weight: 600;
+  color: var(--text-color-muted);
+  letter-spacing: 0.01em;
+}
+
+.bug-report-edit-form {
+  padding-top: 4px;
+}
+
+.bug-report-edit-form .form-section-group {
+  margin-bottom: 0;
+}
+
+.bug-report-detail-edit-footer {
+  display: flex;
+  align-items: center;
+  justify-content: flex-end;
+  gap: 12px;
+  margin-top: 18px;
+  padding-top: 16px;
+  border-top: 1px solid var(--border-color);
+}
+
+.bug-report-text-btn {
+  padding: 8px 14px;
+  border: none;
+  border-radius: 8px;
+  font-size: 0.8125rem;
+  font-weight: 600;
+  font-family: inherit;
+  color: var(--text-color-muted);
+  background: transparent;
+  cursor: pointer;
+  transition: color 0.15s ease, background-color 0.15s ease;
+}
+
+.bug-report-text-btn:hover:not(:disabled) {
+  color: var(--text-color);
+  background-color: var(--primary-color-soft);
+}
+
+.bug-report-text-btn:focus-visible {
+  outline: none;
+  box-shadow: var(--focus-ring);
+}
+
+.bug-report-text-btn:disabled {
+  opacity: 0.55;
+  cursor: not-allowed;
+}
+
+.bug-report-back-btn {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  margin-bottom: 0;
+  padding: 6px 4px;
+  border: none;
+  background: none;
+  font-size: 0.8125rem;
+  font-weight: 600;
+  font-family: inherit;
+  color: var(--primary-color);
+  cursor: pointer;
+  border-radius: 8px;
+  transition: background-color 0.15s ease;
+}
+
+.bug-report-back-btn:hover {
+  background-color: var(--primary-color-soft);
+}
+
+.bug-report-back-btn:focus-visible {
+  outline: none;
+  box-shadow: var(--focus-ring);
+}
+
+.bug-report-detail-date {
+  margin-left: auto;
+  font-size: 0.8125rem;
+  color: var(--text-color-muted);
+  font-variant-numeric: tabular-nums;
+}
+
+.bug-report-detail-title {
+  margin: 0 0 18px 0;
+  font-size: 1.125rem;
+  font-weight: 600;
+  letter-spacing: -0.02em;
+  line-height: 1.35;
+  color: var(--text-color);
+}
+
+.bug-report-detail-section {
+  margin-bottom: 18px;
+}
+
+.bug-report-detail-section-label {
+  display: block;
+  font-size: 0.6875rem;
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.08em;
+  color: var(--text-color-muted);
+  margin-bottom: 8px;
+}
+
+.bug-report-detail-prose {
+  font-size: 0.9rem;
+  line-height: 1.55;
+  color: var(--text-color);
+  padding: 12px 14px;
+  border-radius: 10px;
+  background: color-mix(in srgb, var(--content-background) 85%, var(--border-color));
+  border: 1px solid var(--border-color);
+  white-space: pre-wrap;
+  font-family: inherit;
+}
+
+.bug-report-detail-prose--steps {
+  font-family: "Roboto Mono", ui-monospace, monospace;
+  font-size: 0.8125rem;
+  line-height: 1.5;
+}
+
+.bug-report-diagnostics-details {
+  margin-top: 8px;
+  border-radius: 10px;
+  border: 1px solid var(--border-color);
+  background: color-mix(in srgb, var(--content-background) 90%, var(--border-color));
+  overflow: hidden;
+}
+
+.bug-report-diagnostics-details summary {
+  padding: 10px 14px;
+  font-size: 0.8125rem;
+  font-weight: 600;
+  cursor: pointer;
+  color: var(--text-color);
+  list-style: none;
+}
+
+.bug-report-diagnostics-details summary::-webkit-details-marker {
+  display: none;
+}
+
+.bug-report-diagnostics-pre {
+  margin: 0;
+  padding: 12px 14px 14px;
+  max-height: 220px;
+  overflow: auto;
+  font-size: 0.75rem;
+  line-height: 1.45;
+  border-top: 1px solid var(--border-color);
+  background: color-mix(in srgb, var(--content-background) 92%, var(--border-color));
+  color: var(--text-color);
+  font-family: "Roboto Mono", ui-monospace, monospace;
+}
+
+/* Dropdowns inside bug report: match session/settings label rhythm */
+.bug-report-modal .form-section .custom-dropdown-container label {
+  font-size: 0.6875rem;
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.08em;
+  color: var(--text-color-muted);
+  margin-bottom: 6px;
+  display: block;
+}
+
+/* Diagnostic opt-in — card aligns with session form rhythm; checkbox top-aligned to title. */
+.bug-report-diagnostics-card {
+  margin-top: 4px;
+  padding: 14px 16px;
+  border: 1px solid var(--border-color);
+  border-radius: 12px;
+  background: color-mix(in srgb, var(--surface-sunken) 65%, var(--content-background));
+  box-shadow: inset 0 1px 0 color-mix(in srgb, var(--content-background) 70%, transparent);
+}
+
+.bug-report-diagnostics-label {
+  display: flex;
+  align-items: flex-start;
+  gap: 14px;
+  margin: 0;
+  cursor: pointer;
+  user-select: none;
+}
+
+.bug-report-diagnostics-input {
+  width: 17px;
+  height: 17px;
+  margin: 2px 0 0 0;
+  padding: 0;
+  flex: 0 0 auto;
+  accent-color: var(--primary-color);
+  cursor: pointer;
+}
+
+.bug-report-diagnostics-copy {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  min-width: 0;
+}
+
+.bug-report-diagnostics-title {
+  display: block;
+  font-size: 0.875rem;
+  font-weight: 600;
+  line-height: 1.35;
+  color: var(--text-color);
+  letter-spacing: 0.01em;
+}
+
+.bug-report-diagnostics-desc {
+  display: block;
+  font-size: 0.8125rem;
+  line-height: 1.45;
+  color: var(--text-color-muted);
+  font-weight: 400;
+}
+
+.bug-report-diagnostics-label:hover .bug-report-diagnostics-title {
+  color: var(--text-color-strong);
+}
+
+.bug-report-diagnostics-card:has(.bug-report-diagnostics-input:focus-visible) {
+  border-color: var(--primary-color);
+  box-shadow: var(--focus-ring);
+}
+
+.bug-report-diagnostics-card:has(.bug-report-diagnostics-input:checked) {
+  border-color: color-mix(in srgb, var(--primary-color) 45%, var(--border-color));
+  background: color-mix(in srgb, var(--primary-color-soft) 35%, var(--content-background));
 }
 
 /* ================================================================== */
@@ -3265,7 +3981,24 @@ body.dark-mode .confirm-modal-action--danger:hover {
 
 .corrections-modal-body {
   padding: 18px 24px 24px 24px;
-  flex-grow: 1;
+  flex: 1 1 auto;
+  min-height: 0;
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+}
+
+/* Scroll lives on tab content or the shunt card body so header dropdowns are not clipped. */
+.corrections-modal-body > .corrections-tab-content {
+  flex: 1 1 auto;
+  min-height: 0;
+  overflow-y: auto;
+  overflow-x: hidden;
+}
+
+.corrections-modal-body > .corrections-manual-form {
+  flex: 1 1 auto;
+  min-height: 0;
   overflow-y: auto;
   overflow-x: hidden;
 }
@@ -3299,6 +4032,30 @@ body.dark-mode .confirm-modal-action--danger:hover {
 
 .corrections-card + .corrections-card {
   margin-top: 16px;
+}
+
+/* AC Shunt browser: overflow visible so CustomDropdown panel is not clipped by the card;
+   table scroll is isolated to .corrections-card-body. */
+.corrections-modal-body > .corrections-card--shunt-picker {
+  flex: 1 1 auto;
+  min-height: 0;
+}
+
+.corrections-card--shunt-picker {
+  overflow: visible;
+}
+
+.corrections-card--shunt-picker > .corrections-card-header {
+  position: relative;
+  z-index: 4;
+  flex-shrink: 0;
+}
+
+.corrections-card--shunt-picker > .corrections-card-body {
+  flex: 1 1 auto;
+  min-height: 0;
+  overflow-y: auto;
+  overflow-x: auto;
 }
 
 .corrections-card-header {
@@ -3494,6 +4251,37 @@ body.dark-mode .confirm-modal-action--danger:hover {
   display: grid;
   grid-template-columns: repeat(2, minmax(0, 1fr));
   gap: 16px;
+  /* Top-align Standard vs Test TVC cards so S/N headers and tables line up from the top. */
+  align-items: start;
+}
+
+/* Session TVCs: 2×2 grid (headers row 1, bodies row 2) so both correction tables share the same top baseline. */
+.corrections-session-tvc-grid {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  column-gap: 16px;
+  row-gap: 0;
+  align-items: start;
+}
+
+.corrections-session-tvc-grid > .corrections-card-header {
+  border: 1px solid var(--border-color);
+  border-radius: 12px 12px 0 0;
+  background: var(--background-color);
+  margin: 0;
+}
+
+.corrections-session-tvc-grid > .corrections-card-body {
+  border: 1px solid var(--border-color);
+  border-top: none;
+  border-radius: 0 0 12px 12px;
+  background: var(--content-background);
+  box-shadow: 0 1px 2px rgba(15, 23, 42, 0.04);
+  margin: 0;
+}
+
+body.dark-mode .corrections-session-tvc-grid > .corrections-card-body {
+  box-shadow: 0 1px 2px rgba(0, 0, 0, 0.3);
 }
 
 /* --- Empty state shared across the modal --- */
@@ -3839,6 +4627,30 @@ body.dark-mode .corrections-card-select:focus-visible {
 
 /* --- Responsive --- */
 @media (max-width: 900px) {
+  /* Stack Std (head+body) then Test (head+body); flex order matches DOM used on desktop grid. */
+  .corrections-session-tvc-grid {
+    display: flex;
+    flex-direction: column;
+    gap: 0;
+  }
+
+  .corrections-session-tvc-std-head {
+    order: 1;
+  }
+
+  .corrections-session-tvc-std-body {
+    order: 2;
+    margin-bottom: 16px;
+  }
+
+  .corrections-session-tvc-test-head {
+    order: 3;
+  }
+
+  .corrections-session-tvc-test-body {
+    order: 4;
+  }
+
   .corrections-card-grid {
     grid-template-columns: 1fr;
   }
@@ -4162,6 +4974,17 @@ body.dark-mode .corrections-card-select:focus-visible {
   color: var(--text-color-muted);
 }
 
+/* Reset global `button` rules (primary CTA styling, margins) — keep picker reading as a form control. */
+button.custom-dropdown-trigger {
+  margin: 0;
+  appearance: none;
+  -webkit-appearance: none;
+  font: inherit;
+  line-height: 1.25;
+  color: var(--text-color);
+  box-sizing: border-box;
+}
+
 .custom-dropdown-trigger {
   display: flex;
   justify-content: space-between;
@@ -4244,6 +5067,28 @@ body.dark-mode .corrections-card-select:focus-visible {
   flex-direction: column;
 }
 
+/* Corrections modal: panel must paint above the shunt table and sticky regions. */
+.corrections-card-picker .custom-dropdown-panel {
+  z-index: 5000;
+}
+
+/* Portaled menu (fixed to viewport) — escapes overflow:hidden modals/cards.
+   Inline style sets position/top/left/width/maxHeight; clear absolute panel anchors. */
+.custom-dropdown-panel--portal {
+  z-index: 12000;
+  display: flex;
+  flex-direction: column;
+  min-height: 0;
+  right: auto;
+}
+
+.custom-dropdown-panel--portal .custom-dropdown-options {
+  flex: 1 1 auto;
+  min-height: 0;
+  max-height: none;
+  overflow-y: auto;
+}
+
 .custom-dropdown-search-wrapper {
   padding: 8px;
   border-bottom: 1px solid var(--border-color);
@@ -4265,6 +5110,11 @@ body.dark-mode .corrections-card-select:focus-visible {
   outline: none;
   border-color: var(--primary-color);
   box-shadow: var(--focus-ring);
+}
+
+/* Inside open menus, keep search focus readable without a heavy ring band. */
+.custom-dropdown-panel .custom-dropdown-search:focus-visible {
+  box-shadow: 0 0 0 1px color-mix(in srgb, var(--primary-color) 35%, transparent);
 }
 
 .custom-dropdown-options {
@@ -4327,6 +5177,16 @@ body.dark-mode .corrections-card-select:focus-visible {
   background-color: var(--background-color);
   cursor: not-allowed;
   opacity: 0.7;
+}
+
+/* Beat global `button:disabled` (flat gray + transforms) so the picker stays theme-aware. */
+.custom-dropdown-container.disabled button.custom-dropdown-trigger:disabled {
+  background-color: var(--background-color);
+  color: var(--text-color);
+  cursor: not-allowed;
+  opacity: 0.7;
+  transform: none;
+  box-shadow: none;
 }
 
 /* --- Session responsive --- */

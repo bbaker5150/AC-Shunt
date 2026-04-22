@@ -1,6 +1,6 @@
 import React, { useState, useEffect } from "react";
 import axios from "axios";
-import { FaTimes, FaArrowLeft, FaArrowRight, FaBolt, FaPlus } from "react-icons/fa";
+import { FaTimes, FaArrowLeft, FaArrowRight, FaSave, FaPlus } from "react-icons/fa";
 import {
   AMPLIFIER_RANGES_A,
   API_BASE_URL,
@@ -474,12 +474,12 @@ function ConfigurationModal({
             <button
               type="button"
               onClick={handleConfirmAndSaveFrequencies}
-              className="add-tp-action add-tp-action--primary add-tp-action--icon"
+              className="sidebar-action-button"
               aria-label="Generate test points"
               title="Generate test points"
               disabled={selectedFrequencies.size === 0}
             >
-              <FaBolt aria-hidden />
+              <FaSave aria-hidden />
             </button>
           )}
         </footer>

@@ -6,6 +6,7 @@ from rest_framework.decorators import api_view
 from rest_framework import viewsets, status
 from rest_framework.decorators import action
 from rest_framework.response import Response
+from rest_framework.permissions import AllowAny, IsAuthenticated
 from django.conf import settings
 from django.db import transaction
 from django.core.exceptions import ObjectDoesNotExist
@@ -201,7 +202,18 @@ class TVCViewSet(viewsets.ModelViewSet):
 class BugReportViewSet(viewsets.ModelViewSet):
     queryset = BugReport.objects.all().order_by('-created_at')
     serializer_class = BugReportSerializer
-    
+
+    def get_queryset(self):
+        qs = BugReport.objects.all().order_by('-created_at')
+        # Cap list payload for the in-app browser (newest first).
+        if getattr(self, 'action', None) == 'list':
+            return qs[:200]
+        return qs
+
+    def get_permissions(self):
+        # Lab clients are often unauthenticated; full in-app CRUD from the desktop UI.
+        return [AllowAny()]
+
 class CalibrationViewSet(viewsets.ModelViewSet):
     """
     API endpoint for managing Calibration records, which link together
