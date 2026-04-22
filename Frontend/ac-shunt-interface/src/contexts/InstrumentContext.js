@@ -312,6 +312,7 @@ export const InstrumentContextProvider = ({ children }) => {
           if (data.tiLiveReadings) setTiLiveReadings(data.tiLiveReadings);
           if (data.collectionProgress) setCollectionProgress(data.collectionProgress);
           if (data.focusedTPKey) setFocusedTPKey(data.focusedTPKey);
+          setDataRefreshTrigger((prev) => prev + 1);
         }
         return;
       }
