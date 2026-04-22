@@ -29,7 +29,7 @@ function InstrumentStatusPanel({ showNotification, isRemoteViewer }) {
         tiInstrumentAddress, setTiInstrumentAddress, tiReaderModel, setTiReaderModel, tiReaderSN, setTiReaderSN,
         acSourceAddress, setAcSourceAddress, acSourceSN, setAcSourceSN, dcSourceAddress, setDcSourceAddress, dcSourceSN, setDcSourceSN,
         switchDriverAddress, setSwitchDriverAddress, switchDriverModel, setSwitchDriverModel, switchDriverSN, setSwitchDriverSN,
-        amplifierAddress, setAmplifierAddress, amplifierSN, setAmplifierSN,
+        amplifierAddress, setAmplifierAddress, amplifierSN, setAmplifierSN, isCollecting,
     } = useInstruments();
 
     const [isScanning, setIsScanning] = useState(false);
@@ -53,6 +53,7 @@ function InstrumentStatusPanel({ showNotification, isRemoteViewer }) {
     }, [selectedSessionId, setDiscoveredInstruments]);
 
     useEffect(() => {
+        if (isRemoteViewer || isCollecting) return;
         if (discoveredInstruments.length > 0) {
             discoveredInstruments.forEach(inst => {
                 const modelMatch = inst.identity.match(/(\d{4}[A-Z]?)/);
@@ -68,7 +69,7 @@ function InstrumentStatusPanel({ showNotification, isRemoteViewer }) {
         // effect every time a status value arrives (which was causing a cascade of re-renders
         // across every useInstruments() consumer, including CorrectionsModal).
         // eslint-disable-next-line react-hooks/exhaustive-deps
-    }, [discoveredInstruments, getInstrumentStatus]);
+    }, [discoveredInstruments, getInstrumentStatus, isRemoteViewer, isCollecting]);
 
     const workstations = useMemo(() => {
         const wsMap = new Map();
