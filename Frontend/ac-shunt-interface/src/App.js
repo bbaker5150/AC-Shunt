@@ -22,6 +22,18 @@ import { arrayMove } from "@dnd-kit/sortable";
 import { AVAILABLE_FREQUENCIES, API_BASE_URL } from "./constants/constants";
 import useDbHealth from "./hooks/useDbHealth";
 
+const APP_VERSION = "v1.0.0";
+const RELEASE_NOTES = [
+  {
+    version: "v1.0.0",
+    date: "2026-04-22",
+    highlights: [
+      "Initial release.",
+      "Patch notes will appear here as updates are published.",
+    ],
+  },
+];
+
 // Helper functions for corrections (getShuntCorrectionForPoint, getTVCCorrectionForPoint)
 const getShuntCorrectionForPoint = (point, shuntRangeInAmps, shuntsData) => {
   if (!point || !shuntRangeInAmps || !shuntsData || shuntsData.length === 0)
@@ -264,6 +276,60 @@ const Notification = ({ message, type, onDismiss }) => {
   );
 };
 
+const ReleaseNotesModal = ({ isOpen, onClose }) => {
+  if (!isOpen) return null;
+  return (
+    <div className="modal-overlay" onClick={onClose}>
+      <div
+        className="release-notes-modal"
+        role="dialog"
+        aria-modal="true"
+        aria-labelledby="release-notes-title"
+        onClick={(e) => e.stopPropagation()}
+      >
+        <header className="release-notes-header">
+          <div className="release-notes-header-text">
+            <span className="release-notes-eyebrow">Build info</span>
+            <h3 id="release-notes-title" className="release-notes-title">
+              Patch Notes
+            </h3>
+          </div>
+          <button
+            type="button"
+            onClick={onClose}
+            className="cal-results-excel-icon-btn"
+            title="Close"
+            aria-label="Close"
+          >
+            <FaTimes aria-hidden />
+          </button>
+        </header>
+
+        <div className="release-notes-body">
+          <div className="release-notes-current">
+            <span className="release-notes-current-label">Current version</span>
+            <span className="release-notes-current-value">{APP_VERSION}</span>
+          </div>
+
+          {RELEASE_NOTES.map((entry) => (
+            <section className="release-notes-entry" key={entry.version}>
+              <div className="release-notes-entry-head">
+                <span className="release-notes-entry-version">{entry.version}</span>
+                <span className="release-notes-entry-date">{entry.date}</span>
+              </div>
+              <ul className="release-notes-list">
+                {entry.highlights.map((item) => (
+                  <li key={item}>{item}</li>
+                ))}
+              </ul>
+            </section>
+          ))}
+        </div>
+      </div>
+    </div>
+  );
+};
+
 // ---------------------------------------------------------------------
 // Custom window caption controls (Windows/Electron only)
 // Renders minimize / maximize-restore / close buttons inside the React
@@ -400,6 +466,7 @@ function AppContent() {
   const [isConfigModalOpen, setIsConfigModalOpen] = useState(false);
   const [isCorrectionsModalOpen, setIsCorrectionsModalOpen] = useState(false);
   const [isBugReportModalOpen, setIsBugReportModalOpen] = useState(false);
+  const [isReleaseNotesOpen, setIsReleaseNotesOpen] = useState(false);
   const [pointCorrectionsModal, setPointCorrectionsModal] = useState({
     isOpen: false,
     point: null,
@@ -864,6 +931,10 @@ function AppContent() {
         activeTab={activeTab}
         theme={theme}
       />
+      <ReleaseNotesModal
+        isOpen={isReleaseNotesOpen}
+        onClose={() => setIsReleaseNotesOpen(false)}
+      />
       <ConfirmationModal
         isOpen={clearConfirmationModal.isOpen}
         title={clearConfirmationModal.title}
@@ -903,6 +974,15 @@ function AppContent() {
               <span className="app-chrome-brand-sub">
                 Calibration Platform
               </span>
+              <button
+                type="button"
+                onClick={() => setIsReleaseNotesOpen(true)}
+                className="app-chrome-brand-version"
+                aria-label="View patch notes"
+                title="View patch notes"
+              >
+                {APP_VERSION}
+              </button>
             </div>
           </div>
 
