@@ -4983,6 +4983,15 @@ button.custom-dropdown-trigger {
   line-height: 1.25;
   color: var(--text-color);
   box-sizing: border-box;
+  transform: none;
+  box-shadow: none;
+}
+
+/* Prevent global button:hover from applying its lift-transform and blue background to the picker. */
+button.custom-dropdown-trigger:hover {
+  transform: none;
+  box-shadow: none;
+  background-color: var(--surface-raised);
 }
 
 .custom-dropdown-trigger {
@@ -5006,6 +5015,8 @@ button.custom-dropdown-trigger {
 .custom-dropdown-trigger:hover:not(:disabled):not(.open) {
   border-color: var(--border-color-strong);
   background-color: var(--surface-raised);
+  transform: none;
+  box-shadow: none;
 }
 
 /* Open / keyboard-focus still lift to the primary color so the "this

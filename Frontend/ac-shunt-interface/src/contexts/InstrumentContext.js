@@ -57,6 +57,11 @@ export const InstrumentContextProvider = ({ children }) => {
   const [zeroingInstruments, setZeroingInstruments] = useState({});
   const statusWs = useRef({});
 
+  // Refs that mirror isFetchingStatuses / zeroingInstruments so getInstrumentStatus
+  // can read the latest values without being recreated on every state change.
+  const isFetchingStatusesRef = useRef({});
+  const zeroingInstrumentsRef = useRef({});
+
   // Collection States
   const [isCollecting, setIsCollecting] = useState(false);
   const [collectionProgress, setCollectionProgress] = useState({
@@ -406,9 +411,13 @@ export const InstrumentContextProvider = ({ children }) => {
     };
   };
 
+  // Keep refs in sync on every render so the stable callback always sees current values.
+  isFetchingStatusesRef.current = isFetchingStatuses;
+  zeroingInstrumentsRef.current = zeroingInstruments;
+
   const getInstrumentStatus = useCallback(
     async (instrumentModel, gpibAddress) => {
-      if (zeroingInstruments[gpibAddress]) {
+      if (zeroingInstrumentsRef.current[gpibAddress]) {
         console.log(`Skipping status poll for ${gpibAddress} (Zeroing in progress)`);
         return;
       }
@@ -416,7 +425,7 @@ export const InstrumentContextProvider = ({ children }) => {
       if (
         !instrumentModel ||
         !gpibAddress ||
-        isFetchingStatuses[gpibAddress] ||
+        isFetchingStatusesRef.current[gpibAddress] ||
         (statusWs.current[gpibAddress] &&
           statusWs.current[gpibAddress].readyState === WebSocket.CONNECTING)
       )
@@ -502,7 +511,7 @@ export const InstrumentContextProvider = ({ children }) => {
             },
           }));
         } else if (message.status_report === "error") {
-          if (!zeroingInstruments[gpibAddress]) {
+          if (!zeroingInstrumentsRef.current[gpibAddress]) {
             setInstrumentStatuses((prev) => ({
               ...prev,
               [gpibAddress]: {
@@ -516,16 +525,16 @@ export const InstrumentContextProvider = ({ children }) => {
       };
 
       ws.onerror = (e) => {
-        console.error(`[WebSocket ${gpibAddress}] ERROR:`, e); // <--- LOGGING
+        console.error(`[WebSocket ${gpibAddress}] ERROR:`, e);
         setIsFetchingStatuses((prev) => ({ ...prev, [gpibAddress]: false }));
       };
 
       ws.onclose = (e) => {
-        console.warn(`[WebSocket ${gpibAddress}] CLOSED. Code: ${e.code}, Reason: ${e.reason}`); // <--- LOGGING
+        console.warn(`[WebSocket ${gpibAddress}] CLOSED. Code: ${e.code}, Reason: ${e.reason}`);
         setIsFetchingStatuses((prev) => ({ ...prev, [gpibAddress]: false }));
       }
     },
-    [isFetchingStatuses, zeroingInstruments]
+    [] // Stable — reads isFetchingStatuses / zeroingInstruments via refs above
   );
 
   const runZeroCal = useCallback((instrumentModel, gpibAddress) => {

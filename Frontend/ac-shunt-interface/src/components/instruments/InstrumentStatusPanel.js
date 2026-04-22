@@ -53,7 +53,7 @@ function InstrumentStatusPanel({ showNotification }) {
     }, [selectedSessionId, setDiscoveredInstruments]);
 
     useEffect(() => {
-        if (discoveredInstruments.length > 0 && Object.keys(instrumentStatuses).length === 0) {
+        if (discoveredInstruments.length > 0) {
             discoveredInstruments.forEach(inst => {
                 const modelMatch = inst.identity.match(/(\d{4}[A-Z]?)/);
                 const model = modelMatch ? modelMatch[0] : null;
@@ -63,7 +63,12 @@ function InstrumentStatusPanel({ showNotification }) {
                 }
             });
         }
-    }, [discoveredInstruments, getInstrumentStatus, instrumentStatuses]);
+        // instrumentStatuses intentionally excluded: getInstrumentStatus uses an internal
+        // ref to guard against duplicate in-flight polls, so we don't need to re-run this
+        // effect every time a status value arrives (which was causing a cascade of re-renders
+        // across every useInstruments() consumer, including CorrectionsModal).
+        // eslint-disable-next-line react-hooks/exhaustive-deps
+    }, [discoveredInstruments, getInstrumentStatus]);
 
     const workstations = useMemo(() => {
         const wsMap = new Map();

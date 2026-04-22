@@ -9,7 +9,6 @@ import axios from "axios";
 import { useInstruments } from "../../contexts/InstrumentContext";
 import { FaTimes, FaSave, FaArrowLeft, FaPlus, FaEdit, FaTrash } from "react-icons/fa";
 import { AMPLIFIER_RANGES_A, API_BASE_URL } from "../../constants/constants";
-import CustomDropdown from "../shared/CustomDropdown";
 
 // --- Static Initial State (Moved outside component to fix dependency warnings) ---
 const initialManualFormState = {
@@ -267,6 +266,17 @@ function CorrectionsModal({ isOpen, onClose, showNotification, onUpdate, uniqueT
       label: tvc.serial_number,
     }));
   }, [tvcsData]);
+
+  const shuntOptions = useMemo(
+    () =>
+      uniqueShuntInfo.map((info) => ({
+        value: info.serial_number,
+        label: info.size
+          ? `${info.serial_number} (${info.size})`
+          : info.serial_number,
+      })),
+    [uniqueShuntInfo]
+  );
 
   const pivotedShuntData = useMemo(() => {
     if (!selectedShuntSn) return { headers: [], rows: [] };
@@ -954,15 +964,20 @@ function CorrectionsModal({ isOpen, onClose, showNotification, onUpdate, uniqueT
               <div className="corrections-card-headline">
                 <span className="corrections-card-eyebrow">Auxiliary TVC</span>
                 <div className="corrections-card-picker">
-                  <CustomDropdown
-                    key="aux-tvc-dropdown"
-                    menuPortal
-                    options={tvcOptions}
-                    value={auxiliaryTvcSn || null}
-                    onChange={setAuxiliaryTvcSn}
-                    placeholder="Select a serial number…"
-                    ariaLabel="Auxiliary TVC serial number"
-                  />
+                  <select
+                    className="corrections-card-select"
+                    value={auxiliaryTvcSn || ""}
+                    onChange={(e) => setAuxiliaryTvcSn(e.target.value)}
+                    disabled={isLoading}
+                    aria-label="Auxiliary TVC serial number"
+                  >
+                    <option value="">Select a serial number...</option>
+                    {tvcOptions.map((option) => (
+                      <option key={option.value} value={option.value}>
+                        {option.label}
+                      </option>
+                    ))}
+                  </select>
                   {isSelectedTvcManual && (
                     <span className="corrections-manual-badge">Manual</span>
                   )}
@@ -1090,21 +1105,20 @@ function CorrectionsModal({ isOpen, onClose, showNotification, onUpdate, uniqueT
                 <div className="corrections-card-headline">
                   <span className="corrections-card-eyebrow">AC Shunt</span>
                   <div className="corrections-card-picker">
-                    <CustomDropdown
-                      key="shunt-dropdown"
-                      menuPortal
-                      options={uniqueShuntInfo.map((info) => ({
-                        value: info.serial_number,
-                        label: info.size
-                          ? `${info.serial_number} (${info.size})`
-                          : info.serial_number,
-                      }))}
-                      value={selectedShuntSn}
-                      onChange={setSelectedShuntSn}
-                      placeholder="Select a serial number…"
+                    <select
+                      className="corrections-card-select"
+                      value={selectedShuntSn || ""}
+                      onChange={(e) => setSelectedShuntSn(e.target.value)}
                       disabled={isLoading}
-                      isLoading={isLoading}
-                    />
+                      aria-label="AC Shunt serial number"
+                    >
+                      <option value="">Select a serial number...</option>
+                      {shuntOptions.map((option) => (
+                        <option key={option.value} value={option.value}>
+                          {option.label}
+                        </option>
+                      ))}
+                    </select>
                     {isSelectedShuntManual && (
                       <span className="corrections-manual-badge">Manual</span>
                     )}
