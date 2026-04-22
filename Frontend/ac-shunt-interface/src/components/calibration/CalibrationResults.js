@@ -1,5 +1,5 @@
 // src/components/calibration/CalibrationResults.js
-import React, { useState, useEffect, useRef, useCallback, useMemo } from "react";
+import React, { useState, useEffect, useCallback, useMemo } from "react";
 import { useInstruments } from "../../contexts/InstrumentContext";
 import { FaDownload } from "react-icons/fa";
 import CalibrationChart from "./CalibrationChart";
@@ -8,6 +8,8 @@ import CustomDropdown from "../shared/CustomDropdown";
 import { useTheme } from "../../contexts/ThemeContext";
 import { API_BASE_URL } from "../../constants/constants";
 import axios from "axios";
+import { BlockMath } from "react-katex";
+import "katex/dist/katex.min.css";
 
 const READING_TYPES = [
   { label: "AC Open", value: "ac_open_readings", color: "rgb(75, 192, 192)" },
@@ -43,48 +45,19 @@ const READING_KEY_NAMES = [
   "ti_ac_close_readings",
 ];
 
-// Reusable MathDisplay Component for isolated MathJax rendering
+// Reusable MathDisplay Component for KaTeX rendering
 const MathDisplay = ({ math }) => {
-  const containerRef = useRef(null);
-  const [hasRenderedOnce, setHasRenderedOnce] = useState(false);
-
-  useEffect(() => {
-    let isCancelled = false;
-
-    if (window.MathJax && containerRef.current) {
-      window.MathJax
-        .typesetPromise([containerRef.current])
-        .then(() => {
-          if (!isCancelled) setHasRenderedOnce(true);
-        })
-        .catch((err) => {
-          if (!isCancelled) {
-            // Fall back to showing content if MathJax fails.
-            setHasRenderedOnce(true);
-          }
-          console.error("MathJax typeset failed:", err);
-        });
-    } else {
-      // If MathJax is not available yet, avoid hiding content.
-      setHasRenderedOnce(true);
+  const normalizedMath = useMemo(() => {
+    if (!math) return "";
+    const trimmed = String(math).trim();
+    if (trimmed.startsWith("$$") && trimmed.endsWith("$$")) {
+      return trimmed.slice(2, -2).trim();
     }
-
-    return () => {
-      isCancelled = true;
-    };
+    return trimmed;
   }, [math]);
 
   return (
-    <span
-      ref={containerRef}
-      style={{
-        // Only hide the very first paint to prevent raw TeX flash.
-        // On subsequent math updates, keep existing render visible until new one is ready.
-        visibility: hasRenderedOnce ? "visible" : "hidden",
-      }}
-    >
-      {math}
-    </span>
+    <BlockMath math={normalizedMath} />
   );
 };
 
