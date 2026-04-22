@@ -260,7 +260,7 @@ class CalibrationConsumer(AsyncWebsocketConsumer):
             if self.collection_task:
                 self.collection_task.cancel()
             
-            await self.send(text_data=json.dumps({'type': 'collection_stopped', 'message': 'Collection stopped by user.'}))
+            await self.broadcast(text_data=json.dumps({'type': 'collection_stopped', 'message': 'Collection stopped by user.'}))
             return
 
         if self.state == "BUSY":
@@ -296,20 +296,20 @@ class CalibrationConsumer(AsyncWebsocketConsumer):
         if not amplifier_instrument or not amplifier_range:
             return True
 
-        await self.send(text_data=json.dumps({'type': 'status_update', 'message': f"Setting amplifier range to {amplifier_range} A..."}))
+        await self.broadcast(text_data=json.dumps({'type': 'status_update', 'message': f"Setting amplifier range to {amplifier_range} A..."}))
         await sync_to_async(amplifier_instrument.set_range, thread_sensitive=True)(range_amps=float(amplifier_range))
 
         self.confirmation_event.clear()
         self.confirmation_status = None
 
-        await self.send(text_data=json.dumps({'type': 'awaiting_amplifier_confirmation', 'range': amplifier_range}))
+        await self.broadcast(text_data=json.dumps({'type': 'awaiting_amplifier_confirmation', 'range': amplifier_range}))
         await self.confirmation_event.wait()
 
         if self.confirmation_status != 'confirmed':
-            await self.send(text_data=json.dumps({'type': 'collection_stopped', 'message': 'Operation cancelled by user.'}))
+            await self.broadcast(text_data=json.dumps({'type': 'collection_stopped', 'message': 'Operation cancelled by user.'}))
             return False 
 
-        await self.send(text_data=json.dumps({'type': 'status_update', 'message': "Amplifier range confirmed by user."}))
+        await self.broadcast(text_data=json.dumps({'type': 'status_update', 'message': "Amplifier range confirmed by user."}))
         return True 
 
     async def set_amplifier_range(self, data):
@@ -321,12 +321,12 @@ class CalibrationConsumer(AsyncWebsocketConsumer):
             if amp_address and amp_range:
                 amplifier = await sync_to_async(Instrument8100, thread_sensitive=True)(model='8100', gpib=amp_address)
                 await sync_to_async(amplifier.set_range, thread_sensitive=True)(range_amps=float(amp_range))
-                await self.send(text_data=json.dumps({'type': 'amplifier_range_set', 'message': 'Amplifier range set successfully.'}))
+                await self.broadcast(text_data=json.dumps({'type': 'amplifier_range_set', 'message': 'Amplifier range set successfully.'}))
             else:
-                await self.send(text_data=json.dumps({'type': 'error', 'message': 'Amplifier address or range not configured for this session.'}))
+                await self.broadcast(text_data=json.dumps({'type': 'error', 'message': 'Amplifier address or range not configured for this session.'}))
         except Exception as e:
             traceback.print_exc()
-            await self.send(text_data=json.dumps({'type': 'error', 'message': f"Failed to set amplifier range: {e}"}))
+            await self.broadcast(text_data=json.dumps({'type': 'error', 'message': f"Failed to set amplifier range: {e}"}))
         finally:
             if amplifier and hasattr(amplifier, 'close'):
                 await sync_to_async(amplifier.close, thread_sensitive=True)()
@@ -352,7 +352,7 @@ class CalibrationConsumer(AsyncWebsocketConsumer):
         except CalibrationSession.DoesNotExist: return None
 
     async def _verify_initial_reading(self, instrument, instrument_name, expected_value, tolerance=0.10):
-        await self.send(text_data=json.dumps({'type': 'status_update', 'message': f"Taking pre-check sample from {instrument_name}..."}))
+        await self.broadcast(text_data=json.dumps({'type': 'status_update', 'message': f"Taking pre-check sample from {instrument_name}..."}))
         reading = await self._take_one_reading(instrument)
         
         lower_bound = expected_value * (1 - tolerance)
@@ -360,10 +360,10 @@ class CalibrationConsumer(AsyncWebsocketConsumer):
         reading_abs = abs(reading)
 
         if lower_bound <= reading_abs <= upper_bound:
-            await self.send(text_data=json.dumps({'type': 'status_update', 'message': f"{instrument_name} check passed. Reading: {reading_abs:.4f}V"}))
+            await self.broadcast(text_data=json.dumps({'type': 'status_update', 'message': f"{instrument_name} check passed. Reading: {reading_abs:.4f}V"}))
             return True
         else:
-            await self.send(text_data=json.dumps({'type': 'error', 'message': f"{instrument_name} pre-check failed. Reading: {reading_abs:.4f}V, Expected: ~{expected_value:.4f}V"}))
+            await self.broadcast(text_data=json.dumps({'type': 'error', 'message': f"{instrument_name} pre-check failed. Reading: {reading_abs:.4f}V, Expected: ~{expected_value:.4f}V"}))
             return False
 
     async def _configure_sources(self, test_point_data, bypass_tvc, amplifier_range, ac_source=None, dc_source=None):
@@ -401,7 +401,7 @@ class CalibrationConsumer(AsyncWebsocketConsumer):
         if not warmup_time or warmup_time <= 0:
             return
 
-        await self.send(text_data=json.dumps({'type': 'status_update', 'message': f"Initial warm-up period started for {warmup_time}s..."}))
+        await self.broadcast(text_data=json.dumps({'type': 'status_update', 'message': f"Initial warm-up period started for {warmup_time}s..."}))
         
         try:
             await asyncio.sleep(warmup_time)
@@ -409,7 +409,7 @@ class CalibrationConsumer(AsyncWebsocketConsumer):
             raise
 
         if not self.stop_event.is_set():
-            await self.send(text_data=json.dumps({'type': 'status_update', 'message': "Warm-up complete. Starting measurement."}))
+            await self.broadcast(text_data=json.dumps({'type': 'status_update', 'message': "Warm-up complete. Starting measurement."}))
     
     async def run_tvc_characterization(self, data):
         print(f"[TVC_CHAR] Entering run_tvc_characterization with data: {data}", flush=True)
@@ -451,12 +451,12 @@ class CalibrationConsumer(AsyncWebsocketConsumer):
 
             if session_details.get('switch_driver_address'):
                 switch_driver = await sync_to_async(Instrument11713C, thread_sensitive=True)(gpib=session_details.get('switch_driver_address'))
-                await self.send(text_data=json.dumps({'type': 'status_update', 'message': f"Switching to {char_source_kind} source for Characterization..."}))
+                await self.broadcast(text_data=json.dumps({'type': 'status_update', 'message': f"Switching to {char_source_kind} source for Characterization..."}))
                 if char_source_kind == 'AC':
                     await sync_to_async(switch_driver.select_ac_source, thread_sensitive=True)()
                 else:
                     await sync_to_async(switch_driver.select_dc_source, thread_sensitive=True)()
-                await self.send(text_data=json.dumps({'type': 'switch_status_update', 'active_source': char_source_kind}))
+                await self.broadcast(text_data=json.dumps({'type': 'switch_status_update', 'active_source': char_source_kind}))
                 await asyncio.sleep(1)
 
             original_tp = data.get('test_point')
@@ -540,7 +540,7 @@ class CalibrationConsumer(AsyncWebsocketConsumer):
                 ppm_shifted_tp['target_tvc'] = target_tvc
                 ppm_shifted_tp['characterization_source'] = char_source_kind
 
-                await self.send(text_data=json.dumps({'type': 'calibration_stage_update', 'stage': stage, 'total': num_samples}))
+                await self.broadcast(text_data=json.dumps({'type': 'calibration_stage_update', 'stage': stage, 'total': num_samples}))
 
                 success = await self._perform_single_measurement(
                     stage, num_samples, ppm_shifted_tp, data.get('bypass_tvc'),
@@ -550,7 +550,7 @@ class CalibrationConsumer(AsyncWebsocketConsumer):
                 
                 if not success: 
                     if not self.stop_event.is_set():
-                        await self.send(text_data=json.dumps({'type': 'error', 'message': f"Characterization aborted: Stability limit reached on {stage}."}))
+                        await self.broadcast(text_data=json.dumps({'type': 'error', 'message': f"Characterization aborted: Stability limit reached on {stage}."}))
                     break 
 
             if not self.stop_event.is_set():
@@ -574,13 +574,13 @@ class CalibrationConsumer(AsyncWebsocketConsumer):
                     # "characterization complete" signal because of it.
                     print(f"[TVC_CHAR] Eta propagation step failed: {prop_err}", flush=True)
 
-                await self.send(text_data=json.dumps({'type': 'collection_finished', 'message': 'Sensitivity Characterization complete.'}))
+                await self.broadcast(text_data=json.dumps({'type': 'collection_finished', 'message': 'Sensitivity Characterization complete.'}))
 
         except asyncio.CancelledError:
             print(f"[TVC_CHAR] Task cancelled.", flush=True)
         except Exception as e:
             traceback.print_exc()
-            await self.send(text_data=json.dumps({'type': 'error', 'message': f"An instrument error occurred: {e}"}))
+            await self.broadcast(text_data=json.dumps({'type': 'error', 'message': f"An instrument error occurred: {e}"}))
         finally:
             self.state = "IDLE"
             if switch_driver and hasattr(switch_driver, 'close'):
@@ -646,7 +646,7 @@ class CalibrationConsumer(AsyncWebsocketConsumer):
             raise
         
         if settling_time > 0:
-            await self.send(text_data=json.dumps({'type': 'status_update', 'message': f"Settling for {settling_time}s..."}))
+            await self.broadcast(text_data=json.dumps({'type': 'status_update', 'message': f"Settling for {settling_time}s..."}))
             await asyncio.sleep(settling_time)
 
         tp_id = test_point_data.get('id')
@@ -684,7 +684,7 @@ class CalibrationConsumer(AsyncWebsocketConsumer):
             stdev_val = math.sqrt(variance)
             return (stdev_val / abs(mean_val)) * 1_000_000 if abs(mean_val) > 1e-9 else 0
 
-        await self.send(text_data=json.dumps({'type': 'status_update', 'message': "Monitoring stability..."}))
+        await self.broadcast(text_data=json.dumps({'type': 'status_update', 'message': "Monitoring stability..."}))
 
         def get_target_length():
             return len(final_std_readings) if target_tvc in ['STD', 'BOTH'] else len(final_ti_readings)
@@ -696,7 +696,7 @@ class CalibrationConsumer(AsyncWebsocketConsumer):
                 tp_key = f"{test_point_data.get('current')}-{test_point_data.get('frequency')}"
                 if tp_id:
                     await self.set_test_point_failed_status(tp_id, True)
-                await self.send(text_data=json.dumps({
+                await self.broadcast(text_data=json.dumps({
                     'type': 'warning',
                     'message': f"Test point aborted: Stability limit ({max_retries}) reached.",
                     'tpKey': tp_key
@@ -758,7 +758,7 @@ class CalibrationConsumer(AsyncWebsocketConsumer):
                         if ti_point: final_ti_readings.append(ti_point)
 
                     # --- NOW SEND UPDATES WITH THE ACCURATE METRICS ---
-                    await self.send(text_data=json.dumps({
+                    await self.broadcast(text_data=json.dumps({
                         'type': 'sliding_window_update',
                         'ppm': current_ppm,
                         'stdev_ppm': current_ppm,
@@ -767,18 +767,18 @@ class CalibrationConsumer(AsyncWebsocketConsumer):
                         'max_retries': max_retries
                     }))
                     
-                    await self.send(text_data=json.dumps({
+                    await self.broadcast(text_data=json.dumps({
                         'type': 'status_update',
                         'message': f"Stdev: {current_ppm:.2f} PPM [{instability_events}/{max_retries}]"
                     }))
 
                     # Announce stability ONLY exactly when it is found
                     if initial_stability_achieved and is_currently_stable and get_target_length() == window_size:
-                        await self.send(text_data=json.dumps({'type': 'status_update', 'message': "Initial stability achieved."}))
+                        await self.broadcast(text_data=json.dumps({'type': 'status_update', 'message': "Initial stability achieved."}))
 
                 else:
                     # Still filling initial window
-                    await self.send(text_data=json.dumps({
+                    await self.broadcast(text_data=json.dumps({
                         'type': 'status_update',
                         'message': f"Filling initial window... [{len(primary_candidates)}/{window_size}]"
                     }))
@@ -786,7 +786,7 @@ class CalibrationConsumer(AsyncWebsocketConsumer):
                     temp_ppm = calc_ppm(primary_candidates) if len(primary_candidates) > 1 else None
                     temp_is_stable = (temp_ppm < threshold_ppm) if temp_ppm is not None else True
                     
-                    await self.send(text_data=json.dumps({
+                    await self.broadcast(text_data=json.dumps({
                         'type': 'sliding_window_update',
                         'ppm': temp_ppm,
                         'stdev_ppm': temp_ppm,
@@ -804,7 +804,7 @@ class CalibrationConsumer(AsyncWebsocketConsumer):
             else:
                 current_count = len(stable_candidate_std) if target_tvc in ['STD', 'BOTH'] else len(stable_candidate_ti)
 
-            await self.send(text_data=json.dumps({
+            await self.broadcast(text_data=json.dumps({
                 'type': 'dual_reading_update',
                 'std_reading': std_point,
                 'ti_reading': ti_point,
@@ -823,7 +823,7 @@ class CalibrationConsumer(AsyncWebsocketConsumer):
             if target_tvc in ['TI', 'BOTH'] and final_ti_readings:
                 await self.save_readings_to_db(f"ti_{reading_type_base}", final_ti_readings, test_point_data)
             
-            await self.send(text_data=json.dumps({
+            await self.broadcast(text_data=json.dumps({
                 'type': 'connection_sync',
                 'is_complete': False,
                 'message': f'{reading_type_base} stage data saved.'
@@ -850,13 +850,13 @@ class CalibrationConsumer(AsyncWebsocketConsumer):
 
             if switch_driver:
                 required_state = 'AC' if is_ac_reading else 'DC'
-                await self.send(text_data=json.dumps({'type': 'status_update', 'message': f"Switching to {required_state} source..."}))
+                await self.broadcast(text_data=json.dumps({'type': 'status_update', 'message': f"Switching to {required_state} source..."}))
                 if required_state == 'AC':
                     await sync_to_async(switch_driver.select_ac_source, thread_sensitive=True)()
                 else:
                     await sync_to_async(switch_driver.select_dc_source, thread_sensitive=True)()
                 
-                await self.send(text_data=json.dumps({'type': 'switch_status_update', 'active_source': required_state}))
+                await self.broadcast(text_data=json.dumps({'type': 'switch_status_update', 'active_source': required_state}))
                 await asyncio.sleep(1)
 
             ac_source_address = session_details.get('ac_source_address')
@@ -898,7 +898,7 @@ class CalibrationConsumer(AsyncWebsocketConsumer):
             if not source_instrument:
                 raise Exception(f"Required {'AC' if is_ac_reading else 'DC'} Source is not assigned.")
 
-            await self.send(text_data=json.dumps({
+            await self.broadcast(text_data=json.dumps({
                 'type': 'calibration_stage_update',
                 'stage': reading_type_base,
                 'total': data.get('num_samples')
@@ -920,20 +920,20 @@ class CalibrationConsumer(AsyncWebsocketConsumer):
             )
             
             if success and not self.stop_event.is_set():
-                await self.send(text_data=json.dumps({'type': 'collection_finished', 'message': 'All readings complete.'}))
+                await self.broadcast(text_data=json.dumps({'type': 'collection_finished', 'message': 'All readings complete.'}))
             elif not success and not self.stop_event.is_set():
-                await self.send(text_data=json.dumps({'type': 'error', 'message': 'Test point aborted due to stability limit.'}))
+                await self.broadcast(text_data=json.dumps({'type': 'error', 'message': 'Test point aborted due to stability limit.'}))
 
         except asyncio.CancelledError:
             print(f"Collection task cancelled for session {self.session_id}.")
         except Exception as e:
             traceback.print_exc()
-            await self.send(text_data=json.dumps({'type': 'error', 'message': f"An instrument error occurred: {e}"}))
+            await self.broadcast(text_data=json.dumps({'type': 'error', 'message': f"An instrument error occurred: {e}"}))
         finally:
             self.state = "IDLE"
             if switch_driver:
                 await sync_to_async(switch_driver.deactivate_all, thread_sensitive=True)()
-                await self.send(text_data=json.dumps({'type': 'switch_status_update', 'active_source': 'AC'}))
+                await self.broadcast(text_data=json.dumps({'type': 'switch_status_update', 'active_source': 'AC'}))
                 if hasattr(switch_driver, 'close'): await sync_to_async(switch_driver.close, thread_sensitive=True)()
             
             sources_to_shutdown = list(filter(None, {ac_source, dc_source}))
@@ -997,35 +997,35 @@ class CalibrationConsumer(AsyncWebsocketConsumer):
                     if session_details.get('switch_driver_address'):
                         switch_driver = await sync_to_async(Instrument11713C, thread_sensitive=True)(gpib=session_details.get('switch_driver_address'))
                         required_switch_state = 'AC' if 'ac' in stage else 'DC'
-                        await self.send(text_data=json.dumps({'type': 'status_update', 'message': f"Switching to {required_switch_state} source..."}))
+                        await self.broadcast(text_data=json.dumps({'type': 'status_update', 'message': f"Switching to {required_switch_state} source..."}))
                         if required_switch_state == 'AC': await sync_to_async(switch_driver.select_ac_source, thread_sensitive=True)()
                         else: await sync_to_async(switch_driver.select_dc_source, thread_sensitive=True)()
-                        await self.send(text_data=json.dumps({'type': 'switch_status_update', 'active_source': required_switch_state}))
+                        await self.broadcast(text_data=json.dumps({'type': 'switch_status_update', 'active_source': required_switch_state}))
                         await asyncio.sleep(1)
 
                     source_instrument = ac_source if 'ac' in stage else dc_source
                     if not source_instrument: raise Exception(f"Required {'AC' if 'ac' in stage else 'DC'} Source is not assigned.")
                     
-                    await self.send(text_data=json.dumps({'type': 'calibration_stage_update', 'stage': stage, 'total': num_samples}))
+                    await self.broadcast(text_data=json.dumps({'type': 'calibration_stage_update', 'stage': stage, 'total': num_samples}))
                     
                     success = await self._perform_single_measurement(stage, num_samples, data.get('test_point'), data.get('bypass_tvc'), data.get('amplifier_range'), source_instrument, std_reader, ti_reader, amplifier, settling_time, nplc_setting, measurement_params)
                     
                     # Stop sequence if measurement fails due to instability limits
                     if not success: 
                         if not self.stop_event.is_set():
-                            await self.send(text_data=json.dumps({'type': 'error', 'message': f"Sequence aborted: Stability limit reached on {stage}."}))
+                            await self.broadcast(text_data=json.dumps({'type': 'error', 'message': f"Sequence aborted: Stability limit reached on {stage}."}))
                         break 
                 finally:
                     if switch_driver and hasattr(switch_driver, 'close'): await sync_to_async(switch_driver.close, thread_sensitive=True)()
             
             if not self.stop_event.is_set():
-                await self.send(text_data=json.dumps({'type': 'collection_finished', 'message': 'All readings complete.'}))
+                await self.broadcast(text_data=json.dumps({'type': 'collection_finished', 'message': 'All readings complete.'}))
 
         except asyncio.CancelledError:
             print(f"Collection task cancelled for session {self.session_id}.")
         except Exception as e:
             traceback.print_exc()
-            await self.send(text_data=json.dumps({'type': 'error', 'message': f"An instrument error occurred: {e}"}))
+            await self.broadcast(text_data=json.dumps({'type': 'error', 'message': f"An instrument error occurred: {e}"}))
         finally:
             self.state = "IDLE"
             sources_to_shutdown = list(filter(None, {ac_source, dc_source}))
@@ -1091,7 +1091,7 @@ class CalibrationConsumer(AsyncWebsocketConsumer):
                 current_settling_time = float(point_data.get('settling_time', data.get('settling_time', 5.0)))
                 current_num_samples = int(point_data.get('num_samples', data.get('num_samples', 8)))
 
-                await self.send(text_data=json.dumps({
+                await self.broadcast(text_data=json.dumps({
                     'type': 'batch_progress_update',
                     'test_point': point_data,
                     'current': i + 1,
@@ -1104,16 +1104,16 @@ class CalibrationConsumer(AsyncWebsocketConsumer):
                     
                     required_switch_state = 'AC' if 'ac' in stage else 'DC'
                     if switch_driver:
-                        await self.send(text_data=json.dumps({'type': 'status_update', 'message': f"Switching to {required_switch_state} source..."}))
+                        await self.broadcast(text_data=json.dumps({'type': 'status_update', 'message': f"Switching to {required_switch_state} source..."}))
                         if required_switch_state == 'AC': await sync_to_async(switch_driver.select_ac_source, thread_sensitive=True)()
                         else: await sync_to_async(switch_driver.select_dc_source, thread_sensitive=True)()
-                        await self.send(text_data=json.dumps({'type': 'switch_status_update', 'active_source': required_switch_state}))
+                        await self.broadcast(text_data=json.dumps({'type': 'switch_status_update', 'active_source': required_switch_state}))
                         await asyncio.sleep(1)
 
                     source_instrument = ac_source if 'ac' in stage else dc_source
                     if not source_instrument: raise Exception(f"Required source for stage '{stage}' is not assigned.")
                     
-                    await self.send(text_data=json.dumps({
+                    await self.broadcast(text_data=json.dumps({
                         'type': 'calibration_stage_update', 
                         'stage': stage, 
                         'total': current_num_samples,
@@ -1141,13 +1141,13 @@ class CalibrationConsumer(AsyncWebsocketConsumer):
                 if point_aborted: continue
 
             if not self.stop_event.is_set():
-                await self.send(text_data=json.dumps({'type': 'collection_finished', 'message': 'Batch calibration complete.'}))
+                await self.broadcast(text_data=json.dumps({'type': 'collection_finished', 'message': 'Batch calibration complete.'}))
 
         except asyncio.CancelledError:
             print(f"Collection task cancelled for session {self.session_id}.")
         except Exception as e:
             traceback.print_exc()
-            await self.send(text_data=json.dumps({'type': 'error', 'message': f"An instrument error occurred during batch run: {e}"}))
+            await self.broadcast(text_data=json.dumps({'type': 'error', 'message': f"An instrument error occurred during batch run: {e}"}))
         finally:
             self.state = "IDLE"
             if switch_driver:
@@ -1215,10 +1215,10 @@ class CalibrationConsumer(AsyncWebsocketConsumer):
             if session_details.get('switch_driver_address'):
                 switch_driver = await sync_to_async(Instrument11713C, thread_sensitive=True)(gpib=session_details.get('switch_driver_address'))
                 required_switch_state = 'AC' if 'ac' in stage else 'DC'
-                await self.send(text_data=json.dumps({'type': 'status_update', 'message': f"Switching to {required_switch_state} source for batch run..."}))
+                await self.broadcast(text_data=json.dumps({'type': 'status_update', 'message': f"Switching to {required_switch_state} source for batch run..."}))
                 if required_switch_state == 'AC': await sync_to_async(switch_driver.select_ac_source, thread_sensitive=True)()
                 else: await sync_to_async(switch_driver.select_dc_source, thread_sensitive=True)()
-                await self.send(text_data=json.dumps({'type': 'switch_status_update', 'active_source': required_switch_state}))
+                await self.broadcast(text_data=json.dumps({'type': 'switch_status_update', 'active_source': required_switch_state}))
                 await asyncio.sleep(1)
 
             nplc_setting, measurement_params = data.get('nplc'), data.get('measurement_params')
@@ -1229,14 +1229,14 @@ class CalibrationConsumer(AsyncWebsocketConsumer):
                 current_settling_time = float(point_data.get('settling_time', data.get('settling_time', 5.0)))
                 current_num_samples = int(point_data.get('num_samples', data.get('num_samples', 8)))
 
-                await self.send(text_data=json.dumps({
+                await self.broadcast(text_data=json.dumps({
                     'type': 'batch_progress_update',
                     'test_point': point_data,
                     'current': i + 1,
                     'total': len(test_points_to_run)
                 }))
                 
-                await self.send(text_data=json.dumps({
+                await self.broadcast(text_data=json.dumps({
                     'type': 'calibration_stage_update', 
                     'stage': stage, 
                     'total': current_num_samples,
@@ -1258,13 +1258,13 @@ class CalibrationConsumer(AsyncWebsocketConsumer):
                 if not success: continue
 
             if not self.stop_event.is_set():
-                await self.send(text_data=json.dumps({'type': 'collection_finished', 'message': 'Batch readings complete.'}))
+                await self.broadcast(text_data=json.dumps({'type': 'collection_finished', 'message': 'Batch readings complete.'}))
 
         except asyncio.CancelledError:
             print(f"Collection task cancelled for session {self.session_id}.")
         except Exception as e:
             traceback.print_exc()
-            await self.send(text_data=json.dumps({'type': 'error', 'message': f"An instrument error occurred during batch run: {e}"}))
+            await self.broadcast(text_data=json.dumps({'type': 'error', 'message': f"An instrument error occurred during batch run: {e}"}))
         finally:
             self.state = "IDLE"
             if switch_driver:
@@ -1488,6 +1488,20 @@ class CalibrationConsumer(AsyncWebsocketConsumer):
         except Exception as e:
             # Catch DB disconnection errors so they don't crash the measurement loop
             print(f"[CONSUMER] Could not update stability status for TP {test_point_id} (DB offline): {e}", flush=True)
+
+    async def broadcast(self, text_data):
+        """Intercepts the text_data and broadcasts it to ALL clients in the session."""
+        await self.channel_layer.group_send(
+            self.session_group_name,
+            {
+                'type': 'forward_to_group',
+                'text_data': text_data
+            }
+        )
+
+    async def forward_to_group(self, event):
+        """Channels event handler that receives the group message and pushes it down the WebSocket."""
+        await self.send(text_data=event['text_data'])
 
 
 class SwitchDriverConsumer(AsyncWebsocketConsumer):
