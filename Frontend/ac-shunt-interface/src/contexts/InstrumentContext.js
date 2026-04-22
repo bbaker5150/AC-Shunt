@@ -103,6 +103,22 @@ export const InstrumentContextProvider = ({ children }) => {
   const hostSyncWs = useRef(null);
   const selectedSessionIdRef = useRef(selectedSessionId);
 
+  const isCollectingRef = useRef(isCollecting);
+  const liveReadingsRef = useRef(liveReadings);
+  const tiLiveReadingsRef = useRef(tiLiveReadings);
+  const activeCollectionDetailsRef = useRef(activeCollectionDetails);
+  const collectionProgressRef = useRef(collectionProgress);
+  const focusedTPKeyRef = useRef(focusedTPKey);
+
+  useEffect(() => {
+    isCollectingRef.current = isCollecting;
+    liveReadingsRef.current = liveReadings;
+    tiLiveReadingsRef.current = tiLiveReadings;
+    activeCollectionDetailsRef.current = activeCollectionDetails;
+    collectionProgressRef.current = collectionProgress;
+    focusedTPKeyRef.current = focusedTPKey;
+  }, [isCollecting, liveReadings, tiLiveReadings, activeCollectionDetails, collectionProgress, focusedTPKey]);
+
   // Keep a ref of the session ID to avoid stale closures in the WebSocket events
   useEffect(() => {
     selectedSessionIdRef.current = selectedSessionId;
@@ -239,8 +255,14 @@ export const InstrumentContextProvider = ({ children }) => {
     readingWs.current = new WebSocket(socketUrl);
     setReadingWsState(readingWs.current.readyState);
 
-    readingWs.current.onopen = () =>
+    readingWs.current.onopen = () => {
       setReadingWsState(readingWs.current.readyState);
+      
+      // Ask the Host for its live chart data if joining late!
+      if (isRemoteViewer) {
+        readingWs.current.send(JSON.stringify({ command: "request_live_sync" }));
+      }
+    };
 
     readingWs.current.onclose = () => {
       if (heartbeatTimeout.current) clearTimeout(heartbeatTimeout.current);
@@ -264,6 +286,35 @@ export const InstrumentContextProvider = ({ children }) => {
       }, 75000);
 
       const data = JSON.parse(event.data);
+
+      if (data.type === "live_sync_requested") {
+        // If I am the Host and actively collecting, share my exact chart state
+        if (!isRemoteViewer && isCollectingRef.current) {
+          readingWs.current.send(JSON.stringify({
+            command: "broadcast_live_state",
+            isCollecting: isCollectingRef.current,
+            activeCollectionDetails: activeCollectionDetailsRef.current,
+            liveReadings: liveReadingsRef.current,
+            tiLiveReadings: tiLiveReadingsRef.current,
+            collectionProgress: collectionProgressRef.current,
+            focusedTPKey: focusedTPKeyRef.current
+          }));
+        }
+        return;
+      }
+
+      if (data.type === "live_state_sync") {
+        // If I am the Remote Viewer, instantly absorb the Host's active state!
+        if (isRemoteViewer && data.isCollecting) {
+          setIsCollecting(true);
+          if (data.activeCollectionDetails) setActiveCollectionDetails(data.activeCollectionDetails);
+          if (data.liveReadings) setLiveReadings(data.liveReadings);
+          if (data.tiLiveReadings) setTiLiveReadings(data.tiLiveReadings);
+          if (data.collectionProgress) setCollectionProgress(data.collectionProgress);
+          if (data.focusedTPKey) setFocusedTPKey(data.focusedTPKey);
+        }
+        return;
+      }
 
       if (data.type === "warning" && data.message && data.message.toLowerCase().includes("stability limit")) {
         if (data.tpKey) {
@@ -413,7 +464,7 @@ export const InstrumentContextProvider = ({ children }) => {
         setSwitchStatus({ status: data.active_source, isConnected: true });
       }
     };
-  }, [selectedSessionId, setSwitchStatus, clearLiveReadings]);
+  }, [selectedSessionId, setSwitchStatus, clearLiveReadings, isRemoteViewer]);
 
   useEffect(() => {
     const handleVisibilityChange = () => {

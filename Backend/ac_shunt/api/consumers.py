@@ -81,6 +81,23 @@ class InstrumentStatusConsumer(AsyncWebsocketConsumer):
     async def receive(self, text_data):
         data = json.loads(text_data)
         command = data.get('command')
+
+        if command == 'request_live_sync':
+            await self.broadcast(text_data=json.dumps({'type': 'live_sync_requested'}))
+            return
+
+        if command == 'broadcast_live_state':
+            await self.broadcast(text_data=json.dumps({
+                'type': 'live_state_sync',
+                'isCollecting': data.get('isCollecting'),
+                'activeCollectionDetails': data.get('activeCollectionDetails'),
+                'liveReadings': data.get('liveReadings'),
+                'tiLiveReadings': data.get('tiLiveReadings'),
+                'collectionProgress': data.get('collectionProgress'),
+                'focusedTPKey': data.get('focusedTPKey')
+            }))
+            return
+            
         if command == 'get_instrument_status':
             if getattr(self, "is_mock", False):
                 payload = {
