@@ -404,6 +404,7 @@ function AppContent() {
     isOpen: false,
     point: null,
   });
+  const [resultsNavigationRequest, setResultsNavigationRequest] = useState(null);
   const [dbInfo, setDbInfo] = useState(null);
   // Live outbox / MSSQL reachability WS — only useful when the default DB is
   // remote. SQLite dev setups skip the socket to avoid console noise and
@@ -1185,6 +1186,13 @@ function AppContent() {
               sharedSelectedTPs={selectedTPs}
               onDataUpdate={fetchSessionData}
               activeDirection={activeDirection}
+              onOpenResultsDirection={(direction) => {
+                setResultsNavigationRequest({
+                  direction,
+                  requestedAt: Date.now(),
+                });
+                setActiveTab("calibrationResults");
+              }}
             />
           )}
           {activeTab === "calibrationResults" && (
@@ -1193,6 +1201,7 @@ function AppContent() {
               sharedFocusedTestPoint={focusedTestPoint}
               uniqueTestPoints={uniqueTestPoints}
               onDataUpdate={fetchSessionData}
+              navigationRequest={resultsNavigationRequest}
             />
           )}
           {/* {activeTab === "uncertaintyAnalysis" && (

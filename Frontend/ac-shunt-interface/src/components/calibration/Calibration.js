@@ -36,6 +36,7 @@ const CorrectionFactorsModal = ({
   onSubmit,
   initialValues,
   onInputChange,
+  isReadOnly = false,
 }) => {
   if (!isOpen) return null;
 
@@ -85,6 +86,7 @@ const CorrectionFactorsModal = ({
               name="eta_std"
               value={initialValues.eta_std}
               onChange={onInputChange}
+              disabled={isReadOnly}
               placeholder="e.g., 1.00012"
             />
           </div>
@@ -97,6 +99,7 @@ const CorrectionFactorsModal = ({
               name="eta_ti"
               value={initialValues.eta_ti}
               onChange={onInputChange}
+              disabled={isReadOnly}
               placeholder="e.g., 0.99987"
             />
           </div>
@@ -109,6 +112,7 @@ const CorrectionFactorsModal = ({
               name="delta_std"
               value={initialValues.delta_std}
               onChange={onInputChange}
+              disabled={isReadOnly}
               placeholder="e.g., -1"
             />
           </div>
@@ -123,6 +127,7 @@ const CorrectionFactorsModal = ({
               name="delta_ti"
               value={initialValues.delta_ti}
               onChange={onInputChange}
+              disabled={isReadOnly}
               placeholder="e.g., -2"
             />
           </div>
@@ -135,6 +140,7 @@ const CorrectionFactorsModal = ({
               name="delta_std_known"
               value={initialValues.delta_std_known}
               onChange={onInputChange}
+              disabled={isReadOnly}
               placeholder="e.g., 5.5"
             />
           </div>
@@ -145,8 +151,8 @@ const CorrectionFactorsModal = ({
             type="button"
             onClick={() => onSubmit(initialValues)}
             className="sidebar-action-button"
-            disabled={!isFormValid}
-            title="Calculate & Save"
+            disabled={!isFormValid || isReadOnly}
+            title={isReadOnly ? "Disabled while calibration is running" : "Calculate & Save"}
           >
             <FaSave />
           </button>
@@ -230,6 +236,7 @@ function Calibration({
   sharedSelectedTPs: selectedTPs,
   onDataUpdate,
   activeDirection,
+  onOpenResultsDirection,
 }) {
   const {
     selectedSessionId,
@@ -976,6 +983,31 @@ function Calibration({
     setIsCorrectionModalOpen(true);
   };
 
+  const validateInstrumentAssignments = useCallback((operationLabel = "start calibration") => {
+    const missingRoles = [];
+
+    if (!stdInstrumentAddress) missingRoles.push("Standard Reader");
+    if (!tiInstrumentAddress) missingRoles.push("Test Reader");
+    if (!acSourceAddress) missingRoles.push("AC Source");
+    if (!dcSourceAddress) missingRoles.push("DC Source");
+
+    if (missingRoles.length > 0) {
+      showNotification(
+        `Cannot ${operationLabel}. Missing instrument assignments: ${missingRoles.join(", ")}. Assign these in Instrument Status first.`,
+        "error"
+      );
+      return false;
+    }
+
+    return true;
+  }, [
+    stdInstrumentAddress,
+    tiInstrumentAddress,
+    acSourceAddress,
+    dcSourceAddress,
+    showNotification,
+  ]);
+
   const runMeasurement = useCallback(
     async (
       testPointToRun,
@@ -984,6 +1016,9 @@ function Calibration({
       bypassAmplifierConfirmation = false
     ) => {
       if (!testPointToRun) return;
+      if (!validateInstrumentAssignments("start collection")) {
+        return Promise.reject(new Error("Missing required instrument assignments."));
+      }
       const ampRange = calibrationConfigurations.amplifier_range;
 
       if (amplifierAddress && !ampRange) {
@@ -1091,12 +1126,16 @@ function Calibration({
       stdReaderModel,
       tiReaderModel,
       calibrationSettings,
+      validateInstrumentAssignments,
     ]
   );
 
   const handleRunSelectedPoints = async () => {
     if (selectedTPs.size === 0) {
       showNotification("No test points selected.", "warning");
+      return;
+    }
+    if (!validateInstrumentAssignments("start batch calibration")) {
       return;
     }
     setFailedTPKeys(new Set());
@@ -1334,6 +1373,10 @@ function Calibration({
     target_tvc = "BOTH",
     { silent = false, testPoint: overrideTP = null } = {}
   ) => {
+    if (!validateInstrumentAssignments("start TVC characterization")) {
+      return "error";
+    }
+
     const tp = overrideTP || focusedTP;
     if (!tp) return "error";
     setActiveChartView("characterization");
@@ -1425,13 +1468,17 @@ function Calibration({
     clearLiveReadings,
     selectedSessionId,
     stdReaderModel,
-    tiReaderModel
+    tiReaderModel,
+    validateInstrumentAssignments
   ]);
 
   const handleRunSingleStageOnSelected = useCallback(
     async (readingKey) => {
       if (selectedTPs.size === 0) {
         showNotification("No test points selected for batch run.", "warning");
+        return;
+      }
+      if (!validateInstrumentAssignments("start batch stage collection")) {
         return;
       }
 
@@ -1580,7 +1627,8 @@ function Calibration({
       setFailedTPKeys,
       isPartial,
       formatCurrent,
-      formatFrequency
+      formatFrequency,
+      validateInstrumentAssignments
     ]
   );
 
@@ -1913,6 +1961,14 @@ function Calibration({
   }, [isCollecting, isBulkRunning, activeCollectionDetails, orderedTestPoints, focusedTP]);
 
   const handleSaveCorrections = async (currentCorrectionInputs) => {
+    if (isCollecting || isBulkRunning) {
+      showNotification(
+        "Corrections are view-only while calibration is running.",
+        "info"
+      );
+      return;
+    }
+
     try {
       const pointToUpdate = activeDirection === "Forward" ? focusedTP.forward : focusedTP.reverse;
 
@@ -1959,6 +2015,7 @@ function Calibration({
         onSubmit={handleSaveCorrections}
         initialValues={correctionInputs}
         onInputChange={handleCorrectionInputChange}
+        isReadOnly={isCollecting || isBulkRunning}
       />
       <ConfirmationModal
         isOpen={confirmationModal.isOpen}
@@ -2423,13 +2480,16 @@ function Calibration({
                                 type="button"
                                 onClick={handleOpenCorrectionModal}
                                 disabled={
-                                  isCollecting ||
                                   isCalculatingAverages ||
                                   !isCalculationReady
                                 }
                                 className="cal-results-excel-icon-btn"
                                 aria-label="Calculate AC-DC difference"
-                                title="View or Edit Correction Inputs"
+                                title={
+                                  isCollecting || isBulkRunning
+                                    ? "View correction inputs (editing disabled while running)"
+                                    : "View or Edit Correction Inputs"
+                                }
                               >
                                 <FaCalculator aria-hidden />
                               </button>
@@ -2447,9 +2507,15 @@ function Calibration({
                           </header>
 
                           {averagedPpmDifference != null && (
-                            <div
-                              className="cal-calc-kpi cal-calc-kpi--primary"
-                              role="status"
+                            <button
+                              type="button"
+                              className="cal-calc-kpi cal-calc-kpi--primary cal-results-overview-card"
+                              onClick={() =>
+                                onOpenResultsDirection &&
+                                onOpenResultsDirection("Combined")
+                              }
+                              title="View combined results"
+                              aria-label="View combined results"
                             >
                               <p className="cal-calc-kpi-label">
                                 Final averaged AC–DC difference
@@ -2460,7 +2526,7 @@ function Calibration({
                                 </span>
                                 <span className="cal-calc-kpi-unit">ppm</span>
                               </div>
-                            </div>
+                            </button>
                           )}
 
                           {(focusedTP.forward?.results?.delta_uut_ppm != null ||
@@ -2468,7 +2534,16 @@ function Calibration({
                               <div className="cal-calc-direction-grid">
                                 {focusedTP.forward?.results?.delta_uut_ppm !=
                                   null && (
-                                    <div className="cal-calc-kpi">
+                                    <button
+                                      type="button"
+                                      className="cal-calc-kpi cal-results-overview-card"
+                                      onClick={() =>
+                                        onOpenResultsDirection &&
+                                        onOpenResultsDirection("Forward")
+                                      }
+                                      title="View forward results"
+                                      aria-label="View forward results"
+                                    >
                                       <p className="cal-calc-kpi-label">
                                         Forward · δ UUT
                                       </p>
@@ -2482,12 +2557,21 @@ function Calibration({
                                           ppm
                                         </span>
                                       </div>
-                                    </div>
+                                    </button>
                                   )}
 
                                 {focusedTP.reverse?.results?.delta_uut_ppm !=
                                   null && (
-                                    <div className="cal-calc-kpi">
+                                    <button
+                                      type="button"
+                                      className="cal-calc-kpi cal-results-overview-card"
+                                      onClick={() =>
+                                        onOpenResultsDirection &&
+                                        onOpenResultsDirection("Reverse")
+                                      }
+                                      title="View reverse results"
+                                      aria-label="View reverse results"
+                                    >
                                       <p className="cal-calc-kpi-label">
                                         Reverse · δ UUT
                                       </p>
@@ -2501,7 +2585,7 @@ function Calibration({
                                           ppm
                                         </span>
                                       </div>
-                                    </div>
+                                    </button>
                                   )}
                               </div>
                             )}

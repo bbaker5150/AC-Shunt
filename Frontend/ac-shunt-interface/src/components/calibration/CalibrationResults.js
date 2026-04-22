@@ -1,7 +1,7 @@
 // src/components/calibration/CalibrationResults.js
 import React, { useState, useEffect, useRef, useCallback, useMemo } from "react";
 import { useInstruments } from "../../contexts/InstrumentContext";
-import { FaDownload, FaArrowRight } from "react-icons/fa";
+import { FaDownload } from "react-icons/fa";
 import CalibrationChart from "./CalibrationChart";
 import { downloadFullSessionExcel } from "./sessionExcelExport";
 import CustomDropdown from "../shared/CustomDropdown";
@@ -46,17 +46,46 @@ const READING_KEY_NAMES = [
 // Reusable MathDisplay Component for isolated MathJax rendering
 const MathDisplay = ({ math }) => {
   const containerRef = useRef(null);
+  const [hasRenderedOnce, setHasRenderedOnce] = useState(false);
 
   useEffect(() => {
+    let isCancelled = false;
+
     if (window.MathJax && containerRef.current) {
-      window.MathJax.typesetClear([containerRef.current]);
-      window.MathJax.typesetPromise([containerRef.current]).catch((err) =>
-        console.error("MathJax typeset failed:", err)
-      );
+      window.MathJax
+        .typesetPromise([containerRef.current])
+        .then(() => {
+          if (!isCancelled) setHasRenderedOnce(true);
+        })
+        .catch((err) => {
+          if (!isCancelled) {
+            // Fall back to showing content if MathJax fails.
+            setHasRenderedOnce(true);
+          }
+          console.error("MathJax typeset failed:", err);
+        });
+    } else {
+      // If MathJax is not available yet, avoid hiding content.
+      setHasRenderedOnce(true);
     }
+
+    return () => {
+      isCancelled = true;
+    };
   }, [math]);
 
-  return <span ref={containerRef}>{math}</span>;
+  return (
+    <span
+      ref={containerRef}
+      style={{
+        // Only hide the very first paint to prevent raw TeX flash.
+        // On subsequent math updates, keep existing render visible until new one is ready.
+        visibility: hasRenderedOnce ? "visible" : "hidden",
+      }}
+    >
+      {math}
+    </span>
+  );
 };
 
 const ResultsKpi = ({ title, value, formula }) => {
@@ -203,7 +232,8 @@ function CalibrationResults({
   showNotification,
   sharedFocusedTestPoint: focusedTP,
   uniqueTestPoints,
-  onDataUpdate
+  onDataUpdate,
+  navigationRequest,
 }) {
   const { selectedSessionId, selectedSessionName, dataRefreshTrigger } = useInstruments();
   const { theme } = useTheme();
@@ -242,6 +272,14 @@ function CalibrationResults({
       onDataUpdate();
     }
   }, [dataRefreshTrigger, onDataUpdate]);
+
+  useEffect(() => {
+    if (!navigationRequest?.direction) return;
+    const allowedDirections = new Set(["Forward", "Reverse", "Combined"]);
+    if (!allowedDirections.has(navigationRequest.direction)) return;
+    setActiveTab("summary");
+    setActiveDirection(navigationRequest.direction);
+  }, [navigationRequest]);
 
   useEffect(() => {
     if (!focusedTP) {
@@ -647,7 +685,7 @@ function CalibrationResults({
                             aria-label="View combined details"
                           >
                             <p className="cal-calc-kpi-label">
-                              Combined · δ UUT
+                              Final averaged AC–DC difference
                             </p>
                             <div className="cal-calc-kpi-value-row">
                               <span className="cal-calc-kpi-num">
@@ -655,20 +693,13 @@ function CalibrationResults({
                               </span>
                               <span className="cal-calc-kpi-unit">ppm</span>
                             </div>
-                            <span className="cal-results-overview-hint">
-                              View combined
-                              <FaArrowRight aria-hidden />
-                            </span>
                           </button>
                         )}
 
                         <div className="cal-calc-direction-grid">
                           <button
                             type="button"
-                            className={`cal-calc-kpi cal-results-overview-card ${overviewStats.forward == null
-                                ? "cal-results-overview-card--empty"
-                                : ""
-                              }`}
+                            className="cal-calc-kpi cal-results-overview-card"
                             onClick={() =>
                               overviewStats.forward != null &&
                               setActiveDirection("Forward")
@@ -687,24 +718,11 @@ function CalibrationResults({
                               </span>
                               <span className="cal-calc-kpi-unit">ppm</span>
                             </div>
-                            <span className="cal-results-overview-hint">
-                              {overviewStats.forward != null ? (
-                                <>
-                                  View forward
-                                  <FaArrowRight aria-hidden />
-                                </>
-                              ) : (
-                                "Not yet calculated"
-                              )}
-                            </span>
                           </button>
 
                           <button
                             type="button"
-                            className={`cal-calc-kpi cal-results-overview-card ${overviewStats.reverse == null
-                                ? "cal-results-overview-card--empty"
-                                : ""
-                              }`}
+                            className="cal-calc-kpi cal-results-overview-card"
                             onClick={() =>
                               overviewStats.reverse != null &&
                               setActiveDirection("Reverse")
@@ -723,16 +741,6 @@ function CalibrationResults({
                               </span>
                               <span className="cal-calc-kpi-unit">ppm</span>
                             </div>
-                            <span className="cal-results-overview-hint">
-                              {overviewStats.reverse != null ? (
-                                <>
-                                  View reverse
-                                  <FaArrowRight aria-hidden />
-                                </>
-                              ) : (
-                                "Not yet calculated"
-                              )}
-                            </span>
                           </button>
                         </div>
                       </>

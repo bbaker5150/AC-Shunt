@@ -81,8 +81,11 @@ function CorrectionsModal({ isOpen, onClose, showNotification, onUpdate, uniqueT
     testInstrumentSerial,
     standardTvcSn,
     testTvcSn,
-    selectedSessionId
+    selectedSessionId,
+    isCollecting,
+    isBulkRunning,
   } = useInstruments();
+  const isCalibrationActive = isCollecting || isBulkRunning;
 
   const isFirstFetch = useRef(true);
   const [isLoading, setIsLoading] = useState(true);
@@ -485,6 +488,14 @@ function CorrectionsModal({ isOpen, onClose, showNotification, onUpdate, uniqueT
 
   // --- Handlers for directly creating Test Points from the table ---
   const handleRowClick = (row, headers) => {
+    if (isCalibrationActive) {
+      notify(
+        "Calibration is currently running. Row actions are disabled until the run finishes.",
+        "warning"
+      );
+      return;
+    }
+
     if (!selectedSessionId) {
       notify("Please select or create an active Calibration Session first.", "warning");
       return;
@@ -600,7 +611,9 @@ function CorrectionsModal({ isOpen, onClose, showNotification, onUpdate, uniqueT
       <>
         <p className="corrections-card-hint">
           <span className="corrections-card-hint-dot" aria-hidden />
-          Click any row to generate matching test points in your active session.
+          {isCalibrationActive
+            ? "Calibration is running - row actions are temporarily disabled."
+            : "Click any row to generate matching test points in your active session."}
         </p>
         <div className="corrections-table-container">
           <table className="styled-table styled-table--centered">
@@ -619,7 +632,11 @@ function CorrectionsModal({ isOpen, onClose, showNotification, onUpdate, uniqueT
                   key={`${row.range}-${row.current}`}
                   className="styled-table-row--clickable"
                   onClick={() => handleRowClick(row, headers)}
-                  title={`Generate test points for ${row.current}A`}
+                  title={
+                    isCalibrationActive
+                      ? "Disabled while calibration is running"
+                      : `Generate test points for ${row.current}A`
+                  }
                 >
                   <td>{row.range}</td>
                   <td>{row.current}</td>
