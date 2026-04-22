@@ -846,6 +846,10 @@ class CalibrationConsumer(AsyncWebsocketConsumer):
                 'is_complete': False,
                 'message': f'{reading_type_base} stage data saved.'
             }))
+
+            await self.broadcast(text_data=json.dumps({
+                'type': 'live_sync_requested'
+            }))
         
         return True
     
