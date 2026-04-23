@@ -938,9 +938,17 @@ function AppContent() {
   // If the target IP is not localhost, lock the hardware controls
   const isRemoteViewer = baseIp !== "localhost" && baseIp !== "127.0.0.1";
 
+  const showSessionInfoInChrome =
+    Boolean(selectedSessionName) ||
+    Boolean(isRemoteViewer && selectedSessionId);
+
+  const sessionInfoPanelTitle =
+    selectedSessionName ||
+    (selectedSessionId != null ? `Session #${selectedSessionId}` : "—");
+
   const showChromeStatusCluster =
     Boolean(dbInfo) ||
-    Boolean(selectedSessionName) ||
+    showSessionInfoInChrome ||
     Boolean(!isRemoteViewer && observers && observers.length > 0);
 
   // Safety guard: if a remote viewer somehow lands on one of the host-only
@@ -1593,7 +1601,7 @@ function AppContent() {
                     </div>
                   );
                 })()}
-                {selectedSessionName && (
+                {showSessionInfoInChrome && (
                   <div className="tooltip-container session-info-popover">
                     <button
                       type="button"
@@ -1612,8 +1620,11 @@ function AppContent() {
                         <span className="session-info-panel-eyebrow">
                           Active session
                         </span>
-                        <h4 className="session-info-panel-title" title={selectedSessionName}>
-                          {selectedSessionName}
+                        <h4
+                          className="session-info-panel-title"
+                          title={sessionInfoPanelTitle}
+                        >
+                          {sessionInfoPanelTitle}
                         </h4>
                       </div>
 
