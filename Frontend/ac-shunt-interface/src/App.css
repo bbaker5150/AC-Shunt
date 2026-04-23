@@ -899,6 +899,7 @@ body.dark-mode .drag-handle:hover svg {
   align-items: flex-start;
   gap: 0;
   min-width: 0;
+  transform: translateY(5px);
 }
 
 .app-chrome-brand-name {

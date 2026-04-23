@@ -3,6 +3,7 @@
 import React, {
   useState,
   useEffect,
+  useLayoutEffect,
   useCallback,
   useMemo,
   useRef,
@@ -309,7 +310,6 @@ function Calibration({
     delta_ti: "",
     delta_std_known: "",
   });
-  const [averagedPpmDifference, setAveragedPpmDifference] = useState(null);
   const [isBulkRunning, setIsBulkRunning] = useState(false);
   // activeDirection state removed
   const [lastCollectionDirection, setLastCollectionDirection] = useState(null);
@@ -324,10 +324,6 @@ function Calibration({
     range: null,
     onConfirm: () => { },
   });
-  const [historicalReadings, setHistoricalReadings] =
-    useState(initialLiveReadings);
-  const [tiHistoricalReadings, setTiHistoricalReadings] =
-    useState(initialLiveReadings);
   const [hoveredIndex, setHoveredIndex] = useState(null);
   const collectionPromise = useRef(null);
   const lastAutoFocusedKey = useRef(null);
@@ -512,10 +508,18 @@ function Calibration({
     }
   }, [lastMessage, sendWsCommand, isRemoteViewer]);
 
+  const prevCollectionStatusRef = useRef(collectionStatus);
   useEffect(() => {
-    if (collectionStatus === "collection_stopped") {
+    const prevStatus = prevCollectionStatusRef.current;
+    const isNewStopEvent =
+      collectionStatus === "collection_stopped" &&
+      prevStatus !== "collection_stopped";
+
+    if (isNewStopEvent) {
       showNotification("Reading collection stopped by user.", "warning");
     }
+
+    prevCollectionStatusRef.current = collectionStatus;
   }, [collectionStatus, showNotification]);
 
   useEffect(() => {
@@ -850,7 +854,13 @@ function Calibration({
     isCalculatingAverages
   ]);
 
-  useEffect(() => {
+  // Pure derivations from focusedTP + active direction. These used to live
+  // in React state populated by a post-mount useEffect, which caused a
+  // visible flicker when toggling between test points — the first paint
+  // rendered stale readings / KPI from the previous focus before the
+  // effect reconciled them. useMemo makes the first render after a
+  // focusedTP change already correct.
+  const { historicalReadings, tiHistoricalReadings } = useMemo(() => {
     const formatReadingsForChart = (readingsArray) => {
       if (!readingsArray) return [];
       return readingsArray.map((point, index) => {
@@ -866,18 +876,69 @@ function Calibration({
       });
     };
 
-    // 1. DEFINE currentFocusedTP FIRST
     const currentFocusedTP = focusedTP
       ? orderedTestPoints.find((p) => p.key === focusedTP.key)
       : null;
+    const pointForDirection = currentFocusedTP
+      ? activeDirection === "Forward"
+        ? currentFocusedTP.forward
+        : currentFocusedTP.reverse
+      : null;
 
-    // 2. NOW CHECK IF IT IS THE FIRST POINT
+    if (!pointForDirection?.readings) {
+      return {
+        historicalReadings: initialLiveReadings,
+        tiHistoricalReadings: initialLiveReadings,
+      };
+    }
+
+    const r = pointForDirection.readings;
+    return {
+      historicalReadings: {
+        char_plus1: formatReadingsForChart(r.std_char_plus1_readings),
+        char_minus: formatReadingsForChart(r.std_char_minus_readings),
+        char_plus2: formatReadingsForChart(r.std_char_plus2_readings),
+        ac_open: formatReadingsForChart(r.std_ac_open_readings),
+        dc_pos: formatReadingsForChart(r.std_dc_pos_readings),
+        dc_neg: formatReadingsForChart(r.std_dc_neg_readings),
+        ac_close: formatReadingsForChart(r.std_ac_close_readings),
+      },
+      tiHistoricalReadings: {
+        char_plus1: formatReadingsForChart(r.ti_char_plus1_readings),
+        char_minus: formatReadingsForChart(r.ti_char_minus_readings),
+        char_plus2: formatReadingsForChart(r.ti_char_plus2_readings),
+        ac_open: formatReadingsForChart(r.ti_ac_open_readings),
+        dc_pos: formatReadingsForChart(r.ti_dc_pos_readings),
+        dc_neg: formatReadingsForChart(r.ti_dc_neg_readings),
+        ac_close: formatReadingsForChart(r.ti_ac_close_readings),
+      },
+    };
+  }, [focusedTP, activeDirection, orderedTestPoints, initialLiveReadings]);
+
+  const averagedPpmDifference = useMemo(() => {
+    if (!focusedTP) return null;
+    const forwardResult = focusedTP.forward?.results?.delta_uut_ppm;
+    const reverseResult = focusedTP.reverse?.results?.delta_uut_ppm;
+    if (forwardResult == null || reverseResult == null) return null;
+    const averagePpm =
+      (parseFloat(forwardResult) + parseFloat(reverseResult)) / 2;
+    return averagePpm.toFixed(3);
+  }, [focusedTP]);
+
+  // Settings are user-editable (sliders, number inputs) so they have to
+  // live in state. Use useLayoutEffect for the per-test-point reset so the
+  // update lands before the browser paints — avoids the "stale settings
+  // flash" when toggling between test points.
+  useLayoutEffect(() => {
+    const currentFocusedTP = focusedTP
+      ? orderedTestPoints.find((p) => p.key === focusedTP.key)
+      : null;
+    if (!currentFocusedTP) return;
+
     const isFirstTestPoint =
-      currentFocusedTP &&
       orderedTestPoints.length > 0 &&
       currentFocusedTP.key === orderedTestPoints[0].key;
 
-    // 3. APPLY SETTINGS
     const defaultSettings = {
       initial_warm_up_time: isFirstTestPoint ? 7200 : 0,
       num_samples: 35,
@@ -891,92 +952,17 @@ function Calibration({
       ignore_instability_after_lock: false,
     };
 
-    setHistoricalReadings(initialLiveReadings);
-    setTiHistoricalReadings(initialLiveReadings);
+    const pointForDirection =
+      activeDirection === "Forward"
+        ? currentFocusedTP.forward
+        : currentFocusedTP.reverse;
 
-    if (currentFocusedTP) {
-      const pointForDirection =
-        activeDirection === "Forward"
-          ? currentFocusedTP.forward
-          : currentFocusedTP.reverse;
-
-      if (pointForDirection) {
-        if (
-          pointForDirection.settings &&
-          Object.keys(pointForDirection.settings).length > 0
-        ) {
-          setCalibrationSettings({
-            ...defaultSettings,
-            ...pointForDirection.settings,
-          });
-        } else {
-          setCalibrationSettings(defaultSettings);
-        }
-
-        if (pointForDirection.readings) {
-          setHistoricalReadings({
-            char_plus1: formatReadingsForChart(pointForDirection.readings.std_char_plus1_readings),
-            char_minus: formatReadingsForChart(pointForDirection.readings.std_char_minus_readings),
-            char_plus2: formatReadingsForChart(pointForDirection.readings.std_char_plus2_readings),
-            ac_open: formatReadingsForChart(
-              pointForDirection.readings.std_ac_open_readings
-            ),
-            dc_pos: formatReadingsForChart(
-              pointForDirection.readings.std_dc_pos_readings
-            ),
-            dc_neg: formatReadingsForChart(
-              pointForDirection.readings.std_dc_neg_readings
-            ),
-            ac_close: formatReadingsForChart(
-              pointForDirection.readings.std_ac_close_readings
-            ),
-          });
-          setTiHistoricalReadings({
-            char_plus1: formatReadingsForChart(pointForDirection.readings.ti_char_plus1_readings),
-            char_minus: formatReadingsForChart(pointForDirection.readings.ti_char_minus_readings),
-            char_plus2: formatReadingsForChart(pointForDirection.readings.ti_char_plus2_readings),
-            ac_open: formatReadingsForChart(
-              pointForDirection.readings.ti_ac_open_readings
-            ),
-            dc_pos: formatReadingsForChart(
-              pointForDirection.readings.ti_dc_pos_readings
-            ),
-            dc_neg: formatReadingsForChart(
-              pointForDirection.readings.ti_dc_neg_readings
-            ),
-            ac_close: formatReadingsForChart(
-              pointForDirection.readings.ti_ac_close_readings
-            ),
-          });
-        }
-      } else {
-        setCalibrationSettings(defaultSettings);
-      }
-    }
-  }, [focusedTP, activeDirection, initialLiveReadings, orderedTestPoints]);
-
-  useEffect(() => {
-    if (!focusedTP) {
-      setAveragedPpmDifference(null);
-      return;
-    }
-    const forwardResult = focusedTP.forward?.results?.delta_uut_ppm;
-    const reverseResult = focusedTP.reverse?.results?.delta_uut_ppm;
-
-    if (
-      forwardResult !== undefined &&
-      forwardResult !== null &&
-      reverseResult !== undefined &&
-      reverseResult !== null
-    ) {
-      const averagePpm =
-        (parseFloat(forwardResult) + parseFloat(reverseResult)) / 2;
-      const averagePpmFormatted = averagePpm.toFixed(3);
-      setAveragedPpmDifference(averagePpmFormatted);
+    if (pointForDirection?.settings && Object.keys(pointForDirection.settings).length > 0) {
+      setCalibrationSettings({ ...defaultSettings, ...pointForDirection.settings });
     } else {
-      setAveragedPpmDifference(null);
+      setCalibrationSettings(defaultSettings);
     }
-  }, [focusedTP]);
+  }, [focusedTP, activeDirection, orderedTestPoints]);
 
   const handleCorrectionInputChange = (e) =>
     setCorrectionInputs((prev) => ({

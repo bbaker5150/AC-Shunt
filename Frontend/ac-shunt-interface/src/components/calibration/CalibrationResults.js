@@ -1,5 +1,5 @@
 // src/components/calibration/CalibrationResults.js
-import React, { useState, useEffect, useCallback, useMemo } from "react";
+import React, { useState, useEffect, useLayoutEffect, useCallback, useMemo } from "react";
 import { useInstruments } from "../../contexts/InstrumentContext";
 import { FaDownload } from "react-icons/fa";
 import CalibrationChart from "./CalibrationChart";
@@ -8,7 +8,7 @@ import CustomDropdown from "../shared/CustomDropdown";
 import { useTheme } from "../../contexts/ThemeContext";
 import { API_BASE_URL } from "../../constants/constants";
 import axios from "axios";
-import { BlockMath } from "react-katex";
+import katex from "katex";
 import "katex/dist/katex.min.css";
 
 const READING_TYPES = [
@@ -45,21 +45,34 @@ const READING_KEY_NAMES = [
   "ti_ac_close_readings",
 ];
 
-// Reusable MathDisplay Component for KaTeX rendering
-const MathDisplay = ({ math }) => {
-  const normalizedMath = useMemo(() => {
+// Render KaTeX to HTML during React render so equations do not "pop in"
+// after mount during tab/view transitions.
+const MathDisplay = React.memo(({ math }) => {
+  const renderedMath = useMemo(() => {
     if (!math) return "";
     const trimmed = String(math).trim();
-    if (trimmed.startsWith("$$") && trimmed.endsWith("$$")) {
-      return trimmed.slice(2, -2).trim();
+    const normalized =
+      trimmed.startsWith("$$") && trimmed.endsWith("$$")
+        ? trimmed.slice(2, -2).trim()
+        : trimmed;
+
+    try {
+      return katex.renderToString(normalized, {
+        displayMode: true,
+        throwOnError: false,
+        strict: "ignore",
+      });
+    } catch (error) {
+      console.warn("Failed to render KaTeX expression:", error);
+      return katex.renderToString("\\text{Equation unavailable}", {
+        displayMode: true,
+        throwOnError: false,
+      });
     }
-    return trimmed;
   }, [math]);
 
-  return (
-    <BlockMath math={normalizedMath} />
-  );
-};
+  return <div dangerouslySetInnerHTML={{ __html: renderedMath }} />;
+});
 
 const ResultsKpi = ({ title, value, formula }) => {
   const isCalculated = value !== null && value !== undefined;
@@ -211,14 +224,21 @@ function CalibrationResults({
   const { selectedSessionId, selectedSessionName, dataRefreshTrigger } = useInstruments();
   const { theme } = useTheme();
 
-  const [calResults, setCalResults] = useState(null);
-  const [calReadings, setCalReadings] = useState(null);
+  const requestedDirection = useMemo(() => {
+    const dir = navigationRequest?.direction;
+    return dir === "Forward" || dir === "Reverse" || dir === "Combined"
+      ? dir
+      : null;
+  }, [navigationRequest]);
+
   const [activeTab, setActiveTab] = useState("summary");
   const [detailsView, setDetailsView] = useState("chart");
   const [activeInstrument, setActiveInstrument] = useState("std");
   const [selectedReadingType, setSelectedReadingType] =
     useState("ac_open_readings");
-  const [activeDirection, setActiveDirection] = useState("Overview");
+  const [activeDirection, setActiveDirection] = useState(
+    () => requestedDirection || "Overview"
+  );
 
   const hasBothDirections =
     focusedTP?.forward?.results && focusedTP?.reverse?.results;
@@ -239,6 +259,82 @@ function CalibrationResults({
     };
   }, [focusedTP]);
 
+  // Derive per-direction results / readings synchronously so the first
+  // paint already has the correct data. Previously these lived in React
+  // state populated by a post-mount useEffect, which caused a visible
+  // flicker (the "Calculation cannot be shown..." placeholder briefly
+  // rendered before the KaTeX equations on tab/card navigation).
+  const { calResults, calReadings } = useMemo(() => {
+    if (!focusedTP) {
+      return { calResults: null, calReadings: null };
+    }
+
+    if (activeDirection === "Overview") {
+      return { calResults: null, calReadings: null };
+    }
+
+    if (activeDirection === "Combined") {
+      const { forward, reverse } = focusedTP;
+      if (
+        !forward?.readings ||
+        !reverse?.readings ||
+        !forward?.results ||
+        !reverse?.results
+      ) {
+        return { calResults: null, calReadings: null };
+      }
+
+      const combinedReadings = {};
+      READING_KEY_NAMES.forEach((key) => {
+        combinedReadings[key] = [
+          ...(forward.readings[key] || []),
+          ...(reverse.readings[key] || []),
+        ];
+      });
+
+      const combinedResults = {};
+      READING_KEY_NAMES.forEach((key) => {
+        const readings = combinedReadings[key]
+          .filter((r) => r.is_stable !== false)
+          .map((r) => (typeof r === "object" ? r.value : r));
+        if (readings.length > 0) {
+          const sum = readings.reduce((a, b) => a + b, 0);
+          const avg = sum / readings.length;
+          combinedResults[key.replace("_readings", "_avg")] = avg;
+
+          const stddevKey = key.replace("_readings", "_stddev");
+          const stddevFwd = forward.results?.[stddevKey];
+          const stddevRev = reverse.results?.[stddevKey];
+
+          let newCombinedStddev = 0;
+          if (
+            typeof stddevFwd === "number" &&
+            typeof stddevRev === "number"
+          ) {
+            newCombinedStddev = (stddevFwd + stddevRev) / 2;
+          }
+          combinedResults[stddevKey] = newCombinedStddev;
+        }
+      });
+
+      const fwdPpm = forward.results.delta_uut_ppm;
+      const revPpm = reverse.results.delta_uut_ppm;
+      combinedResults.delta_uut_ppm =
+        fwdPpm != null && revPpm != null
+          ? (parseFloat(fwdPpm) + parseFloat(revPpm)) / 2
+          : null;
+
+      return { calResults: combinedResults, calReadings: combinedReadings };
+    }
+
+    const pointForDirection =
+      activeDirection === "Forward" ? focusedTP?.forward : focusedTP?.reverse;
+    return {
+      calResults: pointForDirection?.results || null,
+      calReadings: pointForDirection?.readings || null,
+    };
+  }, [focusedTP, activeDirection]);
+
   // Refetch data when the WebSocket sends a 'connection_sync' signal
   useEffect(() => {
     if (onDataUpdate) {
@@ -246,92 +342,11 @@ function CalibrationResults({
     }
   }, [dataRefreshTrigger, onDataUpdate]);
 
-  useEffect(() => {
-    if (!navigationRequest?.direction) return;
-    const allowedDirections = new Set(["Forward", "Reverse", "Combined"]);
-    if (!allowedDirections.has(navigationRequest.direction)) return;
+  useLayoutEffect(() => {
+    if (!requestedDirection) return;
     setActiveTab("summary");
-    setActiveDirection(navigationRequest.direction);
-  }, [navigationRequest]);
-
-  useEffect(() => {
-    if (!focusedTP) {
-      setCalResults(null);
-      setCalReadings(null);
-      return;
-    }
-
-    if (activeDirection === "Overview") {
-      // Overview uses focusedTP directly; no per-direction hydrate needed.
-      setCalResults(null);
-      setCalReadings(null);
-      return;
-    }
-
-    if (activeDirection === "Combined") {
-      const { forward, reverse } = focusedTP;
-      if (
-        forward?.readings &&
-        reverse?.readings &&
-        forward?.results &&
-        reverse?.results
-      ) {
-        const combinedReadings = {};
-        READING_KEY_NAMES.forEach((key) => {
-          combinedReadings[key] = [
-            ...(forward.readings[key] || []),
-            ...(reverse.readings[key] || []),
-          ];
-        });
-        setCalReadings(combinedReadings);
-
-        const combinedResults = {};
-        READING_KEY_NAMES.forEach((key) => {
-          const readings = combinedReadings[key]
-            .filter((r) => r.is_stable !== false)
-            .map((r) => (typeof r === "object" ? r.value : r));
-          if (readings.length > 0) {
-            const sum = readings.reduce((a, b) => a + b, 0);
-            const avg = sum / readings.length;
-            combinedResults[key.replace("_readings", "_avg")] = avg;
-
-            const stddevKey = key.replace("_readings", "_stddev");
-            const stddevFwd = forward.results?.[stddevKey];
-            const stddevRev = reverse.results?.[stddevKey];
-
-            let newCombinedStddev = 0;
-            if (
-              typeof stddevFwd === "number" &&
-              typeof stddevRev === "number"
-            ) {
-              newCombinedStddev = (stddevFwd + stddevRev) / 2;
-            }
-
-            combinedResults[stddevKey] = newCombinedStddev;
-          }
-        });
-
-        const fwdPpm = forward.results.delta_uut_ppm;
-        const revPpm = reverse.results.delta_uut_ppm;
-
-        if (fwdPpm != null && revPpm != null) {
-          combinedResults.delta_uut_ppm = (parseFloat(fwdPpm) + parseFloat(revPpm)) / 2;
-        } else {
-          combinedResults.delta_uut_ppm = null;
-        }
-
-        setCalResults(combinedResults);
-      } else {
-        setCalResults(null);
-        setCalReadings(null);
-      }
-    } else {
-      const pointForDirection =
-        activeDirection === "Forward" ? focusedTP?.forward : focusedTP?.reverse;
-      setCalResults(pointForDirection?.results || null);
-      setCalReadings(pointForDirection?.readings || null);
-    }
-  }, [focusedTP, activeDirection]);
+    setActiveDirection(requestedDirection);
+  }, [requestedDirection]);
 
   const handleMarkStability = useCallback(async (stabilityData) => {
     if (!focusedTP || !selectedSessionId) {
