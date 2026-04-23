@@ -3845,54 +3845,46 @@ body.dark-mode .confirm-modal-action--danger:hover {
 }
 
 /* ================================================================== */
-/*  NETWORK CONNECTION MODAL                                          */
-/*  Extends .confirm-modal for consistent header/footer chrome, then  */
-/*  overrides width + adds sections for the saved-host list, inline   */
-/*  rename, and the "add new" row.                                    */
+/*  NETWORK CONNECTION MODAL (same shell as .bug-report-modal)         */
 /* ================================================================== */
-.network-modal {
-  width: min(560px, 94vw);
-  max-height: 86vh;
-}
+/* Body scroll + padding: inherit .bug-report-modal-body .session-details-form */
 
-.network-modal-body {
-  padding: 4px 24px 8px 24px;
-  display: flex;
-  flex-direction: column;
-  gap: 22px;
-  overflow-y: auto;
-}
-
-.network-section {
-  display: flex;
-  flex-direction: column;
-  gap: 10px;
-}
-
-.network-section-heading {
+.bug-report-modal .network-section-heading {
   display: flex;
   align-items: baseline;
   justify-content: space-between;
   gap: 12px;
+  flex-wrap: wrap;
 }
 
-.network-section-title {
-  margin: 12px 0 0 0;
-  font-size: 0.8125rem;
-  font-weight: 600;
-  text-transform: uppercase;
-  letter-spacing: 0.06em;
-  color: var(--text-color-muted);
-}
-
-.network-section-heading .network-section-title {
+.bug-report-modal .network-section-heading .session-form-group-eyebrow {
   margin: 0;
 }
 
 .network-section-hint {
   margin: 0;
   font-size: 0.8125rem;
+  line-height: 1.45;
   color: var(--text-color-muted);
+}
+
+.bug-report-modal .network-section-heading .network-section-hint {
+  max-width: 18rem;
+  text-align: right;
+}
+
+/* Primary “connected” icon in host row — not the default disabled grey. */
+.network-host-actions .cal-results-excel-icon-btn.network-connect--active:disabled {
+  color: var(--primary-color);
+  opacity: 1;
+  cursor: default;
+}
+
+.network-host-actions
+  .cal-results-excel-icon-btn.network-connect--active:disabled
+  svg {
+  fill: currentColor;
+  filter: none;
 }
 
 /* Current connection card ------------------------------------------ */
@@ -4058,169 +4050,22 @@ body.dark-mode .network-current {
   font-size: 0.875rem;
 }
 
-/* Buttons ----------------------------------------------------------- */
-.network-icon-btn {
-  display: inline-flex;
+/* Add host: icon save aligns with issue-tracker submit. */
+.network-add-footer {
+  display: flex;
+  justify-content: flex-end;
   align-items: center;
-  justify-content: center;
-  width: 30px;
-  height: 30px;
-  border-radius: 8px;
-  border: 1px solid transparent;
-  background-color: transparent;
-  color: var(--text-color-muted);
-  cursor: pointer;
-  transition: background-color 0.15s ease, color 0.15s ease,
-    border-color 0.15s ease;
+  margin-top: 2px;
 }
 
-.network-icon-btn:hover:not(:disabled) {
-  background-color: var(--background-subtle, rgba(0, 0, 0, 0.04));
-  color: var(--text-color);
-  border-color: var(--border-color);
-}
-
-body.dark-mode .network-icon-btn:hover:not(:disabled) {
-  background-color: rgba(255, 255, 255, 0.06);
-}
-
-.network-icon-btn:disabled {
-  opacity: 0.45;
-  cursor: not-allowed;
-}
-
-.network-icon-btn--danger:hover:not(:disabled) {
-  color: var(--danger-color, var(--status-bad));
-  border-color: color-mix(
-    in srgb,
-    var(--danger-color, var(--status-bad)) 45%,
-    var(--border-color)
-  );
-}
-
-.network-connect-btn {
-  display: inline-flex;
-  align-items: center;
-  gap: 6px;
-  padding: 6px 12px;
-  border-radius: 8px;
-  border: 1px solid var(--border-color);
-  background-color: var(--content-background);
-  color: var(--text-color);
-  font-size: 0.8125rem;
-  font-weight: 600;
-  cursor: pointer;
-  transition: background-color 0.15s ease, border-color 0.15s ease,
-    color 0.15s ease;
-}
-
-.network-connect-btn:hover:not(:disabled) {
-  border-color: var(--primary-color);
-  color: var(--primary-color);
-}
-
-.network-connect-btn:disabled {
-  opacity: 0.7;
-  cursor: default;
-  color: var(--primary-color);
-  border-color: color-mix(
-    in srgb,
-    var(--primary-color) 45%,
-    var(--border-color)
-  );
-}
-
-.network-ghost-btn {
-  display: inline-flex;
-  align-items: center;
-  justify-content: center;
-  padding: 8px 14px;
-  border-radius: 8px;
-  border: 1px solid var(--border-color);
-  background-color: transparent;
-  color: var(--text-color);
-  font-size: 0.875rem;
-  font-weight: 500;
-  cursor: pointer;
-  transition: background-color 0.15s ease, border-color 0.15s ease;
-}
-
-.network-ghost-btn:hover {
-  background-color: var(--background-subtle, rgba(0, 0, 0, 0.04));
-  border-color: color-mix(
-    in srgb,
-    var(--primary-color) 30%,
-    var(--border-color)
-  );
-}
-
-body.dark-mode .network-ghost-btn:hover {
-  background-color: rgba(255, 255, 255, 0.05);
-}
-
-.network-primary-btn {
-  display: inline-flex;
-  align-items: center;
-  gap: 6px;
-  padding: 8px 14px;
-  border-radius: 8px;
-  border: 1px solid var(--primary-color);
-  background-color: var(--primary-color);
-  color: #fff;
-  font-size: 0.875rem;
-  font-weight: 600;
-  cursor: pointer;
-  transition: background-color 0.15s ease, border-color 0.15s ease;
-  white-space: nowrap;
-}
-
-.network-primary-btn:hover {
-  background-color: var(--primary-color-dark);
-  border-color: var(--primary-color-dark);
-}
-
-/* Add host row ------------------------------------------------------ */
-.network-add-row {
-  display: grid;
-  grid-template-columns: 1fr 1fr auto;
-  gap: 8px;
-}
-
-@media (max-width: 520px) {
-  .network-add-row {
-    grid-template-columns: 1fr;
-  }
-}
-
-.network-text-input {
-  padding: 9px 12px;
-  border-radius: 8px;
-  border: 1px solid var(--border-color);
-  background-color: var(--content-background);
-  color: var(--text-color);
-  font-size: 0.875rem;
-  transition: border-color 0.15s ease, box-shadow 0.15s ease;
-}
-
-.network-text-input:focus {
-  outline: none;
-  border-color: var(--primary-color);
-  box-shadow: var(--focus-ring);
-}
-
-.network-text-input::placeholder {
-  color: var(--text-color-muted);
+.bug-report-modal .form-section-group + .network-add-footer {
+  margin-top: 6px;
 }
 
 .network-add-error {
   margin: 4px 0 0 0;
   font-size: 0.8125rem;
   color: var(--danger-color, var(--status-bad));
-}
-
-.network-modal-footer {
-  justify-content: flex-end;
-  gap: 8px;
 }
 
 /* ================================================================== */

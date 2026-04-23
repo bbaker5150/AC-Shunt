@@ -16,7 +16,7 @@ import {
 } from "./contexts/InstrumentContext";
 import { ThemeProvider, useTheme } from "./contexts/ThemeContext";
 import "bootstrap/dist/css/bootstrap.min.css";
-import { FaInfoCircle, FaTimes, FaSun, FaMoon, FaCheckCircle, FaExclamationTriangle, FaExclamationCircle, FaBug, FaNetworkWired, FaEye, FaHome, FaPlus, FaTrashAlt, FaPen, FaCheck, FaArrowRight, FaServer } from "react-icons/fa";
+import { FaInfoCircle, FaTimes, FaSun, FaMoon, FaCheckCircle, FaExclamationTriangle, FaExclamationCircle, FaBug, FaNetworkWired, FaEye, FaHome, FaSave, FaTrashAlt, FaPen, FaCheck, FaLink, FaUnlink, FaServer } from "react-icons/fa";
 import "./App.css";
 import { arrayMove } from "@dnd-kit/sortable";
 import { AVAILABLE_FREQUENCIES, API_BASE_URL, baseIp } from "./constants/constants";
@@ -335,17 +335,21 @@ const NetworkModal = ({ isOpen, onClose }) => {
   return (
     <div className="modal-overlay" onClick={onClose}>
       <div
-        className="confirm-modal network-modal"
+        className="bug-report-modal"
         role="dialog"
         aria-modal="true"
         aria-labelledby="network-modal-title"
         onClick={(e) => e.stopPropagation()}
       >
-        <header className="confirm-modal-header">
-          <div className="confirm-modal-header-text">
-            <span className="confirm-modal-eyebrow">Settings</span>
-            <h3 id="network-modal-title" className="confirm-modal-title">
-              Network Connection
+        <header className="bug-report-modal-header">
+          <div className="bug-report-modal-header-text">
+            <span className="bug-report-modal-eyebrow">Settings</span>
+            <h3 id="network-modal-title" className="bug-report-modal-title">
+              <FaNetworkWired
+                aria-hidden
+                className="bug-report-modal-title-icon"
+              />
+              Network connection
             </h3>
           </div>
           <button
@@ -359,216 +363,230 @@ const NetworkModal = ({ isOpen, onClose }) => {
           </button>
         </header>
 
-        <div className="confirm-modal-body network-modal-body">
-          <section className="network-section">
-            <h4 className="network-section-title">Current connection</h4>
-            <div
-              className={`network-current ${
-                isLocal ? "is-local" : "is-remote"
-              }`}
-            >
-              <div className="network-current-icon" aria-hidden>
-                {isLocal ? <FaHome /> : <FaServer />}
+        <div className="bug-report-modal-body">
+          <div className="session-details-form">
+            <div className="session-form-group">
+              <span className="session-form-group-eyebrow">
+                Current connection
+              </span>
+              <div
+                className={`network-current ${
+                  isLocal ? "is-local" : "is-remote"
+                }`}
+              >
+                <div className="network-current-icon" aria-hidden>
+                  {isLocal ? <FaHome /> : <FaServer />}
+                </div>
+                <div className="network-current-text">
+                  <span className="network-current-label">
+                    {isLocal
+                      ? "Local host"
+                      : activeHost?.name || "Unnamed host"}
+                  </span>
+                  <span className="network-current-ip">
+                    {isLocal ? "This machine" : activeIp}
+                  </span>
+                </div>
+                {!isLocal && (
+                  <button
+                    type="button"
+                    className="cal-results-excel-icon-btn"
+                    onClick={handleDisconnect}
+                    title="Disconnect and return to local mode"
+                    aria-label="Disconnect and return to local mode"
+                  >
+                    <FaUnlink aria-hidden />
+                  </button>
+                )}
               </div>
-              <div className="network-current-text">
-                <span className="network-current-label">
-                  {isLocal
-                    ? "Local host"
-                    : activeHost?.name || "Unnamed host"}
-                </span>
-                <span className="network-current-ip">
-                  {isLocal ? "This machine" : activeIp}
+            </div>
+
+            <div className="session-form-group">
+              <div className="network-section-heading">
+                <span className="session-form-group-eyebrow">Saved hosts</span>
+                <span className="network-section-hint" aria-live="polite">
+                  {savedHosts.length === 0
+                    ? "Save a machine below to connect in one step."
+                    : `${savedHosts.length} saved`}
                 </span>
               </div>
-              {!isLocal && (
-                <button
-                  type="button"
-                  className="network-ghost-btn"
-                  onClick={handleDisconnect}
-                  title="Disconnect and return to local mode"
-                >
-                  Disconnect
-                </button>
+
+              {savedHosts.length === 0 ? (
+                <div className="network-empty" role="status">
+                  <p>No saved hosts yet.</p>
+                </div>
+              ) : (
+                <ul className="network-host-list">
+                  {savedHosts.map((host) => {
+                    const isActive = host.ip === activeIp && !isLocal;
+                    const isEditing = editingIp === host.ip;
+                    return (
+                      <li
+                        key={host.ip}
+                        className={`network-host-row${
+                          isActive ? " is-active" : ""
+                        }`}
+                      >
+                        <div className="network-host-main">
+                          {isEditing ? (
+                            <input
+                              type="text"
+                              value={editingName}
+                              onChange={(e) =>
+                                setEditingName(e.target.value)
+                              }
+                              onKeyDown={(e) => {
+                                if (e.key === "Enter") commitRename();
+                                else if (e.key === "Escape")
+                                  cancelRename();
+                              }}
+                              className="network-rename-input"
+                              placeholder={host.ip}
+                              autoFocus
+                            />
+                          ) : (
+                            <span className="network-host-name">
+                              {host.name || host.ip}
+                            </span>
+                          )}
+                          <span className="network-host-ip">{host.ip}</span>
+                        </div>
+                        <div className="network-host-actions">
+                          {isEditing ? (
+                            <>
+                              <button
+                                type="button"
+                                className="cal-results-excel-icon-btn"
+                                onClick={commitRename}
+                                title="Save name"
+                                aria-label="Save name"
+                              >
+                                <FaCheck aria-hidden />
+                              </button>
+                              <button
+                                type="button"
+                                className="cal-results-excel-icon-btn"
+                                onClick={cancelRename}
+                                title="Cancel rename"
+                                aria-label="Cancel rename"
+                              >
+                                <FaTimes aria-hidden />
+                              </button>
+                            </>
+                          ) : (
+                            <>
+                              <button
+                                type="button"
+                                className="cal-results-excel-icon-btn"
+                                onClick={() => startRename(host)}
+                                title="Rename"
+                                aria-label="Rename host"
+                              >
+                                <FaPen aria-hidden />
+                              </button>
+                              <button
+                                type="button"
+                                className="cal-results-excel-icon-btn cal-results-excel-icon-btn--danger"
+                                onClick={() => handleDelete(host.ip)}
+                                title="Forget this host"
+                                aria-label="Forget this host"
+                                disabled={isActive}
+                              >
+                                <FaTrashAlt aria-hidden />
+                              </button>
+                              <button
+                                type="button"
+                                className={
+                                  isActive
+                                    ? "cal-results-excel-icon-btn network-connect--active"
+                                    : "cal-results-excel-icon-btn"
+                                }
+                                onClick={() => handleConnect(host.ip)}
+                                disabled={isActive}
+                                title={
+                                  isActive
+                                    ? "Already connected to this host"
+                                    : `Connect to ${host.name || host.ip}`
+                                }
+                                aria-label={
+                                  isActive
+                                    ? "Already connected to this host"
+                                    : `Connect to ${host.name || host.ip}`
+                                }
+                              >
+                                {isActive ? (
+                                  <FaCheck aria-hidden />
+                                ) : (
+                                  <FaLink aria-hidden />
+                                )}
+                              </button>
+                            </>
+                          )}
+                        </div>
+                      </li>
+                    );
+                  })}
+                </ul>
               )}
             </div>
-          </section>
 
-          <section className="network-section">
-            <div className="network-section-heading">
-              <h4 className="network-section-title">Saved hosts</h4>
-              <span className="network-section-hint">
-                {savedHosts.length === 0
-                  ? "Save a machine below to connect with one click."
-                  : `${savedHosts.length} saved`}
-              </span>
-            </div>
-
-            {savedHosts.length === 0 ? (
-              <div className="network-empty" role="status">
-                <p>No saved hosts yet.</p>
-              </div>
-            ) : (
-              <ul className="network-host-list">
-                {savedHosts.map((host) => {
-                  const isActive = host.ip === activeIp && !isLocal;
-                  const isEditing = editingIp === host.ip;
-                  return (
-                    <li
-                      key={host.ip}
-                      className={`network-host-row${
-                        isActive ? " is-active" : ""
-                      }`}
-                    >
-                      <div className="network-host-main">
-                        {isEditing ? (
-                          <input
-                            type="text"
-                            value={editingName}
-                            onChange={(e) => setEditingName(e.target.value)}
-                            onKeyDown={(e) => {
-                              if (e.key === "Enter") commitRename();
-                              else if (e.key === "Escape") cancelRename();
-                            }}
-                            className="network-rename-input"
-                            placeholder={host.ip}
-                            autoFocus
-                          />
-                        ) : (
-                          <span className="network-host-name">
-                            {host.name || host.ip}
-                          </span>
-                        )}
-                        <span className="network-host-ip">{host.ip}</span>
-                      </div>
-                      <div className="network-host-actions">
-                        {isEditing ? (
-                          <>
-                            <button
-                              type="button"
-                              className="network-icon-btn"
-                              onClick={commitRename}
-                              title="Save name"
-                              aria-label="Save name"
-                            >
-                              <FaCheck aria-hidden />
-                            </button>
-                            <button
-                              type="button"
-                              className="network-icon-btn"
-                              onClick={cancelRename}
-                              title="Cancel rename"
-                              aria-label="Cancel rename"
-                            >
-                              <FaTimes aria-hidden />
-                            </button>
-                          </>
-                        ) : (
-                          <>
-                            <button
-                              type="button"
-                              className="network-icon-btn"
-                              onClick={() => startRename(host)}
-                              title="Rename"
-                              aria-label="Rename host"
-                            >
-                              <FaPen aria-hidden />
-                            </button>
-                            <button
-                              type="button"
-                              className="network-icon-btn network-icon-btn--danger"
-                              onClick={() => handleDelete(host.ip)}
-                              title="Forget this host"
-                              aria-label="Forget this host"
-                              disabled={isActive}
-                            >
-                              <FaTrashAlt aria-hidden />
-                            </button>
-                            <button
-                              type="button"
-                              className="network-connect-btn"
-                              onClick={() => handleConnect(host.ip)}
-                              disabled={isActive}
-                              title={
-                                isActive
-                                  ? "Already connected to this host"
-                                  : `Connect to ${host.name || host.ip}`
-                              }
-                            >
-                              {isActive ? (
-                                <>
-                                  <FaCheck aria-hidden /> Connected
-                                </>
-                              ) : (
-                                <>
-                                  Connect <FaArrowRight aria-hidden />
-                                </>
-                              )}
-                            </button>
-                          </>
-                        )}
-                      </div>
-                    </li>
-                  );
-                })}
-              </ul>
-            )}
-          </section>
-
-          <section className="network-section">
-            <h4 className="network-section-title">Add a host</h4>
-            <p className="network-section-hint">
-              Give the machine a friendly name so you can find it later.
-            </p>
-            <div className="network-add-row">
-              <input
-                type="text"
-                className="network-text-input"
-                placeholder="Nickname (e.g. Lab PC)"
-                value={nameInput}
-                onChange={(e) => {
-                  setNameInput(e.target.value);
-                  setAddError("");
-                }}
-              />
-              <input
-                type="text"
-                className="network-text-input"
-                placeholder="192.168.1.50"
-                value={ipInput}
-                onChange={(e) => {
-                  setIpInput(e.target.value);
-                  setAddError("");
-                }}
-                onKeyDown={(e) => {
-                  if (e.key === "Enter") handleAddNew();
-                }}
-              />
-              <button
-                type="button"
-                className="network-primary-btn"
-                onClick={handleAddNew}
-                title="Save host"
-              >
-                <FaPlus aria-hidden /> Save
-              </button>
-            </div>
-            {addError && (
-              <p className="network-add-error" role="alert">
-                {addError}
+            <div className="session-form-group">
+              <span className="session-form-group-eyebrow">Add a host</span>
+              <p className="network-section-hint">
+                Give the machine a friendly name so you can find it later.
               </p>
-            )}
-          </section>
+              <div className="form-section-group">
+                <div className="form-section">
+                  <label htmlFor="network-add-name">Nickname (optional)</label>
+                  <input
+                    id="network-add-name"
+                    type="text"
+                    value={nameInput}
+                    onChange={(e) => {
+                      setNameInput(e.target.value);
+                      setAddError("");
+                    }}
+                    placeholder="e.g. Lab PC"
+                    autoComplete="off"
+                  />
+                </div>
+                <div className="form-section">
+                  <label htmlFor="network-add-ip">IP or hostname</label>
+                  <input
+                    id="network-add-ip"
+                    type="text"
+                    value={ipInput}
+                    onChange={(e) => {
+                      setIpInput(e.target.value);
+                      setAddError("");
+                    }}
+                    onKeyDown={(e) => {
+                      if (e.key === "Enter") handleAddNew();
+                    }}
+                    placeholder="192.168.1.50"
+                    autoComplete="off"
+                  />
+                </div>
+              </div>
+              <div className="network-add-footer">
+                <button
+                  type="button"
+                  className="sidebar-action-button"
+                  onClick={handleAddNew}
+                  title="Save host"
+                  aria-label="Save host"
+                >
+                  <FaSave aria-hidden />
+                </button>
+              </div>
+              {addError && (
+                <p className="network-add-error" role="alert">
+                  {addError}
+                </p>
+              )}
+            </div>
+          </div>
         </div>
-
-        <footer className="confirm-modal-footer network-modal-footer">
-          <button
-            type="button"
-            className="network-ghost-btn"
-            onClick={onClose}
-          >
-            Close
-          </button>
-        </footer>
       </div>
     </div>
   );
