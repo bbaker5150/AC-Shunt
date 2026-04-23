@@ -1926,13 +1926,17 @@ class HostSyncConsumer(AsyncWebsocketConsumer):
             'connected_at': time.time(),
         }
 
-        # The moment a Remote Viewer joins, immediately send them the Host's active session
+        # Always send the current host session on connect — including ``None``
+        # when the host hasn't picked a session yet. The frontend treats the
+        # mere arrival of this message as "state is now authoritative", so
+        # remote viewers can distinguish "waiting on host-sync WS to open"
+        # from "host is not in a session" instead of showing a misleading
+        # "no test points" empty state. Hosts ignore it on the client.
         global HOST_ACTIVE_SESSION_ID
-        if HOST_ACTIVE_SESSION_ID is not None:
-            await self.send(text_data=json.dumps({
-                'type': 'session_changed',
-                'session_id': HOST_ACTIVE_SESSION_ID
-            }))
+        await self.send(text_data=json.dumps({
+            'type': 'session_changed',
+            'session_id': HOST_ACTIVE_SESSION_ID
+        }))
 
     async def disconnect(self, close_code):
         await self.channel_layer.group_discard(self.group_name, self.channel_name)
@@ -1942,6 +1946,12 @@ class HostSyncConsumer(AsyncWebsocketConsumer):
             await self._broadcast_viewer_presence()
 
     async def receive(self, text_data):
+        # Declare globals once at the top of the function scope. Python 3.13
+        # treats any inner ``global`` after a prior same-name assignment as a
+        # SyntaxError, so the declaration has to precede every branch that
+        # reads or writes ``HOST_ACTIVE_SESSION_ID``.
+        global HOST_ACTIVE_SESSION_ID
+
         data = json.loads(text_data)
         command = data.get('command')
 
@@ -1949,7 +1959,6 @@ class HostSyncConsumer(AsyncWebsocketConsumer):
             session_id = data.get('session_id')
 
             # Store it globally so late-joiners get it instantly
-            global HOST_ACTIVE_SESSION_ID
             HOST_ACTIVE_SESSION_ID = session_id
 
             # Broadcast the change to all Remote Viewers
@@ -1974,6 +1983,16 @@ class HostSyncConsumer(AsyncWebsocketConsumer):
                 return
             entry['role'] = role
             await self._broadcast_viewer_presence()
+
+        elif command == 'request_session_state':
+            # Safety net: remote viewers re-ask for the host's session after a
+            # reconnect (or if the auto-send in ``connect()`` was somehow
+            # missed). We unicast to just this socket so other clients don't
+            # get spammed with redundant session_changed events.
+            await self.send(text_data=json.dumps({
+                'type': 'session_changed',
+                'session_id': HOST_ACTIVE_SESSION_ID,
+            }))
 
     def _collect_observers(self):
         """Build the observer list that hosts consume.

@@ -276,6 +276,7 @@ function Calibration({
     focusedTPKey,
     dataRefreshTrigger,
     setFailedTPKeys,
+    hostSessionKnown,
   } = useInstruments();
   const { theme } = useTheme();
 
@@ -2069,13 +2070,32 @@ function Calibration({
 
       {!selectedSessionId ? (
         <div className="content-area form-section-warning">
-          <p>Please select a session to run a calibration.</p>
+          {isRemoteViewer ? (
+            // Three distinct states for a remote viewer with no session:
+            //   1. host-sync WS still in flight → "Connecting…" (transient)
+            //   2. host-sync confirmed no session → explicit "host is idle"
+            //   3. Fallback copy (should rarely be hit)
+            // Keeping these separate prevents the old bug where a reconnect
+            // briefly flashed "no test points" while the session_changed
+            // message was still on the wire.
+            !hostSessionKnown ? (
+              <p>Connecting to host — waiting for the current session…</p>
+            ) : (
+              <p>
+                The host isn't in a calibration session right now. This view
+                will refresh automatically when they open one.
+              </p>
+            )
+          ) : (
+            <p>Please select a session to run a calibration.</p>
+          )}
         </div>
       ) : uniqueTestPoints && uniqueTestPoints.length === 0 ? (
         <div className="content-area form-section-warning">
           <p>
-            This session has no test points. Please go to the "Test Point
-            Editor" to generate them.
+            {isRemoteViewer
+              ? "This session doesn't have any test points yet. The view will update as soon as the host adds them."
+              : 'This session has no test points. Please go to the "Test Point Editor" to generate them.'}
           </p>
         </div>
       ) : (

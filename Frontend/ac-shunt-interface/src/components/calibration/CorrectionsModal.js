@@ -84,8 +84,15 @@ function CorrectionsModal({ isOpen, onClose, showNotification, onUpdate, uniqueT
     selectedSessionId,
     isCollecting,
     isBulkRunning,
+    isRemoteViewer,
   } = useInstruments();
   const isCalibrationActive = isCollecting || isBulkRunning;
+  // Remote viewers get the modal in read-only mode: tables remain useful
+  // reference material, but every mutating affordance (add/edit/delete
+  // devices, the "click a row to generate test points" flow) is gated
+  // behind this flag. We still check on the backend, so this is purely a
+  // UX layer that keeps the buttons out of sight.
+  const isReadOnly = Boolean(isRemoteViewer);
 
   const isFirstFetch = useRef(true);
   const [isLoading, setIsLoading] = useState(true);
@@ -488,6 +495,11 @@ function CorrectionsModal({ isOpen, onClose, showNotification, onUpdate, uniqueT
 
   // --- Handlers for directly creating Test Points from the table ---
   const handleRowClick = (row, headers) => {
+    // Belt-and-suspenders for remotes: the table rows render non-clickable
+    // in read-only mode, but if anything re-wires the onClick we still
+    // refuse to open the "generate test points" prompt.
+    if (isReadOnly) return;
+
     if (isCalibrationActive) {
       notify(
         "Calibration is currently running. Row actions are disabled until the run finishes.",
@@ -607,13 +619,21 @@ function CorrectionsModal({ isOpen, onClose, showNotification, onUpdate, uniqueT
       );
     }
 
+    // Remotes see this table as pure reference data — the "click a row to
+    // generate test points" shortcut is host-only, so we drop the clickable
+    // styling and adjust the hint copy accordingly.
+    const rowsAreInteractive = !isReadOnly && !isCalibrationActive;
+    const hintCopy = isReadOnly
+      ? "Read-only view. Test point generation is available to the host."
+      : isCalibrationActive
+        ? "Calibration is running - row actions are temporarily disabled."
+        : "Click any row to generate matching test points in your active session.";
+
     return (
       <>
         <p className="corrections-card-hint">
           <span className="corrections-card-hint-dot" aria-hidden />
-          {isCalibrationActive
-            ? "Calibration is running - row actions are temporarily disabled."
-            : "Click any row to generate matching test points in your active session."}
+          {hintCopy}
         </p>
         <div className="corrections-table-container">
           <table className="styled-table styled-table--centered">
@@ -630,12 +650,20 @@ function CorrectionsModal({ isOpen, onClose, showNotification, onUpdate, uniqueT
               {rows.map((row) => (
                 <tr
                   key={`${row.range}-${row.current}`}
-                  className="styled-table-row--clickable"
-                  onClick={() => handleRowClick(row, headers)}
+                  className={
+                    rowsAreInteractive ? "styled-table-row--clickable" : ""
+                  }
+                  onClick={
+                    rowsAreInteractive
+                      ? () => handleRowClick(row, headers)
+                      : undefined
+                  }
                   title={
-                    isCalibrationActive
-                      ? "Disabled while calibration is running"
-                      : `Generate test points for ${row.current}A`
+                    isReadOnly
+                      ? "Read-only: observers can't generate test points"
+                      : isCalibrationActive
+                        ? "Disabled while calibration is running"
+                        : `Generate test points for ${row.current}A`
                   }
                 >
                   <td>{row.range}</td>
@@ -1001,30 +1029,36 @@ function CorrectionsModal({ isOpen, onClose, showNotification, onUpdate, uniqueT
                 </div>
               </div>
 
-              <div className="corrections-card-actions">
-                <IconBtn
-                  icon={<FaPlus />}
-                  onClick={() => handleOpenManualForm("tvc")}
-                  title="Add manual TVC entry"
-                />
-                {isSelectedTvcManual && (
-                  <>
-                    <IconBtn
-                      icon={<FaEdit />}
-                      onClick={() => handleEditManual("tvc", auxiliaryTvcSn)}
-                      title="Edit entry"
-                    />
-                    <IconBtn
-                      icon={<FaTrash />}
-                      onClick={() =>
-                        setDeleteConfirm({ isOpen: true, type: "tvc", serialNumber: auxiliaryTvcSn })
-                      }
-                      title="Delete entry"
-                      variant="danger"
-                    />
-                  </>
-                )}
-              </div>
+              {!isReadOnly && (
+                <div className="corrections-card-actions">
+                  <IconBtn
+                    icon={<FaPlus />}
+                    onClick={() => handleOpenManualForm("tvc")}
+                    title="Add manual TVC entry"
+                  />
+                  {isSelectedTvcManual && (
+                    <>
+                      <IconBtn
+                        icon={<FaEdit />}
+                        onClick={() => handleEditManual("tvc", auxiliaryTvcSn)}
+                        title="Edit entry"
+                      />
+                      <IconBtn
+                        icon={<FaTrash />}
+                        onClick={() =>
+                          setDeleteConfirm({
+                            isOpen: true,
+                            type: "tvc",
+                            serialNumber: auxiliaryTvcSn,
+                          })
+                        }
+                        title="Delete entry"
+                        variant="danger"
+                      />
+                    </>
+                  )}
+                </div>
+              )}
             </header>
 
             <div className="corrections-card-body">
@@ -1072,7 +1106,9 @@ function CorrectionsModal({ isOpen, onClose, showNotification, onUpdate, uniqueT
       <div className="corrections-modal-content">
         <header className="corrections-modal-header">
           <div className="corrections-modal-header-text">
-            <span className="corrections-modal-eyebrow">Reference data</span>
+            <span className="corrections-modal-eyebrow">
+              Reference data{isReadOnly ? " · Read-only" : ""}
+            </span>
             <h3 className="corrections-modal-title">Corrections &amp; Uncertainties</h3>
           </div>
           <div className="corrections-modal-header-actions">
@@ -1168,28 +1204,38 @@ function CorrectionsModal({ isOpen, onClose, showNotification, onUpdate, uniqueT
                     </button>
                   </div>
 
-                  <span className="corrections-card-actions-divider" aria-hidden />
-
-                  <IconBtn
-                    icon={<FaPlus />}
-                    onClick={() => handleOpenManualForm("shunt")}
-                    title="Add manual AC shunt entry"
-                  />
-                  {isSelectedShuntManual && (
+                  {!isReadOnly && (
                     <>
+                      <span className="corrections-card-actions-divider" aria-hidden />
+
                       <IconBtn
-                        icon={<FaEdit />}
-                        onClick={() => handleEditManual("shunt", selectedShuntSn)}
-                        title="Edit entry"
+                        icon={<FaPlus />}
+                        onClick={() => handleOpenManualForm("shunt")}
+                        title="Add manual AC shunt entry"
                       />
-                      <IconBtn
-                        icon={<FaTrash />}
-                        onClick={() =>
-                          setDeleteConfirm({ isOpen: true, type: "shunt", serialNumber: selectedShuntSn })
-                        }
-                        title="Delete entry"
-                        variant="danger"
-                      />
+                      {isSelectedShuntManual && (
+                        <>
+                          <IconBtn
+                            icon={<FaEdit />}
+                            onClick={() =>
+                              handleEditManual("shunt", selectedShuntSn)
+                            }
+                            title="Edit entry"
+                          />
+                          <IconBtn
+                            icon={<FaTrash />}
+                            onClick={() =>
+                              setDeleteConfirm({
+                                isOpen: true,
+                                type: "shunt",
+                                serialNumber: selectedShuntSn,
+                              })
+                            }
+                            title="Delete entry"
+                            variant="danger"
+                          />
+                        </>
+                      )}
                     </>
                   )}
                 </div>

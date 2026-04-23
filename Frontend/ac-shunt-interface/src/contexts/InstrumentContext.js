@@ -64,6 +64,14 @@ export const InstrumentContextProvider = ({ children }) => {
   // viewer_presence messages from HostSyncConsumer. Empty for remotes since
   // the server never broadcasts presence to them.
   const [observers, setObservers] = useState([]);
+  // Tracks whether the host-sync WS has delivered an authoritative answer
+  // about the host's current session. For remotes this lets us distinguish
+  // three states in the UI: (a) still connecting to the host, (b) host
+  // confirmed no active session, (c) host has a session. Without this flag
+  // we'd confuse (a) and (b) and flash misleading "no test points" copy
+  // during the brief window between reload and the first session_changed
+  // message from the server.
+  const [hostSessionKnown, setHostSessionKnown] = useState(false);
 
   // Collection States
   const [isCollecting, setIsCollecting] = useState(false);
@@ -175,6 +183,18 @@ export const InstrumentContextProvider = ({ children }) => {
           role: isRemoteViewer ? "remote" : "host",
         }));
 
+        if (isRemoteViewer) {
+          // Belt-and-suspenders pull of the host's active session. The server
+          // already pushes ``session_changed`` on connect, but reconnect
+          // flurries (Network Modal → reload → WS open, or a flaky network
+          // that forces the socket to retry) can race the initial send with
+          // the client's onmessage handler. Re-asking here is idempotent
+          // because the server unicasts only to us.
+          hostSyncWs.current.send(JSON.stringify({
+            command: "request_session_state",
+          }));
+        }
+
         // If the Host connects, assert their current session to the server
         if (!isRemoteViewer && selectedSessionIdRef.current !== null) {
           hostSyncWs.current.send(JSON.stringify({
@@ -189,7 +209,13 @@ export const InstrumentContextProvider = ({ children }) => {
         if (data.type === "session_changed") {
           // If we are a Remote Viewer, we SLAVE our UI to whatever the Host just broadcasted!
           if (isRemoteViewer) {
-            setSelectedSessionId(data.session_id);
+            // ``data.session_id`` is an int when the host is in a session and
+            // ``null`` when they haven't picked one yet. Either way, receipt
+            // of the message means we now have authoritative state — flip
+            // hostSessionKnown so the UI can replace the generic "no test
+            // points" empty state with a remote-specific indicator.
+            setSelectedSessionId(data.session_id ?? null);
+            setHostSessionKnown(true);
           }
         } else if (data.type === "viewer_presence") {
           // The backend only pushes this to hosts, but guard anyway so a
@@ -204,6 +230,10 @@ export const InstrumentContextProvider = ({ children }) => {
         // Clear stale presence on disconnect; a reconnect will refill it
         // from the next viewer_presence broadcast the server sends.
         setObservers([]);
+        // A remote that loses host-sync no longer has an authoritative view
+        // of the host's session, so reset the known flag. The UI falls back
+        // to the "connecting…" state until the next session_changed arrives.
+        if (isRemoteViewer) setHostSessionKnown(false);
         setTimeout(connectHostSync, 3000);
       };
     };
@@ -889,6 +919,8 @@ export const InstrumentContextProvider = ({ children }) => {
     failedTPKeys,
     setFailedTPKeys,
     observers,
+    isRemoteViewer,
+    hostSessionKnown,
   };
 
   return (

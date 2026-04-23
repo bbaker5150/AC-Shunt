@@ -483,24 +483,23 @@ function TestPointSidebar({
             </span>
           )}
           {/*
-            The corrections modal is a full CRUD surface (edit shunt/TVC
-            corrections, AND append new test points via the generate flow), so
-            it must stay host-only. Remote viewers can still inspect a single
-            point's corrections via the right-click "View Corrections" item,
-            which opens the read-only CorrectionsDetailsModal.
+            The corrections modal is useful analysis context for observers
+            too (shunt + TVC correction tables, uncertainty sweeps), so we
+            keep the entry point available to remotes. The modal itself
+            gates all mutating affordances — add / edit / delete entries
+            and the "click a row to generate test points" flow — so remotes
+            get a read-only view.
           */}
-          {!isRemoteViewer && (
-            <button
-              type="button"
-              onClick={onViewCorrections}
-              className="cal-results-excel-icon-btn"
-              disabled={isBulkRunning || isCollecting || !selectedSessionId}
-              aria-label="View corrections data"
-              title="View corrections data"
-            >
-              <IoDocumentText aria-hidden />
-            </button>
-          )}
+          <button
+            type="button"
+            onClick={onViewCorrections}
+            className="cal-results-excel-icon-btn"
+            disabled={isBulkRunning || isCollecting || !selectedSessionId}
+            aria-label="View corrections data"
+            title="View corrections data"
+          >
+            <IoDocumentText aria-hidden />
+          </button>
         </div>
       </div>
 
