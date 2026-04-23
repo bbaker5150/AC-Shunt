@@ -33,7 +33,7 @@
     "build": "react-scripts build",
     "test": "react-scripts test",
     "eject": "react-scripts eject",
-    "start:backend": "cd ../../Backend/ac_shunt && ..\\..\\venv\\Scripts\\python.exe manage.py runserver",
+    "start:backend": "cd ../../Backend/ac_shunt && ..\\..\\venv\\Scripts\\python.exe manage.py runserver 0.0.0.0:8000",
     "dev": "concurrently \"npm run start:backend\" \"npm start\"",
     "electron:dev": "concurrently \"npm run start:backend\" \"cross-env BROWSER=none npm start\" \"wait-on tcp:3000 && .\\node_modules\\electron\\dist\\electron.exe .\"",
     "electron:dev:mock": "cross-env MOCK_INSTRUMENTS=1 concurrently \"npm run start:backend\" \"cross-env BROWSER=none npm start\" \"wait-on tcp:3000 && .\\node_modules\\electron\\dist\\electron.exe .\"",
