@@ -53,15 +53,27 @@ const AVAILABLE_FREQUENCIES = [
   { text: "30000 Hz", value: 30000 },
 ];
 
-// Grab the IP from local storage, default to localhost
-const baseIp = localStorage.getItem("REMOTE_HOST_IP") || "localhost";
+// --- DYNAMIC IP RESOLUTION ---
+const getBaseIp = () => {
+  const storedIp = localStorage.getItem("REMOTE_HOST_IP");
+  if (storedIp) return storedIp;
 
-const API_BASE_URL =
-  process.env.REACT_APP_API_BASE_URL || `http://${baseIp}:8000/api`;
+  const hostname = window.location.hostname;
+  
+  // Ignore empty hostnames (Electron file://) and explicit localhosts
+  if (hostname && hostname !== "localhost" && hostname !== "127.0.0.1" && hostname !== "") {
+      return hostname;
+  }
 
-// We also define the WS URL here so both Axios and WebSockets share the same logic
-const WS_BASE_URL =
-  process.env.REACT_APP_WS_BASE_URL || `ws://${baseIp}:8000/ws`;
+  // Default to local execution for the Host PC
+  return "localhost";
+};
+
+const baseIp = getBaseIp();
+
+// REMOVED process.env overrides to force dynamic network routing
+const API_BASE_URL = `http://${baseIp}:8000/api`;
+const WS_BASE_URL = `ws://${baseIp}:8000/ws`;
 
 const NPLC_OPTIONS = [0.02, 0.2, 1, 2, 10, 20, 100, 200];
 
@@ -72,6 +84,6 @@ export {
   AMPLIFIER_RANGES_A,
   API_BASE_URL,
   WS_BASE_URL,
-  baseIp, // Exported so App.js knows if we are in "Observer Mode"
+  baseIp, 
   NPLC_OPTIONS,
-}
+};

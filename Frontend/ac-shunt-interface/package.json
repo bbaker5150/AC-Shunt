@@ -28,14 +28,16 @@
     "web-vitals": "^2.1.4",
     "xlsx": "^0.18.5"
   },
-  "scripts": {
+ "scripts": {
     "start": "react-scripts start",
     "build": "react-scripts build",
     "test": "react-scripts test",
     "eject": "react-scripts eject",
-    "electron:dev": "concurrently \"cross-env BROWSER=none npm start\" \"wait-on tcp:3000 && .\\node_modules\\electron\\dist\\electron.exe .\"",
-    "electron:dev:mock": "cross-env MOCK_INSTRUMENTS=1 concurrently \"cross-env BROWSER=none npm start\" \"wait-on tcp:3000 && .\\node_modules\\electron\\dist\\electron.exe .\"",
-    "seed-mock": "cd ../../Backend/ac_shunt && ../../venv/Scripts/python.exe manage.py seed_mock_calibration_session",
+    "start:backend": "cd ../../Backend/ac_shunt && ..\\..\\venv\\Scripts\\python.exe manage.py runserver",
+    "dev": "concurrently \"npm run start:backend\" \"npm start\"",
+    "electron:dev": "concurrently \"npm run start:backend\" \"cross-env BROWSER=none npm start\" \"wait-on tcp:3000 && .\\node_modules\\electron\\dist\\electron.exe .\"",
+    "electron:dev:mock": "cross-env MOCK_INSTRUMENTS=1 concurrently \"npm run start:backend\" \"cross-env BROWSER=none npm start\" \"wait-on tcp:3000 && .\\node_modules\\electron\\dist\\electron.exe .\"",
+    "seed-mock": "cd ../../Backend/ac_shunt && ..\\..\\venv\\Scripts\\python.exe manage.py seed_mock_calibration_session",
     "electron:build": "npm run build-python && npm run build && electron-builder",
     "build-python": "cd ../../Backend/ac_shunt && pyinstaller ac_shunt_backend.spec --noconfirm"
   },
