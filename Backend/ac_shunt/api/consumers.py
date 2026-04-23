@@ -14,14 +14,117 @@ import math
 import numpy as np
 
 from django.conf import settings
-from urllib.parse import unquote
+from urllib.parse import unquote, parse_qs
+
+
+def _parse_client_role(scope) -> str:
+    """Extract the client-declared role from a WebSocket ``scope``.
+
+    The frontend appends ``?role=remote`` to WS URLs when the browser is in
+    Observer Mode (see InstrumentContext). Anything else — including the
+    absence of the query param — is treated as ``host``. Used by consumers
+    that need to reject state-mutating commands from remote sockets as a
+    defense-in-depth layer over the UI-level gate.
+    """
+    try:
+        raw = (scope.get('query_string') or b'').decode('utf-8', errors='ignore')
+        params = parse_qs(raw)
+        role = (params.get('role') or ['host'])[0]
+        return 'remote' if role == 'remote' else 'host'
+    except Exception:
+        return 'host'
+
+
+# Commands on ``CalibrationConsumer`` that a remote observer must never be
+# allowed to execute. Anything that starts a run, stops a run, or touches
+# physical instrumentation lives here. Read-only operations like
+# ``request_live_sync`` stay off the list so observers can still pull the
+# live-state snapshot the frontend relies on for mid-run joins.
+CALIBRATION_HOST_ONLY_COMMANDS = frozenset({
+    'start_collection',
+    'start_full_calibration',
+    'start_single_stage_batch',
+    'start_full_calibration_batch',
+    'tvc_characterization',
+    'stop_collection',
+    'set_amplifier_range',
+    'amplifier_confirmed',
+    'operation_cancelled',
+})
 
 from npsl_tools.instruments import Instrument11713C, Instrument3458A, Instrument5730A, Instrument5790B, Instrument34420A, Instrument8100
 from .models import CalibrationReadings, CalibrationResults, CalibrationSession, CalibrationSettings, TestPoint, TestPointSet
 from .mock_instruments import is_mock_address, mock_isr_for_model
+from .mock_calibration_instruments import resolve_calibration_instrument
 from . import outbox as outbox_module
 
+
+def _inst(real_cls, **kwargs):
+    """Construct ``real_cls`` unless MOCK_INSTRUMENTS is on AND the ``gpib``
+    address is in the mock inventory, in which case return the matching mock
+    drop-in from :mod:`mock_calibration_instruments`.
+
+    Every instrument instantiation inside ``CalibrationConsumer`` routes
+    through here, which is what lets the consumer run a full calibration
+    sequence against a seeded mock session without any real hardware.
+    """
+    address = kwargs.get('gpib')
+    if getattr(settings, "MOCK_INSTRUMENTS", False) and is_mock_address(address):
+        cls = resolve_calibration_instrument(real_cls, address)
+    else:
+        cls = real_cls
+    return cls(**kwargs)
+
 HOST_ACTIVE_SESSION_ID = None
+
+# --- Connected viewer presence registry ---
+# Keyed by ``channel_name``. Each entry captures whoever currently holds a
+# ``HostSyncConsumer`` socket. Populated on connect, upgraded on identify, and
+# pruned on disconnect. We use this to drive the host-side "N observers" pill:
+# whenever the registry changes we push the subset of remote-role entries to
+# every host-role channel. Scoped to this process; same multi-worker caveat
+# as ``LIVE_SESSION_STATE``.
+CONNECTED_VIEWERS: dict = {}
+
+# --- Server-authoritative live-reading buffer ---
+# Keyed by session_id (stringified). Holds the exact shape the frontend
+# expects on ``live_state_sync`` so a remote joining mid-run can receive a
+# complete, coherent snapshot of every stage without relying on the host
+# browser to relay its React state. Scoped to this process; safe under
+# InMemoryChannelLayer. If the deployment ever moves to multi-worker ASGI
+# with Redis, this is the one thing that also needs to move to Redis.
+LIVE_SESSION_STATE: dict = {}
+
+
+def _initial_live_state():
+    return {
+        'isCollecting': False,
+        'activeCollectionDetails': None,
+        'liveReadings': {},
+        'tiLiveReadings': {},
+        'collectionProgress': {'count': 0, 'total': 0},
+        'focusedTPKey': None,
+    }
+
+
+def _get_live_state(session_id):
+    """Read-write accessor: creates a default entry if none exists yet."""
+    key = str(session_id)
+    state = LIVE_SESSION_STATE.get(key)
+    if state is None:
+        state = _initial_live_state()
+        LIVE_SESSION_STATE[key] = state
+    return state
+
+
+def _peek_live_state(session_id):
+    """Read-only accessor: returns a default dict without allocating."""
+    return LIVE_SESSION_STATE.get(str(session_id)) or _initial_live_state()
+
+
+def _clear_live_state(session_id):
+    LIVE_SESSION_STATE.pop(str(session_id), None)
+
 
 INSTRUMENT_CLASS_MAP = {
     '5730A': Instrument5730A,
@@ -41,6 +144,9 @@ class InstrumentStatusConsumer(AsyncWebsocketConsumer):
         # gpib_address comes in URL-encoded (visa:// addresses contain /), undo
         # that once here so downstream comparisons see the canonical value.
         self.gpib_address = unquote(self.scope['url_route']['kwargs']['gpib_address'])
+        # Same role gate as CalibrationConsumer: remotes read status but must
+        # not be able to trigger zero-cal or any future state-mutating op.
+        self.client_role = _parse_client_role(self.scope)
         self.instrument_class = INSTRUMENT_CLASS_MAP.get(self.instrument_model)
         if not self.instrument_class:
             await self.close(code=4001)
@@ -82,22 +188,6 @@ class InstrumentStatusConsumer(AsyncWebsocketConsumer):
         data = json.loads(text_data)
         command = data.get('command')
 
-        if command == 'request_live_sync':
-            await self.broadcast(text_data=json.dumps({'type': 'live_sync_requested'}))
-            return
-
-        if command == 'broadcast_live_state':
-            await self.broadcast(text_data=json.dumps({
-                'type': 'live_state_sync',
-                'isCollecting': data.get('isCollecting'),
-                'activeCollectionDetails': data.get('activeCollectionDetails'),
-                'liveReadings': data.get('liveReadings'),
-                'tiLiveReadings': data.get('tiLiveReadings'),
-                'collectionProgress': data.get('collectionProgress'),
-                'focusedTPKey': data.get('focusedTPKey')
-            }))
-            return
-            
         if command == 'get_instrument_status':
             if getattr(self, "is_mock", False):
                 payload = {
@@ -112,6 +202,12 @@ class InstrumentStatusConsumer(AsyncWebsocketConsumer):
                 payload = {'instrument_model': self.instrument_model, 'gpib_address': self.gpib_address, 'timestamp': time.time(), **status_result}
             await self.send(text_data=json.dumps(payload))
         elif command == 'run_zero_cal':
+            if getattr(self, 'client_role', 'host') == 'remote':
+                await self.send(text_data=json.dumps({
+                    'type': 'warning',
+                    'message': 'Observer mode: controls are read-only.',
+                }))
+                return
             print(f"[StatusConsumer] Processing Zero Cal request for {self.gpib_address}...")
             # 1. Notify Frontend it started
             await self.send(text_data=json.dumps({
@@ -205,6 +301,10 @@ class CalibrationConsumer(AsyncWebsocketConsumer):
     async def connect(self):
         self.session_id = self.scope['url_route']['kwargs']['session_id']
         self.session_group_name = f'session_{self.session_id}'
+        # Stash the role the socket declared on connect (via ?role=remote).
+        # We honour it in ``receive`` to reject host-only commands even if a
+        # client bypasses the UI gate.
+        self.client_role = _parse_client_role(self.scope)
         await self.channel_layer.group_add(self.session_group_name, self.channel_name)
         await self.accept()
 
@@ -267,7 +367,31 @@ class CalibrationConsumer(AsyncWebsocketConsumer):
     async def receive(self, text_data):
         data = json.loads(text_data)
         command = data.get('command')
-        
+
+        # Live chart sync for session observers (remotes on collect-readings).
+        # The server itself is the source of truth for the in-flight buffer, so
+        # a remote joining mid-run gets a complete snapshot directly from the
+        # consumer's state — no host-browser relay required. Runs regardless of
+        # self.state so late joiners can still catch up during an active run.
+        if command == 'request_live_sync':
+            state = _peek_live_state(self.session_id)
+            await self.send(text_data=json.dumps({
+                'type': 'live_state_sync',
+                **state,
+            }))
+            return
+
+        # Defense-in-depth: the UI disables these controls for remote viewers,
+        # but a hand-crafted client could still send them directly. Drop any
+        # host-only command that arrives on a remote-role socket before it
+        # can touch instrumentation or flip ``self.state``.
+        if getattr(self, 'client_role', 'host') == 'remote' and command in CALIBRATION_HOST_ONLY_COMMANDS:
+            await self.send(text_data=json.dumps({
+                'type': 'warning',
+                'message': 'Observer mode: controls are read-only.',
+            }))
+            return
+
         if command in ['amplifier_confirmed', 'operation_cancelled']:
             self.confirmation_status = 'confirmed' if command == 'amplifier_confirmed' else 'cancelled'
             self.confirmation_event.set()
@@ -337,7 +461,7 @@ class CalibrationConsumer(AsyncWebsocketConsumer):
             amp_address = session_details.get('amplifier_address')
             amp_range = data.get('amplifier_range')
             if amp_address and amp_range:
-                amplifier = await sync_to_async(Instrument8100, thread_sensitive=True)(model='8100', gpib=amp_address)
+                amplifier = await sync_to_async(_inst, thread_sensitive=True)(Instrument8100, model='8100', gpib=amp_address)
                 await sync_to_async(amplifier.set_range, thread_sensitive=True)(range_amps=float(amp_range))
                 await self.broadcast(text_data=json.dumps({'type': 'amplifier_range_set', 'message': 'Amplifier range set successfully.'}))
             else:
@@ -352,6 +476,64 @@ class CalibrationConsumer(AsyncWebsocketConsumer):
     @sync_to_async(thread_sensitive=False)
     def _take_one_reading(self, instrument):
         return instrument.read_instrument()
+
+    # --- Server-side live buffer helpers ---
+    # Mirror the frontend's InstrumentContext live state inside the consumer so
+    # any viewer joining mid-run gets an authoritative snapshot from a single
+    # source of truth (see ``request_live_sync`` handler in ``receive``).
+
+    def _buffer_set_stage(self, stage, tp_id=None, total=0):
+        """Record that ``stage`` is now in flight for ``tp_id`` and reset its arrays."""
+        state = _get_live_state(self.session_id)
+        state['isCollecting'] = True
+        state['activeCollectionDetails'] = {'stage': stage, 'tpId': tp_id, 'readingKey': stage}
+        state['liveReadings'][stage] = []
+        state['tiLiveReadings'][stage] = []
+        state['collectionProgress'] = {'count': 0, 'total': total}
+
+    def _buffer_set_batch_point(self, test_point):
+        """Mark a new test point in a batch run: wipe per-TP live arrays and refresh focus."""
+        state = _get_live_state(self.session_id)
+        state['isCollecting'] = True
+        state['liveReadings'] = {}
+        state['tiLiveReadings'] = {}
+        if test_point:
+            current = test_point.get('current')
+            frequency = test_point.get('frequency')
+            state['focusedTPKey'] = f"{current}-{frequency}"
+
+    def _buffer_append_sample(self, stage, std_raw, ti_raw, count, total):
+        """Upsert the latest STD/TI sample into the buffer, deduped by x=count."""
+        state = _get_live_state(self.session_id)
+
+        def _to_cached(raw):
+            if raw is None:
+                return None
+            ts = raw.get('timestamp', 0) or 0
+            return {
+                'x': count,
+                'y': raw.get('value'),
+                't': int(ts * 1000),
+                'is_stable': raw.get('is_stable', True),
+            }
+
+        def _upsert(bucket, point):
+            if point is None:
+                return
+            arr = bucket.setdefault(stage, [])
+            x = point.get('x')
+            for i, existing in enumerate(arr):
+                if existing.get('x') == x:
+                    arr[i] = point
+                    return
+            arr.append(point)
+
+        _upsert(state['liveReadings'], _to_cached(std_raw))
+        _upsert(state['tiLiveReadings'], _to_cached(ti_raw))
+        state['collectionProgress'] = {'count': count, 'total': total}
+
+    def _buffer_clear(self):
+        _clear_live_state(self.session_id)
 
     @database_sync_to_async
     def get_session_details(self):
@@ -455,20 +637,20 @@ class CalibrationConsumer(AsyncWebsocketConsumer):
             # Handle the common case where the same physical unit (e.g. 5730A)
             # serves as both AC and DC source.
             if ac_source_address and dc_source_address and ac_source_address == dc_source_address:
-                shared_source = await sync_to_async(Instrument5730A, thread_sensitive=True)(model="5730A", gpib=ac_source_address)
+                shared_source = await sync_to_async(_inst, thread_sensitive=True)(Instrument5730A, model="5730A", gpib=ac_source_address)
                 ac_source, dc_source = shared_source, shared_source
             else:
                 if ac_source_address:
-                    ac_source = await sync_to_async(Instrument5730A, thread_sensitive=True)(model="5730A", gpib=ac_source_address)
+                    ac_source = await sync_to_async(_inst, thread_sensitive=True)(Instrument5730A, model="5730A", gpib=ac_source_address)
                 if dc_source_address:
-                    dc_source = await sync_to_async(Instrument5730A, thread_sensitive=True)(model="5730A", gpib=dc_source_address)
+                    dc_source = await sync_to_async(_inst, thread_sensitive=True)(Instrument5730A, model="5730A", gpib=dc_source_address)
 
             std_reader_class, ti_reader_class = INSTRUMENT_CLASS_MAP.get(std_model), INSTRUMENT_CLASS_MAP.get(ti_model)
-            std_reader = await sync_to_async(std_reader_class, thread_sensitive=True)(gpib=std_addr) if std_reader_class == Instrument34420A else await sync_to_async(std_reader_class, thread_sensitive=True)(model=std_model, gpib=std_addr)
-            ti_reader = await sync_to_async(ti_reader_class, thread_sensitive=True)(gpib=ti_addr) if ti_reader_class == Instrument34420A else await sync_to_async(ti_reader_class, thread_sensitive=True)(model=ti_model, gpib=ti_addr)
+            std_reader = await sync_to_async(_inst, thread_sensitive=True)(std_reader_class, gpib=std_addr) if std_reader_class == Instrument34420A else await sync_to_async(_inst, thread_sensitive=True)(std_reader_class, model=std_model, gpib=std_addr)
+            ti_reader = await sync_to_async(_inst, thread_sensitive=True)(ti_reader_class, gpib=ti_addr) if ti_reader_class == Instrument34420A else await sync_to_async(_inst, thread_sensitive=True)(ti_reader_class, model=ti_model, gpib=ti_addr)
 
             if session_details.get('switch_driver_address'):
-                switch_driver = await sync_to_async(Instrument11713C, thread_sensitive=True)(gpib=session_details.get('switch_driver_address'))
+                switch_driver = await sync_to_async(_inst, thread_sensitive=True)(Instrument11713C, gpib=session_details.get('switch_driver_address'))
                 await self.broadcast(text_data=json.dumps({'type': 'status_update', 'message': f"Switching to {char_source_kind} source for Characterization..."}))
                 if char_source_kind == 'AC':
                     await sync_to_async(switch_driver.select_ac_source, thread_sensitive=True)()
@@ -502,7 +684,7 @@ class CalibrationConsumer(AsyncWebsocketConsumer):
                 await self._configure_sources(original_tp, data.get('bypass_tvc'), data.get('amplifier_range'), **configure_kwargs)
 
             if session_details.get('amplifier_address'):
-                amplifier = await sync_to_async(Instrument8100, thread_sensitive=True)(model='8100', gpib=session_details.get('amplifier_address'))
+                amplifier = await sync_to_async(_inst, thread_sensitive=True)(Instrument8100, model='8100', gpib=session_details.get('amplifier_address'))
                 if not await self._handle_amplifier_confirmation(amplifier, data.get('amplifier_range'), data): return
 
             if warmup_time > 0:
@@ -558,6 +740,7 @@ class CalibrationConsumer(AsyncWebsocketConsumer):
                 ppm_shifted_tp['target_tvc'] = target_tvc
                 ppm_shifted_tp['characterization_source'] = char_source_kind
 
+                self._buffer_set_stage(stage, tp_id=original_tp.get('id'), total=num_samples)
                 await self.broadcast(text_data=json.dumps({'type': 'calibration_stage_update', 'stage': stage, 'total': num_samples}))
 
                 success = await self._perform_single_measurement(
@@ -601,6 +784,7 @@ class CalibrationConsumer(AsyncWebsocketConsumer):
             await self.broadcast(text_data=json.dumps({'type': 'error', 'message': f"An instrument error occurred: {e}"}))
         finally:
             self.state = "IDLE"
+            self._buffer_clear()
             if switch_driver and hasattr(switch_driver, 'close'):
                 await sync_to_async(switch_driver.close, thread_sensitive=True)()
             # Reset whichever source(s) we actually instantiated. When
@@ -822,6 +1006,11 @@ class CalibrationConsumer(AsyncWebsocketConsumer):
             else:
                 current_count = len(stable_candidate_std) if target_tvc in ['STD', 'BOTH'] else len(stable_candidate_ti)
 
+            # Mirror every sample into the server-side live buffer so late-
+            # joining remotes reconstruct the chart from a single source of
+            # truth instead of stitching a host snapshot to DB historicals.
+            self._buffer_append_sample(reading_type_base, std_point, ti_point, current_count, num_samples)
+
             await self.broadcast(text_data=json.dumps({
                 'type': 'dual_reading_update',
                 'std_reading': std_point,
@@ -861,7 +1050,7 @@ class CalibrationConsumer(AsyncWebsocketConsumer):
             ti_model = session_details.get('ti_reader_model')
             
             if session_details.get('switch_driver_address'):
-                switch_driver = await sync_to_async(Instrument11713C, thread_sensitive=True)(gpib=session_details.get('switch_driver_address'))
+                switch_driver = await sync_to_async(_inst, thread_sensitive=True)(Instrument11713C, gpib=session_details.get('switch_driver_address'))
 
             reading_type_base = data.get('reading_type')
             is_ac_reading = 'ac' in reading_type_base
@@ -881,17 +1070,17 @@ class CalibrationConsumer(AsyncWebsocketConsumer):
             dc_source_address = session_details.get('dc_source_address')
 
             if ac_source_address and ac_source_address == dc_source_address:
-                shared_source = await sync_to_async(Instrument5730A, thread_sensitive=True)(model="5730A", gpib=ac_source_address)
+                shared_source = await sync_to_async(_inst, thread_sensitive=True)(Instrument5730A, model="5730A", gpib=ac_source_address)
                 ac_source, dc_source = shared_source, shared_source
             else:
                 if ac_source_address: 
-                    ac_source = await sync_to_async(Instrument5730A, thread_sensitive=True)(model="5730A", gpib=ac_source_address)
+                    ac_source = await sync_to_async(_inst, thread_sensitive=True)(Instrument5730A, model="5730A", gpib=ac_source_address)
                 if dc_source_address: 
-                    dc_source = await sync_to_async(Instrument5730A, thread_sensitive=True)(model="5730A", gpib=dc_source_address)
+                    dc_source = await sync_to_async(_inst, thread_sensitive=True)(Instrument5730A, model="5730A", gpib=dc_source_address)
 
             std_reader_class, ti_reader_class = INSTRUMENT_CLASS_MAP.get(std_model), INSTRUMENT_CLASS_MAP.get(ti_model)
-            std_reader_instrument = await sync_to_async(std_reader_class, thread_sensitive=True)(gpib=std_addr) if std_reader_class == Instrument34420A else await sync_to_async(std_reader_class, thread_sensitive=True)(model=std_model, gpib=std_addr)
-            ti_reader_instrument = await sync_to_async(ti_reader_class, thread_sensitive=True)(gpib=ti_addr) if ti_reader_class == Instrument34420A else await sync_to_async(ti_reader_class, thread_sensitive=True)(model=ti_model, gpib=ti_addr)
+            std_reader_instrument = await sync_to_async(_inst, thread_sensitive=True)(std_reader_class, gpib=std_addr) if std_reader_class == Instrument34420A else await sync_to_async(_inst, thread_sensitive=True)(std_reader_class, model=std_model, gpib=std_addr)
+            ti_reader_instrument = await sync_to_async(_inst, thread_sensitive=True)(ti_reader_class, gpib=ti_addr) if ti_reader_class == Instrument34420A else await sync_to_async(_inst, thread_sensitive=True)(ti_reader_class, model=ti_model, gpib=ti_addr)
             
             await self._configure_sources(
                 data.get('test_point'), 
@@ -902,7 +1091,7 @@ class CalibrationConsumer(AsyncWebsocketConsumer):
             )
 
             if session_details.get('amplifier_address'):
-                amplifier_instrument = await sync_to_async(Instrument8100, thread_sensitive=True)(model='8100', gpib=session_details.get('amplifier_address'))
+                amplifier_instrument = await sync_to_async(_inst, thread_sensitive=True)(Instrument8100, model='8100', gpib=session_details.get('amplifier_address'))
                 if not await self._handle_amplifier_confirmation(amplifier_instrument, data.get('amplifier_range'), data): return
 
             await self._activate_sources(ac_source=ac_source, dc_source=dc_source)
@@ -916,6 +1105,11 @@ class CalibrationConsumer(AsyncWebsocketConsumer):
             if not source_instrument:
                 raise Exception(f"Required {'AC' if is_ac_reading else 'DC'} Source is not assigned.")
 
+            self._buffer_set_stage(
+                reading_type_base,
+                tp_id=(data.get('test_point') or {}).get('id'),
+                total=data.get('num_samples') or 0,
+            )
             await self.broadcast(text_data=json.dumps({
                 'type': 'calibration_stage_update',
                 'stage': reading_type_base,
@@ -949,6 +1143,7 @@ class CalibrationConsumer(AsyncWebsocketConsumer):
             await self.broadcast(text_data=json.dumps({'type': 'error', 'message': f"An instrument error occurred: {e}"}))
         finally:
             self.state = "IDLE"
+            self._buffer_clear()
             if switch_driver:
                 await sync_to_async(switch_driver.deactivate_all, thread_sensitive=True)()
                 await self.broadcast(text_data=json.dumps({'type': 'switch_status_update', 'active_source': 'AC'}))
@@ -976,15 +1171,15 @@ class CalibrationConsumer(AsyncWebsocketConsumer):
             ac_source_address, dc_source_address = session_details.get('ac_source_address'), session_details.get('dc_source_address')
             
             if ac_source_address and ac_source_address == dc_source_address:
-                shared_source = await sync_to_async(Instrument5730A, thread_sensitive=True)(model="5730A", gpib=ac_source_address)
+                shared_source = await sync_to_async(_inst, thread_sensitive=True)(Instrument5730A, model="5730A", gpib=ac_source_address)
                 ac_source, dc_source = shared_source, shared_source
             else:
-                if ac_source_address: ac_source = await sync_to_async(Instrument5730A, thread_sensitive=True)(model="5730A", gpib=ac_source_address)
-                if dc_source_address: dc_source = await sync_to_async(Instrument5730A, thread_sensitive=True)(model="5730A", gpib=dc_source_address)
+                if ac_source_address: ac_source = await sync_to_async(_inst, thread_sensitive=True)(Instrument5730A, model="5730A", gpib=ac_source_address)
+                if dc_source_address: dc_source = await sync_to_async(_inst, thread_sensitive=True)(Instrument5730A, model="5730A", gpib=dc_source_address)
 
             std_reader_class, ti_reader_class = INSTRUMENT_CLASS_MAP.get(std_model), INSTRUMENT_CLASS_MAP.get(ti_model)
-            std_reader = await sync_to_async(std_reader_class, thread_sensitive=True)(gpib=std_addr) if std_reader_class == Instrument34420A else await sync_to_async(std_reader_class, thread_sensitive=True)(model=std_model, gpib=std_addr)
-            ti_reader = await sync_to_async(ti_reader_class, thread_sensitive=True)(gpib=ti_addr) if ti_reader_class == Instrument34420A else await sync_to_async(ti_reader_class, thread_sensitive=True)(model=ti_model, gpib=ti_addr)
+            std_reader = await sync_to_async(_inst, thread_sensitive=True)(std_reader_class, gpib=std_addr) if std_reader_class == Instrument34420A else await sync_to_async(_inst, thread_sensitive=True)(std_reader_class, model=std_model, gpib=std_addr)
+            ti_reader = await sync_to_async(_inst, thread_sensitive=True)(ti_reader_class, gpib=ti_addr) if ti_reader_class == Instrument34420A else await sync_to_async(_inst, thread_sensitive=True)(ti_reader_class, model=ti_model, gpib=ti_addr)
 
             await self._configure_sources(
                 data.get('test_point'), 
@@ -995,7 +1190,7 @@ class CalibrationConsumer(AsyncWebsocketConsumer):
             )
             
             if session_details.get('amplifier_address'):
-                amplifier = await sync_to_async(Instrument8100, thread_sensitive=True)(model='8100', gpib=session_details.get('amplifier_address'))
+                amplifier = await sync_to_async(_inst, thread_sensitive=True)(Instrument8100, model='8100', gpib=session_details.get('amplifier_address'))
                 if not await self._handle_amplifier_confirmation(amplifier, data.get('amplifier_range'), data): return
             
             await self._activate_sources(ac_source=ac_source, dc_source=dc_source)
@@ -1013,7 +1208,7 @@ class CalibrationConsumer(AsyncWebsocketConsumer):
                 switch_driver = None
                 try:
                     if session_details.get('switch_driver_address'):
-                        switch_driver = await sync_to_async(Instrument11713C, thread_sensitive=True)(gpib=session_details.get('switch_driver_address'))
+                        switch_driver = await sync_to_async(_inst, thread_sensitive=True)(Instrument11713C, gpib=session_details.get('switch_driver_address'))
                         required_switch_state = 'AC' if 'ac' in stage else 'DC'
                         await self.broadcast(text_data=json.dumps({'type': 'status_update', 'message': f"Switching to {required_switch_state} source..."}))
                         if required_switch_state == 'AC': await sync_to_async(switch_driver.select_ac_source, thread_sensitive=True)()
@@ -1024,6 +1219,7 @@ class CalibrationConsumer(AsyncWebsocketConsumer):
                     source_instrument = ac_source if 'ac' in stage else dc_source
                     if not source_instrument: raise Exception(f"Required {'AC' if 'ac' in stage else 'DC'} Source is not assigned.")
                     
+                    self._buffer_set_stage(stage, tp_id=(data.get('test_point') or {}).get('id'), total=num_samples)
                     await self.broadcast(text_data=json.dumps({'type': 'calibration_stage_update', 'stage': stage, 'total': num_samples}))
                     
                     success = await self._perform_single_measurement(stage, num_samples, data.get('test_point'), data.get('bypass_tvc'), data.get('amplifier_range'), source_instrument, std_reader, ti_reader, amplifier, settling_time, nplc_setting, measurement_params)
@@ -1046,6 +1242,7 @@ class CalibrationConsumer(AsyncWebsocketConsumer):
             await self.broadcast(text_data=json.dumps({'type': 'error', 'message': f"An instrument error occurred: {e}"}))
         finally:
             self.state = "IDLE"
+            self._buffer_clear()
             sources_to_shutdown = list(filter(None, {ac_source, dc_source}))
             for source in sources_to_shutdown:
                 await sync_to_async(source.reset, thread_sensitive=True)()
@@ -1070,18 +1267,18 @@ class CalibrationConsumer(AsyncWebsocketConsumer):
 
             ac_source_address, dc_source_address = session_details.get('ac_source_address'), session_details.get('dc_source_address')
             if ac_source_address and ac_source_address == dc_source_address:
-                shared_source = await sync_to_async(Instrument5730A, thread_sensitive=True)(model="5730A", gpib=ac_source_address)
+                shared_source = await sync_to_async(_inst, thread_sensitive=True)(Instrument5730A, model="5730A", gpib=ac_source_address)
                 ac_source, dc_source = shared_source, shared_source
             else:
-                if ac_source_address: ac_source = await sync_to_async(Instrument5730A, thread_sensitive=True)(model="5730A", gpib=ac_source_address)
-                if dc_source_address: dc_source = await sync_to_async(Instrument5730A, thread_sensitive=True)(model="5730A", gpib=dc_source_address)
+                if ac_source_address: ac_source = await sync_to_async(_inst, thread_sensitive=True)(Instrument5730A, model="5730A", gpib=ac_source_address)
+                if dc_source_address: dc_source = await sync_to_async(_inst, thread_sensitive=True)(Instrument5730A, model="5730A", gpib=dc_source_address)
             
             std_reader_class, ti_reader_class = INSTRUMENT_CLASS_MAP.get(std_model), INSTRUMENT_CLASS_MAP.get(ti_model)
-            std_reader = await sync_to_async(std_reader_class, thread_sensitive=True)(gpib=std_addr) if std_reader_class == Instrument34420A else await sync_to_async(std_reader_class, thread_sensitive=True)(model=std_model, gpib=std_addr)
-            ti_reader = await sync_to_async(ti_reader_class, thread_sensitive=True)(gpib=ti_addr) if ti_reader_class == Instrument34420A else await sync_to_async(ti_reader_class, thread_sensitive=True)(model=ti_model, gpib=ti_addr)
+            std_reader = await sync_to_async(_inst, thread_sensitive=True)(std_reader_class, gpib=std_addr) if std_reader_class == Instrument34420A else await sync_to_async(_inst, thread_sensitive=True)(std_reader_class, model=std_model, gpib=std_addr)
+            ti_reader = await sync_to_async(_inst, thread_sensitive=True)(ti_reader_class, gpib=ti_addr) if ti_reader_class == Instrument34420A else await sync_to_async(_inst, thread_sensitive=True)(ti_reader_class, model=ti_model, gpib=ti_addr)
 
             if session_details.get('switch_driver_address'):
-                switch_driver = await sync_to_async(Instrument11713C, thread_sensitive=True)(gpib=session_details.get('switch_driver_address'))
+                switch_driver = await sync_to_async(_inst, thread_sensitive=True)(Instrument11713C, gpib=session_details.get('switch_driver_address'))
             
             await self._configure_sources(
                 test_points_to_run,
@@ -1092,7 +1289,7 @@ class CalibrationConsumer(AsyncWebsocketConsumer):
             )
             
             if session_details.get('amplifier_address'):
-                amplifier = await sync_to_async(Instrument8100, thread_sensitive=True)(model='8100', gpib=session_details.get('amplifier_address'))
+                amplifier = await sync_to_async(_inst, thread_sensitive=True)(Instrument8100, model='8100', gpib=session_details.get('amplifier_address'))
                 if not await self._handle_amplifier_confirmation(amplifier, data.get('amplifier_range'), data): return
             
             await self._activate_sources(ac_source=ac_source, dc_source=dc_source)
@@ -1109,6 +1306,7 @@ class CalibrationConsumer(AsyncWebsocketConsumer):
                 current_settling_time = float(point_data.get('settling_time', data.get('settling_time', 5.0)))
                 current_num_samples = int(point_data.get('num_samples', data.get('num_samples', 8)))
 
+                self._buffer_set_batch_point(point_data)
                 await self.broadcast(text_data=json.dumps({
                     'type': 'batch_progress_update',
                     'test_point': point_data,
@@ -1131,6 +1329,7 @@ class CalibrationConsumer(AsyncWebsocketConsumer):
                     source_instrument = ac_source if 'ac' in stage else dc_source
                     if not source_instrument: raise Exception(f"Required source for stage '{stage}' is not assigned.")
                     
+                    self._buffer_set_stage(stage, tp_id=point_data.get('id'), total=current_num_samples)
                     await self.broadcast(text_data=json.dumps({
                         'type': 'calibration_stage_update', 
                         'stage': stage, 
@@ -1168,6 +1367,7 @@ class CalibrationConsumer(AsyncWebsocketConsumer):
             await self.broadcast(text_data=json.dumps({'type': 'error', 'message': f"An instrument error occurred during batch run: {e}"}))
         finally:
             self.state = "IDLE"
+            self._buffer_clear()
             if switch_driver:
                 await sync_to_async(switch_driver.deactivate_all, thread_sensitive=True)()
                 if hasattr(switch_driver, 'close'): await sync_to_async(switch_driver.close, thread_sensitive=True)()
@@ -1198,15 +1398,15 @@ class CalibrationConsumer(AsyncWebsocketConsumer):
 
             ac_source_address, dc_source_address = session_details.get('ac_source_address'), session_details.get('dc_source_address')
             if ac_source_address and ac_source_address == dc_source_address:
-                shared_source = await sync_to_async(Instrument5730A, thread_sensitive=True)(model="5730A", gpib=ac_source_address)
+                shared_source = await sync_to_async(_inst, thread_sensitive=True)(Instrument5730A, model="5730A", gpib=ac_source_address)
                 ac_source, dc_source = shared_source, shared_source
             else:
-                if ac_source_address: ac_source = await sync_to_async(Instrument5730A, thread_sensitive=True)(model="5730A", gpib=ac_source_address)
-                if dc_source_address: dc_source = await sync_to_async(Instrument5730A, thread_sensitive=True)(model="5730A", gpib=dc_source_address)
+                if ac_source_address: ac_source = await sync_to_async(_inst, thread_sensitive=True)(Instrument5730A, model="5730A", gpib=ac_source_address)
+                if dc_source_address: dc_source = await sync_to_async(_inst, thread_sensitive=True)(Instrument5730A, model="5730A", gpib=dc_source_address)
 
             std_reader_class, ti_reader_class = INSTRUMENT_CLASS_MAP.get(std_model), INSTRUMENT_CLASS_MAP.get(ti_model)
-            std_reader = await sync_to_async(std_reader_class, thread_sensitive=True)(gpib=std_addr) if std_reader_class == Instrument34420A else await sync_to_async(std_reader_class, thread_sensitive=True)(model=std_model, gpib=std_addr)
-            ti_reader = await sync_to_async(ti_reader_class, thread_sensitive=True)(gpib=ti_addr) if ti_reader_class == Instrument34420A else await sync_to_async(ti_reader_class, thread_sensitive=True)(model=ti_model, gpib=ti_addr)
+            std_reader = await sync_to_async(_inst, thread_sensitive=True)(std_reader_class, gpib=std_addr) if std_reader_class == Instrument34420A else await sync_to_async(_inst, thread_sensitive=True)(std_reader_class, model=std_model, gpib=std_addr)
+            ti_reader = await sync_to_async(_inst, thread_sensitive=True)(ti_reader_class, gpib=ti_addr) if ti_reader_class == Instrument34420A else await sync_to_async(_inst, thread_sensitive=True)(ti_reader_class, model=ti_model, gpib=ti_addr)
 
             await self._configure_sources(
                 test_points_to_run,
@@ -1217,7 +1417,7 @@ class CalibrationConsumer(AsyncWebsocketConsumer):
             )
             
             if session_details.get('amplifier_address'):
-                amplifier = await sync_to_async(Instrument8100, thread_sensitive=True)(model='8100', gpib=session_details.get('amplifier_address'))
+                amplifier = await sync_to_async(_inst, thread_sensitive=True)(Instrument8100, model='8100', gpib=session_details.get('amplifier_address'))
                 if not await self._handle_amplifier_confirmation(amplifier, data.get('amplifier_range'), data): return
             
             await self._activate_sources(ac_source=ac_source, dc_source=dc_source)
@@ -1231,7 +1431,7 @@ class CalibrationConsumer(AsyncWebsocketConsumer):
 
             switch_driver = None
             if session_details.get('switch_driver_address'):
-                switch_driver = await sync_to_async(Instrument11713C, thread_sensitive=True)(gpib=session_details.get('switch_driver_address'))
+                switch_driver = await sync_to_async(_inst, thread_sensitive=True)(Instrument11713C, gpib=session_details.get('switch_driver_address'))
                 required_switch_state = 'AC' if 'ac' in stage else 'DC'
                 await self.broadcast(text_data=json.dumps({'type': 'status_update', 'message': f"Switching to {required_switch_state} source for batch run..."}))
                 if required_switch_state == 'AC': await sync_to_async(switch_driver.select_ac_source, thread_sensitive=True)()
@@ -1247,13 +1447,15 @@ class CalibrationConsumer(AsyncWebsocketConsumer):
                 current_settling_time = float(point_data.get('settling_time', data.get('settling_time', 5.0)))
                 current_num_samples = int(point_data.get('num_samples', data.get('num_samples', 8)))
 
+                self._buffer_set_batch_point(point_data)
                 await self.broadcast(text_data=json.dumps({
                     'type': 'batch_progress_update',
                     'test_point': point_data,
                     'current': i + 1,
                     'total': len(test_points_to_run)
                 }))
-                
+
+                self._buffer_set_stage(stage, tp_id=point_data.get('id'), total=current_num_samples)
                 await self.broadcast(text_data=json.dumps({
                     'type': 'calibration_stage_update', 
                     'stage': stage, 
@@ -1285,6 +1487,7 @@ class CalibrationConsumer(AsyncWebsocketConsumer):
             await self.broadcast(text_data=json.dumps({'type': 'error', 'message': f"An instrument error occurred during batch run: {e}"}))
         finally:
             self.state = "IDLE"
+            self._buffer_clear()
             if switch_driver:
                 await sync_to_async(switch_driver.deactivate_all, thread_sensitive=True)()
                 if hasattr(switch_driver, 'close'): await sync_to_async(switch_driver.close, thread_sensitive=True)()
@@ -1711,6 +1914,18 @@ class HostSyncConsumer(AsyncWebsocketConsumer):
         await self.channel_layer.group_add(self.group_name, self.channel_name)
         await self.accept()
 
+        # Record the socket in the presence registry immediately. Role starts
+        # as ``unknown`` and is promoted to ``host`` or ``remote`` once the
+        # client sends its ``identify`` message. This lets us disregard
+        # ``unknown`` entries in the broadcast below — no noise while the
+        # handshake is in flight.
+        client = self.scope.get('client') or (None, None)
+        CONNECTED_VIEWERS[self.channel_name] = {
+            'role': 'unknown',
+            'ip': client[0] or 'unknown',
+            'connected_at': time.time(),
+        }
+
         # The moment a Remote Viewer joins, immediately send them the Host's active session
         global HOST_ACTIVE_SESSION_ID
         if HOST_ACTIVE_SESSION_ID is not None:
@@ -1721,6 +1936,10 @@ class HostSyncConsumer(AsyncWebsocketConsumer):
 
     async def disconnect(self, close_code):
         await self.channel_layer.group_discard(self.group_name, self.channel_name)
+        # Drop this socket from the registry and push the fresh observer list
+        # so any host still connected updates its pill within a tick.
+        if CONNECTED_VIEWERS.pop(self.channel_name, None) is not None:
+            await self._broadcast_viewer_presence()
 
     async def receive(self, text_data):
         data = json.loads(text_data)
@@ -1741,6 +1960,70 @@ class HostSyncConsumer(AsyncWebsocketConsumer):
                     'session_id': session_id
                 }
             )
+
+        elif command == 'identify':
+            # One-shot handshake: the client declares ``host`` or ``remote``.
+            # We promote the registry entry and re-broadcast so hosts see the
+            # observer list reflect the new joiner (or their own appearance).
+            role = data.get('role')
+            if role not in ('host', 'remote'):
+                return
+            entry = CONNECTED_VIEWERS.get(self.channel_name)
+            if entry is None:
+                # Disconnected between connect() and here — nothing to update.
+                return
+            entry['role'] = role
+            await self._broadcast_viewer_presence()
+
+    def _collect_observers(self):
+        """Build the observer list that hosts consume.
+
+        Returns only ``remote``-role entries so hosts never see themselves or
+        half-identified ``unknown`` sockets. Deduplicates by client IP so two
+        tabs on the same remote machine — or React StrictMode's dev-mode
+        double-mount that briefly opens two sockets — count as a single
+        observer. The earliest ``connected_at`` wins so the "connected Xm"
+        timer in the UI matches when the machine first joined.
+        """
+        by_ip: dict[str, dict] = {}
+        for entry in CONNECTED_VIEWERS.values():
+            if entry.get('role') != 'remote':
+                continue
+            ip = entry.get('ip', 'unknown')
+            connected_at = entry.get('connected_at', 0)
+            existing = by_ip.get(ip)
+            if existing is None or connected_at < existing['connected_at']:
+                by_ip[ip] = {'ip': ip, 'connected_at': connected_at}
+        observers = list(by_ip.values())
+        # Stable ordering makes the frontend hover list deterministic.
+        observers.sort(key=lambda o: o['connected_at'])
+        return observers
+
+    async def _broadcast_viewer_presence(self):
+        """Push the observer list to every host-role socket in the group.
+
+        Remotes never receive this — they don't need to know about each
+        other, and skipping them keeps the wire traffic minimal.
+        """
+        observers = self._collect_observers()
+        await self.channel_layer.group_send(
+            self.group_name,
+            {
+                'type': 'viewer_presence',
+                'observers': observers,
+            }
+        )
+
+    async def viewer_presence(self, event):
+        # Host-only delivery: remotes silently drop the message rather than
+        # surfacing presence info that would never be rendered.
+        entry = CONNECTED_VIEWERS.get(self.channel_name)
+        if entry is None or entry.get('role') != 'host':
+            return
+        await self.send(text_data=json.dumps({
+            'type': 'viewer_presence',
+            'observers': event.get('observers', []),
+        }))
 
     async def broadcast_session(self, event):
         await self.send(text_data=json.dumps({

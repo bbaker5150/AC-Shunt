@@ -975,6 +975,118 @@ body.dark-mode .drag-handle:hover svg {
   box-shadow: var(--focus-ring);
 }
 
+.app-chrome-theme-btn.app-chrome-observing {
+  width: auto;
+  padding: 0 10px;
+  gap: 6px;
+  color: var(--accent-primary);
+  border-color: color-mix(in srgb, var(--accent-primary) 40%, transparent);
+  background-color: color-mix(in srgb, var(--accent-primary) 10%, transparent);
+}
+
+.observers-pill {
+  position: relative;
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 4px 10px;
+  margin: 0 4px;
+  border: 1px solid color-mix(in srgb, var(--accent-primary, var(--primary-color)) 40%, transparent);
+  border-radius: 999px;
+  background-color: color-mix(in srgb, var(--accent-primary, var(--primary-color)) 10%, transparent);
+  color: var(--accent-primary, var(--primary-color));
+  font-size: 0.75rem;
+  font-weight: 600;
+  white-space: nowrap;
+  cursor: default;
+  user-select: none;
+}
+
+.observers-pill svg {
+  font-size: 0.85rem;
+}
+
+.observers-pill-count {
+  letter-spacing: 0.01em;
+}
+
+.observers-pill-tooltip {
+  position: absolute;
+  top: calc(100% + 6px);
+  right: 0;
+  min-width: 220px;
+  max-width: 320px;
+  padding: 10px 12px;
+  border: 1px solid var(--border-color);
+  border-radius: 8px;
+  background-color: var(--card-background, var(--background-color));
+  color: var(--text-color);
+  box-shadow: 0 6px 18px rgba(0, 0, 0, 0.25);
+  opacity: 0;
+  pointer-events: none;
+  transform: translateY(-4px);
+  transition: opacity 0.15s ease, transform 0.15s ease;
+  z-index: 1000;
+}
+
+.observers-pill:hover .observers-pill-tooltip,
+.observers-pill:focus-within .observers-pill-tooltip {
+  opacity: 1;
+  transform: translateY(0);
+  pointer-events: auto;
+}
+
+.observers-pill-tooltip-title {
+  font-size: 0.7rem;
+  font-weight: 700;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  color: var(--text-color-muted);
+  margin-bottom: 6px;
+}
+
+.observers-pill-tooltip-list {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+
+.observers-pill-tooltip-list li {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  font-size: 0.78rem;
+  font-weight: 500;
+  color: var(--text-color);
+}
+
+.observers-pill-ip {
+  font-family: var(--font-monospace, ui-monospace, SFMono-Regular, Menlo, monospace);
+}
+
+.observers-pill-dot {
+  color: var(--text-color-muted);
+}
+
+.observers-pill-elapsed {
+  color: var(--text-color-muted);
+  font-weight: 400;
+}
+
+.app-chrome-theme-btn.app-chrome-observing:hover {
+  background-color: color-mix(in srgb, var(--accent-primary) 20%, transparent);
+}
+
+.app-chrome-observing-label {
+  font-size: 0.65rem;
+  font-weight: 700;
+  letter-spacing: 0.08em;
+  color: var(--accent-primary);
+}
+
 .app-chrome-meta-icon:active,
 .app-chrome-theme-btn:active {
   background-color: var(--primary-color-soft);
@@ -3730,6 +3842,385 @@ body.dark-mode .bug-report-list-item:hover {
 body.dark-mode .confirm-modal-action--danger:hover {
   background-color: #ef4444;
   border-color: #ef4444;
+}
+
+/* ================================================================== */
+/*  NETWORK CONNECTION MODAL                                          */
+/*  Extends .confirm-modal for consistent header/footer chrome, then  */
+/*  overrides width + adds sections for the saved-host list, inline   */
+/*  rename, and the "add new" row.                                    */
+/* ================================================================== */
+.network-modal {
+  width: min(560px, 94vw);
+  max-height: 86vh;
+}
+
+.network-modal-body {
+  padding: 4px 24px 8px 24px;
+  display: flex;
+  flex-direction: column;
+  gap: 22px;
+  overflow-y: auto;
+}
+
+.network-section {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+
+.network-section-heading {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 12px;
+}
+
+.network-section-title {
+  margin: 12px 0 0 0;
+  font-size: 0.8125rem;
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+  color: var(--text-color-muted);
+}
+
+.network-section-heading .network-section-title {
+  margin: 0;
+}
+
+.network-section-hint {
+  margin: 0;
+  font-size: 0.8125rem;
+  color: var(--text-color-muted);
+}
+
+/* Current connection card ------------------------------------------ */
+.network-current {
+  display: flex;
+  align-items: center;
+  gap: 14px;
+  padding: 14px 16px;
+  border-radius: 12px;
+  border: 1px solid var(--border-color);
+  background-color: var(--background-subtle, rgba(0, 0, 0, 0.02));
+}
+
+body.dark-mode .network-current {
+  background-color: rgba(255, 255, 255, 0.03);
+}
+
+.network-current.is-remote {
+  border-color: color-mix(in srgb, var(--primary-color) 55%, var(--border-color));
+  background-color: color-mix(
+    in srgb,
+    var(--primary-color) 8%,
+    var(--content-background)
+  );
+}
+
+.network-current-icon {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 36px;
+  height: 36px;
+  border-radius: 10px;
+  background-color: var(--content-background);
+  border: 1px solid var(--border-color);
+  color: var(--text-color);
+  font-size: 1rem;
+}
+
+.network-current.is-remote .network-current-icon {
+  color: var(--primary-color);
+  border-color: color-mix(in srgb, var(--primary-color) 45%, var(--border-color));
+}
+
+.network-current-text {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  min-width: 0;
+  flex-grow: 1;
+}
+
+.network-current-label {
+  font-size: 0.95rem;
+  font-weight: 600;
+  color: var(--text-color-strong, var(--text-color));
+}
+
+.network-current-ip {
+  font-size: 0.8125rem;
+  color: var(--text-color-muted);
+  font-family: var(--font-mono, ui-monospace, Menlo, monospace);
+}
+
+/* Saved host list --------------------------------------------------- */
+.network-host-list {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.network-host-row {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  padding: 10px 12px;
+  border-radius: 10px;
+  border: 1px solid var(--border-color);
+  background-color: var(--content-background);
+  transition: border-color 0.15s ease, background-color 0.15s ease;
+}
+
+.network-host-row:hover {
+  border-color: color-mix(
+    in srgb,
+    var(--primary-color) 35%,
+    var(--border-color)
+  );
+}
+
+.network-host-row.is-active {
+  border-color: color-mix(
+    in srgb,
+    var(--primary-color) 60%,
+    var(--border-color)
+  );
+  background-color: color-mix(
+    in srgb,
+    var(--primary-color) 6%,
+    var(--content-background)
+  );
+}
+
+.network-host-main {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  min-width: 0;
+  flex-grow: 1;
+}
+
+.network-host-name {
+  font-size: 0.9rem;
+  font-weight: 600;
+  color: var(--text-color-strong, var(--text-color));
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.network-host-ip {
+  font-size: 0.75rem;
+  color: var(--text-color-muted);
+  font-family: var(--font-mono, ui-monospace, Menlo, monospace);
+}
+
+.network-host-actions {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  flex-shrink: 0;
+}
+
+.network-rename-input {
+  width: 100%;
+  padding: 4px 8px;
+  border-radius: 6px;
+  border: 1px solid var(--primary-color);
+  background-color: var(--content-background);
+  color: var(--text-color);
+  font-size: 0.9rem;
+  font-weight: 600;
+  outline: none;
+}
+
+.network-rename-input:focus {
+  box-shadow: var(--focus-ring);
+}
+
+.network-empty {
+  padding: 14px 16px;
+  border-radius: 10px;
+  border: 1px dashed var(--border-color);
+  color: var(--text-color-muted);
+  text-align: center;
+}
+
+.network-empty p {
+  margin: 0;
+  font-size: 0.875rem;
+}
+
+/* Buttons ----------------------------------------------------------- */
+.network-icon-btn {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 30px;
+  height: 30px;
+  border-radius: 8px;
+  border: 1px solid transparent;
+  background-color: transparent;
+  color: var(--text-color-muted);
+  cursor: pointer;
+  transition: background-color 0.15s ease, color 0.15s ease,
+    border-color 0.15s ease;
+}
+
+.network-icon-btn:hover:not(:disabled) {
+  background-color: var(--background-subtle, rgba(0, 0, 0, 0.04));
+  color: var(--text-color);
+  border-color: var(--border-color);
+}
+
+body.dark-mode .network-icon-btn:hover:not(:disabled) {
+  background-color: rgba(255, 255, 255, 0.06);
+}
+
+.network-icon-btn:disabled {
+  opacity: 0.45;
+  cursor: not-allowed;
+}
+
+.network-icon-btn--danger:hover:not(:disabled) {
+  color: var(--danger-color, var(--status-bad));
+  border-color: color-mix(
+    in srgb,
+    var(--danger-color, var(--status-bad)) 45%,
+    var(--border-color)
+  );
+}
+
+.network-connect-btn {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 6px 12px;
+  border-radius: 8px;
+  border: 1px solid var(--border-color);
+  background-color: var(--content-background);
+  color: var(--text-color);
+  font-size: 0.8125rem;
+  font-weight: 600;
+  cursor: pointer;
+  transition: background-color 0.15s ease, border-color 0.15s ease,
+    color 0.15s ease;
+}
+
+.network-connect-btn:hover:not(:disabled) {
+  border-color: var(--primary-color);
+  color: var(--primary-color);
+}
+
+.network-connect-btn:disabled {
+  opacity: 0.7;
+  cursor: default;
+  color: var(--primary-color);
+  border-color: color-mix(
+    in srgb,
+    var(--primary-color) 45%,
+    var(--border-color)
+  );
+}
+
+.network-ghost-btn {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  padding: 8px 14px;
+  border-radius: 8px;
+  border: 1px solid var(--border-color);
+  background-color: transparent;
+  color: var(--text-color);
+  font-size: 0.875rem;
+  font-weight: 500;
+  cursor: pointer;
+  transition: background-color 0.15s ease, border-color 0.15s ease;
+}
+
+.network-ghost-btn:hover {
+  background-color: var(--background-subtle, rgba(0, 0, 0, 0.04));
+  border-color: color-mix(
+    in srgb,
+    var(--primary-color) 30%,
+    var(--border-color)
+  );
+}
+
+body.dark-mode .network-ghost-btn:hover {
+  background-color: rgba(255, 255, 255, 0.05);
+}
+
+.network-primary-btn {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 8px 14px;
+  border-radius: 8px;
+  border: 1px solid var(--primary-color);
+  background-color: var(--primary-color);
+  color: #fff;
+  font-size: 0.875rem;
+  font-weight: 600;
+  cursor: pointer;
+  transition: background-color 0.15s ease, border-color 0.15s ease;
+  white-space: nowrap;
+}
+
+.network-primary-btn:hover {
+  background-color: var(--primary-color-dark);
+  border-color: var(--primary-color-dark);
+}
+
+/* Add host row ------------------------------------------------------ */
+.network-add-row {
+  display: grid;
+  grid-template-columns: 1fr 1fr auto;
+  gap: 8px;
+}
+
+@media (max-width: 520px) {
+  .network-add-row {
+    grid-template-columns: 1fr;
+  }
+}
+
+.network-text-input {
+  padding: 9px 12px;
+  border-radius: 8px;
+  border: 1px solid var(--border-color);
+  background-color: var(--content-background);
+  color: var(--text-color);
+  font-size: 0.875rem;
+  transition: border-color 0.15s ease, box-shadow 0.15s ease;
+}
+
+.network-text-input:focus {
+  outline: none;
+  border-color: var(--primary-color);
+  box-shadow: var(--focus-ring);
+}
+
+.network-text-input::placeholder {
+  color: var(--text-color-muted);
+}
+
+.network-add-error {
+  margin: 4px 0 0 0;
+  font-size: 0.8125rem;
+  color: var(--danger-color, var(--status-bad));
+}
+
+.network-modal-footer {
+  justify-content: flex-end;
+  gap: 8px;
 }
 
 /* ================================================================== */

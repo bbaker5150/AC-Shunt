@@ -656,6 +656,34 @@ class CalibrationSessionViewSet(viewsets.ModelViewSet):
             serializer = CalibrationResultsSerializer(all_results, many=True)
             return Response(serializer.data, status=status.HTTP_200_OK)
         
+def _broadcast_test_point_sync(session_pk, message):
+    """Push a ``connection_sync`` event to every socket in the session group.
+
+    Remote viewers key off this to re-fetch the session's test-point data so
+    their sidebar status dots, completion badges, and charts stay in sync
+    with host-side edits that bypass the calibration WebSocket pipeline
+    (e.g. clear readings, delete point, append points from the REST API).
+    Host sockets simply no-op on the refresh since they already know the
+    change they just made.
+    """
+    try:
+        channel_layer = get_channel_layer()
+        if channel_layer is None:
+            return
+        async_to_sync(channel_layer.group_send)(
+            f'session_{session_pk}',
+            {
+                'type': 'connection_sync',
+                'is_complete': False,
+                'message': message,
+            },
+        )
+    except Exception as e:
+        # Broadcast is best-effort — surface the error in logs but don't fail
+        # the HTTP request the host is waiting on.
+        print(f"[sync] Failed to broadcast test-point change: {e}", flush=True)
+
+
 class TestPointViewSet(viewsets.ModelViewSet):
     serializer_class = TestPointSerializer
 
@@ -666,6 +694,12 @@ class TestPointViewSet(viewsets.ModelViewSet):
         session = CalibrationSession.objects.get(pk=self.kwargs['session_pk'])
         test_point_set = TestPointSet.objects.get(session=session)
         serializer.save(test_point_set=test_point_set)
+        _broadcast_test_point_sync(self.kwargs['session_pk'], 'Test point added.')
+
+    def perform_destroy(self, instance):
+        session_pk = self.kwargs['session_pk']
+        instance.delete()
+        _broadcast_test_point_sync(session_pk, 'Test point deleted.')
     
     @action(detail=True, methods=['post'], url_path='mark-readings-stability')
     def mark_readings_stability(self, request, session_pk=None, pk=None):
@@ -910,6 +944,7 @@ class TestPointViewSet(viewsets.ModelViewSet):
             return Response({"detail": "Calibration Session not found."}, status=status.HTTP_404_NOT_FOUND)
 
         deleted_count, _ = tp_set.points.all().delete()
+        _broadcast_test_point_sync(session_pk, 'All test points cleared.')
         return Response(
             {"message": f"Deleted {deleted_count} test points for session {session_pk}."},
             status=status.HTTP_204_NO_CONTENT
@@ -943,6 +978,8 @@ class TestPointViewSet(viewsets.ModelViewSet):
                     readings_instance.ti_dc_neg_readings = []
                     readings_instance.ti_ac_close_readings = []
                     readings_instance.save()
+
+            _broadcast_test_point_sync(session_pk, 'Readings cleared.')
 
             return Response(
                 {"message": f"Readings and results for Test Point {pk} have been cleared."},

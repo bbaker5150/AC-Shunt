@@ -38,6 +38,39 @@ def _bootstrap_outbox_db():
         print(f"WARNING: outbox bootstrap failed: {e}")
 
 
+def _bootstrap_mock_calibration_session():
+    """
+    When ``MOCK_INSTRUMENTS`` is on and the seeded mock session is missing,
+    run the ``seed_mock_calibration_session`` management command once so the
+    dev loop has a ready-to-open session. Idempotent on subsequent boots:
+    if the session already exists we skip, which preserves any changes made
+    through the UI between restarts. Developers can force a refresh with
+    ``python manage.py seed_mock_calibration_session``.
+    """
+    from django.conf import settings
+
+    if not getattr(settings, "MOCK_INSTRUMENTS", False):
+        return
+
+    try:
+        from api.models import CalibrationSession
+        from api.management.commands.seed_mock_calibration_session import (
+            MOCK_SESSION_NAME,
+        )
+
+        if CalibrationSession.objects.filter(session_name=MOCK_SESSION_NAME).exists():
+            print(f"Mock session '{MOCK_SESSION_NAME}' already present. Skipping auto-seed.")
+            return
+
+        print(f"MOCK_INSTRUMENTS on and '{MOCK_SESSION_NAME}' missing — seeding now...")
+        call_command('seed_mock_calibration_session', verbosity=0)
+        print("Mock calibration session seeded.")
+    except Exception as e:
+        # Non-fatal: the app still boots, the developer just won't have a
+        # pre-populated session. Log loudly so the reason is obvious.
+        print(f"WARNING: mock calibration session auto-seed failed: {e}")
+
+
 def main():
     # 1. Initialize Django environment
     os.environ.setdefault('DJANGO_SETTINGS_MODULE', 'ac_shunt.settings')
@@ -81,6 +114,13 @@ def main():
 
     # 2b. Always bootstrap the local outbox — independent of default DB state.
     _bootstrap_outbox_db()
+
+    # 3b. Auto-seed the mock calibration session when running in mock mode,
+    # so `npm run electron:dev:mock` produces a ready-to-use session without
+    # the developer having to remember the manual seed command. Only seeds
+    # when the session is missing so UI-driven edits made during a dev
+    # session survive subsequent boots.
+    _bootstrap_mock_calibration_session()
 
     # 4. Handle Port Conflicts
     port = '8000'

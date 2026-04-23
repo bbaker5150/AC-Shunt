@@ -60,6 +60,11 @@ export const InstrumentContextProvider = ({ children }) => {
   const isFetchingStatusesRef = useRef({});
   const zeroingInstrumentsRef = useRef({});
 
+  // Host-side presence: list of connected remote viewers. Populated by
+  // viewer_presence messages from HostSyncConsumer. Empty for remotes since
+  // the server never broadcasts presence to them.
+  const [observers, setObservers] = useState([]);
+
   // Collection States
   const [isCollecting, setIsCollecting] = useState(false);
   const [collectionProgress, setCollectionProgress] = useState({
@@ -99,25 +104,18 @@ export const InstrumentContextProvider = ({ children }) => {
   const [lastMessage, setLastMessage] = useState(null);
   const [dataRefreshTrigger, setDataRefreshTrigger] = useState(0);
   const heartbeatTimeout = useRef(null);
+  // Dedupe guard for ``live_state_sync`` snapshots. React StrictMode and the
+  // remote's reconnect logic both cause the WS to open twice in quick
+  // succession during development, which means we receive the same server
+  // snapshot twice and end up dispatching two identical setState cascades
+  // (+ two fetchSessionData fires via dataRefreshTrigger). On anything with
+  // a non-trivial test-point tree that's enough to trip React's "maximum
+  // update depth" guard. A tiny fingerprint + timestamp lets us silently
+  // drop the second copy.
+  const lastLiveSyncSigRef = useRef({ sig: null, ts: 0 });
   const isRemoteViewer = baseIp !== "localhost" && baseIp !== "127.0.0.1";
   const hostSyncWs = useRef(null);
   const selectedSessionIdRef = useRef(selectedSessionId);
-
-  const isCollectingRef = useRef(isCollecting);
-  const liveReadingsRef = useRef(liveReadings);
-  const tiLiveReadingsRef = useRef(tiLiveReadings);
-  const activeCollectionDetailsRef = useRef(activeCollectionDetails);
-  const collectionProgressRef = useRef(collectionProgress);
-  const focusedTPKeyRef = useRef(focusedTPKey);
-
-  useEffect(() => {
-    isCollectingRef.current = isCollecting;
-    liveReadingsRef.current = liveReadings;
-    tiLiveReadingsRef.current = tiLiveReadings;
-    activeCollectionDetailsRef.current = activeCollectionDetails;
-    collectionProgressRef.current = collectionProgress;
-    focusedTPKeyRef.current = focusedTPKey;
-  }, [isCollecting, liveReadings, tiLiveReadings, activeCollectionDetails, collectionProgress, focusedTPKey]);
 
   // Keep a ref of the session ID to avoid stale closures in the WebSocket events
   useEffect(() => {
@@ -169,6 +167,14 @@ export const InstrumentContextProvider = ({ children }) => {
       hostSyncWs.current = new WebSocket(`${WS_BASE_URL}/host-sync/`);
 
       hostSyncWs.current.onopen = () => {
+        // Announce our role first thing so the server can place us into the
+        // presence registry. Host-only broadcasts (e.g. viewer_presence)
+        // gate on this, so the identify has to land before anything else.
+        hostSyncWs.current.send(JSON.stringify({
+          command: "identify",
+          role: isRemoteViewer ? "remote" : "host",
+        }));
+
         // If the Host connects, assert their current session to the server
         if (!isRemoteViewer && selectedSessionIdRef.current !== null) {
           hostSyncWs.current.send(JSON.stringify({
@@ -185,10 +191,19 @@ export const InstrumentContextProvider = ({ children }) => {
           if (isRemoteViewer) {
             setSelectedSessionId(data.session_id);
           }
+        } else if (data.type === "viewer_presence") {
+          // The backend only pushes this to hosts, but guard anyway so a
+          // misrouted message can never populate stale state on a remote.
+          if (!isRemoteViewer) {
+            setObservers(Array.isArray(data.observers) ? data.observers : []);
+          }
         }
       };
 
       hostSyncWs.current.onclose = () => {
+        // Clear stale presence on disconnect; a reconnect will refill it
+        // from the next viewer_presence broadcast the server sends.
+        setObservers([]);
         setTimeout(connectHostSync, 3000);
       };
     };
@@ -250,7 +265,12 @@ export const InstrumentContextProvider = ({ children }) => {
     if (reconnectTimeout.current) clearTimeout(reconnectTimeout.current);
     if (heartbeatTimeout.current) clearTimeout(heartbeatTimeout.current);
 
-    const socketUrl = `${WS_BASE_URL}/collect-readings/${selectedSessionId}/`;
+    // Append ?role=remote on observer sessions so the backend can defensively
+    // reject host-only commands (start/stop/amplifier/etc.) even if a client
+    // sidesteps the UI-level gates. Host sockets stay unadorned.
+    const socketUrl = `${WS_BASE_URL}/collect-readings/${selectedSessionId}/${
+      isRemoteViewer ? "?role=remote" : ""
+    }`;
 
     readingWs.current = new WebSocket(socketUrl);
     setReadingWsState(readingWs.current.readyState);
@@ -287,29 +307,57 @@ export const InstrumentContextProvider = ({ children }) => {
 
       const data = JSON.parse(event.data);
 
-      if (data.type === "live_sync_requested") {
-        // If I am the Host and actively collecting, share my exact chart state
-        if (!isRemoteViewer && isCollectingRef.current) {
-          readingWs.current.send(JSON.stringify({
-            command: "broadcast_live_state",
-            isCollecting: isCollectingRef.current,
-            activeCollectionDetails: activeCollectionDetailsRef.current,
-            liveReadings: liveReadingsRef.current,
-            tiLiveReadings: tiLiveReadingsRef.current,
-            collectionProgress: collectionProgressRef.current,
-            focusedTPKey: focusedTPKeyRef.current
-          }));
-        }
-        return;
-      }
-
       if (data.type === "live_state_sync") {
-        // If I am the Remote Viewer, instantly absorb the Host's active state!
-        if (isRemoteViewer && data.isCollecting) {
-          setIsCollecting(true);
-          if (data.activeCollectionDetails) setActiveCollectionDetails(data.activeCollectionDetails);
-          if (data.liveReadings) setLiveReadings(data.liveReadings);
-          if (data.tiLiveReadings) setTiLiveReadings(data.tiLiveReadings);
+        // Authoritative snapshot from the server-side live buffer. Apply it
+        // unconditionally so late-joining remotes see every completed stage,
+        // and so a remote joining between runs correctly resets to idle.
+        //
+        // The server stores ``t`` as an integer millisecond epoch so the
+        // payload stays JSON-friendly; every other code path that fills
+        // ``liveReadings`` uses ``new Date(...)``. Rehydrate on arrival so
+        // the chart tooltip's ``toLocaleTimeString`` call finds the Date
+        // shape it expects, regardless of which path produced the point.
+        if (isRemoteViewer) {
+          // StrictMode + WS reconnects can deliver the same snapshot twice
+          // within a few hundred ms. Fingerprint on the fields that actually
+          // drive renders so an identical replay is a no-op. We stringify
+          // after dropping the Date object keys since those are rebuilt
+          // deterministically from the numeric ``t`` the server sent.
+          const sig = JSON.stringify({
+            c: Boolean(data.isCollecting),
+            d: data.activeCollectionDetails || null,
+            lr: data.liveReadings || null,
+            tr: data.tiLiveReadings || null,
+            p: data.collectionProgress || null,
+            f: data.focusedTPKey || null,
+          });
+          const now = Date.now();
+          const prev = lastLiveSyncSigRef.current;
+          if (prev.sig === sig && now - prev.ts < 2000) {
+            return;
+          }
+          lastLiveSyncSigRef.current = { sig, ts: now };
+
+          const rehydrateStageMap = (stageMap) => {
+            if (!stageMap || typeof stageMap !== "object") return {};
+            const out = {};
+            Object.keys(stageMap).forEach((stage) => {
+              const arr = stageMap[stage];
+              out[stage] = Array.isArray(arr)
+                ? arr.map((p) =>
+                    p && typeof p === "object" && typeof p.t === "number"
+                      ? { ...p, t: new Date(p.t) }
+                      : p
+                  )
+                : arr;
+            });
+            return out;
+          };
+
+          setIsCollecting(Boolean(data.isCollecting));
+          setActiveCollectionDetails(data.activeCollectionDetails || null);
+          setLiveReadings({ ...initialLiveReadings, ...rehydrateStageMap(data.liveReadings) });
+          setTiLiveReadings({ ...initialLiveReadings, ...rehydrateStageMap(data.tiLiveReadings) });
           if (data.collectionProgress) setCollectionProgress(data.collectionProgress);
           if (data.focusedTPKey) setFocusedTPKey(data.focusedTPKey);
           setDataRefreshTrigger((prev) => prev + 1);
@@ -326,6 +374,22 @@ export const InstrumentContextProvider = ({ children }) => {
       if (data.type === "ping") return;
 
       if (data.type === "connection_sync") {
+        // Dedupe replays (StrictMode double-mount, reconnects) so we don't
+        // kick two identical fetchSessionData cascades back-to-back — the
+        // second one is pure noise and occasionally lands in the same tick
+        // as other setStates, which is what tipped the "maximum update
+        // depth" guard on the remote.
+        const sig = JSON.stringify({
+          c: Boolean(data.is_complete),
+          m: data.message || null,
+        });
+        const now = Date.now();
+        const prev = lastLiveSyncSigRef.current;
+        if (prev.sig === `cs:${sig}` && now - prev.ts < 2000) {
+          return;
+        }
+        lastLiveSyncSigRef.current = { sig: `cs:${sig}`, ts: now };
+
         console.log("Received connection sync. Status:", data);
 
         if (data.is_complete) {
@@ -547,9 +611,11 @@ export const InstrumentContextProvider = ({ children }) => {
 
       setIsFetchingStatuses((prev) => ({ ...prev, [gpibAddress]: true }));
 
+      // Same role gate as collect-readings: observers get ?role=remote so
+      // the backend can reject run_zero_cal even if it arrives on the wire.
       const socketUrl = `${WS_BASE_URL}/status/${instrumentModel}/${encodeURIComponent(
         gpibAddress
-      )}/`;
+      )}/${isRemoteViewer ? "?role=remote" : ""}`;
 
       if (statusWs.current[gpibAddress] && statusWs.current[gpibAddress].readyState !== WebSocket.OPEN) {
         statusWs.current[gpibAddress].close();
@@ -648,7 +714,7 @@ export const InstrumentContextProvider = ({ children }) => {
         setIsFetchingStatuses((prev) => ({ ...prev, [gpibAddress]: false }));
       }
     },
-    [] // Stable — reads isFetchingStatuses / zeroingInstruments via refs above
+    [isRemoteViewer] // Role feeds the ?role=remote query param on the status URL
   );
 
   const runZeroCal = useCallback((instrumentModel, gpibAddress) => {
@@ -822,6 +888,7 @@ export const InstrumentContextProvider = ({ children }) => {
     dataRefreshTrigger,
     failedTPKeys,
     setFailedTPKeys,
+    observers,
   };
 
   return (

@@ -481,6 +481,19 @@ function Calibration({
   };
 
   useEffect(() => {
+    // Never surface operator-confirmation prompts on a remote viewer — they
+    // can't act on them and the backend rejects amplifier_confirmed /
+    // operation_cancelled from remote sockets anyway (Phase 3 role gate).
+    // The host window is the only surface that should prompt.
+    //
+    // NOTE: we use a functional updater for the remote-side close so this
+    // effect does NOT need ``amplifierModal.isOpen`` in its dep array —
+    // including it made the effect re-run every time we opened the modal
+    // on the host, which contributed to "Maximum update depth" cascades.
+    if (isRemoteViewer) {
+      setAmplifierModal((prev) => (prev.isOpen ? { isOpen: false } : prev));
+      return;
+    }
     if (lastMessage?.type === "awaiting_amplifier_confirmation") {
       const range = lastMessage.range;
       setAmplifierModal({
@@ -496,7 +509,7 @@ function Calibration({
         },
       });
     }
-  }, [lastMessage, sendWsCommand]);
+  }, [lastMessage, sendWsCommand, isRemoteViewer]);
 
   useEffect(() => {
     if (collectionStatus === "collection_stopped") {

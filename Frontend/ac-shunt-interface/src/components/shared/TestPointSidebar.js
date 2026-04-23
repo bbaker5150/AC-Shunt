@@ -259,20 +259,22 @@ const SortableTestPointItem = ({
         </div>
       )}
 
-      <input
-        type="checkbox"
-        checked={isSelected}
-        onChange={(e) => {
-          e.stopPropagation();
-          onToggle(point.key);
-        }}
-        onClick={(e) => e.stopPropagation()}
-        disabled={areControlsDisabled || isRemoteViewer}
-        className="tp-checkbox"
-        aria-label={`Select ${formatCurrent(point.current)} at ${formatFrequency(
-          point.frequency
-        )}`}
-      />
+      {!isRemoteViewer && (
+        <input
+          type="checkbox"
+          checked={isSelected}
+          onChange={(e) => {
+            e.stopPropagation();
+            onToggle(point.key);
+          }}
+          onClick={(e) => e.stopPropagation()}
+          disabled={areControlsDisabled}
+          className="tp-checkbox"
+          aria-label={`Select ${formatCurrent(point.current)} at ${formatFrequency(
+            point.frequency
+          )}`}
+        />
+      )}
       <div className="tp-label">
         <span className="test-point-name">
           <span className="tp-current">{formatCurrent(point.current)}</span>
@@ -438,56 +440,67 @@ function TestPointSidebar({
       </header>
 
       <div className="tp-sidebar-toolbar">
-        <div className="tp-sidebar-toolbar-group">
-          <button
-            type="button"
-            onClick={onToggleSelectAll}
-            className="cal-results-excel-icon-btn"
-            disabled={
-              isBulkRunning || isCollecting || uniqueTestPoints.length === 0 || isRemoteViewer
-            }
-            aria-label={selectAllTooltip}
-            title={selectAllTooltip}
-          >
-            <SelectAllIcon aria-hidden />
-          </button>
-          <button
-            type="button"
-            onClick={onDeleteSelected}
-            className="cal-results-excel-icon-btn cal-results-excel-icon-btn--danger"
-            disabled={isBulkRunning || isCollecting || selectedTPs.size === 0 || isRemoteViewer}
-            aria-label="Delete selected test points"
-            title="Delete selected"
-          >
-            <FaTrashAlt aria-hidden />
-          </button>
-          <button
-            type="button"
-            onClick={onAddTestPoints}
-            className="cal-results-excel-icon-btn"
-            disabled={isBulkRunning || isCollecting || !selectedSessionId || isRemoteViewer}
-            aria-label="Add new test points"
-            title="Add new test points"
-          >
-            <FaPlus aria-hidden />
-          </button>
-        </div>
+        {!isRemoteViewer && (
+          <div className="tp-sidebar-toolbar-group">
+            <button
+              type="button"
+              onClick={onToggleSelectAll}
+              className="cal-results-excel-icon-btn"
+              disabled={
+                isBulkRunning || isCollecting || uniqueTestPoints.length === 0
+              }
+              aria-label={selectAllTooltip}
+              title={selectAllTooltip}
+            >
+              <SelectAllIcon aria-hidden />
+            </button>
+            <button
+              type="button"
+              onClick={onDeleteSelected}
+              className="cal-results-excel-icon-btn cal-results-excel-icon-btn--danger"
+              disabled={isBulkRunning || isCollecting || selectedTPs.size === 0}
+              aria-label="Delete selected test points"
+              title="Delete selected"
+            >
+              <FaTrashAlt aria-hidden />
+            </button>
+            <button
+              type="button"
+              onClick={onAddTestPoints}
+              className="cal-results-excel-icon-btn"
+              disabled={isBulkRunning || isCollecting || !selectedSessionId}
+              aria-label="Add new test points"
+              title="Add new test points"
+            >
+              <FaPlus aria-hidden />
+            </button>
+          </div>
+        )}
         <div className="tp-sidebar-toolbar-meta">
-          {selectedCount > 0 && (
+          {!isRemoteViewer && selectedCount > 0 && (
             <span className="tp-sidebar-selection-count">
               {selectedCount} selected
             </span>
           )}
-          <button
-            type="button"
-            onClick={onViewCorrections}
-            className="cal-results-excel-icon-btn"
-            disabled={isBulkRunning || isCollecting || !selectedSessionId}
-            aria-label="View corrections data"
-            title="View corrections data"
-          >
-            <IoDocumentText aria-hidden />
-          </button>
+          {/*
+            The corrections modal is a full CRUD surface (edit shunt/TVC
+            corrections, AND append new test points via the generate flow), so
+            it must stay host-only. Remote viewers can still inspect a single
+            point's corrections via the right-click "View Corrections" item,
+            which opens the read-only CorrectionsDetailsModal.
+          */}
+          {!isRemoteViewer && (
+            <button
+              type="button"
+              onClick={onViewCorrections}
+              className="cal-results-excel-icon-btn"
+              disabled={isBulkRunning || isCollecting || !selectedSessionId}
+              aria-label="View corrections data"
+              title="View corrections data"
+            >
+              <IoDocumentText aria-hidden />
+            </button>
+          )}
         </div>
       </div>
 
@@ -495,7 +508,9 @@ function TestPointSidebar({
         <div className="tp-sidebar-empty" role="status">
           <p className="tp-sidebar-empty-title">No test points yet</p>
           <p className="tp-sidebar-empty-text">
-            Use the + button above to add a point to this session.
+            {isRemoteViewer
+              ? "Test points will appear here once the host adds them."
+              : "Use the + button above to add a point to this session."}
           </p>
         </div>
       )}

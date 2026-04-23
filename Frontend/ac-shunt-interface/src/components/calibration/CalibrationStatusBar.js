@@ -158,6 +158,13 @@ const CalibrationStatusBar = ({
       </div>
 
       {/* --- CONDITIONAL PROGRESS BAR, STOP BUTTON, OR PLAY BUTTON --- */}
+      {/*
+        Remote viewers intentionally get no action affordance here. The
+        header's "OBSERVING" pill and dimmed sidebar toolbar already signal
+        the read-only state, so repeating "Observing — controls disabled"
+        next to the progress bar was visual noise. We just omit the action
+        slot entirely and let the progress bar (or live readout) breathe.
+      */}
       {isCollecting || isBulkRunning ? (
         <>
           <div className="status-bar-progress-container">
@@ -171,18 +178,19 @@ const CalibrationStatusBar = ({
               }}
             ></div>
           </div>
-          <div className="status-bar-action">
-            <button
-              onClick={stopReadingCollection}
-              className="button-stop"
-              title="Stop Collection"
-              disabled={isRemoteViewer}
-            >
-              <FaStop />
-            </button>
-          </div>
+          {!isRemoteViewer && (
+            <div className="status-bar-action">
+              <button
+                onClick={stopReadingCollection}
+                className="button-stop"
+                title="Stop Collection"
+              >
+                <FaStop />
+              </button>
+            </div>
+          )}
         </>
-      ) : (
+      ) : isRemoteViewer ? null : (
         <div className="status-bar-action">
           <div className="premium-action-button-container" ref={runDropdownRef}>
             <div className="premium-action-button-wrapper">
@@ -192,21 +200,16 @@ const CalibrationStatusBar = ({
                 disabled={
                   !focusedTP ||
                   readingWsState !== WebSocket.OPEN ||
-                  selectedTPs.size === 0 ||
-                  isRemoteViewer // DISABLE
+                  selectedTPs.size === 0
                 }
-                title={
-                  isRemoteViewer
-                    ? "Controls disabled in Observer Mode"
-                    : "Run Selected Points"
-                }
+                title="Run Selected Points"
               >
                 <FaPlay />
               </button>
               <button
                 className="button premium-action-button-caret"
                 onClick={() => setIsRunDropdownOpen((prev) => !prev)}
-                disabled={!focusedTP || readingWsState !== WebSocket.OPEN || isRemoteViewer} // DISABLE
+                disabled={!focusedTP || readingWsState !== WebSocket.OPEN}
                 title="More run options"
               >
                 <FaChevronDown />
