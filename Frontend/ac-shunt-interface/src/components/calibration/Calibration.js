@@ -152,7 +152,7 @@ const CorrectionFactorsModal = ({
             onClick={() => onSubmit(initialValues)}
             className="sidebar-action-button"
             disabled={!isFormValid || isReadOnly}
-            title={isReadOnly ? "Disabled while calibration is running" : "Calculate & Save"}
+            title={isReadOnly ? "View only (running or remote session)" : "Calculate & Save"}
           >
             <FaSave />
           </button>
@@ -622,6 +622,7 @@ function Calibration({
   }, [dataRefreshTrigger, refreshComponentData, onDataUpdate]);
 
   const handleMarkStability = useCallback(async (stabilityData, instrumentType) => {
+    if (isRemoteViewer) return;
     if (!focusedTP || !selectedSessionId) {
       showNotification("No focused test point selected.", "error");
       return;
@@ -672,7 +673,7 @@ function Calibration({
       showNotification(errorMsg, "error");
       console.error(error);
     }
-  }, [focusedTP, selectedSessionId, activeDirection, onDataUpdate, showNotification, setFailedTPKeys]);
+  }, [focusedTP, selectedSessionId, activeDirection, onDataUpdate, showNotification, setFailedTPKeys, isRemoteViewer]);
 
   const parseStabilizationStatus = useCallback(
     (statusString) => {
@@ -1682,6 +1683,7 @@ function Calibration({
 
   const handleSettingsSubmit = async (e) => {
     e.preventDefault();
+    if (isRemoteViewer) return;
     if (!focusedTP || !selectedSessionId) {
       return showNotification("No test point selected.", "error");
     }
@@ -1739,6 +1741,7 @@ function Calibration({
   };
 
   const handleApplySettingsToAll = () => {
+    if (isRemoteViewer) return;
     const confirmAction = async () => {
       if (!focusedTP || !selectedSessionId) {
         showNotification(
@@ -1995,6 +1998,9 @@ function Calibration({
   }, [isCollecting, isBulkRunning, activeCollectionDetails, orderedTestPoints, focusedTP]);
 
   const handleSaveCorrections = async (currentCorrectionInputs) => {
+    if (isRemoteViewer) {
+      return;
+    }
     if (isCollecting || isBulkRunning) {
       showNotification(
         "Corrections are view-only while calibration is running.",
@@ -2049,7 +2055,7 @@ function Calibration({
         onSubmit={handleSaveCorrections}
         initialValues={correctionInputs}
         onInputChange={handleCorrectionInputChange}
-        isReadOnly={isCollecting || isBulkRunning}
+        isReadOnly={isCollecting || isBulkRunning || isRemoteViewer}
       />
       <ConfirmationModal
         isOpen={confirmationModal.isOpen}
@@ -2154,6 +2160,11 @@ function Calibration({
                           onSubmit={handleSettingsSubmit}
                           className="settings-form"
                         >
+                          {isRemoteViewer && (
+                            <p className="bug-report-browse-intro" style={{ marginTop: 0, marginBottom: "1rem" }}>
+                              Viewing the host&apos;s settings — read only.
+                            </p>
+                          )}
                           <div className="settings-form-group">
                             <span className="settings-form-group-eyebrow">
                               General
@@ -2176,6 +2187,7 @@ function Calibration({
                                       initial_warm_up_time: e.target.value,
                                     }))
                                   }
+                                  disabled={isRemoteViewer}
                                 />
                               </div>
                               <div className="form-section">
@@ -2197,6 +2209,7 @@ function Calibration({
                                         : prev.stability_window,
                                     }));
                                   }}
+                                  disabled={isRemoteViewer}
                                 />
                               </div>
                               <div className="form-section">
@@ -2215,6 +2228,7 @@ function Calibration({
                                       settling_time: e.target.value,
                                     }))
                                   }
+                                  disabled={isRemoteViewer}
                                 />
                               </div>
                               {isNplcInstrumentInUse && (
@@ -2232,6 +2246,7 @@ function Calibration({
                                         nplc: parseFloat(e.target.value),
                                       }))
                                     }
+                                    disabled={isRemoteViewer}
                                   >
                                     {NPLC_OPTIONS.map((val) => (
                                       <option key={val} value={val}>
@@ -2263,6 +2278,7 @@ function Calibration({
                                       stability_check_method: e.target.value,
                                     }))
                                   }
+                                  disabled={isRemoteViewer}
                                 >
                                   <option value="sliding_window">
                                     Sliding window
@@ -2295,6 +2311,7 @@ function Calibration({
                                           stability_window: newWindow > currentSamples ? currentSamples : newWindow,
                                         }));
                                       }}
+                                      disabled={isRemoteViewer}
                                     />
                                   </div>
                                   <div className="form-section">
@@ -2317,6 +2334,7 @@ function Calibration({
                                           stability_threshold_ppm: e.target.value,
                                         }))
                                       }
+                                      disabled={isRemoteViewer}
                                     />
                                   </div>
                                   <div className="form-section">
@@ -2340,6 +2358,7 @@ function Calibration({
                                           ),
                                         }))
                                       }
+                                      disabled={isRemoteViewer}
                                     />
                                   </div>
                                   <div className="form-section form-section--checkbox full-width">
@@ -2354,6 +2373,7 @@ function Calibration({
                                             ignore_instability_after_lock: e.target.checked,
                                           }))
                                         }
+                                        disabled={isRemoteViewer}
                                       />
                                       <span>Bypass stability attempts (post initial)</span>
                                     </label>
@@ -2382,6 +2402,7 @@ function Calibration({
                                         iqr_filter_ppm_threshold: e.target.value,
                                       }))
                                     }
+                                    disabled={isRemoteViewer}
                                   />
                                 </div>
                               )}
@@ -2410,6 +2431,7 @@ function Calibration({
                                       characterization_source: e.target.value,
                                     }))
                                   }
+                                  disabled={isRemoteViewer}
                                 >
                                   <option value="DC">DC</option>
                                   <option value="AC">AC</option>
@@ -2430,6 +2452,7 @@ function Calibration({
                                         characterize_test_first: e.target.checked,
                                       }))
                                     }
+                                    disabled={isRemoteViewer}
                                   />
                                   <span>
                                     Characterize Test TVC before run
@@ -2446,6 +2469,7 @@ function Calibration({
                               className="sidebar-action-button"
                               aria-label="Apply to all test points"
                               title="Apply to all test points"
+                              disabled={isRemoteViewer}
                             >
                               <LuSaveAll />
                             </button>
@@ -2454,6 +2478,7 @@ function Calibration({
                               className="sidebar-action-button"
                               aria-label="Save settings for this point"
                               title="Save settings for this point"
+                              disabled={isRemoteViewer}
                             >
                               <FaSave />
                             </button>
@@ -2473,7 +2498,7 @@ function Calibration({
                                 syncedHoverIndex={hoveredIndex}
                                 comparisonData={tiChartData.datasets}
                                 instrumentType="std"
-                                onMarkStability={handleMarkStability}
+                                onMarkStability={isRemoteViewer ? null : handleMarkStability}
                                 activeChartView={activeChartView}
                                 setActiveChartView={setActiveChartView}
                               />
@@ -2500,7 +2525,7 @@ function Calibration({
                                 syncedHoverIndex={hoveredIndex}
                                 comparisonData={stdChartData.datasets}
                                 instrumentType="ti"
-                                onMarkStability={handleMarkStability}
+                                onMarkStability={isRemoteViewer ? null : handleMarkStability}
                                 activeChartView={activeChartView}
                                 setActiveChartView={setActiveChartView}
                               />

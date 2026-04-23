@@ -938,6 +938,11 @@ function AppContent() {
   // If the target IP is not localhost, lock the hardware controls
   const isRemoteViewer = baseIp !== "localhost" && baseIp !== "127.0.0.1";
 
+  const showChromeStatusCluster =
+    Boolean(dbInfo) ||
+    Boolean(selectedSessionName) ||
+    Boolean(!isRemoteViewer && observers && observers.length > 0);
+
   // Safety guard: if a remote viewer somehow lands on one of the host-only
   // tabs (e.g. a stale state from before we hid them, or a manual route),
   // snap them back to the calibration view so they never see a ghost of the
@@ -1506,206 +1511,235 @@ function AppContent() {
             </button>
           </div>
 
-          <div className="app-chrome-meta app-chrome-meta--nav">
-            {dbInfo && (() => {
-              const dbLabel = dbInfo.database_type === 'sqlite3' ? 'SQLite' : 'MSSQL';
-              const isSqlite = dbInfo.database_type === 'sqlite3';
-              const rest = dbInfo.outbox || {};
-              const restPending = Number(rest.pending_count) || 0;
-              const restFailed = Number(rest.failed_count) || 0;
-              // SQLite: no db-health WS; use REST snapshot only. MSSQL: prefer
-              // live WS counts when connected, else last system_info snapshot.
-              const buffered = isSqlite
-                ? restPending
-                : dbHealth.connected
-                  ? dbHealth.pendingCount
-                  : restPending;
-              const failed = isSqlite
-                ? restFailed
-                : dbHealth.connected
-                  ? dbHealth.failedCount
-                  : restFailed;
-              // SQLite is always local -> always "reachable". MSSQL: live WS
-              // when connected; otherwise trust system_info probe.
-              const reachable = isSqlite
-                ? true
-                : dbHealth.connected
-                  ? dbHealth.reachable !== false
-                  : rest.reachable !== false;
-              const stateClass = !reachable
-                ? ' is-offline'
-                : buffered > 0
-                  ? ' is-buffering'
-                  : failed > 0
-                    ? ' has-failed'
-                    : '';
-              const detailsList = (dbHealth.pendingDetails || []).map(d => {
-                // Formats 'std_ac_open' to 'STD AC OPEN'
-                const formattedStage = (d.stage || '').replace('_', ' ').toUpperCase();
-                return `• ${formattedStage} (${d.current}A @ ${d.frequency}Hz)`;
-              });
+          <div
+            className="app-chrome-meta app-chrome-meta--nav"
+            role="group"
+            aria-label="Status, tools, and display"
+          >
+            {showChromeStatusCluster && (
+              <div
+                className="app-chrome-meta-group app-chrome-meta-group--status"
+                aria-label="Data and session"
+              >
+                {dbInfo && (() => {
+                  const dbLabel = dbInfo.database_type === 'sqlite3' ? 'SQLite' : 'MSSQL';
+                  const isSqlite = dbInfo.database_type === 'sqlite3';
+                  const rest = dbInfo.outbox || {};
+                  const restPending = Number(rest.pending_count) || 0;
+                  const restFailed = Number(rest.failed_count) || 0;
+                  // SQLite: no db-health WS; use REST snapshot only. MSSQL: prefer
+                  // live WS counts when connected, else last system_info snapshot.
+                  const buffered = isSqlite
+                    ? restPending
+                    : dbHealth.connected
+                      ? dbHealth.pendingCount
+                      : restPending;
+                  const failed = isSqlite
+                    ? restFailed
+                    : dbHealth.connected
+                      ? dbHealth.failedCount
+                      : restFailed;
+                  // SQLite is always local -> always "reachable". MSSQL: live WS
+                  // when connected; otherwise trust system_info probe.
+                  const reachable = isSqlite
+                    ? true
+                    : dbHealth.connected
+                      ? dbHealth.reachable !== false
+                      : rest.reachable !== false;
+                  const stateClass = !reachable
+                    ? ' is-offline'
+                    : buffered > 0
+                      ? ' is-buffering'
+                      : failed > 0
+                        ? ' has-failed'
+                        : '';
+                  const detailsList = (dbHealth.pendingDetails || []).map(d => {
+                    // Formats 'std_ac_open' to 'STD AC OPEN'
+                    const formattedStage = (d.stage || '').replace('_', ' ').toUpperCase();
+                    return `• ${formattedStage} (${d.current}A @ ${d.frequency}Hz)`;
+                  });
 
-              let detailsText = "";
-              if (detailsList.length > 0) {
-                detailsText = `\n\nQueued Stages:\n${detailsList.join('\n')}`;
-                // If there are more than 10, add a "and X more" suffix
-                if (buffered > detailsList.length) {
-                  detailsText += `\n...and ${buffered - detailsList.length} more`;
-                }
-              }
+                  let detailsText = "";
+                  if (detailsList.length > 0) {
+                    detailsText = `\n\nQueued Stages:\n${detailsList.join('\n')}`;
+                    // If there are more than 10, add a "and X more" suffix
+                    if (buffered > detailsList.length) {
+                      detailsText += `\n...and ${buffered - detailsList.length} more`;
+                    }
+                  }
 
-              let title = `Data source: ${dbLabel}`;
-              if (!reachable) {
-                title = `${dbLabel} unreachable. ${buffered} stage${buffered === 1 ? '' : 's'} buffered locally.${detailsText}`;
-              } else if (buffered > 0) {
-                title = `${dbLabel}: replaying ${buffered} buffered stage${buffered === 1 ? '' : 's'}.${detailsText}`;
-              } else if (failed > 0) {
-                title = `${dbLabel}: ${failed} buffered stage${failed === 1 ? '' : 's'} need attention.`;
-              }
-              return (
-                <div
-                  className={`db-indicator-pill${stateClass}`}
-                  title={title}
-                  role="status"
-                  aria-live="polite"
-                >
-                  <span className="db-status-dot" aria-hidden />
-                  <span className="db-name-text">{dbLabel}</span>
-                  {buffered > 0 && (
-                    <span className="db-buffered-badge" aria-label={`${buffered} buffered`}>
-                      {buffered > 99 ? '99+' : buffered}
-                    </span>
-                  )}
-                </div>
-              );
-            })()}
-            {selectedSessionName && (
-              <div className="tooltip-container session-info-popover">
-                <button
-                  type="button"
-                  className="app-chrome-meta-icon"
-                  aria-label="Session details"
-                >
-                  <FaInfoCircle aria-hidden />
-                </button>
-                <div
-                  className="session-info-panel"
-                  role="tooltip"
-                  aria-label="Session details"
-                >
-                  <div className="session-info-panel-header">
-                    <span className="session-info-panel-eyebrow">
-                      Active session
-                    </span>
-                    <h4 className="session-info-panel-title" title={selectedSessionName}>
-                      {selectedSessionName}
-                    </h4>
+                  let title = `Data source: ${dbLabel}`;
+                  if (!reachable) {
+                    title = `${dbLabel} unreachable. ${buffered} stage${buffered === 1 ? '' : 's'} buffered locally.${detailsText}`;
+                  } else if (buffered > 0) {
+                    title = `${dbLabel}: replaying ${buffered} buffered stage${buffered === 1 ? '' : 's'}.${detailsText}`;
+                  } else if (failed > 0) {
+                    title = `${dbLabel}: ${failed} buffered stage${failed === 1 ? '' : 's'} need attention.`;
+                  }
+                  return (
+                    <div
+                      className={`db-indicator-pill${stateClass}`}
+                      title={title}
+                      role="status"
+                      aria-live="polite"
+                    >
+                      <span className="db-status-dot" aria-hidden />
+                      <span className="db-name-text">{dbLabel}</span>
+                      {buffered > 0 && (
+                        <span className="db-buffered-badge" aria-label={`${buffered} buffered`}>
+                          {buffered > 99 ? '99+' : buffered}
+                        </span>
+                      )}
+                    </div>
+                  );
+                })()}
+                {selectedSessionName && (
+                  <div className="tooltip-container session-info-popover">
+                    <button
+                      type="button"
+                      className="app-chrome-meta-icon"
+                      aria-label="Session details"
+                      title="Session details"
+                    >
+                      <FaInfoCircle aria-hidden />
+                    </button>
+                    <div
+                      className="session-info-panel"
+                      role="tooltip"
+                      aria-label="Session details"
+                    >
+                      <div className="session-info-panel-header">
+                        <span className="session-info-panel-eyebrow">
+                          Active session
+                        </span>
+                        <h4 className="session-info-panel-title" title={selectedSessionName}>
+                          {selectedSessionName}
+                        </h4>
+                      </div>
+
+                      <div className="session-info-panel-body">
+                        <div className="session-info-panel-group">
+                          <span className="session-info-group-label">Test instrument</span>
+                          <div className="session-info-row">
+                            <span className="session-info-row-label">Model</span>
+                            <span className="session-info-row-value">
+                              {sessionInfo?.test_instrument_model || "—"}
+                            </span>
+                          </div>
+                          <div className="session-info-row">
+                            <span className="session-info-row-label">Serial</span>
+                            <span className="session-info-row-value">
+                              {sessionInfo?.test_instrument_serial || "—"}
+                            </span>
+                          </div>
+                        </div>
+
+                        <div className="session-info-panel-group">
+                          <span className="session-info-group-label">Standard</span>
+                          <div className="session-info-row">
+                            <span className="session-info-row-label">Model</span>
+                            <span className="session-info-row-value">
+                              {sessionInfo?.standard_instrument_model || "—"}
+                            </span>
+                          </div>
+                          <div className="session-info-row">
+                            <span className="session-info-row-label">Serial</span>
+                            <span className="session-info-row-value">
+                              {sessionInfo?.standard_instrument_serial || "—"}
+                            </span>
+                          </div>
+                        </div>
+
+                        <div className="session-info-panel-group">
+                          <span className="session-info-group-label">Environment</span>
+                          <div className="session-info-row">
+                            <span className="session-info-row-label">Created</span>
+                            <span className="session-info-row-value">
+                              {sessionInfo?.created_at
+                                ? new Date(sessionInfo.created_at).toLocaleDateString()
+                                : "—"}
+                            </span>
+                          </div>
+                          <div className="session-info-row">
+                            <span className="session-info-row-label">Temperature</span>
+                            <span className="session-info-row-value">
+                              {sessionInfo?.temperature
+                                ? `${sessionInfo.temperature} °C`
+                                : "—"}
+                            </span>
+                          </div>
+                          <div className="session-info-row">
+                            <span className="session-info-row-label">Humidity</span>
+                            <span className="session-info-row-value">
+                              {sessionInfo?.humidity
+                                ? `${sessionInfo.humidity} %RH`
+                                : "—"}
+                            </span>
+                          </div>
+                        </div>
+                      </div>
+                    </div>
                   </div>
-
-                  <div className="session-info-panel-body">
-                    <div className="session-info-panel-group">
-                      <span className="session-info-group-label">Test instrument</span>
-                      <div className="session-info-row">
-                        <span className="session-info-row-label">Model</span>
-                        <span className="session-info-row-value">
-                          {sessionInfo?.test_instrument_model || "—"}
-                        </span>
-                      </div>
-                      <div className="session-info-row">
-                        <span className="session-info-row-label">Serial</span>
-                        <span className="session-info-row-value">
-                          {sessionInfo?.test_instrument_serial || "—"}
-                        </span>
-                      </div>
-                    </div>
-
-                    <div className="session-info-panel-group">
-                      <span className="session-info-group-label">Standard</span>
-                      <div className="session-info-row">
-                        <span className="session-info-row-label">Model</span>
-                        <span className="session-info-row-value">
-                          {sessionInfo?.standard_instrument_model || "—"}
-                        </span>
-                      </div>
-                      <div className="session-info-row">
-                        <span className="session-info-row-label">Serial</span>
-                        <span className="session-info-row-value">
-                          {sessionInfo?.standard_instrument_serial || "—"}
-                        </span>
-                      </div>
-                    </div>
-
-                    <div className="session-info-panel-group">
-                      <span className="session-info-group-label">Environment</span>
-                      <div className="session-info-row">
-                        <span className="session-info-row-label">Created</span>
-                        <span className="session-info-row-value">
-                          {sessionInfo?.created_at
-                            ? new Date(sessionInfo.created_at).toLocaleDateString()
-                            : "—"}
-                        </span>
-                      </div>
-                      <div className="session-info-row">
-                        <span className="session-info-row-label">Temperature</span>
-                        <span className="session-info-row-value">
-                          {sessionInfo?.temperature
-                            ? `${sessionInfo.temperature} °C`
-                            : "—"}
-                        </span>
-                      </div>
-                      <div className="session-info-row">
-                        <span className="session-info-row-label">Humidity</span>
-                        <span className="session-info-row-value">
-                          {sessionInfo?.humidity
-                            ? `${sessionInfo.humidity} %RH`
-                            : "—"}
-                        </span>
-                      </div>
-                    </div>
-                  </div>
-                </div>
+                )}
+                {!isRemoteViewer && observers && observers.length > 0 && (
+                  <ObserversPill observers={observers} />
+                )}
               </div>
             )}
-            {!isRemoteViewer && observers && observers.length > 0 && (
-              <ObserversPill observers={observers} />
+            {showChromeStatusCluster && (
+              <span className="app-chrome-meta-sep" aria-hidden="true" />
             )}
-            <button
-              type="button"
-              onClick={() => setIsBugReportModalOpen(true)}
-              className="app-chrome-meta-icon"
-              aria-label="Report an issue"
-              title="Report an issue"
+            <div
+              className="app-chrome-meta-group app-chrome-meta-group--tools"
+              aria-label="Feedback and network"
             >
-              <FaBug aria-hidden />
-            </button>
-            <button
-              type="button"
-              onClick={() => setIsNetworkModalOpen(true)}
-              className={`app-chrome-theme-btn${isRemoteViewer ? " app-chrome-observing" : ""}`}
-              aria-label="Network Settings"
-              title={
-                isRemoteViewer
-                  ? `Network: ${
-                      loadSavedHosts().find((h) => h.ip === baseIp)?.name ||
-                      baseIp
-                    } (${baseIp}) — Observer Mode`
-                  : "Network: Local"
-              }
+              <button
+                type="button"
+                onClick={() => setIsBugReportModalOpen(true)}
+                className="app-chrome-meta-icon"
+                aria-label="Report an issue"
+                title="Report an issue"
+              >
+                <FaBug aria-hidden />
+              </button>
+              <button
+                type="button"
+                onClick={() => setIsNetworkModalOpen(true)}
+                className={`app-chrome-meta-icon app-chrome-network-btn${
+                  isRemoteViewer ? " is-remote" : ""
+                }`}
+                aria-label={
+                  isRemoteViewer
+                    ? `Network connection, observer — ${loadSavedHosts().find((h) => h.ip === baseIp)?.name || baseIp}`
+                    : "Network connection"
+                }
+                title={
+                  isRemoteViewer
+                    ? `Connected as observer — ${
+                        loadSavedHosts().find((h) => h.ip === baseIp)?.name ||
+                        baseIp
+                      } (${baseIp}). Click to change.`
+                    : "This machine. Click to connect to a remote host."
+                }
+              >
+                <FaNetworkWired aria-hidden />
+              </button>
+            </div>
+            <span className="app-chrome-meta-sep" aria-hidden="true" />
+            <div
+              className="app-chrome-meta-group app-chrome-meta-group--display"
+              aria-label="Display"
             >
-              <FaNetworkWired aria-hidden color={isRemoteViewer ? "var(--accent-primary)" : "inherit"} />
-              {isRemoteViewer && (
-                <span className="app-chrome-observing-label">OBSERVING</span>
-              )}
-            </button>
-            <button
-              type="button"
-              onClick={toggleTheme}
-              className="app-chrome-theme-btn"
-              aria-label={theme === "dark" ? "Switch to light mode" : "Switch to dark mode"}
-              title={theme === "dark" ? "Switch to light mode" : "Switch to dark mode"}
-            >
-              {theme === "dark" ? <FaSun aria-hidden /> : <FaMoon aria-hidden />}
-            </button>
+              <button
+                type="button"
+                onClick={toggleTheme}
+                className="app-chrome-meta-icon"
+                aria-label={theme === "dark" ? "Switch to light mode" : "Switch to dark mode"}
+                title={theme === "dark" ? "Switch to light mode" : "Switch to dark mode"}
+              >
+                {theme === "dark" ? <FaSun aria-hidden /> : <FaMoon aria-hidden />}
+              </button>
+            </div>
           </div>
         </nav>
       </header>

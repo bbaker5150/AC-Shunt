@@ -247,7 +247,6 @@ body,
 .app-chrome,
 .app-sidebar,
 .app-chrome-tab,
-.app-chrome-theme-btn,
 .session-panel,
 .session-info-panel,
 .corrections-modal-content,
@@ -937,14 +936,9 @@ body.dark-mode .drag-handle:hover svg {
 }
 
 /* -------------------------------------------------------------------
-   Header meta buttons (session info, report issue, theme toggle)
-   Shared "ghost" look so they feel built into the chrome rather than
-   mounted on top of it — no visible border at rest, no background,
-   just a soft tint on hover. Both share identical geometry so the
-   cluster reads as one cohesive row.
+   Header meta — ghost icon cluster (32×32), one geometry for every icon.
    ------------------------------------------------------------------- */
-.app-chrome-meta-icon,
-.app-chrome-theme-btn {
+.app-chrome-meta-icon {
   display: inline-flex;
   align-items: center;
   justify-content: center;
@@ -962,26 +956,38 @@ body.dark-mode .drag-handle:hover svg {
   transition: color 0.15s ease, background-color 0.15s ease;
 }
 
-.app-chrome-meta-icon:hover,
-.app-chrome-theme-btn:hover {
+.app-chrome-meta-icon:hover {
   color: var(--text-color);
   background-color: var(--primary-color-soft);
 }
 
-.app-chrome-meta-icon:focus-visible,
-.app-chrome-theme-btn:focus-visible {
+.app-chrome-meta-icon:focus-visible {
   outline: none;
   color: var(--primary-color);
   box-shadow: var(--focus-ring);
 }
 
-.app-chrome-theme-btn.app-chrome-observing {
-  width: auto;
-  padding: 0 10px;
-  gap: 6px;
-  color: var(--accent-primary);
-  border-color: color-mix(in srgb, var(--accent-primary) 40%, transparent);
-  background-color: color-mix(in srgb, var(--accent-primary) 10%, transparent);
+/* Remote / observer client — same 32px footprint, accent tint (no text chip). */
+.app-chrome-network-btn.is-remote {
+  color: var(--accent-primary, var(--primary-color));
+  border-color: color-mix(
+    in srgb,
+    var(--accent-primary, var(--primary-color)) 38%,
+    transparent
+  );
+  background-color: color-mix(
+    in srgb,
+    var(--accent-primary, var(--primary-color)) 10%,
+    transparent
+  );
+}
+
+.app-chrome-network-btn.is-remote:hover {
+  background-color: color-mix(
+    in srgb,
+    var(--accent-primary, var(--primary-color)) 18%,
+    transparent
+  );
 }
 
 .observers-pill {
@@ -1076,19 +1082,7 @@ body.dark-mode .drag-handle:hover svg {
   font-weight: 400;
 }
 
-.app-chrome-theme-btn.app-chrome-observing:hover {
-  background-color: color-mix(in srgb, var(--accent-primary) 20%, transparent);
-}
-
-.app-chrome-observing-label {
-  font-size: 0.65rem;
-  font-weight: 700;
-  letter-spacing: 0.08em;
-  color: var(--accent-primary);
-}
-
-.app-chrome-meta-icon:active,
-.app-chrome-theme-btn:active {
+.app-chrome-meta-icon:active {
   background-color: var(--primary-color-soft);
   color: var(--primary-color);
 }
@@ -1115,18 +1109,52 @@ body.dark-mode .drag-handle:hover svg {
   flex: 1 1 auto;
 }
 
-/* Nav-row meta cluster: tight, borderless group that reads as a single
-   chrome element — DB status pill sits on the left, then the
-   session-info icon, then the theme toggle. Small left-shoulder on
-   the info icon so the pill and icons don't optically merge. */
+/* Nav-row meta: flat row — no tray; vertical rules only separate groups. */
 .app-chrome-meta--nav {
   flex: 0 0 auto;
   padding: 4px 0;
-  gap: 2px;
+  gap: 0;
+  display: inline-flex;
+  align-items: center;
+  flex-wrap: wrap;
+  justify-content: flex-end;
+  row-gap: 4px;
+  max-width: min(100%, 70vw);
+  background: transparent;
+  border: none;
+  box-shadow: none;
+  border-radius: 0;
 }
 
 .app-chrome-meta--nav .db-indicator-pill {
   margin-right: 4px;
+  flex-shrink: 0;
+}
+
+.app-chrome-meta-group {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  min-height: 32px;
+  flex: 0 0 auto;
+}
+
+.app-chrome-meta--nav .observers-pill {
+  margin: 0;
+}
+
+/* Subtle rules between status / tools / display (no container). */
+.app-chrome-meta-sep {
+  display: block;
+  flex: 0 0 auto;
+  width: 1px;
+  height: 20px;
+  margin: 0 6px;
+  align-self: center;
+  border-radius: 1px;
+  background: var(--border-color);
+  opacity: 0.9;
+  pointer-events: none;
 }
 
 .app-chrome-brand-version {
