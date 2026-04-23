@@ -7,6 +7,7 @@ import axios from 'axios';
 import { useInstruments } from '../../contexts/InstrumentContext';
 import { FaSave, FaUndo, FaTimes, FaSearch, FaSync, FaEdit, FaCreativeCommonsZero } from 'react-icons/fa';
 import { API_BASE_URL } from '../../constants/constants';
+
 const ASSIGNABLE_MODELS = ['34420A', '3458A', '5790B'];
 const ACDC_ASSIGNABLE_MODELS = ['5730A'];
 const AMPLIFIER_MODELS = ['8100'];
@@ -23,13 +24,16 @@ const statusBitDescriptions = {
 function InstrumentStatusPanel({ showNotification, isRemoteViewer }) {
     const {
         selectedSessionId, instrumentStatuses, isFetchingStatuses, getInstrumentStatus,
-        runZeroCal, // Destructure runZeroCal
+        runZeroCal,
         discoveredInstruments, setDiscoveredInstruments,
         stdInstrumentAddress, setStdInstrumentAddress, stdReaderModel, setStdReaderModel, stdReaderSN, setStdReaderSN,
         tiInstrumentAddress, setTiInstrumentAddress, tiReaderModel, setTiReaderModel, tiReaderSN, setTiReaderSN,
         acSourceAddress, setAcSourceAddress, acSourceSN, setAcSourceSN, dcSourceAddress, setDcSourceAddress, dcSourceSN, setDcSourceSN,
         switchDriverAddress, setSwitchDriverAddress, switchDriverModel, setSwitchDriverModel, switchDriverSN, setSwitchDriverSN,
         amplifierAddress, setAmplifierAddress, amplifierSN, setAmplifierSN, isCollecting,
+        
+        // NEW DESTRUCTURES: Exposing the locking mechanism from the context
+        claimedWorkstations, myClientId, sendWorkstationClaim, sendWorkstationRelease
     } = useInstruments();
 
     const [isScanning, setIsScanning] = useState(false);
@@ -64,10 +68,6 @@ function InstrumentStatusPanel({ showNotification, isRemoteViewer }) {
                 }
             });
         }
-        // instrumentStatuses intentionally excluded: getInstrumentStatus uses an internal
-        // ref to guard against duplicate in-flight polls, so we don't need to re-run this
-        // effect every time a status value arrives (which was causing a cascade of re-renders
-        // across every useInstruments() consumer, including CorrectionsModal).
         // eslint-disable-next-line react-hooks/exhaustive-deps
     }, [discoveredInstruments, getInstrumentStatus, isRemoteViewer, isCollecting]);
 
@@ -104,13 +104,41 @@ function InstrumentStatusPanel({ showNotification, isRemoteViewer }) {
         return Array.from(wsMap.entries()).map(([ip, data]) => ({ ip, ...data }));
     }, [discoveredInstruments, localIp]);
 
+    // NEW: Handle claiming/releasing workstations when the user changes views
+    useEffect(() => {
+        if (isRemoteViewer) return;
+
+        if (activeWorkstationIp) {
+            sendWorkstationClaim(activeWorkstationIp);
+        }
+
+        // Cleanup: Release the lock if the component unmounts or the user picks a new IP
+        return () => {
+            if (activeWorkstationIp) {
+                sendWorkstationRelease(activeWorkstationIp);
+            }
+        };
+    }, [activeWorkstationIp, isRemoteViewer, sendWorkstationClaim, sendWorkstationRelease]);
+
+    // UPDATE: Intelligent default IP selection that avoids locked workstations
     useEffect(() => {
         if (workstations.length > 0 && !workstations.some(ws => ws.ip === activeWorkstationIp)) {
-            setActiveWorkstationIp(workstations[0].ip);
+            // Find the first workstation that is NOT claimed by someone else
+            const availableWs = workstations.find(ws => {
+                const isClaimedByOther = claimedWorkstations[ws.ip] && claimedWorkstations[ws.ip].client_id !== myClientId;
+                return !isClaimedByOther;
+            });
+
+            if (availableWs) {
+                setActiveWorkstationIp(availableWs.ip);
+            } else {
+                // If everything is locked, default to the first one (it will show as disabled in the dropdown)
+                setActiveWorkstationIp(workstations[0].ip);
+            }
         } else if (workstations.length === 0) {
             setActiveWorkstationIp('');
         }
-    }, [workstations, activeWorkstationIp]);
+    }, [workstations, activeWorkstationIp, claimedWorkstations, myClientId]);
 
     const resetInstrumentAddress = async () => {
         setStdInstrumentAddress(null);
@@ -396,9 +424,21 @@ function InstrumentStatusPanel({ showNotification, isRemoteViewer }) {
                             disabled={editingIp === activeWorkstationIp || isRemoteViewer}
                             aria-label="Active workstation"
                         >
-                            {workstations.map(({ ip, name, instruments }) => (
-                                <option key={ip} value={ip}>{`${name} (${instruments.length} instruments)`}</option>
-                            ))}
+                            {workstations.map(({ ip, name, instruments }) => {
+                                // UPDATE: Block the UI dropdown choice if it belongs to someone else
+                                const isClaimedByOther = claimedWorkstations[ip] && claimedWorkstations[ip].client_id !== myClientId;
+
+                                return (
+                                    <option 
+                                        key={ip} 
+                                        value={ip}
+                                        disabled={isClaimedByOther}
+                                    >
+                                        {`${name} (${instruments.length} instruments)`}
+                                        {isClaimedByOther ? ' 🔒 (In use by another host)' : ''}
+                                    </option>
+                                );
+                            })}
                         </select>
 
                         <div className="isp-workstation-editor">

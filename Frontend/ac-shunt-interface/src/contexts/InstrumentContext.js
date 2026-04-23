@@ -125,6 +125,9 @@ export const InstrumentContextProvider = ({ children }) => {
   const hostSyncWs = useRef(null);
   const selectedSessionIdRef = useRef(selectedSessionId);
 
+  const [myClientId] = useState(() => Math.random().toString(36).substring(2, 15));
+  const [claimedWorkstations, setClaimedWorkstations] = useState({});
+
   // Keep a ref of the session ID to avoid stale closures in the WebSocket events
   useEffect(() => {
     selectedSessionIdRef.current = selectedSessionId;
@@ -223,6 +226,9 @@ export const InstrumentContextProvider = ({ children }) => {
           if (!isRemoteViewer) {
             setObservers(Array.isArray(data.observers) ? data.observers : []);
           }
+        } else if (data.type === "workstation_claims_update") {
+          // NEW: Store the current registry of locked workstations
+          setClaimedWorkstations(data.claims || {});
         }
       };
 
@@ -279,6 +285,27 @@ export const InstrumentContextProvider = ({ children }) => {
     },
     [switchDriverAddress]
   );
+
+  // --- Workstation Claiming Functions ---
+  const sendWorkstationClaim = useCallback((ip) => {
+    // Only allow hosts to claim hardware
+    if (!isRemoteViewer && hostSyncWs.current?.readyState === WebSocket.OPEN) {
+      hostSyncWs.current.send(JSON.stringify({
+        command: "claim_workstation",
+        ip: ip,
+        client_id: myClientId
+      }));
+    }
+  }, [isRemoteViewer, myClientId]);
+
+  const sendWorkstationRelease = useCallback((ip) => {
+    if (!isRemoteViewer && hostSyncWs.current?.readyState === WebSocket.OPEN) {
+      hostSyncWs.current.send(JSON.stringify({
+        command: "release_workstation",
+        ip: ip
+      }));
+    }
+  }, [isRemoteViewer]);
 
   // --- Collection WebSocket Logic ---
   const clearLiveReadings = useCallback(() => {
@@ -921,6 +948,10 @@ export const InstrumentContextProvider = ({ children }) => {
     observers,
     isRemoteViewer,
     hostSessionKnown,
+    myClientId,
+    claimedWorkstations,
+    sendWorkstationClaim,
+    sendWorkstationRelease,
   };
 
   return (

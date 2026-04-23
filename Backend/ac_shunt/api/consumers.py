@@ -16,6 +16,8 @@ import numpy as np
 from django.conf import settings
 from urllib.parse import unquote, parse_qs
 
+CLAIMED_WORKSTATIONS: dict = {}
+
 
 def _parse_client_role(scope) -> str:
     """Extract the client-declared role from a WebSocket ``scope``.
@@ -1908,6 +1910,10 @@ class DbHealthConsumer(AsyncWebsocketConsumer):
             return
         await self.send(text_data=json.dumps(payload))
 
+# --- Server-authoritative hardware lock registry ---
+# Keyed by workstation IP. Maps to the channel_name of the host that currently
+# has it selected in their UI. This prevents two hosts from clashing over the
+# same physical instrumentation simultaneously.
 class HostSyncConsumer(AsyncWebsocketConsumer):
     async def connect(self):
         self.group_name = 'host_sync_group'
@@ -1938,12 +1944,37 @@ class HostSyncConsumer(AsyncWebsocketConsumer):
             'session_id': HOST_ACTIVE_SESSION_ID
         }))
 
+        # Push the current workstation lock state so a fresh connection
+        # instantly knows which hardware IPs are currently claimed by other hosts.
+        await self.send(text_data=json.dumps({
+            'type': 'workstation_claims_update',
+            'claims': CLAIMED_WORKSTATIONS
+        }))
+
     async def disconnect(self, close_code):
         await self.channel_layer.group_discard(self.group_name, self.channel_name)
+        
         # Drop this socket from the registry and push the fresh observer list
         # so any host still connected updates its pill within a tick.
         if CONNECTED_VIEWERS.pop(self.channel_name, None) is not None:
             await self._broadcast_viewer_presence()
+
+        # Self-Healing Lock Release: If this socket abruptly disconnects 
+        # (e.g., host closes the tab, browser crash, or network loss), 
+        # automatically release any workstations it had claimed so other 
+        # hosts aren't permanently locked out of that hardware.
+        released_any = False
+        keys_to_delete = [ip for ip, data in CLAIMED_WORKSTATIONS.items() if data['channel_name'] == self.channel_name]
+        for ip in keys_to_delete:
+            del CLAIMED_WORKSTATIONS[ip]
+            released_any = True
+
+        # If we actually freed up a workstation, let everyone know.
+        if released_any:
+            await self.channel_layer.group_send(self.group_name, {
+                'type': 'broadcast_claims',
+                'claims': CLAIMED_WORKSTATIONS
+            })
 
     async def receive(self, text_data):
         # Declare globals once at the top of the function scope. Python 3.13
@@ -1993,6 +2024,47 @@ class HostSyncConsumer(AsyncWebsocketConsumer):
                 'type': 'session_changed',
                 'session_id': HOST_ACTIVE_SESSION_ID,
             }))
+
+        elif command == 'claim_workstation':
+            # Workstation hardware locking. Only an active host can lock a 
+            # workstation, preventing two hosts from simultaneously polling 
+            # or driving the same physical instruments.
+            ip = data.get('ip')
+            client_id = data.get('client_id')
+            client_info = CONNECTED_VIEWERS.get(self.channel_name, {})
+            role = client_info.get('role', 'unknown')
+            
+            # Enforce role-based security: Observers can't lock hardware.
+            if ip and role == 'host':
+                CLAIMED_WORKSTATIONS[ip] = {
+                    'channel_name': self.channel_name,
+                    'client_id': client_id,
+                    'role': role
+                }
+                await self.channel_layer.group_send(self.group_name, {
+                    'type': 'broadcast_claims',
+                    'claims': CLAIMED_WORKSTATIONS
+                })
+
+        elif command == 'release_workstation':
+            ip = data.get('ip')
+            
+            # Safety check: Only the socket that owns the lock can release it.
+            if ip in CLAIMED_WORKSTATIONS and CLAIMED_WORKSTATIONS[ip]['channel_name'] == self.channel_name:
+                del CLAIMED_WORKSTATIONS[ip]
+                await self.channel_layer.group_send(self.group_name, {
+                    'type': 'broadcast_claims',
+                    'claims': CLAIMED_WORKSTATIONS
+                })
+
+    # --- Handlers for group_send events ---
+
+    async def broadcast_claims(self, event):
+        """Channels event handler to push the claims payload down the WebSocket."""
+        await self.send(text_data=json.dumps({
+            'type': 'workstation_claims_update',
+            'claims': event['claims']
+        }))
 
     def _collect_observers(self):
         """Build the observer list that hosts consume.
