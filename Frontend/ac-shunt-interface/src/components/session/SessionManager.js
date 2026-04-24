@@ -6,7 +6,7 @@
 import React, { useState, useMemo } from "react";
 import axios from "axios";
 import { useInstruments } from "../../contexts/InstrumentContext";
-import { FaPlus, FaTrashAlt } from "react-icons/fa";
+import { FaPlus, FaTrashAlt, FaTimes, FaCheck } from "react-icons/fa";
 import { API_BASE_URL } from "../../constants/constants";
 
 const ConfirmationModal = ({
@@ -226,19 +226,59 @@ function SessionManager({
         <p>This action cannot be undone.</p>
       </ConfirmationModal>
 
-      <ConfirmationModal
-        isOpen={Boolean(sessionToObserve)}
-        title="Observe Live Calibration?"
-        onConfirm={confirmObserveSession}
-        onCancel={() => setSessionToObserve(null)}
-        confirmText="Observe"
-        confirmClassName="button"
-      >
-        <p>
-          <strong>{sessionToObserve?.session_name}</strong> is currently active in another calibration window.
-        </p>
-        <p>Observe mode opens the live session read-only. You can leave observe mode by starting a new session.</p>
-      </ConfirmationModal>
+      {Boolean(sessionToObserve) && (
+        <div
+          className="modal-overlay"
+          onClick={() => setSessionToObserve(null)}
+        >
+          <div
+            className="confirm-modal"
+            role="dialog"
+            aria-modal="true"
+            aria-labelledby="session-observe-modal-title"
+            onClick={(e) => e.stopPropagation()}
+          >
+            <header className="confirm-modal-header">
+              <div className="confirm-modal-header-text">
+                <span className="confirm-modal-eyebrow">Live session</span>
+                <h3
+                  id="session-observe-modal-title"
+                  className="confirm-modal-title"
+                >
+                  Observe this calibration?
+                </h3>
+              </div>
+              <button
+                type="button"
+                onClick={() => setSessionToObserve(null)}
+                className="cal-results-excel-icon-btn"
+                title="Cancel"
+                aria-label="Cancel"
+              >
+                <FaTimes aria-hidden />
+              </button>
+            </header>
+            <div className="confirm-modal-body">
+              <p className="confirm-modal-message">
+                <strong>{sessionToObserve?.session_name}</strong> is active in
+                another window. Observer mode is read-only. You can leave any
+                time from the header.
+              </p>
+            </div>
+            <footer className="confirm-modal-footer confirm-modal-footer--icon">
+              <button
+                type="button"
+                onClick={confirmObserveSession}
+                className="cal-results-excel-icon-btn"
+                title="Confirm — observe this session"
+                aria-label="Confirm — observe this session"
+              >
+                <FaCheck aria-hidden />
+              </button>
+            </footer>
+          </div>
+        </div>
+      )}
 
       <section className="session-panel session-manager-container">
         <header className="session-panel-header">

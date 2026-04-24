@@ -249,17 +249,22 @@ export const InstrumentContextProvider = ({ children }) => {
           // Normal operators still receive active-session metadata for the
           // dropdown, but their selected session is never overwritten.
           if (isRemoteViewer) {
-            // ``data.session_id`` is an int when the host is in a session and
-            // ``null`` when they haven't picked one yet. Either way, receipt
-            // of the message means we now have authoritative state — flip
-            // hostSessionKnown so the UI can replace the generic "no test
-            // points" empty state with a remote-specific indicator.
-            if (
-              data.session_id == null ||
-              data.session_id?.toString() === observedSessionId?.toString()
-            ) {
-              setSelectedSessionId(data.session_id ?? null);
+            // ``data.session_id`` is the *legacy* single active session scalar.
+            // It is often null on first push or in multi-host maps before the
+            // row the observer cares about is the one the scalar picks. Under
+            // the old (session_id == null) branch we called
+            // setSelectedSessionId(null), which briefly cleared the session
+            // the user had just selected to observe — the full UI flicker.
+            // Observers keep `selectedSessionId` aligned with `observedSessionId`
+            // from `observeSession`; we only nudge the state if the server
+            // reports a *matching* id. Never clobber the selection to null here.
+            if (data.session_id != null) {
+              if (data.session_id.toString() === observedSessionId?.toString()) {
+                setSelectedSessionId(data.session_id);
+              }
             }
+            // Receipt of session_changed is enough to end any "connecting" UI
+            // until host-sync drops again.
             setHostSessionKnown(true);
           }
         } else if (data.type === "viewer_presence") {

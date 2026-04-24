@@ -3867,6 +3867,12 @@ body.dark-mode .bug-report-list-item:hover {
   padding: 18px 20px 20px 20px;
 }
 
+/* Single ghost (metallic) icon action — e.g. SessionManager observe. */
+.confirm-modal-footer--icon {
+  padding: 8px 16px 18px 20px;
+  align-items: center;
+}
+
 .confirm-modal-action {
   display: inline-flex;
   align-items: center;

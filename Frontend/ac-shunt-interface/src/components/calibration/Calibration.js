@@ -1168,6 +1168,18 @@ function Calibration({
 
       const firstPointInBatch = selectedOrderedTPs[0];
 
+      // Settings must follow the *active* direction. Preferring
+      // forward over reverse was wrong: a reverse run would always
+      // use the forward test point's saved `initial_warm_up_time` (and
+      // the rest) even when the user had set distinct reverse values.
+      const dirKey = activeDirection === "Forward" ? "forward" : "reverse";
+      const firstPointForDir = firstPointInBatch?.[dirKey];
+      const firstPointSettings =
+        firstPointForDir?.settings &&
+        Object.keys(firstPointForDir.settings).length > 0
+          ? firstPointForDir.settings
+          : calibrationSettings;
+
       // Pre-run hook: if the user opted in, characterize the Test TVC first
       // so its η is fresh before the batch/single run uses it downstream.
       if (calibrationSettings.characterize_test_first && firstPointInBatch) {
@@ -1194,11 +1206,6 @@ function Calibration({
       if (firstPointInBatch) {
         setFocusedTP(firstPointInBatch);
       }
-
-      const firstPointSettings =
-        firstPointInBatch?.forward?.settings ||
-        firstPointInBatch?.reverse?.settings ||
-        calibrationSettings;
 
       setIsBulkRunning(true);
 
@@ -1518,10 +1525,13 @@ function Calibration({
           setFocusedTP(firstPointToRun);
         }
 
+        const stageDirKey = activeDirection === "Forward" ? "forward" : "reverse";
+        const firstForActiveDir = firstPointToRun?.[stageDirKey];
         const firstPointSettings =
-          firstPointToRun?.forward?.settings ||
-          firstPointToRun?.reverse?.settings ||
-          calibrationSettings;
+          firstForActiveDir?.settings &&
+          Object.keys(firstForActiveDir.settings).length > 0
+            ? firstForActiveDir.settings
+            : calibrationSettings;
 
         const params = {
           command: "start_single_stage_batch",
