@@ -11,6 +11,7 @@ import React, {
 import axios from "axios";
 import {
   FaCalculator,
+  FaCheck,
   FaDownload,
   FaTimes,
   FaSave,
@@ -173,26 +174,48 @@ const ConfirmationModal = ({
 }) => {
   if (!isOpen) return null;
   return (
-    <div className="modal-overlay">
-      <div className="modal-content">
-        <h3>{title}</h3>
-        <p
-          style={{
-            marginBottom: "25px",
-            whiteSpace: "pre-wrap",
-            lineHeight: "1.6",
-          }}
-        >
-          {message}
-        </p>
-        <div className="modal-actions">
-          <button onClick={onCancel} className="button button-secondary">
-            Cancel
+    <div className="modal-overlay" onClick={onCancel}>
+      <div
+        className="confirm-modal"
+        role="dialog"
+        aria-modal="true"
+        aria-labelledby="calibration-confirm-modal-title"
+        onClick={(e) => e.stopPropagation()}
+      >
+        <header className="confirm-modal-header">
+          <div className="confirm-modal-header-text">
+            <span className="confirm-modal-eyebrow">Confirm</span>
+            <h3
+              id="calibration-confirm-modal-title"
+              className="confirm-modal-title"
+            >
+              {title}
+            </h3>
+          </div>
+          <button
+            type="button"
+            onClick={onCancel}
+            className="cal-results-excel-icon-btn"
+            title="Cancel"
+            aria-label="Cancel"
+          >
+            <FaTimes aria-hidden />
           </button>
-          <button onClick={onConfirm} className="button">
-            {confirmText}
-          </button>
+        </header>
+        <div className="confirm-modal-body">
+          <p className="confirm-modal-message">{message}</p>
         </div>
+        <footer className="confirm-modal-footer confirm-modal-footer--icon calibration-confirm-modal-footer">
+          <button
+            type="button"
+            onClick={onConfirm}
+            className="cal-results-excel-icon-btn"
+            title={confirmText}
+            aria-label={confirmText}
+          >
+            <FaCheck aria-hidden />
+          </button>
+        </footer>
       </div>
     </div>
   );
@@ -2064,10 +2087,10 @@ function Calibration({
       <ConfirmationModal
         isOpen={amplifierModal.isOpen}
         title="Confirm Amplifier Range"
-        message={`Please ensure the 8100 Amplifier range is set to ${amplifierModal.range} A. Incorrect range setting may damage the equipment.\n\nVerify 5730A calibrators voltage output are correct. Once verified, set the 8100 to operate and click Proceed.`}
+        message={`Please ensure the 8100 Amplifier range is set to ${amplifierModal.range} A. Incorrect range setting may damage the equipment.\n\nVerify 5730A calibrators voltage output are correct. Once verified, set the 8100 to operate and confirm with the checkmark below.`}
         onConfirm={amplifierModal.onConfirm}
         onCancel={amplifierModal.onCancel}
-        confirmText="Proceed"
+        confirmText="Proceed — confirm amplifier range"
       />
 
       {!selectedSessionId ? (

@@ -16,10 +16,10 @@ import {
 } from "./contexts/InstrumentContext";
 import { ThemeProvider, useTheme } from "./contexts/ThemeContext";
 import "bootstrap/dist/css/bootstrap.min.css";
-import { FaInfoCircle, FaTimes, FaSun, FaMoon, FaCheckCircle, FaExclamationTriangle, FaExclamationCircle, FaBug, FaNetworkWired, FaEye, FaEyeSlash, FaHome, FaSave, FaTrashAlt, FaPen, FaCheck, FaLink, FaUnlink, FaServer } from "react-icons/fa";
+import { FaInfoCircle, FaTimes, FaSun, FaMoon, FaCheckCircle, FaExclamationTriangle, FaExclamationCircle, FaBug, FaEye, FaEyeSlash } from "react-icons/fa";
 import "./App.css";
 import { arrayMove } from "@dnd-kit/sortable";
-import { AVAILABLE_FREQUENCIES, API_BASE_URL, baseIp } from "./constants/constants";
+import { AVAILABLE_FREQUENCIES, API_BASE_URL } from "./constants/constants";
 import useDbHealth from "./hooks/useDbHealth";
 
 const APP_VERSION = "v1.0.0";
@@ -182,415 +182,6 @@ const CorrectionsDetailsModal = ({
             <span className="point-corrections-value">
               {formatTvc(tiTvcCorr)}
             </span>
-          </div>
-        </div>
-      </div>
-    </div>
-  );
-};
-
-// Persistent registry of named remote hosts the user has connected to. Stored
-// in localStorage as JSON ``[{ name, ip }]`` so it survives reloads without
-// touching the Django DB (per-device UX preference, not calibration data).
-const SAVED_HOSTS_KEY = "REMOTE_HOSTS";
-
-const loadSavedHosts = () => {
-  try {
-    const raw = localStorage.getItem(SAVED_HOSTS_KEY);
-    if (!raw) return [];
-    const parsed = JSON.parse(raw);
-    return Array.isArray(parsed)
-      ? parsed
-          .filter((h) => h && typeof h.ip === "string" && h.ip.trim())
-          .map((h) => ({ name: (h.name || "").toString(), ip: h.ip.trim() }))
-      : [];
-  } catch {
-    return [];
-  }
-};
-
-const persistSavedHosts = (list) => {
-  try {
-    localStorage.setItem(SAVED_HOSTS_KEY, JSON.stringify(list));
-  } catch (e) {
-    // localStorage full / disabled — silently ignore; the list stays in
-    // component state for the current session.
-    console.warn("Failed to persist saved hosts:", e);
-  }
-};
-
-// Basic IPv4 / hostname syntactic sniff. We don't need RFC-compliant parsing,
-// just enough to keep an obvious typo out of localStorage.
-const isValidHostCandidate = (value) => {
-  if (!value) return false;
-  const v = value.trim();
-  if (!v) return false;
-  if (v === "localhost" || v === "127.0.0.1") return true;
-  // IPv4: 4 dot-separated octets 0-255.
-  const ipv4 = /^(25[0-5]|2[0-4]\d|1?\d?\d)(\.(25[0-5]|2[0-4]\d|1?\d?\d)){3}$/;
-  if (ipv4.test(v)) return true;
-  // Hostname fallback: letters, digits, dots, hyphens — keeps things flexible
-  // for mDNS names like ``lab-pc.local``.
-  return /^[a-zA-Z0-9][a-zA-Z0-9.-]*$/.test(v);
-};
-
-const NetworkModal = ({ isOpen, onClose }) => {
-  const [savedHosts, setSavedHosts] = useState(() => loadSavedHosts());
-  const [nameInput, setNameInput] = useState("");
-  const [ipInput, setIpInput] = useState("");
-  const [addError, setAddError] = useState("");
-  const [editingIp, setEditingIp] = useState(null);
-  const [editingName, setEditingName] = useState("");
-
-  // We snapshot the active IP once on open. Changing it always reloads the
-  // page, so there's no need to re-read it in response to edits.
-  const activeIp = baseIp;
-  const isLocal =
-    !activeIp || activeIp === "localhost" || activeIp === "127.0.0.1";
-  const activeHost = savedHosts.find((h) => h.ip === activeIp);
-
-  if (!isOpen) return null;
-
-  const savePersistedList = (next) => {
-    setSavedHosts(next);
-    persistSavedHosts(next);
-  };
-
-  const handleConnect = (ip) => {
-    const trimmed = (ip || "").trim();
-    if (!trimmed || trimmed === "localhost" || trimmed === "127.0.0.1") {
-      localStorage.removeItem("REMOTE_HOST_IP");
-    } else {
-      localStorage.setItem("REMOTE_HOST_IP", trimmed);
-    }
-    // Full reload so constants.js re-evaluates ``baseIp`` and every WebSocket
-    // rebuilds against the new target.
-    window.location.reload();
-  };
-
-  const handleDisconnect = () => {
-    localStorage.removeItem("REMOTE_HOST_IP");
-    const currentHost = window.location.hostname;
-    if (currentHost && currentHost !== "localhost" && currentHost !== "127.0.0.1") {
-      const port = window.location.port ? `:${window.location.port}` : "";
-      window.location.href = `${window.location.protocol}//localhost${port}${window.location.pathname}${window.location.search}${window.location.hash}`;
-      return;
-    }
-    window.location.reload();
-  };
-
-  const handleAddNew = () => {
-    const name = nameInput.trim();
-    const ip = ipInput.trim();
-    if (!ip) {
-      setAddError("Enter an IP address or hostname.");
-      return;
-    }
-    if (!isValidHostCandidate(ip)) {
-      setAddError("That doesn't look like a valid IP or hostname.");
-      return;
-    }
-    // Block saving ``localhost`` as a "saved" host — it's always implicit.
-    if (ip === "localhost" || ip === "127.0.0.1") {
-      setAddError("Local mode is always available — no need to save it.");
-      return;
-    }
-    const existingIdx = savedHosts.findIndex((h) => h.ip === ip);
-    const next =
-      existingIdx >= 0
-        ? savedHosts.map((h, i) =>
-            i === existingIdx ? { ...h, name: name || h.name } : h
-          )
-        : [...savedHosts, { name: name || ip, ip }];
-    savePersistedList(next);
-    setNameInput("");
-    setIpInput("");
-    setAddError("");
-  };
-
-  const handleDelete = (ip) => {
-    savePersistedList(savedHosts.filter((h) => h.ip !== ip));
-    if (editingIp === ip) {
-      setEditingIp(null);
-      setEditingName("");
-    }
-  };
-
-  const startRename = (host) => {
-    setEditingIp(host.ip);
-    setEditingName(host.name || "");
-  };
-
-  const commitRename = () => {
-    if (!editingIp) return;
-    const trimmed = editingName.trim();
-    savePersistedList(
-      savedHosts.map((h) =>
-        h.ip === editingIp ? { ...h, name: trimmed || h.name || h.ip } : h
-      )
-    );
-    setEditingIp(null);
-    setEditingName("");
-  };
-
-  const cancelRename = () => {
-    setEditingIp(null);
-    setEditingName("");
-  };
-
-  return (
-    <div className="modal-overlay" onClick={onClose}>
-      <div
-        className="bug-report-modal"
-        role="dialog"
-        aria-modal="true"
-        aria-labelledby="network-modal-title"
-        onClick={(e) => e.stopPropagation()}
-      >
-        <header className="bug-report-modal-header">
-          <div className="bug-report-modal-header-text">
-            <span className="bug-report-modal-eyebrow">Settings</span>
-            <h3 id="network-modal-title" className="bug-report-modal-title">
-              <FaNetworkWired
-                aria-hidden
-                className="bug-report-modal-title-icon"
-              />
-              Network connection
-            </h3>
-          </div>
-          <button
-            type="button"
-            onClick={onClose}
-            className="cal-results-excel-icon-btn"
-            title="Close"
-            aria-label="Close"
-          >
-            <FaTimes aria-hidden />
-          </button>
-        </header>
-
-        <div className="bug-report-modal-body">
-          <div className="session-details-form">
-            <div className="session-form-group">
-              <span className="session-form-group-eyebrow">
-                Current connection
-              </span>
-              <div
-                className={`network-current ${
-                  isLocal ? "is-local" : "is-remote"
-                }`}
-              >
-                <div className="network-current-icon" aria-hidden>
-                  {isLocal ? <FaHome /> : <FaServer />}
-                </div>
-                <div className="network-current-text">
-                  <span className="network-current-label">
-                    {isLocal
-                      ? "Local host"
-                      : activeHost?.name || "Unnamed host"}
-                  </span>
-                  <span className="network-current-ip">
-                    {isLocal ? "This machine" : activeIp}
-                  </span>
-                </div>
-                {!isLocal && (
-                  <button
-                    type="button"
-                    className="cal-results-excel-icon-btn"
-                    onClick={handleDisconnect}
-                    title="Disconnect and return to local mode"
-                    aria-label="Disconnect and return to local mode"
-                  >
-                    <FaUnlink aria-hidden />
-                  </button>
-                )}
-              </div>
-            </div>
-
-            <div className="session-form-group">
-              <div className="network-section-heading">
-                <span className="session-form-group-eyebrow">Saved hosts</span>
-                <span className="network-section-hint" aria-live="polite">
-                  {savedHosts.length === 0
-                    ? "Save a machine below to connect in one step."
-                    : `${savedHosts.length} saved`}
-                </span>
-              </div>
-
-              {savedHosts.length === 0 ? (
-                <div className="network-empty" role="status">
-                  <p>No saved hosts yet.</p>
-                </div>
-              ) : (
-                <ul className="network-host-list">
-                  {savedHosts.map((host) => {
-                    const isActive = host.ip === activeIp && !isLocal;
-                    const isEditing = editingIp === host.ip;
-                    return (
-                      <li
-                        key={host.ip}
-                        className={`network-host-row${
-                          isActive ? " is-active" : ""
-                        }`}
-                      >
-                        <div className="network-host-main">
-                          {isEditing ? (
-                            <input
-                              type="text"
-                              value={editingName}
-                              onChange={(e) =>
-                                setEditingName(e.target.value)
-                              }
-                              onKeyDown={(e) => {
-                                if (e.key === "Enter") commitRename();
-                                else if (e.key === "Escape")
-                                  cancelRename();
-                              }}
-                              className="network-rename-input"
-                              placeholder={host.ip}
-                              autoFocus
-                            />
-                          ) : (
-                            <span className="network-host-name">
-                              {host.name || host.ip}
-                            </span>
-                          )}
-                          <span className="network-host-ip">{host.ip}</span>
-                        </div>
-                        <div className="network-host-actions">
-                          {isEditing ? (
-                            <>
-                              <button
-                                type="button"
-                                className="cal-results-excel-icon-btn"
-                                onClick={commitRename}
-                                title="Save name"
-                                aria-label="Save name"
-                              >
-                                <FaCheck aria-hidden />
-                              </button>
-                              <button
-                                type="button"
-                                className="cal-results-excel-icon-btn"
-                                onClick={cancelRename}
-                                title="Cancel rename"
-                                aria-label="Cancel rename"
-                              >
-                                <FaTimes aria-hidden />
-                              </button>
-                            </>
-                          ) : (
-                            <>
-                              <button
-                                type="button"
-                                className="cal-results-excel-icon-btn"
-                                onClick={() => startRename(host)}
-                                title="Rename"
-                                aria-label="Rename host"
-                              >
-                                <FaPen aria-hidden />
-                              </button>
-                              <button
-                                type="button"
-                                className="cal-results-excel-icon-btn cal-results-excel-icon-btn--danger"
-                                onClick={() => handleDelete(host.ip)}
-                                title="Forget this host"
-                                aria-label="Forget this host"
-                                disabled={isActive}
-                              >
-                                <FaTrashAlt aria-hidden />
-                              </button>
-                              <button
-                                type="button"
-                                className={
-                                  isActive
-                                    ? "cal-results-excel-icon-btn network-connect--active"
-                                    : "cal-results-excel-icon-btn"
-                                }
-                                onClick={() => handleConnect(host.ip)}
-                                disabled={isActive}
-                                title={
-                                  isActive
-                                    ? "Already connected to this host"
-                                    : `Connect to ${host.name || host.ip}`
-                                }
-                                aria-label={
-                                  isActive
-                                    ? "Already connected to this host"
-                                    : `Connect to ${host.name || host.ip}`
-                                }
-                              >
-                                {isActive ? (
-                                  <FaCheck aria-hidden />
-                                ) : (
-                                  <FaLink aria-hidden />
-                                )}
-                              </button>
-                            </>
-                          )}
-                        </div>
-                      </li>
-                    );
-                  })}
-                </ul>
-              )}
-            </div>
-
-            <div className="session-form-group">
-              <span className="session-form-group-eyebrow">Add a host</span>
-              <p className="network-section-hint">
-                Give the machine a friendly name so you can find it later.
-              </p>
-              <div className="form-section-group">
-                <div className="form-section">
-                  <label htmlFor="network-add-name">Nickname (optional)</label>
-                  <input
-                    id="network-add-name"
-                    type="text"
-                    value={nameInput}
-                    onChange={(e) => {
-                      setNameInput(e.target.value);
-                      setAddError("");
-                    }}
-                    placeholder="e.g. Lab PC"
-                    autoComplete="off"
-                  />
-                </div>
-                <div className="form-section">
-                  <label htmlFor="network-add-ip">IP or hostname</label>
-                  <input
-                    id="network-add-ip"
-                    type="text"
-                    value={ipInput}
-                    onChange={(e) => {
-                      setIpInput(e.target.value);
-                      setAddError("");
-                    }}
-                    onKeyDown={(e) => {
-                      if (e.key === "Enter") handleAddNew();
-                    }}
-                    placeholder="192.168.1.50"
-                    autoComplete="off"
-                  />
-                </div>
-              </div>
-              <div className="network-add-footer">
-                <button
-                  type="button"
-                  className="sidebar-action-button"
-                  onClick={handleAddNew}
-                  title="Save host"
-                  aria-label="Save host"
-                >
-                  <FaSave aria-hidden />
-                </button>
-              </div>
-              {addError && (
-                <p className="network-add-error" role="alert">
-                  {addError}
-                </p>
-              )}
-            </div>
           </div>
         </div>
       </div>
@@ -940,9 +531,6 @@ function AppContent() {
   );
   const dbHealth = useDbHealth({ enabled: dbHealthWsEnabled });
   const dbRecoveryToastShownRef = useRef(false);
-  const [isNetworkModalOpen, setIsNetworkModalOpen] = useState(false);
-
-  const isRemoteConnection = baseIp !== "localhost" && baseIp !== "127.0.0.1";
 
   const showSessionInfoInChrome =
     Boolean(selectedSessionName) ||
@@ -1441,10 +1029,6 @@ function AppContent() {
         activeTab={activeTab}
         theme={theme}
       />
-      <NetworkModal
-        isOpen={isNetworkModalOpen}
-        onClose={() => setIsNetworkModalOpen(false)}
-      />
       <ReleaseNotesModal
         isOpen={isReleaseNotesOpen}
         onClose={() => setIsReleaseNotesOpen(false)}
@@ -1735,7 +1319,7 @@ function AppContent() {
             )}
             <div
               className="app-chrome-meta-group app-chrome-meta-group--tools"
-              aria-label="Feedback and network"
+              aria-label="Feedback"
             >
               <button
                 type="button"
@@ -1746,15 +1330,7 @@ function AppContent() {
               >
                 <FaBug aria-hidden />
               </button>
-              {isRemoteViewer ? (
-                // Observer mode: the same spot becomes the explicit
-                // "leave" affordance. Users arriving at an active session
-                // via the dropdown "Observe" prompt, or via the silent-
-                // downgrade race, need a discoverable way back to their
-                // own session. The label is unambiguous and the icon
-                // (eye with slash) matches the ObserversPill so the
-                // visual story — eye = observe, eye-slash = stop
-                // observing — stays consistent.
+              {isRemoteViewer && (
                 <button
                   type="button"
                   onClick={() => {
@@ -1772,29 +1348,6 @@ function AppContent() {
                   title="You're observing a live calibration. Click to leave observer mode and return to your own session."
                 >
                   <FaEyeSlash aria-hidden />
-                </button>
-              ) : (
-                <button
-                  type="button"
-                  onClick={() => setIsNetworkModalOpen(true)}
-                  className={`app-chrome-meta-icon app-chrome-network-btn${
-                    isRemoteConnection ? " is-remote" : ""
-                  }`}
-                  aria-label={
-                    isRemoteConnection
-                      ? `Network connection — ${loadSavedHosts().find((h) => h.ip === baseIp)?.name || baseIp}`
-                      : "Network connection"
-                  }
-                  title={
-                    isRemoteConnection
-                      ? `Connected to ${
-                          loadSavedHosts().find((h) => h.ip === baseIp)?.name ||
-                          baseIp
-                        } (${baseIp}). Click to change.`
-                      : "This machine. Click to connect to a remote host."
-                  }
-                >
-                  <FaNetworkWired aria-hidden />
                 </button>
               )}
             </div>

@@ -207,7 +207,7 @@ export const InstrumentContextProvider = ({ children }) => {
         if (isRemoteViewer) {
           // Belt-and-suspenders pull of the host's active session. The server
           // already pushes ``session_changed`` on connect, but reconnect
-          // flurries (Network Modal → reload → WS open, or a flaky network
+          // flurries (reload → WS open, or a flaky network
           // that forces the socket to retry) can race the initial send with
           // the client's onmessage handler. Re-asking here is idempotent
           // because the server unicasts only to us.
