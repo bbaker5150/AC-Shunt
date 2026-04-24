@@ -9,7 +9,15 @@ import { useInstruments } from "../../contexts/InstrumentContext";
 import { FaPlus, FaTrashAlt } from "react-icons/fa";
 import { API_BASE_URL } from "../../constants/constants";
 
-const ConfirmationModal = ({ isOpen, title, children, onConfirm, onCancel }) => {
+const ConfirmationModal = ({
+  isOpen,
+  title,
+  children,
+  onConfirm,
+  onCancel,
+  confirmText = "Confirm Delete",
+  confirmClassName = "button button-danger",
+}) => {
   if (!isOpen) return null;
   return (
     <div className="modal-overlay">
@@ -18,14 +26,15 @@ const ConfirmationModal = ({ isOpen, title, children, onConfirm, onCancel }) => 
         <div style={{ margin: "20px 0" }}>{children}</div>
         <div className="modal-actions">
           <button onClick={onCancel} className="button button-secondary">Cancel</button>
-          <button onClick={onConfirm} className="button button-danger">Confirm Delete</button>
+          <button onClick={onConfirm} className={confirmClassName}>{confirmText}</button>
         </div>
       </div>
     </div>
   );
 };
 
-// Updated CustomDropdown accepts activeSessionIds to disable "In Use" sessions
+// CustomDropdown accepts activeSessionIds to flag live sessions before the
+// user chooses whether to observe them.
 const CustomDropdown = ({ options, value, onChange, placeholder, disabled, activeSessionIds = [] }) => {
   const [isOpen, setIsOpen] = useState(false);
   const [searchTerm, setSearchTerm] = useState("");
@@ -72,10 +81,10 @@ const CustomDropdown = ({ options, value, onChange, placeholder, disabled, activ
                       onChange(opt.id); 
                       setIsOpen(false); 
                     }}
-                    title={isInUse ? "Click to join as an Observer." : ""}
+                    title={isInUse ? "Live calibration session. Click to observe." : ""}
                     style={isInUse ? { backgroundColor: 'var(--bg-secondary)', color: 'var(--text-muted)' } : {}}
                   >
-                    {opt.session_name} {isInUse ? "(Active - Join as Observer)" : ""}
+                    {opt.session_name} {isInUse ? "(Active)" : ""}
                   </li>
                 );
               })
@@ -103,25 +112,23 @@ function SessionManager({
     setStdInstrumentAddress, setStdReaderModel, setStdReaderSN, setTiInstrumentAddress, setTiReaderModel, setTiReaderSN,
     setAcSourceAddress, setAcSourceSN, setDcSourceAddress, setDcSourceSN, setSwitchDriverAddress, setSwitchDriverModel, setSwitchDriverSN,
     setAmplifierAddress, setAmplifierSN, setStandardTvcSn, setTestTvcSn, setStandardInstrumentSerial, setTestInstrumentSerial, setFailedTPKeys,
-    activeHostSessionIds // Extract the active session IDs from your context
+    activeHostSessionIds,
+    observeSession,
+    leaveObserverMode,
+    clearSessionState,
+    hostSyncSynced,
   } = useInstruments();
 
   const [isModalOpen, setIsModalOpen] = useState(false);
   const [sessionToDelete, setSessionToDelete] = useState(null);
+  const [sessionToObserve, setSessionToObserve] = useState(null);
 
-  const clearSessionState = () => {
-    setSelectedSessionId(null);
-    setSelectedSessionName("");
-    setStdInstrumentAddress(null); setStdReaderModel(null); setStdReaderSN(null); setTiInstrumentAddress(null); setTiReaderModel(null); setTiReaderSN(null);
-    setAcSourceAddress(null); setAcSourceSN(null); setDcSourceAddress(null); setDcSourceSN(null); setSwitchDriverAddress(null); setSwitchDriverModel(null); setSwitchDriverSN(null);
-    setAmplifierAddress(null); setAmplifierSN(null); setStandardTvcSn(null); setTestTvcSn(null);
-    setStandardInstrumentSerial(null); setTestInstrumentSerial(null);
-    setFailedTPKeys(new Set());
-  };
+  const activeIds = useMemo(
+    () => new Set((activeHostSessionIds || []).map((id) => id?.toString())),
+    [activeHostSessionIds]
+  );
 
-  const handleSessionSelectChange = (sessionId) => {
-    const session = sessionsList.find((s) => s.id.toString() === sessionId.toString());
-    setSelectedSessionId(sessionId || null);
+  const populateSessionState = (session) => {
     setSelectedSessionName(session ? session.session_name : "");
     setFailedTPKeys(new Set());
 
@@ -148,7 +155,36 @@ function SessionManager({
     }
   };
 
+  const handleSessionSelectChange = (sessionId) => {
+    const session = sessionsList.find((s) => s.id.toString() === sessionId.toString());
+    const isSelected = selectedSessionId?.toString() === sessionId?.toString();
+    const isActiveElsewhere = activeIds.has(sessionId?.toString()) && !isSelected;
+
+    if (isActiveElsewhere && session) {
+      setSessionToObserve(session);
+      return;
+    }
+
+    if (isRemoteViewer) {
+      leaveObserverMode();
+    }
+
+    setSelectedSessionId(sessionId || null);
+    populateSessionState(session);
+  };
+
+  const confirmObserveSession = () => {
+    if (!sessionToObserve) return;
+    observeSession(sessionToObserve.id);
+    populateSessionState(sessionToObserve);
+    setSessionToObserve(null);
+    showNotification("Observer mode enabled for the live calibration session.", "info");
+  };
+
   const handleNewSession = () => {
+    if (isRemoteViewer) {
+      leaveObserverMode();
+    }
     clearSessionState();
     showNotification("Form cleared for a new session.", "info");
   };
@@ -190,6 +226,20 @@ function SessionManager({
         <p>This action cannot be undone.</p>
       </ConfirmationModal>
 
+      <ConfirmationModal
+        isOpen={Boolean(sessionToObserve)}
+        title="Observe Live Calibration?"
+        onConfirm={confirmObserveSession}
+        onCancel={() => setSessionToObserve(null)}
+        confirmText="Observe"
+        confirmClassName="button"
+      >
+        <p>
+          <strong>{sessionToObserve?.session_name}</strong> is currently active in another calibration window.
+        </p>
+        <p>Observe mode opens the live session read-only. You can leave observe mode by starting a new session.</p>
+      </ConfirmationModal>
+
       <section className="session-panel session-manager-container">
         <header className="session-panel-header">
           <div className="session-panel-header-text">
@@ -205,7 +255,6 @@ function SessionManager({
               className="cal-results-excel-icon-btn"
               aria-label="Start a new session"
               title="Start a new session"
-              disabled={isRemoteViewer}
             >
               <FaPlus aria-hidden />
             </button>
@@ -217,13 +266,25 @@ function SessionManager({
             Active session
           </label>
           <div className="session-picker-controls">
+            {/* ``hostSyncSynced`` gates selection on the first
+                ``session_changed`` broadcast. Without this, a click that
+                beats the host-sync WebSocket by a few tens of ms lands
+                with an empty activeHostSessionIds set, bypasses the
+                "Observe?" prompt, and silently downgrades the user into
+                observer mode on an active session. */}
             <CustomDropdown
               options={sessionsList}
               value={selectedSessionId}
               onChange={handleSessionSelectChange}
-              placeholder={isLoadingSessions ? "Loading sessions…" : "Select a session…"}
-              disabled={isLoadingSessions || isRemoteViewer}
-              activeSessionIds={activeHostSessionIds} 
+              placeholder={
+                isLoadingSessions
+                  ? "Loading sessions…"
+                  : !hostSyncSynced
+                    ? "Connecting to host-sync…"
+                    : "Select a session…"
+              }
+              disabled={isLoadingSessions || !hostSyncSynced}
+              activeSessionIds={activeHostSessionIds}
             />
             <button
               type="button"

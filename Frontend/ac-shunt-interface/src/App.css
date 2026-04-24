@@ -991,6 +991,46 @@ body.dark-mode .drag-handle:hover svg {
   );
 }
 
+/* Observer-mode affordance. Borrows the slot normally occupied by the
+   network button and re-styles it in the warning colorway so it reads as
+   an active status + single-click exit — it's the only way back to a
+   non-read-only session besides starting a new one from the dropdown. */
+.app-chrome-network-btn.is-observing {
+  color: var(--accent-warning, #d97706);
+  border-color: color-mix(
+    in srgb,
+    var(--accent-warning, #d97706) 55%,
+    transparent
+  );
+  background-color: color-mix(
+    in srgb,
+    var(--accent-warning, #d97706) 14%,
+    transparent
+  );
+  animation: observer-btn-pulse 2.6s ease-in-out infinite;
+}
+
+.app-chrome-network-btn.is-observing:hover {
+  background-color: color-mix(
+    in srgb,
+    var(--accent-warning, #d97706) 24%,
+    transparent
+  );
+}
+
+@keyframes observer-btn-pulse {
+  0%, 100% {
+    box-shadow: 0 0 0 0 color-mix(
+      in srgb,
+      var(--accent-warning, #d97706) 35%,
+      transparent
+    );
+  }
+  50% {
+    box-shadow: 0 0 0 5px transparent;
+  }
+}
+
 .observers-pill {
   position: relative;
   display: inline-flex;

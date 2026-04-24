@@ -3,6 +3,6 @@ import App from './App';
 
 test('renders the main application header', () => {
   render(<App />);
-  const headingElement = screen.getByText(/AC Shunt Calibration/i);
+  const headingElement = screen.getByText(/Calibration Platform/i);
   expect(headingElement).toBeInTheDocument();
 });

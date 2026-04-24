@@ -16,7 +16,7 @@ import {
 } from "./contexts/InstrumentContext";
 import { ThemeProvider, useTheme } from "./contexts/ThemeContext";
 import "bootstrap/dist/css/bootstrap.min.css";
-import { FaInfoCircle, FaTimes, FaSun, FaMoon, FaCheckCircle, FaExclamationTriangle, FaExclamationCircle, FaBug, FaNetworkWired, FaEye, FaHome, FaSave, FaTrashAlt, FaPen, FaCheck, FaLink, FaUnlink, FaServer } from "react-icons/fa";
+import { FaInfoCircle, FaTimes, FaSun, FaMoon, FaCheckCircle, FaExclamationTriangle, FaExclamationCircle, FaBug, FaNetworkWired, FaEye, FaEyeSlash, FaHome, FaSave, FaTrashAlt, FaPen, FaCheck, FaLink, FaUnlink, FaServer } from "react-icons/fa";
 import "./App.css";
 import { arrayMove } from "@dnd-kit/sortable";
 import { AVAILABLE_FREQUENCIES, API_BASE_URL, baseIp } from "./constants/constants";
@@ -244,10 +244,7 @@ const NetworkModal = ({ isOpen, onClose }) => {
 
   // We snapshot the active IP once on open. Changing it always reloads the
   // page, so there's no need to re-read it in response to edits.
-  const activeIp = (() => {
-    const stored = (localStorage.getItem("REMOTE_HOST_IP") || "").trim();
-    return stored;
-  })();
+  const activeIp = baseIp;
   const isLocal =
     !activeIp || activeIp === "localhost" || activeIp === "127.0.0.1";
   const activeHost = savedHosts.find((h) => h.ip === activeIp);
@@ -271,7 +268,16 @@ const NetworkModal = ({ isOpen, onClose }) => {
     window.location.reload();
   };
 
-  const handleDisconnect = () => handleConnect("");
+  const handleDisconnect = () => {
+    localStorage.removeItem("REMOTE_HOST_IP");
+    const currentHost = window.location.hostname;
+    if (currentHost && currentHost !== "localhost" && currentHost !== "127.0.0.1") {
+      const port = window.location.port ? `:${window.location.port}` : "";
+      window.location.href = `${window.location.protocol}//localhost${port}${window.location.pathname}${window.location.search}${window.location.hash}`;
+      return;
+    }
+    window.location.reload();
+  };
 
   const handleAddNew = () => {
     const name = nameInput.trim();
@@ -869,11 +875,7 @@ function ObserversPill({ observers }) {
 }
 
 function AppContent() {
-  const [activeTab, setActiveTab] = useState(() =>
-    baseIp !== "localhost" && baseIp !== "127.0.0.1"
-      ? "runCalibration"
-      : "sessionSetup"
-  );
+  const [activeTab, setActiveTab] = useState("sessionSetup");
   const [sessionsList, setSessionsList] = useState([]);
   const [isLoadingSessions, setIsLoadingSessions] = useState(false);
   const [notification, setNotification] = useState({
@@ -896,6 +898,11 @@ function AppContent() {
     setStandardTvcSn,
     setTestTvcSn,
     observers,
+    isRemoteViewer,
+    observedSessionId,
+    leaveObserverMode,
+    roleDowngradeNotice,
+    clearRoleDowngradeNotice,
   } = useInstruments();
 
   const isBulkRunning = bulkRunProgress && bulkRunProgress.total > 0;
@@ -935,8 +942,7 @@ function AppContent() {
   const dbRecoveryToastShownRef = useRef(false);
   const [isNetworkModalOpen, setIsNetworkModalOpen] = useState(false);
 
-  // If the target IP is not localhost, lock the hardware controls
-  const isRemoteViewer = baseIp !== "localhost" && baseIp !== "127.0.0.1";
+  const isRemoteConnection = baseIp !== "localhost" && baseIp !== "127.0.0.1";
 
   const showSessionInfoInChrome =
     Boolean(selectedSessionName) ||
@@ -950,19 +956,6 @@ function AppContent() {
     Boolean(dbInfo) ||
     showSessionInfoInChrome ||
     Boolean(!isRemoteViewer && observers && observers.length > 0);
-
-  // Safety guard: if a remote viewer somehow lands on one of the host-only
-  // tabs (e.g. a stale state from before we hid them, or a manual route),
-  // snap them back to the calibration view so they never see a ghost of the
-  // session form or instrument panel.
-  useEffect(() => {
-    if (
-      isRemoteViewer &&
-      (activeTab === "sessionSetup" || activeTab === "instrumentStatus")
-    ) {
-      setActiveTab("runCalibration");
-    }
-  }, [isRemoteViewer, activeTab]);
 
   useEffect(() => {
     const fetchSystemInfo = async () => {
@@ -981,6 +974,29 @@ function AppContent() {
     setSelectedTPs(new Set());
   }, [selectedSessionId]);
 
+  // Observer mode hides the Session and Instruments tabs — those surfaces
+  // edit hardware + session state, neither of which an observer should be
+  // able to touch while the host is driving the run. The host view (and
+  // any user who voluntarily leaves observer mode) sees the full tab strip.
+  const visibleTabs = useMemo(
+    () =>
+      isRemoteViewer
+        ? ["runCalibration", "calibrationResults"]
+        : ["sessionSetup", "instrumentStatus", "runCalibration", "calibrationResults"],
+    [isRemoteViewer]
+  );
+
+  // Keep activeTab valid when observer mode engages / disengages. On entry
+  // we force the user onto the Calibration tab (that's the live view they
+  // joined for); on exit we drop them back on Session Setup so they can
+  // spin up their own run. Hidden-tab bounce is reactive so hitting a
+  // stale deep-link after role change doesn't leave the UI on a blank tab.
+  useEffect(() => {
+    if (!visibleTabs.includes(activeTab)) {
+      setActiveTab(isRemoteViewer ? "runCalibration" : "sessionSetup");
+    }
+  }, [isRemoteViewer, visibleTabs, activeTab]);
+
   const showNotification = useCallback(
     (message, type = "info", duration = 4000) => {
       const newKey = Date.now();
@@ -995,6 +1011,18 @@ function AppContent() {
     },
     []
   );
+
+  // Surface a warning toast whenever the supervisor silently downgrades us
+  // into observer mode (the "I clicked the session a tick before the
+  // dropdown knew it was active" race). The context sets the notice and
+  // we clear it here after flashing the toast, so the same downgrade
+  // never double-fires. 8s gives enough dwell to read it without
+  // blocking the user from switching to Calibration.
+  useEffect(() => {
+    if (!roleDowngradeNotice) return;
+    showNotification(roleDowngradeNotice.message, "warning", 8000);
+    clearRoleDowngradeNotice();
+  }, [roleDowngradeNotice, showNotification, clearRoleDowngradeNotice]);
 
   // On boot, if the drainer is replaying leftover rows from a previous run,
   // surface a one-time toast. Uses system_info.outbox (works for SQLite dev
@@ -1481,6 +1509,11 @@ function AppContent() {
 
         <nav className="app-chrome-nav" role="tablist" aria-label="Primary">
           <div className="app-chrome-nav-tabs">
+            {/* Session + Instruments are hidden in observer mode — an
+                observer has no business editing session metadata or
+                instrument addresses. A user who wants those controls back
+                has to explicitly leave observer mode (see the header
+                affordance on the right). */}
             {!isRemoteViewer && (
               <button
                 role="tab"
@@ -1713,28 +1746,57 @@ function AppContent() {
               >
                 <FaBug aria-hidden />
               </button>
-              <button
-                type="button"
-                onClick={() => setIsNetworkModalOpen(true)}
-                className={`app-chrome-meta-icon app-chrome-network-btn${
-                  isRemoteViewer ? " is-remote" : ""
-                }`}
-                aria-label={
-                  isRemoteViewer
-                    ? `Network connection, observer — ${loadSavedHosts().find((h) => h.ip === baseIp)?.name || baseIp}`
-                    : "Network connection"
-                }
-                title={
-                  isRemoteViewer
-                    ? `Connected as observer — ${
-                        loadSavedHosts().find((h) => h.ip === baseIp)?.name ||
-                        baseIp
-                      } (${baseIp}). Click to change.`
-                    : "This machine. Click to connect to a remote host."
-                }
-              >
-                <FaNetworkWired aria-hidden />
-              </button>
+              {isRemoteViewer ? (
+                // Observer mode: the same spot becomes the explicit
+                // "leave" affordance. Users arriving at an active session
+                // via the dropdown "Observe" prompt, or via the silent-
+                // downgrade race, need a discoverable way back to their
+                // own session. The label is unambiguous and the icon
+                // (eye with slash) matches the ObserversPill so the
+                // visual story — eye = observe, eye-slash = stop
+                // observing — stays consistent.
+                <button
+                  type="button"
+                  onClick={() => {
+                    leaveObserverMode();
+                    setActiveTab("sessionSetup");
+                    showNotification(
+                      observedSessionId
+                        ? "Left observer mode. Select or start a session to continue."
+                        : "Left observer mode.",
+                      "info"
+                    );
+                  }}
+                  className="app-chrome-meta-icon app-chrome-network-btn is-observing"
+                  aria-label="Leave observer mode"
+                  title="You're observing a live calibration. Click to leave observer mode and return to your own session."
+                >
+                  <FaEyeSlash aria-hidden />
+                </button>
+              ) : (
+                <button
+                  type="button"
+                  onClick={() => setIsNetworkModalOpen(true)}
+                  className={`app-chrome-meta-icon app-chrome-network-btn${
+                    isRemoteConnection ? " is-remote" : ""
+                  }`}
+                  aria-label={
+                    isRemoteConnection
+                      ? `Network connection — ${loadSavedHosts().find((h) => h.ip === baseIp)?.name || baseIp}`
+                      : "Network connection"
+                  }
+                  title={
+                    isRemoteConnection
+                      ? `Connected to ${
+                          loadSavedHosts().find((h) => h.ip === baseIp)?.name ||
+                          baseIp
+                        } (${baseIp}). Click to change.`
+                      : "This machine. Click to connect to a remote host."
+                  }
+                >
+                  <FaNetworkWired aria-hidden />
+                </button>
+              )}
             </div>
             <span className="app-chrome-meta-sep" aria-hidden="true" />
             <div

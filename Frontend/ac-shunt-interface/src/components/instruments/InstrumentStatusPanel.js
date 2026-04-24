@@ -236,7 +236,7 @@ function InstrumentStatusPanel({ showNotification, isRemoteViewer }) {
                 resetInstrumentAddress();
             }
 
-            const serverIp = response.data.local_ip || '';
+            const serverIp = response.data.server_ip || response.data.local_ip || '';
 
             setLocalIp(serverIp);
             setDiscoveredInstruments(instruments);

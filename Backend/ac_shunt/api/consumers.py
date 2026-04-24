@@ -2086,22 +2086,51 @@ class HostSyncConsumer(AsyncWebsocketConsumer):
         }))
 
     async def disconnect(self, close_code):
-        await self.channel_layer.group_discard(self.group_name, self.channel_name)
+        try:
+            await self.channel_layer.group_discard(self.group_name, self.channel_name)
+        except Exception:
+            # Channel layer may already be torn down (daphne shutdown); never
+            # let that abort the rest of the cleanup below.
+            import logging
+            logging.getLogger(__name__).exception(
+                "HostSyncConsumer: group_discard failed for %s", self.channel_name,
+            )
 
-        # Drop this socket's active-session entry (if any). Intentionally
-        # silent — no ``session_changed`` broadcast — so remote viewers keep
-        # showing whatever session they last observed from this host, which
-        # is the long-standing single-host behavior. A subsequent
-        # ``set_session`` from the reconnected host (or a different host in
-        # multi-host mode) will push a fresh value. The pop is what prevents
-        # the dict from accumulating dead channel_names over time; keying by
-        # a stable client identity is deferred to Phase 5.
+        # Pop this socket's active-session entry and, if it had one, broadcast
+        # the refreshed ``active_sessions`` map so every remaining client
+        # removes the stale "(Active)" pill in the session dropdown.
+        # Previously this was silent, which meant a host closing their tab
+        # left every other user's UI flagging the now-dead session as live —
+        # the exact bug that pushed clients into observer mode against a
+        # session nobody was actually running anymore.
+        had_session = session_state.get_host_session(self.channel_name) is not None
         session_state.clear_host_session(self.channel_name)
+        if had_session:
+            try:
+                await self.channel_layer.group_send(
+                    self.group_name,
+                    {
+                        'type': 'broadcast_session',
+                        'session_id': session_state.legacy_session_id(),
+                        'active_sessions': session_state.host_sessions_snapshot(),
+                    },
+                )
+            except Exception:
+                import logging
+                logging.getLogger(__name__).exception(
+                    "HostSyncConsumer: post-disconnect session_changed broadcast failed",
+                )
 
         # Drop this socket from the registry and push the fresh observer list
         # so any host still connected updates its pill within a tick.
         if session_state.unregister_viewer(self.channel_name):
-            await self._broadcast_viewer_presence()
+            try:
+                await self._broadcast_viewer_presence()
+            except Exception:
+                import logging
+                logging.getLogger(__name__).exception(
+                    "HostSyncConsumer: presence rebroadcast failed",
+                )
 
         # Self-Healing Lock Release: If this socket abruptly disconnects
         # (e.g., host closes the tab, browser crash, or network loss),
@@ -2109,14 +2138,24 @@ class HostSyncConsumer(AsyncWebsocketConsumer):
         # hosts aren't permanently locked out of that hardware. Now also
         # clears the mirrored ``WorkstationClaim`` DB row in the same
         # call, which is why this is wrapped in ``database_sync_to_async``.
-        released = await database_sync_to_async(session_state.release_claims_for)(
-            self.channel_name
-        )
-        if released:
-            await self.channel_layer.group_send(self.group_name, {
-                'type': 'broadcast_claims',
-                'claims': session_state.claims_snapshot(),
-            })
+        # Wrapped defensively because a DB hiccup during release must not
+        # leak this channel's presence registry entry (handled above) or
+        # abort Channels' own per-consumer teardown.
+        try:
+            released = await database_sync_to_async(session_state.release_claims_for)(
+                self.channel_name
+            )
+            if released:
+                await self.channel_layer.group_send(self.group_name, {
+                    'type': 'broadcast_claims',
+                    'claims': session_state.claims_snapshot(),
+                })
+        except Exception:
+            import logging
+            logging.getLogger(__name__).exception(
+                "HostSyncConsumer: workstation release/broadcast failed for %s",
+                self.channel_name,
+            )
 
     async def receive(self, text_data):
         data = json.loads(text_data)
@@ -2124,6 +2163,9 @@ class HostSyncConsumer(AsyncWebsocketConsumer):
 
         if command == 'set_session':
             session_id = data.get('session_id')
+            client_info = session_state.get_viewer(self.channel_name) or {}
+            if client_info.get('role') != 'host':
+                return
 
             # Record this host's current session against its channel_name.
             session_state.set_host_session(self.channel_name, session_id)

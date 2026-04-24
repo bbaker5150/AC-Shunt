@@ -128,7 +128,23 @@ export const InstrumentContextProvider = ({ children }) => {
   const [claimedWorkstations, setClaimedWorkstations] = useState({});
   const [activeHostSessionIds, setActiveHostSessionIds] = useState([]);
 
+  // Observer mode is an explicit per-session choice. A browser can be connected
+  // to a remote host over the network and still act as an operator for its own
+  // calibration session.
   const [isRemoteViewer, setIsRemoteViewer] = useState(false);
+  const [observedSessionId, setObservedSessionId] = useState(null);
+
+  // Tracks whether the host-sync WebSocket has delivered at least one
+  // ``session_changed`` message since mount. The SessionManager dropdown
+  // gates selection on this flag so a user can't pick a session before the
+  // server has told us which (if any) are currently being hosted — that
+  // window is how the "silent observer-mode downgrade" race used to hit.
+  const [hostSyncSynced, setHostSyncSynced] = useState(false);
+  // One-shot notice surfaced when the supervisor forces us into observer
+  // mode (e.g. a race where two clients reach the same IDLE session at
+  // once and the server elects the other as host). App.js watches this
+  // and shows a user-visible toast, then clears the notice.
+  const [roleDowngradeNotice, setRoleDowngradeNotice] = useState(null);
 
   // Keep a ref of the session ID to avoid stale closures in the WebSocket events
   useEffect(() => {
@@ -212,26 +228,38 @@ export const InstrumentContextProvider = ({ children }) => {
       hostSyncWs.current.onmessage = (event) => {
         const data = JSON.parse(event.data);
 
-        if (data.type === "role_assigned") {
-          // The backend explicitly tells us if we are a host or remote viewer
-          setIsRemoteViewer(data.role === "remote");
-        } else if (data.type === "session_changed") {
+        if (data.type === "session_changed") {
+          // Flip the sync gate the first time the server tells us who's
+          // hosting what. SessionManager uses this to unlock the dropdown,
+          // which closes the tiny window where a late click could race an
+          // un-populated activeHostSessionIds and land us in observer mode.
+          setHostSyncSynced(true);
+
           // --- Extract active session IDs for the SessionManager dropdown ---
-          // This must run for everyone (hosts and remote viewers) so the UI 
-          // knows which sessions to disable in the dropdown.
+          // This must run for everyone so the UI can mark active sessions in
+          // the dropdown before a user chooses whether to observe one.
           if (data.active_sessions) {
             const activeIdsArray = Object.values(data.active_sessions);
             setActiveHostSessionIds(activeIdsArray);
+          } else {
+            setActiveHostSessionIds([]);
           }
 
-          // If we are a Remote Viewer, we SLAVE our UI to whatever the Host just broadcasted!
+          // Observer mode follows only the session the user explicitly chose.
+          // Normal operators still receive active-session metadata for the
+          // dropdown, but their selected session is never overwritten.
           if (isRemoteViewer) {
             // ``data.session_id`` is an int when the host is in a session and
             // ``null`` when they haven't picked one yet. Either way, receipt
             // of the message means we now have authoritative state — flip
             // hostSessionKnown so the UI can replace the generic "no test
             // points" empty state with a remote-specific indicator.
-            setSelectedSessionId(data.session_id ?? null);
+            if (
+              data.session_id == null ||
+              data.session_id?.toString() === observedSessionId?.toString()
+            ) {
+              setSelectedSessionId(data.session_id ?? null);
+            }
             setHostSessionKnown(true);
           }
         } else if (data.type === "viewer_presence") {
@@ -254,6 +282,11 @@ export const InstrumentContextProvider = ({ children }) => {
         // of the host's session, so reset the known flag. The UI falls back
         // to the "connecting…" state until the next session_changed arrives.
         if (isRemoteViewer) setHostSessionKnown(false);
+        // Drop the sync gate so SessionManager re-disables the dropdown
+        // until the next session_changed arrives — same reasoning as on
+        // initial mount: picking a session against stale active_sessions
+        // data is how the race silently downgrades us to observer.
+        setHostSyncSynced(false);
         setTimeout(connectHostSync, 3000);
       };
     };
@@ -266,7 +299,7 @@ export const InstrumentContextProvider = ({ children }) => {
         hostSyncWs.current.close();
       }
     };
-  }, [isRemoteViewer]);
+  }, [isRemoteViewer, observedSessionId]);
 
   // Broadcast changes whenever the Host clicks a different session
   useEffect(() => {
@@ -277,6 +310,62 @@ export const InstrumentContextProvider = ({ children }) => {
       }));
     }
   }, [selectedSessionId, isRemoteViewer]);
+
+  const observeSession = useCallback((sessionId) => {
+    if (!sessionId) return;
+    setObservedSessionId(sessionId);
+    setIsRemoteViewer(true);
+    setSelectedSessionId(sessionId);
+    setHostSessionKnown(true);
+  }, []);
+
+  // Wipe every session- and instrument-scoped field back to its unselected
+  // default. Hoisted from SessionManager into the context so the
+  // Leave-Observer affordance in the app header can trigger it too
+  // without growing a second copy that drifts out of sync.
+  const clearSessionState = useCallback(() => {
+    setSelectedSessionId(null);
+    setSelectedSessionName("");
+    setStdInstrumentAddress(null);
+    setStdReaderModel(null);
+    setStdReaderSN(null);
+    setTiInstrumentAddress(null);
+    setTiReaderModel(null);
+    setTiReaderSN(null);
+    setAcSourceAddress(null);
+    setAcSourceSN(null);
+    setDcSourceAddress(null);
+    setDcSourceSN(null);
+    setSwitchDriverAddress(null);
+    setSwitchDriverModel(null);
+    setSwitchDriverSN(null);
+    setAmplifierAddress(null);
+    setAmplifierSN(null);
+    setStandardTvcSn(null);
+    setTestTvcSn(null);
+    setStandardInstrumentSerial(null);
+    setTestInstrumentSerial(null);
+    setFailedTPKeys(new Set());
+  }, []);
+
+  const leaveObserverMode = useCallback(() => {
+    setIsRemoteViewer(false);
+    setObservedSessionId(null);
+    setHostSessionKnown(false);
+    // Drop the selected session + instrument form along with observer
+    // state. Without this, the readingWs effect would re-dial the same
+    // active session on the next render, and the supervisor would
+    // immediately downgrade us back into observer mode — the bug we just
+    // tried to leave. Clearing the form makes the UI land on a clean
+    // Session Setup pane, which is what a user expects when they "leave".
+    clearSessionState();
+  }, [clearSessionState]);
+
+  // Stable callback so the App.js effect that consumes
+  // ``roleDowngradeNotice`` doesn't churn on every provider re-render.
+  const clearRoleDowngradeNotice = useCallback(() => {
+    setRoleDowngradeNotice(null);
+  }, []);
 
   const setSwitchSource = useCallback(
     (source) => {
@@ -377,6 +466,37 @@ export const InstrumentContextProvider = ({ children }) => {
       }, 75000);
 
       const data = JSON.parse(event.data);
+
+      if (data.type === "role_assigned") {
+        // The supervisor can still downgrade a racing client. Reflect that
+        // server-side decision in the UI so controls become read-only.
+        if (data.role === "remote") {
+          const wasAlreadyObserving = isRemoteViewer;
+          setObservedSessionId(selectedSessionId);
+          setIsRemoteViewer(true);
+          setHostSessionKnown(true);
+          if (readingWs.current?.readyState === WebSocket.OPEN) {
+            readingWs.current.send(JSON.stringify({ command: "request_live_sync" }));
+          }
+          // Surface a one-shot notice only for the race path: the user
+          // thought they were starting as host but the server elected
+          // someone else. When the user *already* chose to observe (via
+          // SessionManager → observeSession), the "role_assigned: remote"
+          // is just confirmation of their deliberate action, and a toast
+          // would be noise.
+          if (!wasAlreadyObserving) {
+            setRoleDowngradeNotice({
+              sessionId: selectedSessionId,
+              message:
+                "Another user is already hosting this session. You have " +
+                "joined as an observer — controls are read-only until you " +
+                "start your own session or the host leaves.",
+              at: Date.now(),
+            });
+          }
+        }
+        return;
+      }
 
       if (data.type === "live_state_sync") {
         // Authoritative snapshot from the server-side live buffer. Apply it
@@ -961,12 +1081,19 @@ export const InstrumentContextProvider = ({ children }) => {
     setFailedTPKeys,
     observers,
     isRemoteViewer,
+    observedSessionId,
+    observeSession,
+    leaveObserverMode,
+    clearSessionState,
     hostSessionKnown,
     myClientId,
     claimedWorkstations,
     sendWorkstationClaim,
     sendWorkstationRelease,
-    activeHostSessionIds
+    activeHostSessionIds,
+    hostSyncSynced,
+    roleDowngradeNotice,
+    clearRoleDowngradeNotice,
   };
 
   return (

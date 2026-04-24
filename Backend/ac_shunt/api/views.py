@@ -1,6 +1,7 @@
 # api/views.py
 import pyvisa
 import re
+import socket
 from django.http import JsonResponse
 from rest_framework.decorators import api_view
 from rest_framework import viewsets, status
@@ -29,10 +30,34 @@ from .serializers import (
     CalibrationResultsSerializer, ShuntSerializer, TVCSerializer, BugReportSerializer,
     WorkstationSerializer,
 )
+
 from npsl_tools.instruments import (
     Instrument11713C, Instrument3458A, Instrument5730A, Instrument5790B, 
     Instrument34420A, Instrument8100
 )
+
+
+def _request_client_ip(request):
+    forwarded_for = request.META.get("HTTP_X_FORWARDED_FOR")
+    if forwarded_for:
+        return forwarded_for.split(",")[0].strip()
+    return request.META.get("REMOTE_ADDR", "")
+
+
+def _server_ip_for_request(request):
+    host = (request.get_host() or "").split(":")[0].strip("[]")
+    if host and host not in ("localhost", "127.0.0.1", "0.0.0.0"):
+        return host
+
+    try:
+        with socket.socket(socket.AF_INET, socket.SOCK_DGRAM) as sock:
+            sock.connect(("8.8.8.8", 80))
+            return sock.getsockname()[0]
+    except OSError:
+        try:
+            return socket.gethostbyname(socket.gethostname())
+        except OSError:
+            return host or "localhost"
 
 
 INSTRUMENT_CLASS_MAP = {
@@ -98,6 +123,9 @@ def discover_instruments(request):
     and a deterministic mock inventory is returned instead, so the Instrument
     Status page can be exercised on dev machines with no lab hardware.
     """
+    server_ip = _server_ip_for_request(request)
+    client_ip = _request_client_ip(request)
+
     if getattr(settings, "MOCK_INSTRUMENTS", False):
         from .mock_instruments import MOCK_INVENTORY
         instruments = [
@@ -107,7 +135,9 @@ def discover_instruments(request):
         print(f"[MOCK] Returning {len(instruments)} mock instruments.")
         return JsonResponse({
             "instruments": instruments,
-            "local_ip": request.META.get("REMOTE_ADDR"),
+            "local_ip": server_ip,
+            "server_ip": server_ip,
+            "client_ip": client_ip,
         })
 
     try:
@@ -162,10 +192,11 @@ def discover_instruments(request):
             'identity': identity
         })
 
-    local_ip = request.META.get('REMOTE_ADDR')
     response_data = {
         "instruments": instrument_list,
-        "local_ip": local_ip
+        "local_ip": server_ip,
+        "server_ip": server_ip,
+        "client_ip": client_ip,
     }
 
     print(f"Returning identified instruments: {instrument_list}")

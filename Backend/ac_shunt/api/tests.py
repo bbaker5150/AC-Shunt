@@ -752,18 +752,52 @@ class SupervisorGraceWindowTests(_SupervisorAsyncTestCase):
         self.assertEqual(self.sup.state, SessionSupervisor.STATE_IDLE)
         self.assertTrue(self.sup.stop_event.is_set())
 
-    async def test_grace_does_not_arm_if_another_host_still_attached(self):
+    async def test_second_host_attempt_is_downgraded_and_grace_still_arms(self):
+        """1-host-per-session invariant: the second ``host`` attach is
+        forcefully downgraded to ``remote``. When the *real* host detaches,
+        no host remains attached (observers don't count), so the grace
+        window arms as usual and the run eventually auto-stops.
+
+        Replaces the old "two hosts coexist" test from the pre-multi-host
+        design, which is incompatible with the supervisor's current
+        downgrade contract."""
         await self.sup.attach('host-ch-1', 'host')
-        await self.sup.attach('host-ch-2', 'host')
+        granted = await self.sup.attach('host-ch-2', 'host')
+
+        self.assertEqual(granted, 'remote')
+        self.assertEqual(self.sup.host_channels, {'host-ch-1'})
+        self.assertEqual(self.sup.observer_channels, {'host-ch-2'})
 
         async def work():
             await asyncio.sleep(1)
 
-        await self.sup.start_task('two-hosts', work())
+        await self.sup.start_task('downgrade-then-detach', work())
         await self.sup.detach('host-ch-1')
-        # host-ch-2 is still attached → no grace arming.
+
+        # Only the downgraded observer is left; grace must arm, because
+        # losing the single host mid-run is exactly what the grace window
+        # exists to protect.
+        self.assertIsNotNone(self.sup._grace_task)
+        self.assertEqual(self.sup.host_channels, set())
+        self.assertEqual(self.sup.observer_channels, {'host-ch-2'})
+        await self.sup.stop_task()
+
+    async def test_multiple_observers_do_not_block_grace(self):
+        """Observer detaches are pure bookkeeping: if the host is the only
+        socket that counts for grace, a roomful of observers leaving (or
+        staying) while the host disconnects must still arm the timer."""
+        await self.sup.attach('host-ch-1', 'host')
+        await self.sup.attach('obs-ch-1', 'remote')
+        await self.sup.attach('obs-ch-2', 'remote')
+
+        async def work():
+            await asyncio.sleep(1)
+
+        await self.sup.start_task('many-observers', work())
+        await self.sup.detach('obs-ch-1')  # observer leaving is a no-op
         self.assertIsNone(self.sup._grace_task)
-        self.assertEqual(self.sup.host_channels, {'host-ch-2'})
+        await self.sup.detach('host-ch-1')  # only the host counts
+        self.assertIsNotNone(self.sup._grace_task)
         await self.sup.stop_task()
 
 
@@ -1003,29 +1037,78 @@ class HostSyncPerHostSessionTests(unittest.IsolatedAsyncioTestCase):
             await host_a.disconnect()
             await host_b.disconnect()
 
-    async def test_disconnect_prunes_entry_silently(self):
+    async def test_disconnect_prunes_entry_and_broadcasts_session_refresh(self):
+        """Host disconnect must push a refreshed ``session_changed`` so any
+        remaining remote clients drop the now-stale "(Active)" pill for the
+        departed host's session. Without this broadcast, remote UIs keep
+        the dead session marked live forever and end up downgraded to
+        observer mode when a user tries to reclaim it."""
         host = await self._open()
+        remote = await self._open()
         try:
             await self._drain_connect_messages(host)
+            await self._drain_connect_messages(remote)
+
             await host.send_json_to({'command': 'identify', 'role': 'host'})
-            await asyncio.sleep(0.02)
-            while True:
-                try:
-                    await asyncio.wait_for(host.receive_json_from(), timeout=0.02)
-                except (asyncio.TimeoutError, Exception):
-                    break
+            await remote.send_json_to({'command': 'identify', 'role': 'remote'})
+            await asyncio.sleep(0.05)
+            for comm in (host, remote):
+                while True:
+                    try:
+                        await asyncio.wait_for(comm.receive_json_from(), timeout=0.05)
+                    except (asyncio.TimeoutError, Exception):
+                        break
 
             await host.send_json_to({'command': 'set_session', 'session_id': 77})
+            # Drain the resulting set_session broadcast on both sockets.
             await host.receive_json_from()
+            await remote.receive_json_from()
 
             self.assertEqual(len(session_state_module.host_sessions_snapshot()), 1)
-        finally:
+
+            # Host leaves.
             await host.disconnect()
 
-        # After disconnect the entry must be gone — no lingering dead
-        # channel_names in the registry.
+            # Remote should now receive a session_changed with an empty
+            # active_sessions map so its dropdown clears the (Active) flag.
+            refresh = await asyncio.wait_for(
+                remote.receive_json_from(), timeout=0.5,
+            )
+            self.assertEqual(refresh['type'], 'session_changed')
+            self.assertIsNone(refresh['session_id'])
+            self.assertEqual(refresh['active_sessions'], {})
+        finally:
+            await remote.disconnect()
+
+        # After everyone leaves, the registry is empty.
         await asyncio.sleep(0.02)
         self.assertEqual(session_state_module.host_sessions_snapshot(), {})
+
+    async def test_disconnect_without_session_does_not_broadcast(self):
+        """A socket that never issued ``set_session`` has no entry to clear,
+        so its disconnect must not fire a redundant ``session_changed``
+        broadcast. Keeps chatter off the wire during normal observer churn."""
+        host = await self._open()
+        remote = await self._open()
+        try:
+            await self._drain_connect_messages(host)
+            await self._drain_connect_messages(remote)
+            await host.send_json_to({'command': 'identify', 'role': 'host'})
+            await remote.send_json_to({'command': 'identify', 'role': 'remote'})
+            await asyncio.sleep(0.05)
+            for comm in (host, remote):
+                while True:
+                    try:
+                        await asyncio.wait_for(comm.receive_json_from(), timeout=0.05)
+                    except (asyncio.TimeoutError, Exception):
+                        break
+
+            await host.disconnect()
+
+            with self.assertRaises((asyncio.TimeoutError, Exception)):
+                await asyncio.wait_for(remote.receive_json_from(), timeout=0.2)
+        finally:
+            await remote.disconnect()
 
     async def test_late_joiner_sees_existing_session_on_connect(self):
         host = await self._open()
