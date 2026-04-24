@@ -3844,10 +3844,12 @@ body.dark-mode .bug-report-list-item:hover {
   padding: 18px 20px 20px 20px;
 }
 
-/* Single ghost (metallic) icon action — e.g. SessionManager observe. */
+/* Single ghost (metallic) icon action — matches 36×36 cal-results-excel-icon-btn. */
 .confirm-modal-footer--icon {
-  padding: 8px 16px 18px 20px;
+  padding: 12px 20px 16px 20px;
   align-items: center;
+  min-height: 52px;
+  box-sizing: border-box;
 }
 
 .confirm-modal-action {
@@ -3894,12 +3896,6 @@ body.dark-mode .bug-report-list-item:hover {
 body.dark-mode .confirm-modal-action--danger:hover {
   background-color: #ef4444;
   border-color: #ef4444;
-}
-
-/* Calibration panes: confirm footer uses same 36×36 metallic icon buttons. */
-.calibration-confirm-modal-footer {
-  min-height: 52px;
-  box-sizing: border-box;
 }
 
 /* ================================================================== */

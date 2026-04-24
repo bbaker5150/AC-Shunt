@@ -53,11 +53,8 @@ const AVAILABLE_FREQUENCIES = [
   { text: "30000 Hz", value: 30000 },
 ];
 
-// --- DYNAMIC IP RESOLUTION ---
+// --- API host follows the page origin (session observe/join uses the same app) ---
 const getBaseIp = () => {
-  const storedIp = localStorage.getItem("REMOTE_HOST_IP");
-  if (storedIp) return storedIp;
-
   const hostname = window.location.hostname;
   
   // Ignore empty hostnames (Electron file://) and explicit localhosts
@@ -71,7 +68,6 @@ const getBaseIp = () => {
 
 const baseIp = getBaseIp();
 
-// REMOVED process.env overrides to force dynamic network routing
 const API_BASE_URL = `http://${baseIp}:8000/api`;
 const WS_BASE_URL = `ws://${baseIp}:8000/ws`;
 

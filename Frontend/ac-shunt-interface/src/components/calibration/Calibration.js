@@ -171,8 +171,12 @@ const ConfirmationModal = ({
   onConfirm,
   onCancel,
   confirmText = "Confirm",
+  confirmButtonClass = "",
+  eyebrow,
 }) => {
   if (!isOpen) return null;
+  const isDanger = /danger/.test(confirmButtonClass);
+  const eyebrowText = eyebrow ?? (isDanger ? "Warning" : "Confirm");
   return (
     <div className="modal-overlay" onClick={onCancel}>
       <div
@@ -184,7 +188,7 @@ const ConfirmationModal = ({
       >
         <header className="confirm-modal-header">
           <div className="confirm-modal-header-text">
-            <span className="confirm-modal-eyebrow">Confirm</span>
+            <span className="confirm-modal-eyebrow">{eyebrowText}</span>
             <h3
               id="calibration-confirm-modal-title"
               className="confirm-modal-title"
@@ -205,11 +209,12 @@ const ConfirmationModal = ({
         <div className="confirm-modal-body">
           <p className="confirm-modal-message">{message}</p>
         </div>
-        <footer className="confirm-modal-footer confirm-modal-footer--icon calibration-confirm-modal-footer">
+        <footer className="confirm-modal-footer confirm-modal-footer--icon">
           <button
             type="button"
             onClick={onConfirm}
-            className="cal-results-excel-icon-btn"
+            className={`cal-results-excel-icon-btn${isDanger ? " cal-results-excel-icon-btn--danger" : ""
+              }`}
             title={confirmText}
             aria-label={confirmText}
           >
@@ -2086,11 +2091,12 @@ function Calibration({
       />
       <ConfirmationModal
         isOpen={amplifierModal.isOpen}
-        title="Confirm Amplifier Range"
-        message={`Please ensure the 8100 Amplifier range is set to ${amplifierModal.range} A. Incorrect range setting may damage the equipment.\n\nVerify 5730A calibrators voltage output are correct. Once verified, set the 8100 to operate and confirm with the checkmark below.`}
+        eyebrow="Amplifier"
+        title="Verify 8100 range"
+        message={`Set the 8100 range to ${amplifierModal.range} A before continuing. An incorrect range can damage equipment.\n\nConfirm 5730A calibrator outputs, place the 8100 in operate, then use the check control. Cancel with the close control in the header or by clicking outside this dialog.`}
         onConfirm={amplifierModal.onConfirm}
         onCancel={amplifierModal.onCancel}
-        confirmText="Proceed — confirm amplifier range"
+        confirmText="Proceed — range verified"
       />
 
       {!selectedSessionId ? (
