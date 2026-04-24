@@ -378,17 +378,31 @@ class CalibrationConsumer(AsyncWebsocketConsumer):
     async def connect(self):
         self.session_id = self.scope['url_route']['kwargs']['session_id']
         self.session_group_name = f'session_{self.session_id}'
-        # Stash the role the socket declared on connect (via ?role=remote).
-        # We honour it in ``receive`` to reject host-only commands even if a
-        # client bypasses the UI gate.
-        self.client_role = _parse_client_role(self.scope)
+        
+        # --- FIX: Store the parsed string in requested_role ---
+        requested_role = _parse_client_role(self.scope)
+        
         await self.channel_layer.group_add(self.session_group_name, self.channel_name)
         await self.accept()
 
-        # Attach to (or create) the session's supervisor. All subsequent
-        # state reads/writes on this consumer route through it.
+        # Attach to (or create) the session's supervisor.
         self.supervisor = await get_or_create_supervisor(self.session_id)
-        await self.supervisor.attach(self.channel_name, self.client_role)
+        
+        # Pass requested_role to the supervisor, and store the actual granted role
+        self.client_role = await self.supervisor.attach(self.channel_name, requested_role)
+
+        # Tell the frontend what its official role is
+        await self.send(text_data=json.dumps({
+            'type': 'role_assigned',
+            'role': self.client_role
+        }))
+
+        # Alert the user if the supervisor downgraded them to a remote viewer
+        if requested_role == "host" and self.client_role == "remote":
+            await self.send(text_data=json.dumps({
+                'type': 'warning',
+                'message': 'This session is actively being controlled by another user. You are now in Observer mode.'
+            }))
 
         # Guarantee the outbox drainer is alive on the ASGI loop. Safe to call
         # on every connect — subsequent calls are no-ops.

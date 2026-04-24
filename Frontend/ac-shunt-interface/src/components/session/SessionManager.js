@@ -9,7 +9,6 @@ import { useInstruments } from "../../contexts/InstrumentContext";
 import { FaPlus, FaTrashAlt } from "react-icons/fa";
 import { API_BASE_URL } from "../../constants/constants";
 
-// Reusable ConfirmationModal remains the same.
 const ConfirmationModal = ({ isOpen, title, children, onConfirm, onCancel }) => {
   if (!isOpen) return null;
   return (
@@ -26,8 +25,8 @@ const ConfirmationModal = ({ isOpen, title, children, onConfirm, onCancel }) => 
   );
 };
 
-// NEW: A modern, searchable dropdown component.
-const CustomDropdown = ({ options, value, onChange, placeholder, disabled }) => {
+// Updated CustomDropdown accepts activeSessionIds to disable "In Use" sessions
+const CustomDropdown = ({ options, value, onChange, placeholder, disabled, activeSessionIds = [] }) => {
   const [isOpen, setIsOpen] = useState(false);
   const [searchTerm, setSearchTerm] = useState("");
 
@@ -37,6 +36,9 @@ const CustomDropdown = ({ options, value, onChange, placeholder, disabled }) => 
     ), [options, searchTerm]);
 
   const selectedOption = options.find(opt => opt.id.toString() === value?.toString());
+  
+  // Create a Set of strings for fast, safe lookup
+  const activeIds = new Set((activeSessionIds || []).map(id => id?.toString()));
 
   return (
     <div className="custom-dropdown-container">
@@ -58,11 +60,25 @@ const CustomDropdown = ({ options, value, onChange, placeholder, disabled }) => 
           </div>
           <ul className="custom-dropdown-options">
             {filteredOptions.length > 0 ? (
-              filteredOptions.map(opt => (
-                <li key={opt.id} className={opt.id === value ? 'active' : ''} onClick={() => { onChange(opt.id); setIsOpen(false); }}>
-                  {opt.session_name}
-                </li>
-              ))
+              filteredOptions.map(opt => {
+                const isInUse = activeIds.has(opt.id.toString());
+                const isSelected = opt.id === value;
+                
+                return (
+                  <li 
+                    key={opt.id} 
+                    className={`${isSelected ? 'active' : ''} ${isInUse ? 'disabled-option' : ''}`} 
+                    onClick={() => { 
+                      onChange(opt.id); 
+                      setIsOpen(false); 
+                    }}
+                    title={isInUse ? "Click to join as an Observer." : ""}
+                    style={isInUse ? { backgroundColor: 'var(--bg-secondary)', color: 'var(--text-muted)' } : {}}
+                  >
+                    {opt.session_name} {isInUse ? "(Active - Join as Observer)" : ""}
+                  </li>
+                );
+              })
             ) : (
               <li className="no-options">No sessions found.</li>
             )}
@@ -72,7 +88,6 @@ const CustomDropdown = ({ options, value, onChange, placeholder, disabled }) => 
     </div>
   );
 };
-
 
 function SessionManager({
   sessionsList,
@@ -87,7 +102,8 @@ function SessionManager({
     setSelectedSessionName,
     setStdInstrumentAddress, setStdReaderModel, setStdReaderSN, setTiInstrumentAddress, setTiReaderModel, setTiReaderSN,
     setAcSourceAddress, setAcSourceSN, setDcSourceAddress, setDcSourceSN, setSwitchDriverAddress, setSwitchDriverModel, setSwitchDriverSN,
-    setAmplifierAddress, setAmplifierSN, setStandardTvcSn, setTestTvcSn, setStandardInstrumentSerial, setTestInstrumentSerial, setFailedTPKeys
+    setAmplifierAddress, setAmplifierSN, setStandardTvcSn, setTestTvcSn, setStandardInstrumentSerial, setTestInstrumentSerial, setFailedTPKeys,
+    activeHostSessionIds // Extract the active session IDs from your context
   } = useInstruments();
 
   const [isModalOpen, setIsModalOpen] = useState(false);
@@ -207,6 +223,7 @@ function SessionManager({
               onChange={handleSessionSelectChange}
               placeholder={isLoadingSessions ? "Loading sessions…" : "Select a session…"}
               disabled={isLoadingSessions || isRemoteViewer}
+              activeSessionIds={activeHostSessionIds} 
             />
             <button
               type="button"

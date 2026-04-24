@@ -160,13 +160,23 @@ class SessionSupervisor:
 
     # -- host/observer attach/detach -----------------------------------------
 
-    async def attach(self, channel_name: str, client_role: str) -> None:
+    async def attach(self, channel_name: str, client_role: str) -> str:
         """Register a consumer socket against this supervisor.
 
-        ``client_role`` must be ``'host'`` or ``'remote'``. A host attach
-        additionally cancels any in-flight grace timer, so a host coming
-        back mid-grace resumes ownership without interrupting the run.
+        Returns the granted role ('host' or 'remote'). If a client requests
+        'host' but the session already has an active host, they are downgraded
+        to 'remote' to enforce the 1-host-per-session limit.
         """
+        # --- Enforce 1-Host Limit per Session ---
+        if client_role == "host":
+            # If there is already a host, and it's NOT this reconnecting channel
+            if self.host_channels and channel_name not in self.host_channels:
+                logger.warning(
+                    "[supervisor:%s] Session already has an active host. Downgrading %s to observer.",
+                    self.session_id, channel_name
+                )
+                client_role = "remote"  # Forcefully downgrade
+
         if client_role == "host":
             was_empty = not self.host_channels
             self.host_channels.add(channel_name)
@@ -177,19 +187,18 @@ class SessionSupervisor:
                 )
                 self._grace_task.cancel()
                 self._grace_task = None
-                # Best-effort notice to everyone on the group; the task
-                # itself keeps running, so there is no run-state change.
                 await self._broadcast_status(
                     "Host reconnected — calibration continues."
                 )
             elif was_empty and self.state == self.STATE_BUSY:
-                # First host (back) on an ongoing run — purely observable.
                 logger.info(
                     "[supervisor:%s] Host reattached during active run.",
                     self.session_id,
                 )
         else:
             self.observer_channels.add(channel_name)
+
+        return client_role
 
     async def detach(self, channel_name: str) -> None:
         """Remove a consumer socket. Starts the grace timer when relevant.

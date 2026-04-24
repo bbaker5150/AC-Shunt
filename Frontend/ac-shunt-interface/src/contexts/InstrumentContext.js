@@ -8,7 +8,7 @@ import React, {
   useContext,
 } from "react";
 
-import { WS_BASE_URL, baseIp } from "../constants/constants";
+import { WS_BASE_URL } from "../constants/constants";
 
 const initialLiveReadings = {
   char_plus1: [],
@@ -121,12 +121,14 @@ export const InstrumentContextProvider = ({ children }) => {
   // update depth" guard. A tiny fingerprint + timestamp lets us silently
   // drop the second copy.
   const lastLiveSyncSigRef = useRef({ sig: null, ts: 0 });
-  const isRemoteViewer = baseIp !== "localhost" && baseIp !== "127.0.0.1";
   const hostSyncWs = useRef(null);
   const selectedSessionIdRef = useRef(selectedSessionId);
 
   const [myClientId] = useState(() => Math.random().toString(36).substring(2, 15));
   const [claimedWorkstations, setClaimedWorkstations] = useState({});
+  const [activeHostSessionIds, setActiveHostSessionIds] = useState([]);
+
+  const [isRemoteViewer, setIsRemoteViewer] = useState(false);
 
   // Keep a ref of the session ID to avoid stale closures in the WebSocket events
   useEffect(() => {
@@ -209,7 +211,19 @@ export const InstrumentContextProvider = ({ children }) => {
 
       hostSyncWs.current.onmessage = (event) => {
         const data = JSON.parse(event.data);
-        if (data.type === "session_changed") {
+
+        if (data.type === "role_assigned") {
+          // The backend explicitly tells us if we are a host or remote viewer
+          setIsRemoteViewer(data.role === "remote");
+        } else if (data.type === "session_changed") {
+          // --- Extract active session IDs for the SessionManager dropdown ---
+          // This must run for everyone (hosts and remote viewers) so the UI 
+          // knows which sessions to disable in the dropdown.
+          if (data.active_sessions) {
+            const activeIdsArray = Object.values(data.active_sessions);
+            setActiveHostSessionIds(activeIdsArray);
+          }
+
           // If we are a Remote Viewer, we SLAVE our UI to whatever the Host just broadcasted!
           if (isRemoteViewer) {
             // ``data.session_id`` is an int when the host is in a session and
@@ -227,7 +241,7 @@ export const InstrumentContextProvider = ({ children }) => {
             setObservers(Array.isArray(data.observers) ? data.observers : []);
           }
         } else if (data.type === "workstation_claims_update") {
-          // NEW: Store the current registry of locked workstations
+          // Store the current registry of locked workstations
           setClaimedWorkstations(data.claims || {});
         }
       };
@@ -952,6 +966,7 @@ export const InstrumentContextProvider = ({ children }) => {
     claimedWorkstations,
     sendWorkstationClaim,
     sendWorkstationRelease,
+    activeHostSessionIds
   };
 
   return (
