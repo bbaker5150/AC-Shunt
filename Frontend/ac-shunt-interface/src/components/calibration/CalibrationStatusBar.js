@@ -57,13 +57,20 @@ const CalibrationStatusBar = ({
 
   if (!activeRunningTP) return null;
 
+  // Hosts optimistically set isCollecting in startReadingCollection() before
+  // warm-up; remotes only flip isCollecting on calibration_stage_update (after
+  // warm-up). Include an active pre-measurement timer so observers still see
+  // Warm-up / Settling in the status bar.
+  const showRunActivity =
+    isCollecting || isBulkRunning || Boolean(timerState?.isActive);
+
   return (
     <div className="status-bar">
       <div className="status-bar-content">
         {/* --- READOUT SECTION --- */}
         <div className="status-section readout-section">
           <span className="status-label">
-            {isCollecting || isBulkRunning ? "Running Test Point" : "Test Point"}
+            {showRunActivity ? "Running Test Point" : "Test Point"}
           </span>
           <span className="status-value">
             {formatCurrent(activeRunningTP.current)}
@@ -75,7 +82,7 @@ const CalibrationStatusBar = ({
         <div style={{ flexGrow: 1 }}></div>
 
         {/* --- DYNAMIC SECTIONS (Only show when collecting/running) --- */}
-        {(isCollecting || isBulkRunning) && (
+        {showRunActivity && (
           <>
             {isBulkRunning && (
               <div
@@ -165,7 +172,7 @@ const CalibrationStatusBar = ({
         next to the progress bar was visual noise. We just omit the action
         slot entirely and let the progress bar (or live readout) breathe.
       */}
-      {isCollecting || isBulkRunning ? (
+      {showRunActivity ? (
         <>
           <div className="status-bar-progress-container">
             <div
