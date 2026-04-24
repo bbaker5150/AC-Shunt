@@ -38,6 +38,82 @@ def _bootstrap_outbox_db():
         print(f"WARNING: outbox bootstrap failed: {e}")
 
 
+def _bootstrap_local_workstation():
+    """
+    Ensure the "Local Workstation" row exists, and optionally seed additional
+    benches from ``Documents/Portal/workstations.json`` on a fresh install.
+
+    The default bench is the invariant that lets single-user Electron installs
+    (and any pre-existing CalibrationSession rows created before the
+    Workstation model existed) keep working unchanged: every session with
+    ``workstation is None`` falls back to ``Workstation.get_default()`` at
+    request time.
+
+    The JSON seed is a one-shot bootstrap for multi-bench VM deployments
+    that want a reproducible inventory. It only runs when **no non-default
+    rows exist**, so admin-driven edits from the Django admin are never
+    clobbered on reboot. Missing or malformed seed files are non-fatal —
+    the operator can always add workstations through the admin afterwards.
+
+    Expected seed shape::
+
+        {
+          "workstations": [
+            {"identifier": "bench-1", "name": "Bench 1", "location": "Room A",
+             "instrument_addresses": ["GPIB0::22::INSTR"]},
+            ...
+          ]
+        }
+    """
+    import json
+    from django.conf import settings as dj_settings
+
+    try:
+        from api.models import Workstation
+
+        Workstation.get_default()
+
+        seed_path = dj_settings.CREDENTIALS_DIR / 'workstations.json'
+        if Workstation.objects.filter(is_default=False).exists():
+            # Admin-managed data already present — never overwrite.
+            return
+        if not seed_path.exists():
+            return
+
+        try:
+            with open(seed_path, 'r', encoding='utf-8') as f:
+                payload = json.load(f)
+        except Exception as parse_err:
+            print(f"WARNING: could not parse {seed_path}: {parse_err}")
+            return
+
+        entries = payload.get('workstations', []) if isinstance(payload, dict) else []
+        created = 0
+        for entry in entries:
+            identifier = (entry or {}).get('identifier')
+            name = (entry or {}).get('name')
+            if not identifier or not name:
+                continue
+            _, was_created = Workstation.objects.get_or_create(
+                identifier=identifier,
+                defaults={
+                    'name': name,
+                    'location': entry.get('location', ''),
+                    'instrument_addresses': entry.get('instrument_addresses', []) or [],
+                    'notes': entry.get('notes', '') or '',
+                    'is_active': bool(entry.get('is_active', True)),
+                },
+            )
+            if was_created:
+                created += 1
+        if created:
+            print(f"Seeded {created} workstation(s) from {seed_path}.")
+    except Exception as e:
+        # Non-fatal: local Electron installs with workstation=None still work
+        # via Workstation.get_default()'s runtime fallback. Log loudly.
+        print(f"WARNING: workstation bootstrap failed: {e}")
+
+
 def _bootstrap_mock_calibration_session():
     """
     When ``MOCK_INSTRUMENTS`` is on and the seeded mock session is missing,
@@ -90,12 +166,16 @@ def main():
         db_conn.cursor()
         table_names = db_conn.introspection.table_names()
         
-        # Automatic migration on first-run or database switch
+        # Always run migrate on boot. It is idempotent when the DB is already
+        # up-to-date (Django checks migration state first), but the check is
+        # necessary to pick up new migrations shipped in an update — the
+        # previous "skip if django_migrations exists" branch silently left
+        # upgraded installs running against a stale schema.
         if 'django_migrations' not in table_names:
-            print("First run detected. Running migrations...")
-            call_command('migrate', interactive=False)
+            print("First run detected. Running initial migrations...")
         else:
-            print("Database schema exists. Skipping migration.")
+            print("Applying any pending migrations...")
+        call_command('migrate', interactive=False)
             
         # 3. RUN CORRECTIONS SYNC HERE
         try:
@@ -114,6 +194,18 @@ def main():
 
     # 2b. Always bootstrap the local outbox — independent of default DB state.
     _bootstrap_outbox_db()
+
+    # 2c. Ensure the "Local Workstation" bench exists and optionally import
+    # a seed inventory on a fresh install. Runs after migrations so the
+    # Workstation table is guaranteed to exist, and after the outbox so a
+    # default-DB outage doesn't stop the bench from being registered.
+    try:
+        _bootstrap_local_workstation()
+    except Exception as e:
+        # Defensive catch — the runtime fallback on Workstation.get_default()
+        # covers us either way, but we don't want a bootstrap exception to
+        # crash the boot sequence.
+        print(f"WARNING: _bootstrap_local_workstation raised: {e}")
 
     # 3b. Auto-seed the mock calibration session when running in mock mode,
     # so `npm run electron:dev:mock` produces a ready-to-use session without

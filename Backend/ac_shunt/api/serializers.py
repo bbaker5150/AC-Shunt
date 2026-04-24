@@ -4,7 +4,8 @@ from .models import (
     Message, Shunt, ShuntCorrection, TVC, TVCCorrection, TVCSensitivity,
     CalibrationSession, TestPoint, TestPointSet, Calibration, 
     CalibrationTVCCorrections, CalibrationConfigurations, CalibrationSettings, 
-    CalibrationReadings, CalibrationResults, BugReport
+    CalibrationReadings, CalibrationResults, BugReport,
+    Workstation, WorkstationClaim,
 )
 from datetime import datetime
 
@@ -151,7 +152,82 @@ class TVCSerializer(serializers.ModelSerializer):
 #  Calibration & Session Serializers (Preserved)
 # ==============================================================================
 
+class WorkstationClaimSerializer(serializers.ModelSerializer):
+    """Thin read-only view of a claim row for nesting inside Workstation.
+
+    Used by the UI to render the "currently claimed by" chip without a
+    second round trip. Live claim updates still flow over the
+    ``workstation_claims_update`` WebSocket message — this serializer only
+    surfaces the initial snapshot.
+    """
+
+    workstation_identifier = serializers.CharField(source='workstation.identifier', read_only=True)
+
+    class Meta:
+        model = WorkstationClaim
+        fields = [
+            'workstation_identifier', 'owner_channel', 'owner_client_id',
+            'owner_label', 'active_session', 'claimed_at', 'last_heartbeat_at',
+        ]
+        read_only_fields = fields
+
+
+class WorkstationSerializer(serializers.ModelSerializer):
+    """Read-only projection of a bench for the session-setup dropdown.
+
+    ``is_claimed`` lets the UI gray out benches already in use without
+    having to cross-reference the separate claims payload. ``claim`` is
+    included only when set so the payload stays compact for the common
+    case of unclaimed benches.
+    """
+
+    is_claimed = serializers.SerializerMethodField()
+    claim = serializers.SerializerMethodField()
+
+    class Meta:
+        model = Workstation
+        fields = [
+            'id', 'name', 'identifier', 'location', 'is_active', 'is_default',
+            'instrument_addresses', 'notes', 'is_claimed', 'claim',
+            'created_at', 'updated_at',
+        ]
+
+    def _claim_for(self, obj):
+        # Use the reverse OneToOne accessor so list views backed by
+        # ``.select_related('claim')`` (see WorkstationViewSet.queryset)
+        # don't incur N+1 queries. The accessor raises DoesNotExist when
+        # the bench isn't claimed; falling back to a direct filter keeps
+        # the serializer working in call sites that skip select_related.
+        try:
+            return obj.claim
+        except WorkstationClaim.DoesNotExist:
+            return None
+        except AttributeError:
+            return WorkstationClaim.objects.filter(workstation=obj).first()
+
+    def get_is_claimed(self, obj):
+        return self._claim_for(obj) is not None
+
+    def get_claim(self, obj):
+        claim = self._claim_for(obj)
+        if claim is None:
+            return None
+        return WorkstationClaimSerializer(claim).data
+
+
 class CalibrationSessionSerializer(serializers.ModelSerializer):
+    # Read gives the full workstation projection, write accepts just the id so
+    # the frontend can PATCH `{"workstation_id": 3}` without round-tripping the
+    # whole nested object. Nullable on both sides keeps legacy sessions editable.
+    workstation = WorkstationSerializer(read_only=True)
+    workstation_id = serializers.PrimaryKeyRelatedField(
+        queryset=Workstation.objects.all(),
+        source='workstation',
+        write_only=True,
+        required=False,
+        allow_null=True,
+    )
+
     class Meta:
         model = CalibrationSession
         fields = [
@@ -161,6 +237,7 @@ class CalibrationSessionSerializer(serializers.ModelSerializer):
             'ac_source_address', 'dc_source_address', 'ac_source_serial', 'dc_source_serial', 'switch_driver_address',
             'switch_driver_model', 'switch_driver_serial', 'amplifier_address', 'amplifier_serial', 'temperature', 'humidity',
             'created_at', 'notes', 'standard_tvc_serial', 'test_tvc_serial',
+            'workstation', 'workstation_id',
         ]
 
 class CalibrationTVCCorrectionsSerializer(serializers.ModelSerializer):

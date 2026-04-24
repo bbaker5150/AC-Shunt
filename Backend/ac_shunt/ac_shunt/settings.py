@@ -254,7 +254,65 @@ USE_I18N = True
 USE_TZ = True
 STATIC_URL = 'static/'
 DEFAULT_AUTO_FIELD = 'django.db.models.BigAutoField'
-CHANNEL_LAYERS = {"default": {"BACKEND": "channels.layers.InMemoryChannelLayer"}}
+# ---------------------------------------------------------
+# Channel layer (Phase 5b)
+# ---------------------------------------------------------
+# When REDIS_URL is set, route all Channels group_send / group_add traffic
+# through Redis so multiple Daphne workers (and eventually multiple VMs)
+# share broadcast state. When it's unset, fall back to the in-memory layer
+# so local dev without Redis keeps working exactly as before.
+#
+# Examples:
+#   PowerShell:  $env:REDIS_URL = "redis://127.0.0.1:6379/0"
+#   bash/zsh:    export REDIS_URL="redis://127.0.0.1:6379/0"
+#
+# We do a synchronous ping on boot so operators see a single, obvious line
+# in the server log confirming which backend is active. We do NOT silently
+# fall back if the ping fails -- if you set REDIS_URL, we honor it, and any
+# subsequent broadcast errors will be loud instead of misleadingly muted.
+REDIS_URL = os.environ.get("REDIS_URL", "").strip()
+
+if REDIS_URL:
+    CHANNEL_LAYERS = {
+        "default": {
+            "BACKEND": "channels_redis.core.RedisChannelLayer",
+            "CONFIG": {
+                "hosts": [REDIS_URL],
+                # Keep the default capacity/expiry; tune later if we see
+                # dropped broadcasts under load.
+            },
+        }
+    }
+    try:
+        import redis as _redis_probe  # type: ignore
+
+        _probe_client = _redis_probe.Redis.from_url(
+            REDIS_URL, socket_connect_timeout=2, socket_timeout=2
+        )
+        _probe_client.ping()
+        print(f"CHANNEL LAYER: Redis reachable at {REDIS_URL} -- using RedisChannelLayer.")
+    except Exception as _exc:  # noqa: BLE001 -- boot-time diagnostic
+        print(
+            "CHANNEL LAYER WARNING: REDIS_URL is set to "
+            f"{REDIS_URL!r} but the ping failed ({_exc!r}). "
+            "WebSocket broadcasts will error until Redis is reachable."
+        )
+else:
+    CHANNEL_LAYERS = {"default": {"BACKEND": "channels.layers.InMemoryChannelLayer"}}
+    print(
+        "CHANNEL LAYER: REDIS_URL not set -- using InMemoryChannelLayer "
+        "(single-process only; fine for local dev, not safe for multi-worker)."
+    )
+
+# --- Calibration supervisor settings ---
+# Number of seconds a SessionSupervisor waits for the host WebSocket to
+# reconnect after it goes away mid-run before auto-stopping the
+# calibration. Keep generous enough to cover a browser tab refresh or a
+# brief network blip but short enough that a genuinely abandoned run
+# doesn't tie up instrumentation forever. See
+# ``api/session_supervisor.py::SessionSupervisor`` for the full
+# reconnect semantics.
+CALIBRATION_GRACE_WINDOW_SECONDS = 30
 
 # ---------------------------------------------------------
 # 5. LOGGING CONFIGURATION

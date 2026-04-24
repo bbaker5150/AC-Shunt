@@ -43,3 +43,24 @@ class ApiConfig(AppConfig):
                 call_command('migrate', database='outbox', interactive=False, verbosity=0)
         except Exception as e:
             print(f"api.apps.ready: outbox bootstrap skipped ({e}).")
+
+        # Clear any ``WorkstationClaim`` rows left behind by a previous
+        # Daphne process. Their ``owner_channel`` names refer to dead
+        # sockets that can never reconnect, so they would falsely
+        # populate the admin and confuse operators trying to spot a
+        # stuck claim. Guarded so tests (which run their own migrations
+        # lazily) and non-server management commands don't trigger it.
+        if 'test' not in argv and 'shell' not in argv:
+            try:
+                from api import session_state as _session_state
+                from django.db import connections as _connections
+
+                default_conn = _connections['default']
+                default_conn.cursor()
+                if 'api_workstationclaim' in default_conn.introspection.table_names():
+                    wiped = _session_state.wipe_stale_claims()
+                    if wiped:
+                        print(f"api.apps.ready: wiped {wiped} stale WorkstationClaim "
+                              "row(s) from prior process.")
+            except Exception as claim_err:
+                print(f"api.apps.ready: stale claim wipe skipped ({claim_err}).")

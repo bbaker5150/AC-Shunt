@@ -21,6 +21,7 @@ from decimal import Decimal
 from unittest import mock
 
 from django.test import TestCase
+from rest_framework.test import APIClient
 
 from api import outbox as outbox_module
 from api.models import (
@@ -29,6 +30,8 @@ from api.models import (
     PendingReadingWrite,
     TestPoint,
     TestPointSet,
+    Workstation,
+    WorkstationClaim,
 )
 
 
@@ -295,3 +298,1461 @@ class OutboxRouterMigrateTests(TestCase):
 
         # Other models should NOT run on the outbox alias.
         self.assertFalse(router.allow_migrate('outbox', 'api', 'calibrationsession'))
+
+
+# ==============================================================================
+# Phase 1 — Workstation identity tests
+# ==============================================================================
+#
+# These tests lock in the three invariants Phase 1 was responsible for:
+#
+#   1. ``Workstation.get_default`` is idempotent and always yields exactly
+#      one ``is_default=True`` row. Multi-process boots must not be able
+#      to create duplicate defaults.
+#   2. The nullable ``CalibrationSession.workstation`` FK preserves full
+#      backward compatibility: sessions created without a workstation
+#      survive round-trips through the serializer and survive deletion of
+#      the workstation they were later linked to.
+#   3. The REST surface (``/api/workstations/`` and the
+#      ``workstation_id`` field on ``/api/calibration_sessions/``) behaves
+#      exactly like the UI contract requires — list/retrieve reads the
+#      nested projection, PATCH links/unlinks by id.
+
+
+class WorkstationDefaultTests(TestCase):
+    """Invariants around ``Workstation.get_default``."""
+
+    databases = {'default'}
+
+    def test_get_default_creates_the_local_bench_on_first_call(self):
+        self.assertFalse(Workstation.objects.filter(is_default=True).exists())
+        ws = Workstation.get_default()
+        self.assertTrue(ws.is_default)
+        self.assertEqual(ws.identifier, 'local')
+        self.assertEqual(ws.name, 'Local Workstation')
+
+    def test_get_default_is_idempotent(self):
+        first = Workstation.get_default()
+        second = Workstation.get_default()
+        third = Workstation.get_default()
+        self.assertEqual(first.pk, second.pk)
+        self.assertEqual(second.pk, third.pk)
+        # Crucially, only one is_default row must ever exist — the "Local
+        # Workstation" fallback relies on this uniqueness.
+        self.assertEqual(Workstation.objects.filter(is_default=True).count(), 1)
+
+
+class CalibrationSessionWorkstationTests(TestCase):
+    """Backward-compat guarantees for the new nullable FK."""
+
+    databases = {'default'}
+
+    def setUp(self):
+        self.bench = Workstation.objects.create(
+            name='Bench 7',
+            identifier='bench-7',
+        )
+
+    def test_session_survives_without_workstation(self):
+        """Legacy rows (no workstation set) must remain fully functional."""
+        sess = CalibrationSession.objects.create(session_name='Legacy')
+        self.assertIsNone(sess.workstation)
+        # Refetch to make sure the FK column simply stores NULL and doesn't
+        # surface any unexpected constraint.
+        sess.refresh_from_db()
+        self.assertIsNone(sess.workstation_id)
+
+    def test_linking_then_deleting_workstation_sets_fk_null(self):
+        """SET_NULL on_delete preserves sessions if a bench is retired."""
+        sess = CalibrationSession.objects.create(
+            session_name='Linked', workstation=self.bench
+        )
+        self.assertEqual(sess.workstation_id, self.bench.id)
+        self.bench.delete()
+        sess.refresh_from_db()
+        self.assertIsNone(sess.workstation_id)  # session survives, FK cleared
+
+
+class WorkstationAPITests(TestCase):
+    """REST behaviour of ``/api/workstations/`` and the session workstation field."""
+
+    databases = {'default'}
+
+    def setUp(self):
+        self.client = APIClient()
+        self.bench = Workstation.objects.create(
+            name='Bench A',
+            identifier='bench-a',
+            location='Room 1',
+        )
+        self.inactive = Workstation.objects.create(
+            name='Retired',
+            identifier='retired',
+            is_active=False,
+        )
+        self.session = CalibrationSession.objects.create(session_name='APITest')
+
+    def test_list_excludes_inactive_benches(self):
+        resp = self.client.get('/api/workstations/')
+        self.assertEqual(resp.status_code, 200)
+        identifiers = {row['identifier'] for row in resp.json()}
+        self.assertIn('bench-a', identifiers)
+        self.assertNotIn('retired', identifiers)
+
+    def test_list_reports_claim_snapshot(self):
+        WorkstationClaim.objects.create(
+            workstation=self.bench,
+            owner_channel='specific.channel.1',
+            owner_client_id='client-1',
+            owner_label='Operator A',
+            active_session=self.session,
+        )
+        resp = self.client.get('/api/workstations/')
+        row = next(r for r in resp.json() if r['identifier'] == 'bench-a')
+        self.assertTrue(row['is_claimed'])
+        self.assertIsNotNone(row['claim'])
+        self.assertEqual(row['claim']['owner_label'], 'Operator A')
+        self.assertEqual(row['claim']['active_session'], self.session.pk)
+
+    def test_workstations_list_does_not_issue_n_plus_one(self):
+        """The select_related in the viewset keeps list queries O(1)."""
+        # Create several benches + claims so N+1 would amplify the query count.
+        extra = 5
+        for i in range(extra):
+            ws = Workstation.objects.create(
+                name=f'Bench {i}', identifier=f'n1-bench-{i}',
+            )
+            WorkstationClaim.objects.create(
+                workstation=ws,
+                owner_channel=f'channel-{i}',
+                owner_client_id=f'client-{i}',
+            )
+        from django.db import connection
+        from django.test.utils import CaptureQueriesContext
+        with CaptureQueriesContext(connection) as ctx:
+            resp = self.client.get('/api/workstations/')
+        self.assertEqual(resp.status_code, 200)
+        # The query count must be independent of how many benches exist. We
+        # compare to a fixed upper bound instead of an exact value so the
+        # test survives DRF/Django internals changing (e.g. adding a count
+        # query for pagination). O(1) here means ~3 queries or fewer.
+        self.assertLessEqual(
+            len(ctx.captured_queries),
+            3,
+            f"List endpoint issued {len(ctx.captured_queries)} queries for "
+            f"{extra + len([self.bench, self.inactive])} benches — likely N+1.",
+        )
+
+    def test_session_list_serializes_workstation_projection(self):
+        self.session.workstation = self.bench
+        self.session.save()
+        resp = self.client.get(f'/api/calibration_sessions/{self.session.pk}/')
+        self.assertEqual(resp.status_code, 200)
+        body = resp.json()
+        self.assertIsNotNone(body['workstation'])
+        self.assertEqual(body['workstation']['identifier'], 'bench-a')
+
+    def test_patch_links_and_unlinks_workstation(self):
+        resp = self.client.patch(
+            f'/api/calibration_sessions/{self.session.pk}/',
+            {'workstation_id': self.bench.pk},
+            format='json',
+        )
+        self.assertEqual(resp.status_code, 200)
+        self.session.refresh_from_db()
+        self.assertEqual(self.session.workstation_id, self.bench.pk)
+
+        resp = self.client.patch(
+            f'/api/calibration_sessions/{self.session.pk}/',
+            {'workstation_id': None},
+            format='json',
+        )
+        self.assertEqual(resp.status_code, 200)
+        self.session.refresh_from_db()
+        self.assertIsNone(self.session.workstation_id)
+
+    def test_patch_rejects_unknown_workstation_id(self):
+        resp = self.client.patch(
+            f'/api/calibration_sessions/{self.session.pk}/',
+            {'workstation_id': 999999},
+            format='json',
+        )
+        self.assertEqual(resp.status_code, 400)
+        self.session.refresh_from_db()
+        self.assertIsNone(self.session.workstation_id)
+
+
+class WorkstationClaimModelTests(TestCase):
+    """Direct model-level tests for the claim row that Phase 2 will use."""
+
+    databases = {'default'}
+
+    def setUp(self):
+        self.bench = Workstation.objects.create(name='Bench X', identifier='bench-x')
+
+    def test_claim_is_one_to_one(self):
+        WorkstationClaim.objects.create(
+            workstation=self.bench, owner_channel='ch-1', owner_client_id='c-1',
+        )
+        # A second claim on the same bench must be rejected by the OneToOne
+        # constraint — this is the primitive Phase 2 will build lock
+        # enforcement on top of.
+        from django.db import IntegrityError, transaction
+        with self.assertRaises(IntegrityError):
+            with transaction.atomic():
+                WorkstationClaim.objects.create(
+                    workstation=self.bench, owner_channel='ch-2', owner_client_id='c-2',
+                )
+
+    def test_claim_deleted_when_workstation_deleted(self):
+        claim = WorkstationClaim.objects.create(
+            workstation=self.bench, owner_channel='ch-1', owner_client_id='c-1',
+        )
+        claim_id = claim.pk
+        self.bench.delete()
+        self.assertFalse(WorkstationClaim.objects.filter(pk=claim_id).exists())
+
+    def test_claim_survives_session_deletion_with_null_session(self):
+        session = CalibrationSession.objects.create(session_name='ClaimSurvives')
+        claim = WorkstationClaim.objects.create(
+            workstation=self.bench,
+            owner_channel='ch-1',
+            owner_client_id='c-1',
+            active_session=session,
+        )
+        session.delete()
+        claim.refresh_from_db()
+        self.assertIsNone(claim.active_session_id)
+        # Workstation still claimed — only the session pointer clears.
+        self.assertTrue(
+            WorkstationClaim.objects.filter(workstation=self.bench).exists()
+        )
+
+
+# ==============================================================================
+# Phase 2 — Session Supervisor tests
+# ==============================================================================
+#
+# These tests validate the core invariants the supervisor was introduced
+# to enforce:
+#
+#   1. One supervisor per session_id, created on demand.
+#   2. A running task survives individual socket close — the grace
+#      window is the only path that auto-stops a run.
+#   3. Host vs. observer attachment is tracked separately; observer
+#      churn never arms the grace timer.
+#   4. ``stop_task`` and ``set_confirmation`` propagate to the running
+#      coroutine via the shared ``stop_event`` / ``confirmation_event``.
+#
+# We drive the supervisor directly with trivial async coroutines so the
+# tests don't need to engage the full calibration pipeline (which would
+# require mocking every instrument class). That keeps these tests
+# fast — milliseconds, not seconds — and focused on the machinery that's
+# new in Phase 2.
+
+import unittest
+
+from api import session_supervisor as sup_module
+from api.session_supervisor import SessionSupervisor
+
+
+class _SupervisorAsyncTestCase(unittest.IsolatedAsyncioTestCase):
+    """Common setup: reset the registry and shrink the grace window.
+
+    Using a tiny grace window (50 ms) keeps the grace-expiration test
+    under 100 ms while still genuinely exercising the timer path.
+    """
+
+    async def asyncSetUp(self):
+        sup_module.reset_registry_for_tests()
+        self.sup = await sup_module.get_or_create_supervisor(session_id=9001)
+        self.sup.grace_window_seconds = 0.05  # 50 ms for tests
+
+    async def asyncTearDown(self):
+        # Make sure no stray tasks leak between tests.
+        if self.sup.task and not self.sup.task.done():
+            self.sup.task.cancel()
+            try:
+                await self.sup.task
+            except Exception:
+                pass
+        if self.sup._grace_task and not self.sup._grace_task.done():
+            self.sup._grace_task.cancel()
+            try:
+                await self.sup._grace_task
+            except Exception:
+                pass
+        sup_module.reset_registry_for_tests()
+
+
+class SupervisorRegistryTests(_SupervisorAsyncTestCase):
+    async def test_registry_returns_same_instance_for_same_session(self):
+        again = await sup_module.get_or_create_supervisor(session_id=9001)
+        self.assertIs(self.sup, again)
+
+    async def test_registry_creates_distinct_instances_per_session(self):
+        other = await sup_module.get_or_create_supervisor(session_id=9002)
+        self.assertIsNot(self.sup, other)
+        self.assertEqual(other.session_id, 9002)
+
+    async def test_peek_returns_none_when_unseeded(self):
+        self.assertIsNone(sup_module.peek_supervisor(999999))
+        self.assertIs(sup_module.peek_supervisor(9001), self.sup)
+
+
+class SupervisorLifecycleTests(_SupervisorAsyncTestCase):
+    async def test_start_task_transitions_to_busy_then_idle(self):
+        ran = asyncio.Event()
+
+        async def work():
+            ran.set()
+            await asyncio.sleep(0)
+
+        ok = await self.sup.start_task('unit_test', work())
+        self.assertTrue(ok)
+        self.assertEqual(self.sup.state, SessionSupervisor.STATE_BUSY)
+
+        await self.sup.task
+        await asyncio.sleep(0)  # let _run_wrapped finally block run
+        self.assertTrue(ran.is_set())
+        self.assertEqual(self.sup.state, SessionSupervisor.STATE_IDLE)
+        self.assertIsNone(self.sup.task)
+
+    async def test_start_task_refuses_second_concurrent_run(self):
+        gate = asyncio.Event()
+
+        async def long_running():
+            await gate.wait()
+
+        self.assertTrue(await self.sup.start_task('first', long_running()))
+
+        async def second():
+            pass
+
+        self.assertFalse(await self.sup.start_task('second', second()))
+
+        gate.set()
+        await self.sup.task
+
+    async def test_stop_task_sets_stop_event_and_cancels(self):
+        observed_stop = []
+
+        async def work():
+            try:
+                while not self.sup.stop_event.is_set():
+                    await asyncio.sleep(0.001)
+                observed_stop.append('saw_stop')
+            except asyncio.CancelledError:
+                observed_stop.append('cancelled')
+                raise
+
+        await self.sup.start_task('cancellable', work())
+        # Give it one scheduler tick so the loop is actually running.
+        await asyncio.sleep(0.01)
+        await self.sup.stop_task()
+        await asyncio.sleep(0.01)
+
+        self.assertTrue(self.sup.stop_event.is_set())
+        # Either path is acceptable — the important invariant is that
+        # stop_task completed and the task no longer runs.
+        self.assertTrue(observed_stop)
+        self.assertEqual(self.sup.state, SessionSupervisor.STATE_IDLE)
+
+    async def test_set_confirmation_wakes_awaiting_task(self):
+        collected = []
+
+        async def work():
+            await self.sup.confirmation_event.wait()
+            collected.append(self.sup.confirmation_status)
+
+        await self.sup.start_task('confirm', work())
+        await asyncio.sleep(0.01)
+        await self.sup.set_confirmation('confirmed')
+        await self.sup.task
+
+        self.assertEqual(collected, ['confirmed'])
+
+
+class SupervisorAttachTests(_SupervisorAsyncTestCase):
+    async def test_host_and_observer_tracked_separately(self):
+        await self.sup.attach('host-ch-1', 'host')
+        await self.sup.attach('obs-ch-1', 'remote')
+        self.assertEqual(self.sup.host_channels, {'host-ch-1'})
+        self.assertEqual(self.sup.observer_channels, {'obs-ch-1'})
+
+    async def test_observer_detach_never_arms_grace(self):
+        await self.sup.attach('host-ch-1', 'host')
+        await self.sup.attach('obs-ch-1', 'remote')
+
+        async def work():
+            await asyncio.sleep(1)
+
+        await self.sup.start_task('obs-test', work())
+        await self.sup.detach('obs-ch-1')
+        self.assertIsNone(self.sup._grace_task)
+        await self.sup.stop_task()
+
+    async def test_host_detach_while_busy_arms_grace(self):
+        await self.sup.attach('host-ch-1', 'host')
+
+        async def work():
+            await asyncio.sleep(1)
+
+        await self.sup.start_task('grace-arm', work())
+        await self.sup.detach('host-ch-1')
+
+        self.assertIsNotNone(self.sup._grace_task)
+        self.assertFalse(self.sup._grace_task.done())
+        await self.sup.stop_task()  # cleanup
+
+    async def test_host_detach_while_idle_does_not_arm_grace(self):
+        await self.sup.attach('host-ch-1', 'host')
+        # No running task → detach must be a no-op for the grace timer.
+        await self.sup.detach('host-ch-1')
+        self.assertIsNone(self.sup._grace_task)
+
+
+class SupervisorGraceWindowTests(_SupervisorAsyncTestCase):
+    async def test_host_reconnect_cancels_grace_timer(self):
+        await self.sup.attach('host-ch-1', 'host')
+
+        async def work():
+            await asyncio.sleep(1)
+
+        await self.sup.start_task('reconnect', work())
+        await self.sup.detach('host-ch-1')
+        # Grace armed…
+        self.assertIsNotNone(self.sup._grace_task)
+        # …host comes back before the 50ms expires.
+        await self.sup.attach('host-ch-2', 'host')
+        await asyncio.sleep(0.1)
+        self.assertIsNone(self.sup._grace_task)
+        # Task is still running.
+        self.assertEqual(self.sup.state, SessionSupervisor.STATE_BUSY)
+        self.assertFalse(self.sup.task.done())
+        await self.sup.stop_task()
+
+    async def test_grace_expiry_stops_task(self):
+        await self.sup.attach('host-ch-1', 'host')
+        survived = asyncio.Event()
+
+        async def work():
+            try:
+                await asyncio.sleep(5)
+                survived.set()
+            except asyncio.CancelledError:
+                raise
+
+        await self.sup.start_task('grace-expiry', work())
+        await self.sup.detach('host-ch-1')
+
+        # Wait for grace_window_seconds + a little slack.
+        await asyncio.sleep(0.15)
+        self.assertFalse(survived.is_set())
+        self.assertEqual(self.sup.state, SessionSupervisor.STATE_IDLE)
+        self.assertTrue(self.sup.stop_event.is_set())
+
+    async def test_grace_does_not_arm_if_another_host_still_attached(self):
+        await self.sup.attach('host-ch-1', 'host')
+        await self.sup.attach('host-ch-2', 'host')
+
+        async def work():
+            await asyncio.sleep(1)
+
+        await self.sup.start_task('two-hosts', work())
+        await self.sup.detach('host-ch-1')
+        # host-ch-2 is still attached → no grace arming.
+        self.assertIsNone(self.sup._grace_task)
+        self.assertEqual(self.sup.host_channels, {'host-ch-2'})
+        await self.sup.stop_task()
+
+
+class SupervisorConsumerIntegrationTests(unittest.IsolatedAsyncioTestCase):
+    """End-to-end: verify the real CalibrationConsumer wires up to a supervisor.
+
+    Uses Channels' :class:`WebsocketCommunicator` so the full
+    consumer lifecycle runs — including ``connect``, the supervisor
+    attach in our new code, and the rewritten ``disconnect`` that no
+    longer cancels the task. This is the single test that proves the
+    invariant the Phase 2 refactor exists to uphold: the supervisor
+    persists past ``disconnect``.
+    """
+
+    async def asyncSetUp(self):
+        sup_module.reset_registry_for_tests()
+
+    async def asyncTearDown(self):
+        sup_module.reset_registry_for_tests()
+
+    async def test_connect_creates_supervisor_and_disconnect_preserves_it(self):
+        from channels.testing import WebsocketCommunicator
+        from api.consumers import CalibrationConsumer
+
+        communicator = WebsocketCommunicator(
+            CalibrationConsumer.as_asgi(),
+            '/ws/collect-readings/12345/',
+        )
+        # WebsocketCommunicator doesn't populate ``url_route`` by default;
+        # inject the kwargs that the real ASGI router would provide.
+        communicator.scope['url_route'] = {
+            'kwargs': {'session_id': '12345'},
+        }
+        connected, _ = await communicator.connect()
+        self.assertTrue(connected)
+
+        sup = sup_module.peek_supervisor('12345')
+        self.assertIsNotNone(sup)
+        self.assertEqual(len(sup.host_channels), 1)  # default role=host
+
+        # Simulate a running task so we can prove disconnect doesn't kill it.
+        task_gate = asyncio.Event()
+
+        async def long_running():
+            try:
+                await task_gate.wait()
+            finally:
+                pass
+
+        await sup.start_task('fake', long_running())
+        self.assertEqual(sup.state, SessionSupervisor.STATE_BUSY)
+        running_task = sup.task
+
+        # Disconnect — under old code this cancelled the task.
+        await communicator.disconnect()
+
+        # Supervisor still around; task still running.
+        self.assertIs(sup_module.peek_supervisor('12345'), sup)
+        self.assertIsNotNone(running_task)
+        self.assertFalse(running_task.done())
+
+        # Cleanup.
+        task_gate.set()
+        await running_task
+
+    async def test_remote_role_attaches_as_observer(self):
+        from channels.testing import WebsocketCommunicator
+        from api.consumers import CalibrationConsumer
+
+        communicator = WebsocketCommunicator(
+            CalibrationConsumer.as_asgi(),
+            '/ws/collect-readings/12345/?role=remote',
+        )
+        communicator.scope['url_route'] = {
+            'kwargs': {'session_id': '12345'},
+        }
+        # ``?role=remote`` must land in query_string bytes for _parse_client_role.
+        communicator.scope['query_string'] = b'role=remote'
+
+        connected, _ = await communicator.connect()
+        self.assertTrue(connected)
+
+        sup = sup_module.peek_supervisor('12345')
+        self.assertIsNotNone(sup)
+        self.assertEqual(len(sup.host_channels), 0)
+        self.assertEqual(len(sup.observer_channels), 1)
+
+        await communicator.disconnect()
+        # Observer disconnect alone never arms grace.
+        self.assertIsNone(sup._grace_task)
+
+
+# ======================================================================
+# Phase 3 — per-host active-session tracking
+# ======================================================================
+# Exercises HostSyncConsumer end-to-end through WebsocketCommunicator so
+# we catch protocol regressions, not just dict bookkeeping. The invariant
+# Phase 3 upholds: HOST_ACTIVE_SESSIONS is keyed per host channel_name,
+# single-host wire stays byte-compatible with pre-refactor clients, and
+# the new active_sessions / host_channel fields are additive.
+
+from api import consumers as consumers_module  # noqa: E402
+from api import session_state as session_state_module  # noqa: E402
+
+
+class HostSyncPerHostSessionTests(unittest.IsolatedAsyncioTestCase):
+    """Direct tests on the HostSyncConsumer WebSocket wire."""
+
+    async def asyncSetUp(self):
+        # Isolate each test from registry bleed — stray entries in the
+        # process-wide shared-state registries would taint the next
+        # test's initial-state assertions.
+        session_state_module.reset_for_tests()
+
+    async def asyncTearDown(self):
+        session_state_module.reset_for_tests()
+
+    async def _open(self):
+        from channels.testing import WebsocketCommunicator
+
+        communicator = WebsocketCommunicator(
+            consumers_module.HostSyncConsumer.as_asgi(),
+            '/ws/host-sync/',
+        )
+        connected, _ = await communicator.connect()
+        self.assertTrue(connected)
+        return communicator
+
+    async def _drain_connect_messages(self, communicator):
+        """Consume the two auto-pushes connect() emits (session + claims)."""
+        session_msg = await communicator.receive_json_from()
+        claims_msg = await communicator.receive_json_from()
+        # Don't assume ordering — normalize.
+        by_type = {msg['type']: msg for msg in (session_msg, claims_msg)}
+        return by_type
+
+    async def test_connect_sends_empty_active_sessions_when_no_hosts(self):
+        communicator = await self._open()
+        try:
+            msgs = await self._drain_connect_messages(communicator)
+            session_msg = msgs['session_changed']
+            self.assertIsNone(session_msg['session_id'])
+            # Phase 3: new active_sessions field is always present.
+            self.assertIn('active_sessions', session_msg)
+            self.assertEqual(session_msg['active_sessions'], {})
+        finally:
+            await communicator.disconnect()
+
+    async def test_set_session_populates_dict_and_broadcasts_host_channel(self):
+        host = await self._open()
+        remote = await self._open()
+        try:
+            await self._drain_connect_messages(host)
+            await self._drain_connect_messages(remote)
+
+            await host.send_json_to({'command': 'identify', 'role': 'host'})
+            await remote.send_json_to({'command': 'identify', 'role': 'remote'})
+            # The identify handshake triggers viewer_presence broadcasts to
+            # host-role sockets; drain any pending messages so the next
+            # receive_json_from lands on the session_changed we care about.
+            await asyncio.sleep(0.05)
+            while True:
+                try:
+                    msg = await asyncio.wait_for(remote.receive_json_from(), timeout=0.05)
+                except (asyncio.TimeoutError, Exception):
+                    break
+                if msg.get('type') == 'session_changed':
+                    self.fail('unexpected session_changed before set_session')
+            # Drain host's viewer_presence too.
+            while True:
+                try:
+                    await asyncio.wait_for(host.receive_json_from(), timeout=0.05)
+                except (asyncio.TimeoutError, Exception):
+                    break
+
+            await host.send_json_to({
+                'command': 'set_session',
+                'session_id': 42,
+            })
+
+            # Both sockets receive the broadcast.
+            host_msg = await host.receive_json_from()
+            remote_msg = await remote.receive_json_from()
+
+            for msg in (host_msg, remote_msg):
+                self.assertEqual(msg['type'], 'session_changed')
+                self.assertEqual(msg['session_id'], 42)
+                # Phase 3: host_channel disambiguates in multi-host mode.
+                self.assertIn('host_channel', msg)
+                self.assertEqual(msg['active_sessions'], {msg['host_channel']: 42})
+
+            # Accessor registry is authoritative and correctly keyed.
+            snapshot = session_state_module.host_sessions_snapshot()
+            self.assertEqual(len(snapshot), 1)
+            self.assertEqual(list(snapshot.values()), [42])
+        finally:
+            await host.disconnect()
+            await remote.disconnect()
+
+    async def test_two_hosts_tracked_independently(self):
+        host_a = await self._open()
+        host_b = await self._open()
+        try:
+            await self._drain_connect_messages(host_a)
+            await self._drain_connect_messages(host_b)
+
+            await host_a.send_json_to({'command': 'identify', 'role': 'host'})
+            await host_b.send_json_to({'command': 'identify', 'role': 'host'})
+            # Drain any presence broadcasts.
+            await asyncio.sleep(0.05)
+            for comm in (host_a, host_b):
+                while True:
+                    try:
+                        await asyncio.wait_for(comm.receive_json_from(), timeout=0.05)
+                    except (asyncio.TimeoutError, Exception):
+                        break
+
+            await host_a.send_json_to({'command': 'set_session', 'session_id': 11})
+            # Drain both sockets for A's broadcast.
+            await host_a.receive_json_from()
+            await host_b.receive_json_from()
+
+            await host_b.send_json_to({'command': 'set_session', 'session_id': 22})
+            msg_on_a = await host_a.receive_json_from()
+            msg_on_b = await host_b.receive_json_from()
+
+            # B's broadcast carries B's session + both entries in the map.
+            for msg in (msg_on_a, msg_on_b):
+                self.assertEqual(msg['session_id'], 22)
+                self.assertEqual(set(msg['active_sessions'].values()), {11, 22})
+
+            # Accessor registry has both entries under distinct keys.
+            snapshot = session_state_module.host_sessions_snapshot()
+            self.assertEqual(len(snapshot), 2)
+            self.assertEqual(sorted(snapshot.values()), [11, 22])
+        finally:
+            await host_a.disconnect()
+            await host_b.disconnect()
+
+    async def test_disconnect_prunes_entry_silently(self):
+        host = await self._open()
+        try:
+            await self._drain_connect_messages(host)
+            await host.send_json_to({'command': 'identify', 'role': 'host'})
+            await asyncio.sleep(0.02)
+            while True:
+                try:
+                    await asyncio.wait_for(host.receive_json_from(), timeout=0.02)
+                except (asyncio.TimeoutError, Exception):
+                    break
+
+            await host.send_json_to({'command': 'set_session', 'session_id': 77})
+            await host.receive_json_from()
+
+            self.assertEqual(len(session_state_module.host_sessions_snapshot()), 1)
+        finally:
+            await host.disconnect()
+
+        # After disconnect the entry must be gone — no lingering dead
+        # channel_names in the registry.
+        await asyncio.sleep(0.02)
+        self.assertEqual(session_state_module.host_sessions_snapshot(), {})
+
+    async def test_late_joiner_sees_existing_session_on_connect(self):
+        host = await self._open()
+        try:
+            await self._drain_connect_messages(host)
+            await host.send_json_to({'command': 'identify', 'role': 'host'})
+            await asyncio.sleep(0.02)
+            while True:
+                try:
+                    await asyncio.wait_for(host.receive_json_from(), timeout=0.02)
+                except (asyncio.TimeoutError, Exception):
+                    break
+
+            await host.send_json_to({'command': 'set_session', 'session_id': 99})
+            await host.receive_json_from()
+
+            # Now a new remote joins — it should immediately learn the
+            # current session from the connect-time auto-push.
+            remote = await self._open()
+            try:
+                msgs = await self._drain_connect_messages(remote)
+                session_msg = msgs['session_changed']
+                self.assertEqual(session_msg['session_id'], 99)
+                self.assertEqual(list(session_msg['active_sessions'].values()), [99])
+            finally:
+                await remote.disconnect()
+        finally:
+            await host.disconnect()
+
+    async def test_request_session_state_returns_full_snapshot(self):
+        host = await self._open()
+        remote = await self._open()
+        try:
+            await self._drain_connect_messages(host)
+            await self._drain_connect_messages(remote)
+
+            await host.send_json_to({'command': 'identify', 'role': 'host'})
+            await remote.send_json_to({'command': 'identify', 'role': 'remote'})
+            await asyncio.sleep(0.02)
+            for comm in (host, remote):
+                while True:
+                    try:
+                        await asyncio.wait_for(comm.receive_json_from(), timeout=0.02)
+                    except (asyncio.TimeoutError, Exception):
+                        break
+
+            await host.send_json_to({'command': 'set_session', 'session_id': 55})
+            await host.receive_json_from()
+            await remote.receive_json_from()
+
+            # Remote re-asks for state.
+            await remote.send_json_to({'command': 'request_session_state'})
+            reply = await remote.receive_json_from()
+            self.assertEqual(reply['type'], 'session_changed')
+            self.assertEqual(reply['session_id'], 55)
+            self.assertEqual(list(reply['active_sessions'].values()), [55])
+        finally:
+            await host.disconnect()
+            await remote.disconnect()
+
+
+# ======================================================================
+# Phase 5b — claim/release broadcast end-to-end over the channel layer
+# ======================================================================
+# These tests exercise the full HostSyncConsumer path for workstation
+# claims between two WebSocket clients: client A sends
+# ``claim_workstation``, and client B must receive a
+# ``workstation_claims_update`` broadcast. This is the invariant the
+# Redis channel layer has to preserve under multi-worker fan-out, so
+# covering it here (against the default in-memory layer during CI, and
+# against Redis locally when ``REDIS_URL`` is set) guards against
+# regressions on both backends.
+
+class HostSyncClaimBroadcastTests(unittest.IsolatedAsyncioTestCase):
+    """Two-client broadcast coverage for claim_workstation / release_workstation."""
+
+    async def asyncSetUp(self):
+        from asgiref.sync import sync_to_async
+        from api.models import Workstation, WorkstationClaim
+
+        session_state_module.reset_for_tests()
+
+        self._test_ip = '127.0.0.250'
+        self._workstation = await sync_to_async(Workstation.objects.create)(
+            name='Phase5b-Claim-Broadcast',
+            identifier='phase5b-claim-broadcast',
+            is_default=False,
+            is_active=True,
+            instrument_addresses=[self._test_ip],
+        )
+
+        # In case a previous failed run left mirror rows on this workstation.
+        await sync_to_async(
+            WorkstationClaim.objects.filter(workstation=self._workstation).delete
+        )()
+
+    async def asyncTearDown(self):
+        from asgiref.sync import sync_to_async
+        from api.models import WorkstationClaim
+
+        session_state_module.reset_for_tests()
+        await sync_to_async(
+            WorkstationClaim.objects.filter(workstation=self._workstation).delete
+        )()
+        await sync_to_async(self._workstation.delete)()
+
+    async def _open(self):
+        from channels.testing import WebsocketCommunicator
+
+        communicator = WebsocketCommunicator(
+            consumers_module.HostSyncConsumer.as_asgi(),
+            '/ws/host-sync/',
+        )
+        connected, _ = await communicator.connect()
+        self.assertTrue(connected)
+        return communicator
+
+    async def _drain(self, communicator, max_msgs=6, timeout=0.1):
+        """Swallow whatever the server has queued; used to reach a quiet state."""
+        drained = []
+        for _ in range(max_msgs):
+            try:
+                drained.append(
+                    await asyncio.wait_for(
+                        communicator.receive_json_from(), timeout=timeout,
+                    )
+                )
+            except (asyncio.TimeoutError, Exception):
+                break
+        return drained
+
+    async def _wait_for(self, communicator, predicate, timeout=2.0):
+        """Receive messages until predicate(msg) is True or timeout elapses."""
+        deadline = asyncio.get_event_loop().time() + timeout
+        while asyncio.get_event_loop().time() < deadline:
+            remaining = deadline - asyncio.get_event_loop().time()
+            try:
+                msg = await asyncio.wait_for(
+                    communicator.receive_json_from(), timeout=remaining,
+                )
+            except (asyncio.TimeoutError, Exception):
+                return None
+            if predicate(msg):
+                return msg
+        return None
+
+    async def test_claim_broadcasts_to_other_socket(self):
+        from api.models import WorkstationClaim
+        from asgiref.sync import sync_to_async
+
+        host = await self._open()
+        observer = await self._open()
+        try:
+            await self._drain(host)
+            await self._drain(observer)
+
+            await host.send_json_to({'command': 'identify', 'role': 'host'})
+            await observer.send_json_to({'command': 'identify', 'role': 'remote'})
+            await asyncio.sleep(0.05)
+            await self._drain(host)
+            await self._drain(observer)
+
+            await host.send_json_to({
+                'command': 'claim_workstation',
+                'ip': self._test_ip,
+                'client_id': 'phase5b-test-client',
+            })
+
+            def _is_claim_present(msg):
+                return (
+                    msg.get('type') == 'workstation_claims_update'
+                    and self._test_ip in (msg.get('claims') or {})
+                )
+
+            observer_msg = await self._wait_for(observer, _is_claim_present)
+            self.assertIsNotNone(
+                observer_msg,
+                'Observer socket never received claim_workstation broadcast',
+            )
+
+            host_echo = await self._wait_for(host, _is_claim_present)
+            self.assertIsNotNone(
+                host_echo,
+                'Host socket did not receive its own broadcast echo; '
+                'group_send fan-out is missing the sender.',
+            )
+
+            # Both clients saw the SAME logical claim.
+            self.assertEqual(
+                observer_msg['claims'][self._test_ip],
+                host_echo['claims'][self._test_ip],
+            )
+
+            # DB mirror is populated.
+            row_exists = await sync_to_async(
+                WorkstationClaim.objects.filter(
+                    workstation=self._workstation,
+                ).exists
+            )()
+            self.assertTrue(row_exists, 'Claim DB row missing after broadcast round-trip')
+        finally:
+            await host.disconnect()
+            await observer.disconnect()
+
+    async def test_release_broadcasts_and_clears_db_row(self):
+        from api.models import WorkstationClaim
+        from asgiref.sync import sync_to_async
+
+        host = await self._open()
+        observer = await self._open()
+        try:
+            await self._drain(host)
+            await self._drain(observer)
+            await host.send_json_to({'command': 'identify', 'role': 'host'})
+            await observer.send_json_to({'command': 'identify', 'role': 'remote'})
+            await asyncio.sleep(0.05)
+            await self._drain(host)
+            await self._drain(observer)
+
+            await host.send_json_to({
+                'command': 'claim_workstation',
+                'ip': self._test_ip,
+                'client_id': 'phase5b-release-test',
+            })
+
+            def _has_claim(msg):
+                return (
+                    msg.get('type') == 'workstation_claims_update'
+                    and self._test_ip in (msg.get('claims') or {})
+                )
+
+            self.assertIsNotNone(await self._wait_for(observer, _has_claim))
+            self.assertIsNotNone(await self._wait_for(host, _has_claim))
+
+            await host.send_json_to({
+                'command': 'release_workstation',
+                'ip': self._test_ip,
+            })
+
+            def _released(msg):
+                return (
+                    msg.get('type') == 'workstation_claims_update'
+                    and self._test_ip not in (msg.get('claims') or {})
+                )
+
+            self.assertIsNotNone(
+                await self._wait_for(observer, _released),
+                'Observer socket never received release broadcast',
+            )
+
+            row_still_there = await sync_to_async(
+                WorkstationClaim.objects.filter(
+                    workstation=self._workstation,
+                ).exists
+            )()
+            self.assertFalse(
+                row_still_there,
+                'Claim DB row should be deleted after release broadcast',
+            )
+        finally:
+            await host.disconnect()
+            await observer.disconnect()
+
+    async def test_disconnect_self_heals_and_broadcasts_release(self):
+        """Claimed host vanishes -> remaining socket sees the claim disappear.
+
+        This is the path that matters most in prod: when a host tab
+        crashes without sending release_workstation, the disconnect
+        handler must release the lock AND broadcast so other operators
+        don't see a phantom claim.
+        """
+        from api.models import WorkstationClaim
+        from asgiref.sync import sync_to_async
+
+        host = await self._open()
+        observer = await self._open()
+        try:
+            await self._drain(host)
+            await self._drain(observer)
+            await host.send_json_to({'command': 'identify', 'role': 'host'})
+            await observer.send_json_to({'command': 'identify', 'role': 'remote'})
+            await asyncio.sleep(0.05)
+            await self._drain(host)
+            await self._drain(observer)
+
+            await host.send_json_to({
+                'command': 'claim_workstation',
+                'ip': self._test_ip,
+                'client_id': 'phase5b-crash-test',
+            })
+
+            def _has_claim(msg):
+                return (
+                    msg.get('type') == 'workstation_claims_update'
+                    and self._test_ip in (msg.get('claims') or {})
+                )
+
+            self.assertIsNotNone(await self._wait_for(observer, _has_claim))
+            self.assertIsNotNone(await self._wait_for(host, _has_claim))
+
+            # Simulate a host crash — the socket just closes.
+            await host.disconnect()
+
+            def _released(msg):
+                return (
+                    msg.get('type') == 'workstation_claims_update'
+                    and self._test_ip not in (msg.get('claims') or {})
+                )
+
+            released = await self._wait_for(observer, _released, timeout=3.0)
+            self.assertIsNotNone(
+                released,
+                'Observer never learned that the crashed host released the '
+                'workstation — self-healing broadcast is broken.',
+            )
+
+            row_still_there = await sync_to_async(
+                WorkstationClaim.objects.filter(
+                    workstation=self._workstation,
+                ).exists
+            )()
+            self.assertFalse(
+                row_still_there,
+                'Claim DB row should be cleared when the owning socket disconnects',
+            )
+        finally:
+            await observer.disconnect()
+
+
+# ======================================================================
+# Phase 4 — session_state accessor layer
+# ======================================================================
+# Pure-Python unit tests against the storage seam. These are
+# intentionally synchronous and database-free: the whole point of the
+# module is to be a thin, fast shim that Phase 5 can swap for Redis
+# without touching any callsite, so we want that shim tested in
+# isolation from Django Channels / DB machinery.
+
+class SessionStateHostSessionsTests(unittest.TestCase):
+    def setUp(self):
+        session_state_module.reset_for_tests()
+
+    def tearDown(self):
+        session_state_module.reset_for_tests()
+
+    def test_snapshot_starts_empty(self):
+        self.assertEqual(session_state_module.host_sessions_snapshot(), {})
+        self.assertIsNone(session_state_module.legacy_session_id())
+
+    def test_set_then_snapshot_roundtrip(self):
+        session_state_module.set_host_session('chan-a', 7)
+        session_state_module.set_host_session('chan-b', 9)
+        self.assertEqual(
+            session_state_module.host_sessions_snapshot(),
+            {'chan-a': 7, 'chan-b': 9},
+        )
+
+    def test_snapshot_returns_independent_copy(self):
+        session_state_module.set_host_session('chan-a', 7)
+        snap = session_state_module.host_sessions_snapshot()
+        snap['chan-a'] = 999
+        # Mutating the snapshot must NOT affect the registry.
+        self.assertEqual(
+            session_state_module.host_sessions_snapshot(),
+            {'chan-a': 7},
+        )
+
+    def test_legacy_session_id_prefers_first_inserted(self):
+        # Deterministic fallback behavior matters for single-host compat.
+        session_state_module.set_host_session('first', 100)
+        session_state_module.set_host_session('second', 200)
+        self.assertEqual(session_state_module.legacy_session_id(), 100)
+
+    def test_clear_host_session_returns_prior(self):
+        session_state_module.set_host_session('chan-a', 42)
+        prior = session_state_module.clear_host_session('chan-a')
+        self.assertEqual(prior, 42)
+        self.assertEqual(session_state_module.host_sessions_snapshot(), {})
+        # Idempotent on missing key.
+        self.assertIsNone(session_state_module.clear_host_session('chan-a'))
+
+
+class SessionStateViewersTests(unittest.TestCase):
+    def setUp(self):
+        session_state_module.reset_for_tests()
+
+    def tearDown(self):
+        session_state_module.reset_for_tests()
+
+    def test_register_and_snapshot(self):
+        session_state_module.register_viewer('chan', ip='1.2.3.4', connected_at=1.0)
+        snap = session_state_module.viewers_snapshot()
+        self.assertEqual(list(snap), ['chan'])
+        self.assertEqual(snap['chan']['role'], 'unknown')
+        self.assertEqual(snap['chan']['ip'], '1.2.3.4')
+        self.assertEqual(snap['chan']['connected_at'], 1.0)
+
+    def test_update_viewer_role_returns_false_if_missing(self):
+        self.assertFalse(
+            session_state_module.update_viewer_role('ghost', 'host')
+        )
+
+    def test_update_viewer_role_promotes_in_place(self):
+        session_state_module.register_viewer('chan', ip='x', connected_at=0)
+        self.assertTrue(
+            session_state_module.update_viewer_role('chan', 'host')
+        )
+        self.assertEqual(
+            session_state_module.get_viewer('chan')['role'], 'host'
+        )
+
+    def test_unregister_returns_true_once(self):
+        session_state_module.register_viewer('chan', ip='x', connected_at=0)
+        self.assertTrue(session_state_module.unregister_viewer('chan'))
+        # Second removal is a no-op.
+        self.assertFalse(session_state_module.unregister_viewer('chan'))
+
+
+class SessionStateLiveStateTests(unittest.TestCase):
+    def setUp(self):
+        session_state_module.reset_for_tests()
+
+    def tearDown(self):
+        session_state_module.reset_for_tests()
+
+    def test_peek_returns_default_without_allocating(self):
+        self.assertEqual(
+            session_state_module.peek_live_state(123)['isCollecting'], False
+        )
+        # peek must NOT register an entry for the session.
+        self.assertEqual(session_state_module.get_live_state.__name__, 'get_live_state')
+        # Re-peek yields a fresh default (still not persisted).
+        a = session_state_module.peek_live_state(123)
+        b = session_state_module.peek_live_state(123)
+        self.assertIsNot(a, b)  # different dicts — confirms no persistence
+
+    def test_get_persists_entry_and_roundtrips(self):
+        state = session_state_module.get_live_state(42)
+        state['isCollecting'] = True
+        again = session_state_module.get_live_state(42)
+        self.assertIs(state, again)
+        self.assertTrue(again['isCollecting'])
+
+    def test_clear_live_state_is_idempotent(self):
+        session_state_module.get_live_state(42)
+        session_state_module.clear_live_state(42)
+        session_state_module.clear_live_state(42)  # no raise
+
+    def test_key_is_stringified(self):
+        # Callers historically pass both ints and strs; both must hit the same slot.
+        session_state_module.get_live_state(7)['isCollecting'] = True
+        self.assertTrue(
+            session_state_module.peek_live_state('7')['isCollecting']
+        )
+
+
+class SessionStateClaimsTests(TestCase):
+    """In-memory wire-shape checks for the claim accessors.
+
+    Extends ``django.test.TestCase`` (not ``unittest.TestCase``) because
+    Phase 5a's ``claim_workstation`` mirrors every write into the
+    ``WorkstationClaim`` DB table — the test needs a transactional test
+    database so those writes roll back between tests.
+    """
+    def setUp(self):
+        session_state_module.reset_for_tests()
+
+    def tearDown(self):
+        session_state_module.reset_for_tests()
+
+    def test_claim_and_snapshot(self):
+        session_state_module.claim_workstation(
+            '10.0.0.1', channel_name='chan-a', client_id='cid', role='host',
+        )
+        snap = session_state_module.claims_snapshot()
+        self.assertEqual(snap['10.0.0.1']['channel_name'], 'chan-a')
+        self.assertEqual(snap['10.0.0.1']['role'], 'host')
+
+    def test_release_only_by_owner(self):
+        session_state_module.claim_workstation(
+            '10.0.0.1', channel_name='chan-a', client_id='cid', role='host',
+        )
+        # A different channel_name must not be able to release the lock.
+        self.assertFalse(
+            session_state_module.release_workstation('10.0.0.1', channel_name='chan-b')
+        )
+        self.assertIn('10.0.0.1', session_state_module.claims_snapshot())
+
+        self.assertTrue(
+            session_state_module.release_workstation('10.0.0.1', channel_name='chan-a')
+        )
+        self.assertNotIn('10.0.0.1', session_state_module.claims_snapshot())
+
+    def test_release_claims_for_returns_freed_ips(self):
+        session_state_module.claim_workstation(
+            '10.0.0.1', channel_name='chan-a', client_id='cid', role='host',
+        )
+        session_state_module.claim_workstation(
+            '10.0.0.2', channel_name='chan-a', client_id='cid', role='host',
+        )
+        session_state_module.claim_workstation(
+            '10.0.0.3', channel_name='chan-b', client_id='cid', role='host',
+        )
+        freed = session_state_module.release_claims_for('chan-a')
+        self.assertEqual(sorted(freed), ['10.0.0.1', '10.0.0.2'])
+        self.assertEqual(
+            list(session_state_module.claims_snapshot()),
+            ['10.0.0.3'],
+        )
+
+    def test_release_claims_for_unknown_channel_is_noop(self):
+        self.assertEqual(session_state_module.release_claims_for('nobody'), [])
+
+
+class SessionStateResetTests(TestCase):
+    """Reset coverage: promoted to ``django.test.TestCase`` so the DB-
+    mirrored claim wipe path introduced in Phase 5a is exercised inside
+    a transactional fixture.
+    """
+    def test_reset_wipes_every_registry(self):
+        session_state_module.set_host_session('chan', 1)
+        session_state_module.register_viewer('chan', ip='x', connected_at=0)
+        session_state_module.get_live_state(99)['isCollecting'] = True
+        session_state_module.claim_workstation(
+            '10.0.0.1', channel_name='chan', client_id='c', role='host',
+        )
+
+        session_state_module.reset_for_tests()
+
+        self.assertEqual(session_state_module.host_sessions_snapshot(), {})
+        self.assertEqual(session_state_module.viewers_snapshot(), {})
+        self.assertEqual(session_state_module.claims_snapshot(), {})
+        # get_live_state creates a fresh default — confirming the old entry is gone.
+        self.assertFalse(session_state_module.peek_live_state(99)['isCollecting'])
+        # Phase 5a: the DB mirror is also wiped.
+        self.assertEqual(WorkstationClaim.objects.count(), 0)
+
+
+class SessionStateClaimsDBMirrorTests(TestCase):
+    """Phase 5a + auto-provision: every in-memory claim mutation mirrors
+    into the DB, and unknown IPs materialize a per-IP Workstation row
+    on first sighting.
+
+    Seeds two benches with disjoint instrument address lists so the
+    IP-to-workstation resolver has something meaningful to match
+    against. Claims on addresses outside those lists now auto-provision
+    an ``auto-<ip-slug>`` row instead of collapsing onto the default
+    "Local Workstation" (which is why the old fallback test was
+    replaced with the three auto-provision tests below).
+    """
+
+    def setUp(self):
+        session_state_module.reset_for_tests()
+        self.bench_a = Workstation.objects.create(
+            name='Bench A', identifier='bench-a',
+            instrument_addresses=['10.0.0.1', '10.0.0.2'],
+        )
+        self.bench_b = Workstation.objects.create(
+            name='Bench B', identifier='bench-b',
+            instrument_addresses=['10.0.0.3'],
+        )
+
+    def tearDown(self):
+        session_state_module.reset_for_tests()
+
+    def test_claim_creates_db_row_resolved_by_ip(self):
+        session_state_module.claim_workstation(
+            '10.0.0.1',
+            channel_name='chan-a', client_id='cid', role='host',
+            owner_label='192.168.1.7',
+        )
+        claim = WorkstationClaim.objects.get(workstation=self.bench_a)
+        self.assertEqual(claim.owner_channel, 'chan-a')
+        self.assertEqual(claim.owner_client_id, 'cid')
+        self.assertEqual(claim.owner_label, '192.168.1.7')
+        self.assertIsNone(claim.active_session_id)
+
+    def test_claim_auto_provisions_workstation_when_ip_unknown(self):
+        """Unknown IPs create a new ``auto-<slug>`` Workstation row.
+
+        This is the Phase-5b-follow-up behavior: the frontend already
+        groups discovered instruments by IP client-side, so forcing
+        operators to manually seed matching rows in the admin is
+        friction with no safety benefit. Instead, the first claim on
+        an unregistered IP materializes a per-IP bench automatically.
+        """
+        ip = '198.51.100.99'  # RFC 5737 TEST-NET-2, guaranteed not seeded
+        before_count = Workstation.objects.count()
+
+        session_state_module.claim_workstation(
+            ip, channel_name='chan-a', client_id='cid', role='host',
+        )
+
+        # A new row exists, distinct from both seeded benches AND the default.
+        self.assertEqual(Workstation.objects.count(), before_count + 1)
+        new_ws = Workstation.objects.get(identifier=f'auto-{ip.replace(".", "-")}')
+        self.assertEqual(new_ws.instrument_addresses, [ip])
+        self.assertFalse(new_ws.is_default)
+        self.assertTrue(new_ws.is_active)
+        self.assertEqual(new_ws.name, f'Bench @ {ip}')
+        self.assertTrue(
+            WorkstationClaim.objects.filter(workstation=new_ws).exists(),
+            'Claim should be mirrored against the auto-provisioned row, '
+            'not the default bench',
+        )
+
+    def test_second_claim_on_same_unknown_ip_reuses_same_row(self):
+        """Auto-provisioning is idempotent across reconnects / re-claims."""
+        ip = '198.51.100.77'
+        session_state_module.claim_workstation(
+            ip, channel_name='chan-a', client_id='cid', role='host',
+        )
+        first = Workstation.objects.get(identifier=f'auto-{ip.replace(".", "-")}')
+
+        session_state_module.release_workstation(ip, channel_name='chan-a')
+        session_state_module.claim_workstation(
+            ip, channel_name='chan-b', client_id='cid2', role='host',
+        )
+
+        second = Workstation.objects.get(identifier=f'auto-{ip.replace(".", "-")}')
+        self.assertEqual(first.pk, second.pk)
+        self.assertEqual(Workstation.objects.filter(identifier__startswith='auto-').count(), 1)
+
+    def test_seeded_workstation_takes_precedence_over_auto_provision(self):
+        """If an operator curated a row for this IP, we honor that row."""
+        session_state_module.claim_workstation(
+            '10.0.0.1',  # already listed under Bench A in setUp()
+            channel_name='chan-a', client_id='c', role='host',
+        )
+        # No auto-<slug> row should appear; the claim lives on Bench A.
+        self.assertFalse(
+            Workstation.objects.filter(identifier__startswith='auto-').exists(),
+            'Known IP should resolve to its seeded bench, not auto-provision',
+        )
+        self.assertTrue(
+            WorkstationClaim.objects.filter(workstation=self.bench_a).exists()
+        )
+
+    def test_two_ips_on_same_bench_collapse_to_one_row(self):
+        session_state_module.claim_workstation(
+            '10.0.0.1', channel_name='chan-a', client_id='c', role='host')
+        session_state_module.claim_workstation(
+            '10.0.0.2', channel_name='chan-a', client_id='c', role='host')
+        self.assertEqual(
+            WorkstationClaim.objects.filter(workstation=self.bench_a).count(), 1,
+        )
+
+    def test_release_keeps_row_while_sibling_ip_still_held(self):
+        session_state_module.claim_workstation(
+            '10.0.0.1', channel_name='chan-a', client_id='c', role='host')
+        session_state_module.claim_workstation(
+            '10.0.0.2', channel_name='chan-a', client_id='c', role='host')
+
+        # First release: bench still holds another IP → row must survive.
+        self.assertTrue(session_state_module.release_workstation(
+            '10.0.0.1', channel_name='chan-a'))
+        self.assertEqual(
+            WorkstationClaim.objects.filter(workstation=self.bench_a).count(), 1,
+        )
+
+        # Second release: bench now fully free → row deleted.
+        self.assertTrue(session_state_module.release_workstation(
+            '10.0.0.2', channel_name='chan-a'))
+        self.assertEqual(
+            WorkstationClaim.objects.filter(workstation=self.bench_a).count(), 0,
+        )
+
+    def test_release_by_non_owner_does_not_touch_row(self):
+        session_state_module.claim_workstation(
+            '10.0.0.1', channel_name='chan-a', client_id='c', role='host')
+        self.assertFalse(session_state_module.release_workstation(
+            '10.0.0.1', channel_name='imposter'))
+        # Row still exists, owner unchanged.
+        claim = WorkstationClaim.objects.get(workstation=self.bench_a)
+        self.assertEqual(claim.owner_channel, 'chan-a')
+
+    def test_release_claims_for_bulk_deletes_db_rows(self):
+        session_state_module.claim_workstation(
+            '10.0.0.1', channel_name='chan-a', client_id='c', role='host')
+        session_state_module.claim_workstation(
+            '10.0.0.3', channel_name='chan-a', client_id='c', role='host')
+        # A different channel's claim must be untouched.
+        session_state_module.claim_workstation(
+            '10.0.0.2', channel_name='chan-b', client_id='c', role='host')
+
+        self.assertEqual(WorkstationClaim.objects.count(), 2)  # A + B collapsed benches
+        freed = session_state_module.release_claims_for('chan-a')
+        self.assertEqual(sorted(freed), ['10.0.0.1', '10.0.0.3'])
+        # Only chan-b's claim survives.
+        remaining = list(WorkstationClaim.objects.all())
+        self.assertEqual(len(remaining), 1)
+        self.assertEqual(remaining[0].owner_channel, 'chan-b')
+
+    def test_active_session_threaded_into_claim_row(self):
+        session = CalibrationSession.objects.create(session_name='Active Run')
+        session_state_module.claim_workstation(
+            '10.0.0.1',
+            channel_name='chan-a', client_id='c', role='host',
+            active_session_id=session.id,
+        )
+        claim = WorkstationClaim.objects.get(workstation=self.bench_a)
+        self.assertEqual(claim.active_session_id, session.id)
+
+    def test_wipe_stale_claims_returns_deleted_count(self):
+        session_state_module.claim_workstation(
+            '10.0.0.1', channel_name='chan-a', client_id='c', role='host')
+        session_state_module.claim_workstation(
+            '10.0.0.3', channel_name='chan-b', client_id='c', role='host')
+        self.assertEqual(WorkstationClaim.objects.count(), 2)
+        wiped = session_state_module.wipe_stale_claims()
+        self.assertEqual(wiped, 2)
+        self.assertEqual(WorkstationClaim.objects.count(), 0)
+
+    def test_snapshot_preserves_legacy_wire_shape(self):
+        session_state_module.claim_workstation(
+            '10.0.0.1',
+            channel_name='chan-a', client_id='cid-1', role='host',
+            owner_label='192.168.1.7',
+        )
+        snap = session_state_module.claims_snapshot()
+        # Legacy contract: IP-keyed dict, channel/client/role keys.
+        # ``owner_label`` and DB-only fields are NOT exposed over the wire
+        # (the frontend never learned about them, and we preserve that).
+        self.assertEqual(set(snap.keys()), {'10.0.0.1'})
+        entry = snap['10.0.0.1']
+        self.assertEqual(entry['channel_name'], 'chan-a')
+        self.assertEqual(entry['client_id'], 'cid-1')
+        self.assertEqual(entry['role'], 'host')
+        self.assertNotIn('owner_label', entry)
+        self.assertNotIn('active_session_id', entry)

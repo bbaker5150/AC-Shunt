@@ -53,7 +53,19 @@ class CalibrationSession(models.Model):
     # Amplifier Address
     amplifier_address = models.CharField(max_length=255, null=True, blank=True)
     amplifier_serial = models.CharField(max_length=255, null=True, blank=True)
-    
+
+    # Physical bench the run happens on. Nullable so every pre-existing
+    # session (and single-user Electron installs that never touch the
+    # concept) keeps working unchanged; unset sessions implicitly resolve
+    # to Workstation.get_default() at request time.
+    workstation = models.ForeignKey(
+        'Workstation',
+        null=True,
+        blank=True,
+        on_delete=models.SET_NULL,
+        related_name='sessions',
+    )
+
     temperature = models.FloatField(null=True, blank=True, help_text="Temperature in °C")
     humidity = models.FloatField(null=True, blank=True, help_text="Relative Humidity in %RH")
     created_at = models.DateTimeField(auto_now_add=True)
@@ -556,6 +568,130 @@ class BugReport(models.Model):
 
     def __str__(self):
         return f"{self.severity} - {self.title}"
+
+class Workstation(models.Model):
+    """A calibration bench — the physical location where a run happens.
+
+    Workstation identity replaces the client-IP-based claim system so the
+    application can be hosted centrally on a VM and still correctly
+    attribute which physical bench a host is driving. Every entry is
+    rarely-edited reference data managed through the Django admin; the
+    optional ``Documents/Portal/workstations.json`` seed file imports an
+    initial inventory on a fresh install and is ignored once any
+    non-default rows exist.
+
+    The relationship to :class:`CalibrationSession` is intentionally
+    nullable — pre-existing sessions (and single-user Electron installs
+    that never touch the concept) keep working, falling back to the
+    auto-created local bench via :meth:`get_default`.
+    """
+
+    name = models.CharField(max_length=100, unique=True)
+    identifier = models.SlugField(
+        max_length=100,
+        unique=True,
+        help_text="Stable slug used in URLs / WebSocket payloads. Lower-case, no spaces.",
+    )
+    location = models.CharField(max_length=200, blank=True, default='')
+    is_active = models.BooleanField(default=True)
+    is_default = models.BooleanField(
+        default=False,
+        help_text=(
+            "Marks the auto-created local bench. Used as the fallback "
+            "workstation when a CalibrationSession has no explicit link."
+        ),
+    )
+    instrument_addresses = models.JSONField(
+        default=list,
+        blank=True,
+        help_text=(
+            "Advisory list of GPIB/VISA addresses that physically live at "
+            "this bench. Not enforced at run-time — used by the UI to "
+            "pre-filter instrument choices when configuring a session."
+        ),
+    )
+    notes = models.TextField(blank=True, default='')
+    created_at = models.DateTimeField(auto_now_add=True)
+    updated_at = models.DateTimeField(auto_now=True)
+
+    class Meta:
+        ordering = ['name']
+
+    def __str__(self):
+        return self.name
+
+    @classmethod
+    def get_default(cls):
+        """Return the auto-created local bench, creating it if missing.
+
+        Called from ``entry_point._bootstrap_local_workstation`` at boot and
+        as a safety net during request handling so the "Local Workstation"
+        invariant holds even if the bootstrap step is ever skipped. Never
+        raises — a broken DB surfaces elsewhere.
+        """
+        ws, _ = cls.objects.get_or_create(
+            is_default=True,
+            defaults={
+                'name': 'Local Workstation',
+                'identifier': 'local',
+                'location': 'Local',
+                'is_active': True,
+            },
+        )
+        return ws
+
+
+class WorkstationClaim(models.Model):
+    """Durable row-backed replacement for the in-memory claim registry.
+
+    Keeping the claim in the DB rather than the process-global
+    ``CLAIMED_WORKSTATIONS`` dict gives us two things the dict cannot:
+
+    1. **Crash safety** — a daphne restart no longer strands a workstation
+       under a lock nobody owns. Staleness is detected via
+       ``last_heartbeat_at`` plus a TTL enforced at claim time.
+    2. **Cross-process correctness** — when the deployment eventually runs
+       multiple ASGI workers, the claim row remains the single source of
+       truth without any inter-process coordination.
+
+    ``owner_channel`` stores the ASGI ``channel_name`` of the WebSocket
+    that currently holds the lock. Release/disconnect logic verifies
+    ownership against this value before mutating the row so a misrouted
+    command cannot steal someone else's bench.
+    """
+
+    workstation = models.OneToOneField(
+        Workstation,
+        on_delete=models.CASCADE,
+        related_name='claim',
+    )
+    owner_channel = models.CharField(max_length=200, db_index=True)
+    owner_client_id = models.CharField(max_length=100, blank=True, default='')
+    owner_label = models.CharField(
+        max_length=200,
+        blank=True,
+        default='',
+        help_text="Human-readable owner description surfaced in the UI.",
+    )
+    active_session = models.ForeignKey(
+        CalibrationSession,
+        null=True,
+        blank=True,
+        on_delete=models.SET_NULL,
+        related_name='active_claims',
+    )
+    claimed_at = models.DateTimeField(auto_now_add=True)
+    last_heartbeat_at = models.DateTimeField(auto_now=True)
+
+    class Meta:
+        indexes = [
+            models.Index(fields=['owner_channel']),
+            models.Index(fields=['last_heartbeat_at']),
+        ]
+
+    def __str__(self):
+        return f"Claim on {self.workstation.name} by {self.owner_channel[:40]}"
+
 
 class PendingReadingWrite(models.Model):
     """

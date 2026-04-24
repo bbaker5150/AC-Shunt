@@ -18,14 +18,16 @@ from asgiref.sync import async_to_sync
 from .models import (
     Message, CalibrationSession, TestPoint, TestPointSet, Calibration, 
     CalibrationConfigurations, CalibrationTVCCorrections, CalibrationSettings, 
-    CalibrationReadings, CalibrationResults, Shunt, TVC, BugReport
+    CalibrationReadings, CalibrationResults, Shunt, TVC, BugReport,
+    Workstation,
 )
 from .serializers import (
     MessageSerializer, CalibrationSerializer, CalibrationSessionSerializer, 
     TestPointSerializer, TestPointSetSerializer, 
     CalibrationTVCCorrectionsSerializer, CalibrationConfigurationsSerializer, 
     CalibrationSettingsSerializer, CalibrationReadingsSerializer, 
-    CalibrationResultsSerializer, ShuntSerializer, TVCSerializer, BugReportSerializer
+    CalibrationResultsSerializer, ShuntSerializer, TVCSerializer, BugReportSerializer,
+    WorkstationSerializer,
 )
 from npsl_tools.instruments import (
     Instrument11713C, Instrument3458A, Instrument5730A, Instrument5790B, 
@@ -198,6 +200,29 @@ class TVCViewSet(viewsets.ModelViewSet):
         #     print(json.dumps(response.data[0], indent=2))
         # print("------------------------------------------------\n")
         return response
+
+class WorkstationViewSet(viewsets.ReadOnlyModelViewSet):
+    """Read-only list/retrieve for the session-setup dropdown.
+
+    CRUD on Workstation rows is intentionally kept in the Django admin —
+    workstations are rarely-edited reference data (think: "Bench 3" gets
+    renamed once, maybe; a new bench is added once a year) and gating
+    edits behind admin keeps accidental misconfiguration off the hot path.
+    The frontend only needs to list active benches, which this endpoint
+    serves with the attached claim snapshot so the picker can render
+    claim status in one round trip.
+    """
+
+    # select_related('claim') avoids N+1 in the list endpoint by pulling the
+    # OneToOne reverse side in the same SELECT.
+    queryset = (
+        Workstation.objects
+        .filter(is_active=True)
+        .select_related('claim', 'claim__active_session')
+        .order_by('name')
+    )
+    serializer_class = WorkstationSerializer
+
 
 class BugReportViewSet(viewsets.ModelViewSet):
     queryset = BugReport.objects.all().order_by('-created_at')

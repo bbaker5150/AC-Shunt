@@ -16,7 +16,12 @@ import numpy as np
 from django.conf import settings
 from urllib.parse import unquote, parse_qs
 
-CLAIMED_WORKSTATIONS: dict = {}
+from api.session_supervisor import (
+    SessionSupervisor,
+    get_or_create_supervisor,
+    peek_supervisor,
+)
+from api import session_state
 
 
 def _parse_client_role(scope) -> str:
@@ -77,55 +82,22 @@ def _inst(real_cls, **kwargs):
         cls = real_cls
     return cls(**kwargs)
 
-HOST_ACTIVE_SESSION_ID = None
-
-# --- Connected viewer presence registry ---
-# Keyed by ``channel_name``. Each entry captures whoever currently holds a
-# ``HostSyncConsumer`` socket. Populated on connect, upgraded on identify, and
-# pruned on disconnect. We use this to drive the host-side "N observers" pill:
-# whenever the registry changes we push the subset of remote-role entries to
-# every host-role channel. Scoped to this process; same multi-worker caveat
-# as ``LIVE_SESSION_STATE``.
-CONNECTED_VIEWERS: dict = {}
-
-# --- Server-authoritative live-reading buffer ---
-# Keyed by session_id (stringified). Holds the exact shape the frontend
-# expects on ``live_state_sync`` so a remote joining mid-run can receive a
-# complete, coherent snapshot of every stage without relying on the host
-# browser to relay its React state. Scoped to this process; safe under
-# InMemoryChannelLayer. If the deployment ever moves to multi-worker ASGI
-# with Redis, this is the one thing that also needs to move to Redis.
-LIVE_SESSION_STATE: dict = {}
-
-
-def _initial_live_state():
-    return {
-        'isCollecting': False,
-        'activeCollectionDetails': None,
-        'liveReadings': {},
-        'tiLiveReadings': {},
-        'collectionProgress': {'count': 0, 'total': 0},
-        'focusedTPKey': None,
-    }
-
-
+# --- Live-state helper shims ---
+# Thin delegators to :mod:`api.session_state` so the existing
+# CalibrationConsumer call sites (there are several) don't have to be
+# rewritten. Keeping the underscore-prefixed names makes the indirection
+# invisible in the hot-path code below while still routing every read/write
+# through the accessor layer that Phase 5 will later swap for Redis.
 def _get_live_state(session_id):
-    """Read-write accessor: creates a default entry if none exists yet."""
-    key = str(session_id)
-    state = LIVE_SESSION_STATE.get(key)
-    if state is None:
-        state = _initial_live_state()
-        LIVE_SESSION_STATE[key] = state
-    return state
+    return session_state.get_live_state(session_id)
 
 
 def _peek_live_state(session_id):
-    """Read-only accessor: returns a default dict without allocating."""
-    return LIVE_SESSION_STATE.get(str(session_id)) or _initial_live_state()
+    return session_state.peek_live_state(session_id)
 
 
 def _clear_live_state(session_id):
-    LIVE_SESSION_STATE.pop(str(session_id), None)
+    session_state.clear_live_state(session_id)
 
 
 INSTRUMENT_CLASS_MAP = {
@@ -291,14 +263,117 @@ class InstrumentStatusConsumer(AsyncWebsocketConsumer):
 
 
 class CalibrationConsumer(AsyncWebsocketConsumer):
+    """
+    Thin WebSocket adapter in front of a per-session :class:`SessionSupervisor`.
+
+    The consumer used to own the long-running calibration ``asyncio.Task``
+    and the primitives that coordinate it (stop event, confirmation
+    event, BUSY/IDLE state). That coupling meant a host losing its socket
+    — tab close, network blip, browser crash — would tear down the task
+    in ``disconnect`` and strand the hardware mid-stage.
+
+    Post-Phase 2, those primitives live on the supervisor. The consumer
+    is now a presence + command router:
+
+    * ``connect`` attaches this socket (as host or observer) to the
+      session's supervisor, creating the supervisor on first use.
+    * ``receive`` translates client commands into supervisor method calls
+      (``start_task``, ``stop_task``, ``set_confirmation``).
+    * ``disconnect`` only detaches; the task keeps running. If this was
+      the last host socket on an active run, the supervisor arms a grace
+      window before auto-stopping.
+
+    Proxy properties (``stop_event``, ``confirmation_event``,
+    ``confirmation_status``, ``state``, ``collection_task``) forward
+    reads/writes to the supervisor, letting the ~1400 lines of task
+    methods below continue to reference ``self.*`` without any
+    line-by-line edits.
+    """
+
     def __init__(self, *args, **kwargs):
         super().__init__(*args, **kwargs)
-        self.collection_task = None
+        # Per-socket bookkeeping — *not* owned by the supervisor because
+        # it is genuinely per-socket (one ping loop per WebSocket).
         self.heartbeat_task = None
-        self.stop_event = asyncio.Event()
-        self.confirmation_event = asyncio.Event()
-        self.confirmation_status = None
-        self.state = "IDLE"
+        # Supervisor handle, set in ``connect()``. Cached on the consumer
+        # so every property access is O(1) instead of a registry lookup.
+        self.supervisor: SessionSupervisor | None = None
+
+    # ------------------------------------------------------------------
+    # Proxy properties: forward the "task coordination" attribute surface
+    # to the supervisor. Having these as properties means existing task
+    # code that reads ``self.stop_event.is_set()`` or writes
+    # ``self.state = "BUSY"`` continues to work verbatim after the
+    # refactor, while the underlying storage survives a socket close.
+    # ------------------------------------------------------------------
+
+    @property
+    def stop_event(self) -> asyncio.Event:
+        sup = self.supervisor
+        # Fall back to a bound event only while ``supervisor`` is None
+        # (i.e. before ``connect`` finishes). This keeps ``__init__`` and
+        # the hypothetical pre-connect logging path null-safe; any real
+        # task code runs strictly after ``connect``.
+        if sup is None:
+            sup = self._ensure_local_supervisor_stub()
+        return sup.stop_event
+
+    @property
+    def confirmation_event(self) -> asyncio.Event:
+        sup = self.supervisor
+        if sup is None:
+            sup = self._ensure_local_supervisor_stub()
+        return sup.confirmation_event
+
+    @property
+    def confirmation_status(self):
+        sup = self.supervisor
+        if sup is None:
+            return None
+        return sup.confirmation_status
+
+    @confirmation_status.setter
+    def confirmation_status(self, value):
+        sup = self.supervisor
+        if sup is None:
+            sup = self._ensure_local_supervisor_stub()
+        sup.confirmation_status = value
+
+    @property
+    def state(self) -> str:
+        sup = self.supervisor
+        if sup is None:
+            return SessionSupervisor.STATE_IDLE
+        return sup.state
+
+    @state.setter
+    def state(self, value):
+        sup = self.supervisor
+        if sup is None:
+            return
+        sup.state = value
+
+    @property
+    def collection_task(self):
+        """Shim for legacy task code / tests that peek at the running task."""
+        sup = self.supervisor
+        return None if sup is None else sup.task
+
+    def _ensure_local_supervisor_stub(self) -> SessionSupervisor:
+        """Fabricate a throwaway supervisor for pre-connect property reads.
+
+        ``CalibrationConsumer.__init__`` runs before ``connect``, so
+        ``self.session_id`` and therefore ``self.supervisor`` aren't
+        available yet. This stub gives property getters something
+        consistent to return without special-casing every call site. The
+        stub is replaced by the real supervisor in ``connect()``.
+        """
+        if getattr(self, "_stub_supervisor", None) is None:
+            self._stub_supervisor = SessionSupervisor(
+                session_id=getattr(self, "session_id", 0) or 0,
+            )
+        self.supervisor = self._stub_supervisor
+        return self._stub_supervisor
 
     async def connect(self):
         self.session_id = self.scope['url_route']['kwargs']['session_id']
@@ -309,6 +384,11 @@ class CalibrationConsumer(AsyncWebsocketConsumer):
         self.client_role = _parse_client_role(self.scope)
         await self.channel_layer.group_add(self.session_group_name, self.channel_name)
         await self.accept()
+
+        # Attach to (or create) the session's supervisor. All subsequent
+        # state reads/writes on this consumer route through it.
+        self.supervisor = await get_or_create_supervisor(self.session_id)
+        await self.supervisor.attach(self.channel_name, self.client_role)
 
         # Guarantee the outbox drainer is alive on the ASGI loop. Safe to call
         # on every connect — subsequent calls are no-ops.
@@ -349,10 +429,21 @@ class CalibrationConsumer(AsyncWebsocketConsumer):
             return None
 
     async def disconnect(self, close_code):
-        if self.collection_task:
-            self.collection_task.cancel()
+        # Per-socket heartbeat is still owned by this consumer and must
+        # end with the socket; everything else (task, stop_event,
+        # confirmation machinery) lives on the supervisor and must
+        # survive across short host reconnects. ``detach`` arms the
+        # grace window when appropriate — we deliberately do NOT cancel
+        # the running task here any more.
         if self.heartbeat_task:
             self.heartbeat_task.cancel()
+        if self.supervisor is not None:
+            try:
+                await self.supervisor.detach(self.channel_name)
+            except Exception:
+                # detach is best-effort; a bug here should never mask a
+                # real disconnect reason.
+                pass
         await self.channel_layer.group_discard(self.session_group_name, self.channel_name)
 
     async def send_heartbeat(self):
@@ -395,43 +486,48 @@ class CalibrationConsumer(AsyncWebsocketConsumer):
             return
 
         if command in ['amplifier_confirmed', 'operation_cancelled']:
-            self.confirmation_status = 'confirmed' if command == 'amplifier_confirmed' else 'cancelled'
-            self.confirmation_event.set()
+            # Route through the supervisor so the running task (which
+            # may be owned by a previous socket that has since dropped)
+            # observes the confirmation regardless of which consumer the
+            # operator clicked from.
+            if self.supervisor is not None:
+                await self.supervisor.set_confirmation(
+                    'confirmed' if command == 'amplifier_confirmed' else 'cancelled'
+                )
             return
 
         if command == 'stop_collection':
-            self.stop_event.set()
-            if self.collection_task:
-                self.collection_task.cancel()
-            
+            if self.supervisor is not None:
+                await self.supervisor.stop_task()
             await self.broadcast(text_data=json.dumps({'type': 'collection_stopped', 'message': 'Collection stopped by user.'}))
             return
 
         if self.state == "BUSY":
             await self.send(text_data=json.dumps({'type': 'error', 'message': 'A collection is already in progress.'}))
             return
-            
-        self.stop_event.clear()
-        
-        task_started = False
-        if command in ['start_collection', 'start_full_calibration', 'start_single_stage_batch', 'start_full_calibration_batch', 'tvc_characterization']:
-            self.state = "BUSY"
-            task_started = True
-            if command == 'start_collection':
-                self.collection_task = asyncio.create_task(self.collect_single_reading_set(data))
-            elif command == 'start_full_calibration':
-                self.collection_task = asyncio.create_task(self.run_full_calibration_sequence(data))
-            elif command == 'start_single_stage_batch':
-                self.collection_task = asyncio.create_task(self.run_single_stage_batch(data))
-            elif command == 'start_full_calibration_batch':
-                self.collection_task = asyncio.create_task(self.run_full_calibration_batch(data))
-            elif command == 'tvc_characterization':
-                self.collection_task = asyncio.create_task(self.run_tvc_characterization(data))
+
+        # Map command -> (kind, coroutine factory). Building the coroutine
+        # up front — and handing it to the supervisor to own — keeps task
+        # creation atomic: once ``start_task`` returns True the
+        # supervisor has committed to running it, so a racing second
+        # start from another host socket cleanly bounces off.
+        task_dispatch = {
+            'start_collection': ('collection', self.collect_single_reading_set),
+            'start_full_calibration': ('full_calibration', self.run_full_calibration_sequence),
+            'start_single_stage_batch': ('single_stage_batch', self.run_single_stage_batch),
+            'start_full_calibration_batch': ('full_calibration_batch', self.run_full_calibration_batch),
+            'tvc_characterization': ('tvc_characterization', self.run_tvc_characterization),
+        }
+        if command in task_dispatch:
+            if self.supervisor is None:  # pragma: no cover — connect() always sets it
+                await self.send(text_data=json.dumps({'type': 'error', 'message': 'Session supervisor missing; reconnect and try again.'}))
+                return
+            kind, factory = task_dispatch[command]
+            started = await self.supervisor.start_task(kind, factory(data))
+            if not started:
+                await self.send(text_data=json.dumps({'type': 'error', 'message': 'A collection is already in progress.'}))
         elif command == 'set_amplifier_range':
             await self.set_amplifier_range(data)
-
-        if not task_started:
-            self.state = "IDLE"
 
     async def _handle_amplifier_confirmation(self, amplifier_instrument, amplifier_range, data):
         if data.get('bypass_amplifier_confirmation'):
@@ -668,7 +764,11 @@ class CalibrationConsumer(AsyncWebsocketConsumer):
             target_tvc = data.get('target_tvc', 'BOTH')
             print(f"[TVC_CHAR] Targeting: {target_tvc}", flush=True)
 
-            warmup_time = data.get('initial_warm_up_time', 0)
+            # ``dict.get`` only returns the default when the key is missing,
+            # not when the value is present-but-``None``. Frontend payloads
+            # often send ``initial_warm_up_time: null`` which would crash the
+            # ``warmup_time > 0`` comparison; ``or 0`` coerces null/0/'' to 0.
+            warmup_time = data.get('initial_warm_up_time') or 0
 
             # During warm-up, always energize/configure both AC and DC sources so
             # the timer preconditions the full source chain before calibration.
@@ -1098,7 +1198,11 @@ class CalibrationConsumer(AsyncWebsocketConsumer):
 
             await self._activate_sources(ac_source=ac_source, dc_source=dc_source)
 
-            warmup_time = data.get('initial_warm_up_time', 0)
+            # ``dict.get`` only returns the default when the key is missing,
+            # not when the value is present-but-``None``. Frontend payloads
+            # often send ``initial_warm_up_time: null`` which would crash the
+            # ``warmup_time > 0`` comparison; ``or 0`` coerces null/0/'' to 0.
+            warmup_time = data.get('initial_warm_up_time') or 0
             
             if warmup_time > 0:
                 await self._perform_warmup(warmup_time)
@@ -1197,7 +1301,11 @@ class CalibrationConsumer(AsyncWebsocketConsumer):
             
             await self._activate_sources(ac_source=ac_source, dc_source=dc_source)
             
-            warmup_time = data.get('initial_warm_up_time', 0)
+            # ``dict.get`` only returns the default when the key is missing,
+            # not when the value is present-but-``None``. Frontend payloads
+            # often send ``initial_warm_up_time: null`` which would crash the
+            # ``warmup_time > 0`` comparison; ``or 0`` coerces null/0/'' to 0.
+            warmup_time = data.get('initial_warm_up_time') or 0
             
             if warmup_time > 0:
                 await self._perform_warmup(warmup_time)
@@ -1296,7 +1404,11 @@ class CalibrationConsumer(AsyncWebsocketConsumer):
             
             await self._activate_sources(ac_source=ac_source, dc_source=dc_source)
             
-            warmup_time = data.get('initial_warm_up_time', 0)
+            # ``dict.get`` only returns the default when the key is missing,
+            # not when the value is present-but-``None``. Frontend payloads
+            # often send ``initial_warm_up_time: null`` which would crash the
+            # ``warmup_time > 0`` comparison; ``or 0`` coerces null/0/'' to 0.
+            warmup_time = data.get('initial_warm_up_time') or 0
             if warmup_time > 0:
                 await self._perform_warmup(warmup_time)
 
@@ -1424,7 +1536,11 @@ class CalibrationConsumer(AsyncWebsocketConsumer):
             
             await self._activate_sources(ac_source=ac_source, dc_source=dc_source)
             
-            warmup_time = data.get('initial_warm_up_time', 0)
+            # ``dict.get`` only returns the default when the key is missing,
+            # not when the value is present-but-``None``. Frontend payloads
+            # often send ``initial_warm_up_time: null`` which would crash the
+            # ``warmup_time > 0`` comparison; ``or 0`` coerces null/0/'' to 0.
+            warmup_time = data.get('initial_warm_up_time') or 0
             if warmup_time > 0:
                 await self._perform_warmup(warmup_time)
 
@@ -1926,78 +2042,88 @@ class HostSyncConsumer(AsyncWebsocketConsumer):
         # ``unknown`` entries in the broadcast below — no noise while the
         # handshake is in flight.
         client = self.scope.get('client') or (None, None)
-        CONNECTED_VIEWERS[self.channel_name] = {
-            'role': 'unknown',
-            'ip': client[0] or 'unknown',
-            'connected_at': time.time(),
-        }
+        session_state.register_viewer(
+            self.channel_name,
+            ip=client[0] or 'unknown',
+            connected_at=time.time(),
+        )
 
         # Always send the current host session on connect — including ``None``
-        # when the host hasn't picked a session yet. The frontend treats the
+        # when no host has picked a session yet. The frontend treats the
         # mere arrival of this message as "state is now authoritative", so
         # remote viewers can distinguish "waiting on host-sync WS to open"
         # from "host is not in a session" instead of showing a misleading
         # "no test points" empty state. Hosts ignore it on the client.
-        global HOST_ACTIVE_SESSION_ID
+        #
+        # The scalar ``session_id`` is the legacy single-host wire; the
+        # ``active_sessions`` map is the multi-host-aware form. We always
+        # send both so the two generations of clients coexist.
         await self.send(text_data=json.dumps({
             'type': 'session_changed',
-            'session_id': HOST_ACTIVE_SESSION_ID
+            'session_id': session_state.legacy_session_id(),
+            'active_sessions': session_state.host_sessions_snapshot(),
         }))
 
         # Push the current workstation lock state so a fresh connection
         # instantly knows which hardware IPs are currently claimed by other hosts.
         await self.send(text_data=json.dumps({
             'type': 'workstation_claims_update',
-            'claims': CLAIMED_WORKSTATIONS
+            'claims': session_state.claims_snapshot(),
         }))
 
     async def disconnect(self, close_code):
         await self.channel_layer.group_discard(self.group_name, self.channel_name)
-        
+
+        # Drop this socket's active-session entry (if any). Intentionally
+        # silent — no ``session_changed`` broadcast — so remote viewers keep
+        # showing whatever session they last observed from this host, which
+        # is the long-standing single-host behavior. A subsequent
+        # ``set_session`` from the reconnected host (or a different host in
+        # multi-host mode) will push a fresh value. The pop is what prevents
+        # the dict from accumulating dead channel_names over time; keying by
+        # a stable client identity is deferred to Phase 5.
+        session_state.clear_host_session(self.channel_name)
+
         # Drop this socket from the registry and push the fresh observer list
         # so any host still connected updates its pill within a tick.
-        if CONNECTED_VIEWERS.pop(self.channel_name, None) is not None:
+        if session_state.unregister_viewer(self.channel_name):
             await self._broadcast_viewer_presence()
 
-        # Self-Healing Lock Release: If this socket abruptly disconnects 
-        # (e.g., host closes the tab, browser crash, or network loss), 
-        # automatically release any workstations it had claimed so other 
-        # hosts aren't permanently locked out of that hardware.
-        released_any = False
-        keys_to_delete = [ip for ip, data in CLAIMED_WORKSTATIONS.items() if data['channel_name'] == self.channel_name]
-        for ip in keys_to_delete:
-            del CLAIMED_WORKSTATIONS[ip]
-            released_any = True
-
-        # If we actually freed up a workstation, let everyone know.
-        if released_any:
+        # Self-Healing Lock Release: If this socket abruptly disconnects
+        # (e.g., host closes the tab, browser crash, or network loss),
+        # automatically release any workstations it had claimed so other
+        # hosts aren't permanently locked out of that hardware. Now also
+        # clears the mirrored ``WorkstationClaim`` DB row in the same
+        # call, which is why this is wrapped in ``database_sync_to_async``.
+        released = await database_sync_to_async(session_state.release_claims_for)(
+            self.channel_name
+        )
+        if released:
             await self.channel_layer.group_send(self.group_name, {
                 'type': 'broadcast_claims',
-                'claims': CLAIMED_WORKSTATIONS
+                'claims': session_state.claims_snapshot(),
             })
 
     async def receive(self, text_data):
-        # Declare globals once at the top of the function scope. Python 3.13
-        # treats any inner ``global`` after a prior same-name assignment as a
-        # SyntaxError, so the declaration has to precede every branch that
-        # reads or writes ``HOST_ACTIVE_SESSION_ID``.
-        global HOST_ACTIVE_SESSION_ID
-
         data = json.loads(text_data)
         command = data.get('command')
 
         if command == 'set_session':
             session_id = data.get('session_id')
 
-            # Store it globally so late-joiners get it instantly
-            HOST_ACTIVE_SESSION_ID = session_id
+            # Record this host's current session against its channel_name.
+            session_state.set_host_session(self.channel_name, session_id)
 
-            # Broadcast the change to all Remote Viewers
+            # Broadcast the change. ``session_id`` is the legacy scalar,
+            # ``host_channel`` and ``active_sessions`` are the multi-host
+            # extensions; legacy remote clients read only the first field.
             await self.channel_layer.group_send(
                 self.group_name,
                 {
                     'type': 'broadcast_session',
-                    'session_id': session_id
+                    'session_id': session_id,
+                    'host_channel': self.channel_name,
+                    'active_sessions': session_state.host_sessions_snapshot(),
                 }
             )
 
@@ -2008,53 +2134,71 @@ class HostSyncConsumer(AsyncWebsocketConsumer):
             role = data.get('role')
             if role not in ('host', 'remote'):
                 return
-            entry = CONNECTED_VIEWERS.get(self.channel_name)
-            if entry is None:
+            if not session_state.update_viewer_role(self.channel_name, role):
                 # Disconnected between connect() and here — nothing to update.
                 return
-            entry['role'] = role
             await self._broadcast_viewer_presence()
 
         elif command == 'request_session_state':
             # Safety net: remote viewers re-ask for the host's session after a
             # reconnect (or if the auto-send in ``connect()`` was somehow
             # missed). We unicast to just this socket so other clients don't
-            # get spammed with redundant session_changed events.
+            # get spammed with redundant session_changed events. Include the
+            # full active-sessions map for multi-host-aware clients.
             await self.send(text_data=json.dumps({
                 'type': 'session_changed',
-                'session_id': HOST_ACTIVE_SESSION_ID,
+                'session_id': session_state.legacy_session_id(),
+                'active_sessions': session_state.host_sessions_snapshot(),
             }))
 
         elif command == 'claim_workstation':
-            # Workstation hardware locking. Only an active host can lock a 
-            # workstation, preventing two hosts from simultaneously polling 
+            # Workstation hardware locking. Only an active host can lock a
+            # workstation, preventing two hosts from simultaneously polling
             # or driving the same physical instruments.
             ip = data.get('ip')
             client_id = data.get('client_id')
-            client_info = CONNECTED_VIEWERS.get(self.channel_name, {})
+            client_info = session_state.get_viewer(self.channel_name) or {}
             role = client_info.get('role', 'unknown')
-            
+
             # Enforce role-based security: Observers can't lock hardware.
             if ip and role == 'host':
-                CLAIMED_WORKSTATIONS[ip] = {
-                    'channel_name': self.channel_name,
-                    'client_id': client_id,
-                    'role': role
-                }
+                # Attach the host's current session so the admin row shows
+                # which calibration run this bench is being used for, and a
+                # human-readable label (client IP) so an operator can
+                # identify a stuck claim without decoding channel_names.
+                active_session_id = session_state.get_host_session(self.channel_name)
+                owner_label = client_info.get('ip') or ''
+
+                await database_sync_to_async(session_state.claim_workstation)(
+                    ip,
+                    channel_name=self.channel_name,
+                    client_id=client_id,
+                    role=role,
+                    owner_label=owner_label,
+                    active_session_id=active_session_id,
+                )
                 await self.channel_layer.group_send(self.group_name, {
                     'type': 'broadcast_claims',
-                    'claims': CLAIMED_WORKSTATIONS
+                    'claims': session_state.claims_snapshot(),
                 })
 
         elif command == 'release_workstation':
             ip = data.get('ip')
-            
+
             # Safety check: Only the socket that owns the lock can release it.
-            if ip in CLAIMED_WORKSTATIONS and CLAIMED_WORKSTATIONS[ip]['channel_name'] == self.channel_name:
-                del CLAIMED_WORKSTATIONS[ip]
+            # ``release_workstation`` returns ``False`` if the lock either
+            # doesn't exist or belongs to someone else, so we skip the
+            # broadcast to avoid spamming no-op updates. Wrapped so the
+            # DB mirror delete runs off the event loop thread.
+            if not ip:
+                return
+            released = await database_sync_to_async(session_state.release_workstation)(
+                ip, channel_name=self.channel_name,
+            )
+            if released:
                 await self.channel_layer.group_send(self.group_name, {
                     'type': 'broadcast_claims',
-                    'claims': CLAIMED_WORKSTATIONS
+                    'claims': session_state.claims_snapshot(),
                 })
 
     # --- Handlers for group_send events ---
@@ -2077,7 +2221,7 @@ class HostSyncConsumer(AsyncWebsocketConsumer):
         timer in the UI matches when the machine first joined.
         """
         by_ip: dict[str, dict] = {}
-        for entry in CONNECTED_VIEWERS.values():
+        for entry in session_state.viewers_snapshot().values():
             if entry.get('role') != 'remote':
                 continue
             ip = entry.get('ip', 'unknown')
@@ -2108,7 +2252,7 @@ class HostSyncConsumer(AsyncWebsocketConsumer):
     async def viewer_presence(self, event):
         # Host-only delivery: remotes silently drop the message rather than
         # surfacing presence info that would never be rendered.
-        entry = CONNECTED_VIEWERS.get(self.channel_name)
+        entry = session_state.get_viewer(self.channel_name)
         if entry is None or entry.get('role') != 'host':
             return
         await self.send(text_data=json.dumps({
@@ -2117,7 +2261,13 @@ class HostSyncConsumer(AsyncWebsocketConsumer):
         }))
 
     async def broadcast_session(self, event):
-        await self.send(text_data=json.dumps({
+        payload = {
             'type': 'session_changed',
-            'session_id': event['session_id']
-        }))
+            'session_id': event['session_id'],
+        }
+        # Multi-host extensions — legacy clients ignore unknown fields.
+        if 'host_channel' in event:
+            payload['host_channel'] = event['host_channel']
+        if 'active_sessions' in event:
+            payload['active_sessions'] = event['active_sessions']
+        await self.send(text_data=json.dumps(payload))

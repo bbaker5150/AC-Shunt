@@ -24,6 +24,7 @@ from api.models import (
     CalibrationTVCCorrections,
     TestPoint,
     TestPointSet,
+    Workstation,
 )
 from api.mock_instruments import MOCK_SESSION_ROLE_ASSIGNMENT
 
@@ -65,8 +66,14 @@ class Command(BaseCommand):
             CalibrationSession.objects.filter(session_name=MOCK_SESSION_NAME).delete()
 
             roles = MOCK_SESSION_ROLE_ASSIGNMENT
+            # Link to the default local bench so the seeded session exercises
+            # the same workstation-scoped code paths a real session will use.
+            # Safe to call here even if _bootstrap_local_workstation hasn't
+            # run yet in this process; get_default() is idempotent.
+            local_bench = Workstation.get_default()
             session = CalibrationSession.objects.create(
                 session_name=MOCK_SESSION_NAME,
+                workstation=local_bench,
                 standard_instrument_model="A40B",
                 standard_instrument_serial="MOCK-STD",
                 test_instrument_model="A40B",

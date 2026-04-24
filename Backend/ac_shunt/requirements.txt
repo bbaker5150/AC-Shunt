@@ -7,6 +7,10 @@ drf-nested-routers
 # Realtime / ASGI
 channels
 daphne
+# Redis-backed channel layer for Phase 5b (multi-worker broadcast fan-out).
+# Only used when REDIS_URL is set at boot; otherwise settings.py falls back
+# to the in-memory layer so local dev without Redis still works.
+channels-redis
 
 # Data + scientific processing used by calibration logic/scripts
 numpy
