@@ -2093,7 +2093,7 @@ function Calibration({
         isOpen={amplifierModal.isOpen}
         eyebrow="Amplifier"
         title="Verify 8100 range"
-        message={`Set the 8100 range to ${amplifierModal.range} A before continuing. An incorrect range can damage equipment.\n\nConfirm 5730A calibrator outputs, place the 8100 in operate, then use the check control. Cancel with the close control in the header or by clicking outside this dialog.`}
+        message={`Set the 8100 range to ${amplifierModal.range} A before continuing. An incorrect range can damage equipment.`}
         onConfirm={amplifierModal.onConfirm}
         onCancel={amplifierModal.onCancel}
         confirmText="Proceed — range verified"
