@@ -867,19 +867,49 @@ body.dark-mode .drag-handle:hover svg {
   color: #fff;
   flex-shrink: 0;
   position: relative;
+  isolation: isolate;
+  overflow: visible;
+}
+
+/* Rotating outer halo gives the mark a high-end "live" feel without
+   becoming noisy. The glow sits behind the badge and uses theme colors. */
+.app-chrome-brand-mark::before {
+  content: "";
+  position: absolute;
+  inset: -5px;
+  z-index: -1;
+  border-radius: 14px;
+  background: conic-gradient(
+    from 0deg,
+    transparent 0deg,
+    color-mix(in srgb, var(--primary-color) 78%, white 22%) 72deg,
+    color-mix(in srgb, var(--primary-color) 64%, transparent) 158deg,
+    transparent 245deg,
+    color-mix(in srgb, var(--primary-color) 82%, white 18%) 330deg,
+    transparent 360deg
+  );
+  opacity: 0.34;
+  filter: blur(8px);
+  animation: brand-mark-halo-spin 12s linear infinite;
+  pointer-events: none;
 }
 
 /* Faint inner highlight for a glass-like premium sheen */
 .app-chrome-brand-mark::after {
   content: "";
   position: absolute;
-  inset: 1px;
+  inset: 0;
   border-radius: 9px;
   background: linear-gradient(
-    180deg,
-    rgba(255, 255, 255, 0.18) 0%,
-    rgba(255, 255, 255, 0) 45%
+    110deg,
+    rgba(255, 255, 255, 0) 22%,
+    rgba(255, 255, 255, 0.26) 45%,
+    rgba(255, 255, 255, 0.08) 57%,
+    rgba(255, 255, 255, 0) 74%
   );
+  background-size: 190% 100%;
+  transform: translateX(-140%);
+  animation: brand-mark-shimmer 7.5s ease-in-out infinite;
   pointer-events: none;
 }
 
@@ -891,6 +921,44 @@ body.dark-mode .drag-handle:hover svg {
   line-height: 1;
   transform: translateY(-0.5px);
   text-shadow: 0 1px 1px rgba(0, 0, 0, 0.25);
+}
+
+.app-chrome-brand:hover .app-chrome-brand-mark::before {
+  opacity: 0.46;
+  filter: blur(9px);
+}
+
+@keyframes brand-mark-halo-spin {
+  from {
+    transform: rotate(0deg);
+  }
+  to {
+    transform: rotate(360deg);
+  }
+}
+
+@keyframes brand-mark-shimmer {
+  0%,
+  55% {
+    transform: translateX(-140%);
+    opacity: 0;
+  }
+  67% {
+    opacity: 0.38;
+  }
+  79%,
+  100% {
+    transform: translateX(115%);
+    opacity: 0;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .app-chrome-brand-mark::before,
+  .app-chrome-brand-mark::after,
+  .app-chrome-brand-mark-glyph {
+    animation: none !important;
+  }
 }
 
 .app-chrome-brand-text {
