@@ -1,4 +1,5 @@
 import React, { useState, useEffect, useRef } from "react";
+import { gsap } from "gsap";
 import {
   FaStop,
   FaPlay,
@@ -39,6 +40,8 @@ const CalibrationStatusBar = ({
 }) => {
   const [isRunDropdownOpen, setIsRunDropdownOpen] = useState(false);
   const runDropdownRef = useRef(null);
+  const progressBarRef = useRef(null);
+  const shimmerTweenRef = useRef(null);
 
   useEffect(() => {
     const handleClickOutside = (event) => {
@@ -55,14 +58,56 @@ const CalibrationStatusBar = ({
     };
   }, []);
 
-  if (!activeRunningTP) return null;
-
   // Hosts optimistically set isCollecting in startReadingCollection() before
   // warm-up; remotes only flip isCollecting on calibration_stage_update (after
   // warm-up). Include an active pre-measurement timer so observers still see
   // Warm-up / Settling in the status bar.
   const showRunActivity =
     isCollecting || isBulkRunning || Boolean(timerState?.isActive);
+  const collectionProgressPercent =
+    collectionProgress.total > 0
+      ? (collectionProgress.count / collectionProgress.total) * 100
+      : 0;
+
+  useEffect(() => {
+    if (!progressBarRef.current) return;
+
+    gsap.to(progressBarRef.current, {
+      width: `${showRunActivity ? collectionProgressPercent : 0}%`,
+      duration: 0.45,
+      ease: "power2.out",
+      overwrite: "auto",
+    });
+  }, [collectionProgressPercent, showRunActivity]);
+
+  useEffect(() => {
+    if (!progressBarRef.current) return;
+
+    if (showRunActivity) {
+      shimmerTweenRef.current?.kill();
+      gsap.set(progressBarRef.current, { backgroundPosition: "100% 0%" });
+      shimmerTweenRef.current = gsap.to(progressBarRef.current, {
+        backgroundPosition: "-100% 0%",
+        duration: 1.8,
+        ease: "none",
+        repeat: -1,
+      });
+      return;
+    }
+
+    shimmerTweenRef.current?.kill();
+    shimmerTweenRef.current = null;
+    gsap.set(progressBarRef.current, { backgroundPosition: "0% 0%" });
+  }, [showRunActivity]);
+
+  useEffect(
+    () => () => {
+      shimmerTweenRef.current?.kill();
+    },
+    []
+  );
+
+  if (!activeRunningTP) return null;
 
   return (
     <div className="status-bar">
@@ -175,15 +220,7 @@ const CalibrationStatusBar = ({
       {showRunActivity ? (
         <>
           <div className="status-bar-progress-container">
-            <div
-              className="status-bar-progress"
-              style={{
-                width: `${collectionProgress.total > 0
-                    ? (collectionProgress.count / collectionProgress.total) * 100
-                    : 0
-                  }%`,
-              }}
-            ></div>
+            <div ref={progressBarRef} className="status-bar-progress"></div>
           </div>
           {!isRemoteViewer && (
             <div className="status-bar-action">
