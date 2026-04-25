@@ -19,6 +19,7 @@ import "bootstrap/dist/css/bootstrap.min.css";
 import { FaInfoCircle, FaTimes, FaSun, FaMoon, FaCheckCircle, FaExclamationTriangle, FaExclamationCircle, FaBug, FaEye, FaEyeSlash } from "react-icons/fa";
 import "./App.css";
 import { arrayMove } from "@dnd-kit/sortable";
+import { gsap } from "gsap";
 import { AVAILABLE_FREQUENCIES, API_BASE_URL } from "./constants/constants";
 import useDbHealth from "./hooks/useDbHealth";
 
@@ -531,6 +532,28 @@ function AppContent() {
   );
   const dbHealth = useDbHealth({ enabled: dbHealthWsEnabled });
   const dbRecoveryToastShownRef = useRef(false);
+  const hasMountedTabAnimationRef = useRef(false);
+  const previousTabRef = useRef(activeTab);
+  const tabPaneRef = useRef(null);
+  const navTabsRef = useRef(null);
+  const navIndicatorRef = useRef(null);
+  const tabButtonRefs = useRef({});
+
+  const prefersReducedMotion = useMemo(() => {
+    if (typeof window === "undefined" || typeof window.matchMedia !== "function") {
+      return false;
+    }
+    return window.matchMedia("(prefers-reduced-motion: reduce)").matches;
+  }, []);
+  const tabOrder = useMemo(
+    () => ({
+      sessionSetup: 0,
+      instrumentStatus: 1,
+      runCalibration: 2,
+      calibrationResults: 3,
+    }),
+    []
+  );
 
   const showSessionInfoInChrome =
     Boolean(selectedSessionName) ||
@@ -584,6 +607,74 @@ function AppContent() {
       setActiveTab(isRemoteViewer ? "runCalibration" : "sessionSetup");
     }
   }, [isRemoteViewer, visibleTabs, activeTab]);
+
+  const updateTabIndicator = useCallback(
+    (shouldAnimate = true) => {
+      const indicator = navIndicatorRef.current;
+      const tabsRow = navTabsRef.current;
+      const activeButton = tabButtonRefs.current[activeTab];
+      if (!indicator || !tabsRow || !activeButton) return;
+      const tabsRect = tabsRow.getBoundingClientRect();
+      const buttonRect = activeButton.getBoundingClientRect();
+      const x = Math.max(0, buttonRect.left - tabsRect.left);
+      const width = Math.max(0, buttonRect.width);
+      gsap.to(indicator, {
+        x,
+        width,
+        duration: shouldAnimate && !prefersReducedMotion ? 0.35 : 0,
+        ease: "power3.out",
+      });
+    },
+    [activeTab, prefersReducedMotion]
+  );
+
+  useEffect(() => {
+    updateTabIndicator(false);
+  }, [updateTabIndicator, visibleTabs]);
+
+  useEffect(() => {
+    const onResize = () => updateTabIndicator(false);
+    window.addEventListener("resize", onResize);
+    return () => window.removeEventListener("resize", onResize);
+  }, [updateTabIndicator]);
+
+  useEffect(() => {
+    const currentTab = activeTab;
+    const previousTab = previousTabRef.current;
+    const prevOrder = tabOrder[previousTab] ?? 0;
+    const currentOrder = tabOrder[currentTab] ?? 0;
+    const direction = currentOrder >= prevOrder ? 1 : -1;
+    const panel = tabPaneRef.current;
+    const activeButton = tabButtonRefs.current[currentTab];
+
+    updateTabIndicator(hasMountedTabAnimationRef.current);
+
+    if (!prefersReducedMotion && panel) {
+      gsap.fromTo(
+        panel,
+        { autoAlpha: 0, x: direction * 30, y: 8, scale: 0.992 },
+        {
+          autoAlpha: 1,
+          x: 0,
+          y: 0,
+          scale: 1,
+          duration: hasMountedTabAnimationRef.current ? 0.42 : 0.24,
+          ease: "power3.out",
+          clearProps: "transform",
+        }
+      );
+      if (activeButton && hasMountedTabAnimationRef.current) {
+        gsap.fromTo(
+          activeButton,
+          { scale: 0.94, y: 2 },
+          { scale: 1, y: 0, duration: 0.28, ease: "back.out(1.65)" }
+        );
+      }
+    }
+
+    hasMountedTabAnimationRef.current = true;
+    previousTabRef.current = currentTab;
+  }, [activeTab, prefersReducedMotion, tabOrder, updateTabIndicator]);
 
   const showNotification = useCallback(
     (message, type = "info", duration = 4000) => {
@@ -1092,7 +1183,7 @@ function AppContent() {
         </div>
 
         <nav className="app-chrome-nav" role="tablist" aria-label="Primary">
-          <div className="app-chrome-nav-tabs">
+          <div className="app-chrome-nav-tabs" ref={navTabsRef}>
             {/* Session + Instruments are hidden in observer mode — an
                 observer has no business editing session metadata or
                 instrument addresses. A user who wants those controls back
@@ -1100,6 +1191,9 @@ function AppContent() {
                 affordance on the right). */}
             {!isRemoteViewer && (
               <button
+                ref={(node) => {
+                  if (node) tabButtonRefs.current.sessionSetup = node;
+                }}
                 role="tab"
                 aria-selected={activeTab === "sessionSetup"}
                 onClick={() => setActiveTab("sessionSetup")}
@@ -1110,6 +1204,9 @@ function AppContent() {
             )}
             {!isRemoteViewer && (
               <button
+                ref={(node) => {
+                  if (node) tabButtonRefs.current.instrumentStatus = node;
+                }}
                 role="tab"
                 aria-selected={activeTab === "instrumentStatus"}
                 onClick={() => setActiveTab("instrumentStatus")}
@@ -1119,6 +1216,9 @@ function AppContent() {
               </button>
             )}
             <button
+              ref={(node) => {
+                if (node) tabButtonRefs.current.runCalibration = node;
+              }}
               role="tab"
               aria-selected={activeTab === "runCalibration"}
               onClick={() => setActiveTab("runCalibration")}
@@ -1127,6 +1227,9 @@ function AppContent() {
               Calibration
             </button>
             <button
+              ref={(node) => {
+                if (node) tabButtonRefs.current.calibrationResults = node;
+              }}
               role="tab"
               aria-selected={activeTab === "calibrationResults"}
               onClick={() => setActiveTab("calibrationResults")}
@@ -1134,6 +1237,7 @@ function AppContent() {
             >
               Results
             </button>
+            <span className="app-chrome-tab-indicator" ref={navIndicatorRef} aria-hidden="true" />
           </div>
 
           <div
@@ -1415,58 +1519,60 @@ function AppContent() {
         </aside>
 
         <main className="main-content-area">
-          {activeTab === "sessionSetup" && (
-            <SessionSetup
-              sessionsList={sessionsList}
-              isLoadingSessions={isLoadingSessions}
-              showNotification={showNotification}
-              fetchSessionsList={fetchSessionsList}
-              isRemoteViewer={isRemoteViewer}
-            />
-          )}
-          {activeTab === "instrumentStatus" && (
-            <InstrumentStatusTab
-              showNotification={showNotification}
-              isRemoteViewer={isRemoteViewer}
-            />
-          )}
-          {activeTab === "runCalibration" && (
-            <Calibration
-              showNotification={showNotification}
-              orderedTestPoints={orderedTestPoints}
-              sharedFocusedTestPoint={focusedTestPoint}
-              setSharedFocusedTestPoint={setFocusedTestPoint}
-              sharedSelectedTPs={selectedTPs}
-              onDataUpdate={fetchSessionData}
-              activeDirection={activeDirection}
-              isRemoteViewer={isRemoteViewer}
-              onOpenResultsDirection={(direction) => {
-                setResultsNavigationRequest({
-                  direction,
-                  requestedAt: Date.now(),
-                });
-                setActiveTab("calibrationResults");
-              }}
-            />
-          )}
-          {activeTab === "calibrationResults" && (
-            <CalibrationResults
-              showNotification={showNotification}
-              sharedFocusedTestPoint={focusedTestPoint}
-              uniqueTestPoints={uniqueTestPoints}
-              onDataUpdate={fetchSessionData}
-              navigationRequest={resultsNavigationRequest}
-            />
-          )}
-          {/* {activeTab === "uncertaintyAnalysis" && (
-            <UncertaintyAnalysis
-              showNotification={showNotification}
-              sharedFocusedTestPoint={focusedTestPoint}
-              setSharedFocusedTestPoint={setFocusedTestPoint}
-              orderedTestPoints={orderedTestPoints}
-              onDataUpdate={fetchSessionData}
-            />
-          )} */}
+          <div className="tab-pane-animated" key={activeTab} ref={tabPaneRef}>
+            {activeTab === "sessionSetup" && (
+              <SessionSetup
+                sessionsList={sessionsList}
+                isLoadingSessions={isLoadingSessions}
+                showNotification={showNotification}
+                fetchSessionsList={fetchSessionsList}
+                isRemoteViewer={isRemoteViewer}
+              />
+            )}
+            {activeTab === "instrumentStatus" && (
+              <InstrumentStatusTab
+                showNotification={showNotification}
+                isRemoteViewer={isRemoteViewer}
+              />
+            )}
+            {activeTab === "runCalibration" && (
+              <Calibration
+                showNotification={showNotification}
+                orderedTestPoints={orderedTestPoints}
+                sharedFocusedTestPoint={focusedTestPoint}
+                setSharedFocusedTestPoint={setFocusedTestPoint}
+                sharedSelectedTPs={selectedTPs}
+                onDataUpdate={fetchSessionData}
+                activeDirection={activeDirection}
+                isRemoteViewer={isRemoteViewer}
+                onOpenResultsDirection={(direction) => {
+                  setResultsNavigationRequest({
+                    direction,
+                    requestedAt: Date.now(),
+                  });
+                  setActiveTab("calibrationResults");
+                }}
+              />
+            )}
+            {activeTab === "calibrationResults" && (
+              <CalibrationResults
+                showNotification={showNotification}
+                sharedFocusedTestPoint={focusedTestPoint}
+                uniqueTestPoints={uniqueTestPoints}
+                onDataUpdate={fetchSessionData}
+                navigationRequest={resultsNavigationRequest}
+              />
+            )}
+            {/* {activeTab === "uncertaintyAnalysis" && (
+              <UncertaintyAnalysis
+                showNotification={showNotification}
+                sharedFocusedTestPoint={focusedTestPoint}
+                setSharedFocusedTestPoint={setFocusedTestPoint}
+                orderedTestPoints={orderedTestPoints}
+                onDataUpdate={fetchSessionData}
+              />
+            )} */}
+          </div>
         </main>
       </div>
     </div>

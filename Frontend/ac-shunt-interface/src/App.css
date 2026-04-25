@@ -1120,11 +1120,13 @@ body.dark-mode .drag-handle:hover svg {
 }
 
 .app-chrome-nav-tabs {
+  position: relative;
   display: flex;
   align-items: center;
   gap: 4px;
   min-width: 0;
   flex: 1 1 auto;
+  padding-bottom: 3px;
 }
 
 /* Nav-row meta: flat row — no tray; vertical rules only separate groups. */
@@ -1220,6 +1222,7 @@ body.dark-mode .drag-handle:hover svg {
 
 .app-chrome-tab {
   position: relative;
+  z-index: 1;
   padding: 10px 16px;
   margin: 2px 2px 0 2px;
   border: none;
@@ -1240,17 +1243,7 @@ body.dark-mode .drag-handle:hover svg {
 }
 
 .app-chrome-tab::after {
-  content: "";
-  position: absolute;
-  left: 14px;
-  right: 14px;
-  bottom: -3px;
-  height: 2px;
-  border-radius: 2px 2px 0 0;
-  background-color: var(--primary-color);
-  transform: scaleX(0);
-  transform-origin: center;
-  transition: transform 0.2s ease;
+  display: none;
 }
 
 .app-chrome-tab.is-active {
@@ -1259,7 +1252,30 @@ body.dark-mode .drag-handle:hover svg {
 }
 
 .app-chrome-tab.is-active::after {
-  transform: scaleX(1);
+  display: none;
+}
+
+.app-chrome-tab-indicator {
+  position: absolute;
+  left: 0;
+  bottom: 0;
+  width: 0;
+  height: 3px;
+  border-radius: 3px 3px 0 0;
+  background: linear-gradient(
+    90deg,
+    color-mix(in srgb, var(--primary-color) 88%, white 12%),
+    var(--primary-color)
+  );
+  box-shadow: 0 0 0 1px color-mix(in srgb, var(--primary-color) 28%, transparent),
+    0 2px 10px color-mix(in srgb, var(--primary-color) 35%, transparent);
+  pointer-events: none;
+  transform: translateX(0);
+  z-index: 0;
+}
+
+.tab-pane-animated {
+  min-height: 100%;
 }
 
 .app-chrome-tab:focus-visible {
