@@ -229,8 +229,14 @@ function startBackend() {
 
 app.on('ready', () => {
     Menu.setApplicationMenu(null);
-    startBackend();
-    setTimeout(createWindow, 5000);
+    // Dev (electron:npm / electron:dev): backend is already started by start:backend in
+    // package.json — do not spawn a second process on 8000.
+    if (app.isPackaged) {
+        startBackend();
+        setTimeout(createWindow, 5000);
+    } else {
+        createWindow();
+    }
 });
 
 app.on('window-all-closed', () => {
