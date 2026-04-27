@@ -6235,6 +6235,49 @@ body.dark-mode .direction-dropdown-menu button:hover:not(:disabled) {
   margin-top: 15px;
 }
 
+/* Readings sub-tab: optional side-by-side Standard / Test instrument panels */
+.cal-readings-layout-bar {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px 14px;
+  margin-bottom: 4px;
+}
+
+.cal-readings-layout-label {
+  font-size: 0.6875rem;
+  font-weight: 600;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  color: var(--text-color-muted, #6c757d);
+}
+
+.cal-readings-charts {
+  display: flex;
+  flex-direction: column;
+  gap: 20px;
+  padding-top: 4px;
+  min-width: 0;
+}
+
+.cal-readings-charts > .chart-container {
+  margin-top: 0;
+}
+
+.cal-readings-charts--side-by-side {
+  flex-direction: row;
+  flex-wrap: wrap;
+  align-items: stretch;
+  gap: 16px 18px;
+}
+
+.cal-readings-charts--side-by-side > .chart-container {
+  flex: 1 1 calc(50% - 9px);
+  min-width: min(100%, 20rem);
+  max-width: 100%;
+}
+
 .chart-container {
   margin-top: 25px;
   border: 1px solid var(--border-color);

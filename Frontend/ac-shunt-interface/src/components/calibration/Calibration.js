@@ -257,6 +257,9 @@ const SubNav = ({ activeTab, setActiveTab }) => (
 // alive across unmount/remount for the app session without any persistence.
 let rememberedCalSubTab = "settings";
 
+// Readings sub-tab: stacked vs. side-by-side chart layout (session only).
+let rememberedReadingsChartLayout = "stacked";
+
 function Calibration({
   showNotification,
   orderedTestPoints,
@@ -362,6 +365,13 @@ function Calibration({
   const [isCalculatingAverages, setIsCalculatingAverages] = useState(false);
   const prevIsBulkRunning = useRef(isBulkRunning);
   const [activeChartView, setActiveChartView] = useState("calibration");
+  const [readingsChartLayout, setReadingsChartLayoutState] = useState(
+    rememberedReadingsChartLayout
+  );
+  const setReadingsChartLayout = useCallback((value) => {
+    rememberedReadingsChartLayout = value;
+    setReadingsChartLayoutState(value);
+  }, []);
 
   const uniqueTestPoints = useMemo(
     () => orderedTestPoints,
@@ -2512,60 +2522,129 @@ function Calibration({
                       )}
                       {activeTab === "readings" && (
                         <>
-                          {showStdChart && (
-                            <div className="chart-container">
-                              <CalibrationChart
-                                title="Standard Instrument Readings"
-                                chartData={stdChartData}
-                                theme={theme}
-                                chartType="line"
-                                onHover={setHoveredIndex}
-                                syncedHoverIndex={hoveredIndex}
-                                comparisonData={tiChartData.datasets}
-                                instrumentType="std"
-                                onMarkStability={isRemoteViewer ? null : handleMarkStability}
-                                activeChartView={activeChartView}
-                                setActiveChartView={setActiveChartView}
-                              />
-                              <LiveStatisticsTracker
-                                title="Standard Instrument Statistics"
-                                readings={stdChartDataSource}
-                                activeStage={
-                                  isCurrentTPActive
-                                    ? activeCollectionDetails?.stage ||
-                                    activeCollectionDetails?.readingKey
-                                    : null
-                                }
-                              />
+                          {showStdChart && showTiChart && (
+                            <div
+                              className="cal-readings-layout-bar"
+                              role="group"
+                              aria-label="Readings chart layout"
+                            >
+                              <span
+                                className="cal-readings-layout-label"
+                                id="cal-readings-layout-label"
+                              >
+                                Chart layout
+                              </span>
+                              <div
+                                className="cal-results-pill-group"
+                                role="group"
+                                aria-labelledby="cal-readings-layout-label"
+                              >
+                                <button
+                                  type="button"
+                                  className={
+                                    "cal-results-pill" +
+                                    (readingsChartLayout === "stacked"
+                                      ? " is-active"
+                                      : "")
+                                  }
+                                  aria-pressed={readingsChartLayout === "stacked"}
+                                  onClick={() => setReadingsChartLayout("stacked")}
+                                >
+                                  Stacked
+                                </button>
+                                <button
+                                  type="button"
+                                  className={
+                                    "cal-results-pill" +
+                                    (readingsChartLayout === "sideBySide"
+                                      ? " is-active"
+                                      : "")
+                                  }
+                                  aria-pressed={
+                                    readingsChartLayout === "sideBySide"
+                                  }
+                                  onClick={() =>
+                                    setReadingsChartLayout("sideBySide")
+                                  }
+                                >
+                                  Side by side
+                                </button>
+                              </div>
                             </div>
                           )}
-                          {showTiChart && (
-                            <div className="chart-container">
-                              <CalibrationChart
-                                title="Test Instrument Readings"
-                                chartData={tiChartData}
-                                theme={theme}
-                                chartType="line"
-                                onHover={setHoveredIndex}
-                                syncedHoverIndex={hoveredIndex}
-                                comparisonData={stdChartData.datasets}
-                                instrumentType="ti"
-                                onMarkStability={isRemoteViewer ? null : handleMarkStability}
-                                activeChartView={activeChartView}
-                                setActiveChartView={setActiveChartView}
-                              />
-                              <LiveStatisticsTracker
-                                title="Test Instrument Statistics"
-                                readings={tiChartDataSource}
-                                activeStage={
-                                  isCurrentTPActive
-                                    ? activeCollectionDetails?.stage ||
-                                    activeCollectionDetails?.readingKey
-                                    : null
-                                }
-                              />
-                            </div>
-                          )}
+                          <div
+                            className={
+                              "cal-readings-charts" +
+                              (readingsChartLayout === "sideBySide" &&
+                              showStdChart &&
+                              showTiChart
+                                ? " cal-readings-charts--side-by-side"
+                                : "")
+                            }
+                          >
+                            {showStdChart && (
+                              <div className="chart-container">
+                                <CalibrationChart
+                                  title="Standard Instrument Readings"
+                                  chartData={stdChartData}
+                                  theme={theme}
+                                  chartType="line"
+                                  onHover={setHoveredIndex}
+                                  syncedHoverIndex={hoveredIndex}
+                                  comparisonData={tiChartData.datasets}
+                                  instrumentType="std"
+                                  onMarkStability={
+                                    isRemoteViewer
+                                      ? null
+                                      : handleMarkStability
+                                  }
+                                  activeChartView={activeChartView}
+                                  setActiveChartView={setActiveChartView}
+                                />
+                                <LiveStatisticsTracker
+                                  title="Standard Instrument Statistics"
+                                  readings={stdChartDataSource}
+                                  activeStage={
+                                    isCurrentTPActive
+                                      ? activeCollectionDetails?.stage ||
+                                        activeCollectionDetails?.readingKey
+                                      : null
+                                  }
+                                />
+                              </div>
+                            )}
+                            {showTiChart && (
+                              <div className="chart-container">
+                                <CalibrationChart
+                                  title="Test Instrument Readings"
+                                  chartData={tiChartData}
+                                  theme={theme}
+                                  chartType="line"
+                                  onHover={setHoveredIndex}
+                                  syncedHoverIndex={hoveredIndex}
+                                  comparisonData={stdChartData.datasets}
+                                  instrumentType="ti"
+                                  onMarkStability={
+                                    isRemoteViewer
+                                      ? null
+                                      : handleMarkStability
+                                  }
+                                  activeChartView={activeChartView}
+                                  setActiveChartView={setActiveChartView}
+                                />
+                                <LiveStatisticsTracker
+                                  title="Test Instrument Statistics"
+                                  readings={tiChartDataSource}
+                                  activeStage={
+                                    isCurrentTPActive
+                                      ? activeCollectionDetails?.stage ||
+                                        activeCollectionDetails?.readingKey
+                                      : null
+                                  }
+                                />
+                              </div>
+                            )}
+                          </div>
                         </>
                       )}
                       {activeTab === "calculate" && (
