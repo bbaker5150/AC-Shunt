@@ -5182,6 +5182,38 @@ body.dark-mode .corrections-card-select:focus-visible {
   gap: 22px;
 }
 
+/* Portaled, fixed to viewport — stays under the field while scrolling */
+.session-suggest-panel {
+  position: fixed;
+  z-index: 200000;
+  margin: 2px 0 0 0;
+  max-height: 14rem;
+  overflow-y: auto;
+  list-style: none;
+  padding: 4px 0;
+  background: var(--input-background);
+  color: var(--text-color);
+  border: 1px solid var(--border-color);
+  border-radius: 8px;
+  box-shadow: 0 8px 24px rgba(0, 0, 0, 0.12);
+  font-size: 0.9rem;
+  line-height: 1.35;
+}
+
+.session-suggest-panel li {
+  padding: 7px 12px;
+  margin: 0;
+  cursor: pointer;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.session-suggest-panel li.is-active,
+.session-suggest-panel li:hover {
+  background: var(--primary-color-soft, rgba(99, 102, 241, 0.12));
+}
+
 .session-form-group,
 .settings-form-group {
   display: flex;

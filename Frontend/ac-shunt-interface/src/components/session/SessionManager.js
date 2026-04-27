@@ -2,6 +2,10 @@
 /**
  * @file SessionManager.js
  * @brief Component for selecting, viewing, and resetting calibration sessions.
+ * Session *details* (create/edit) live in SessionDetailsForm; that form and
+ * SessionSetup together add local history + corrections-database serial
+ * suggestions for the session fields — see `sessionFieldHistory` and
+ * `SessionDetailsForm` / `SessionSetup`.
  */
 import React, { useState, useMemo } from "react";
 import axios from "axios";
