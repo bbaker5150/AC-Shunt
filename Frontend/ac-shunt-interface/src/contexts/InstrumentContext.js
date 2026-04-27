@@ -653,10 +653,15 @@ export const InstrumentContextProvider = ({ children }) => {
           }
         }
 
+        // Progress bar should reflect incoming sample flow in real time.
+        // ``stable_count`` is intentionally conservative for sliding-window
+        // mode and can sit at 0 during the search phase, which makes the
+        // UI look frozen. Use ``count`` first so the bar grows per sample.
+        const liveCount =
+          data.count !== undefined ? data.count : data.stable_count;
         setCollectionProgress({
-          count:
-            data.stable_count !== undefined ? data.stable_count : data.count,
-          total: data.total,
+          count: Number.isFinite(liveCount) ? liveCount : 0,
+          total: Number.isFinite(data.total) ? data.total : 0,
         });
         setTimerState({ isActive: false, duration: 0, label: "" });
       } else if (data.type === "stabilization_update") {
