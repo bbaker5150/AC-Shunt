@@ -519,6 +519,30 @@ body {
   user-select: none;
   transition: background-color 0.15s ease, border-color 0.15s ease,
     box-shadow 0.15s ease, transform 0.15s ease;
+  overflow: hidden;
+}
+
+.tp-active-aura {
+  position: absolute;
+  inset: -1px;
+  border-radius: 11px;
+  pointer-events: none;
+  opacity: 0;
+  transform: scale(0.98);
+  background:
+    radial-gradient(
+      120% 90% at 50% -10%,
+      color-mix(in srgb, var(--primary-color) 28%, transparent),
+      transparent 62%
+    ),
+    linear-gradient(
+      115deg,
+      transparent 10%,
+      color-mix(in srgb, var(--primary-color) 16%, transparent) 48%,
+      transparent 84%
+    );
+  filter: saturate(1.05);
+  z-index: 0;
 }
 
 .test-point-item-selectable:hover {
@@ -575,6 +599,8 @@ body {
   border-radius: 10px;
   font-size: 1rem;
   transition: background-color 0.15s ease, color 0.15s ease, filter 0.15s ease;
+  position: relative;
+  z-index: 1;
 }
 
 .drag-handle svg {
@@ -619,6 +645,8 @@ body.dark-mode .drag-handle:hover svg {
   flex-shrink: 0;
   cursor: pointer;
   accent-color: var(--primary-color);
+  position: relative;
+  z-index: 1;
 }
 
 .tp-label {
@@ -629,6 +657,8 @@ body.dark-mode .drag-handle:hover svg {
   gap: 8px;
   min-width: 0;
   font-weight: 500;
+  position: relative;
+  z-index: 1;
 }
 
 .test-point-name {
@@ -2380,6 +2410,15 @@ body.dark-mode .premium-action-button-item:hover {
   z-index: 1300;
 }
 
+.modal-overlay--animated {
+  opacity: 1;
+}
+
+.modal-surface-animated {
+  animation: none !important;
+  transform-origin: 50% 32%;
+}
+
 .reset-modal-overlay {
   background-color: rgba(0, 0, 0, 0.7);
   z-index: 9999;
@@ -2537,12 +2576,11 @@ body.dark-mode .premium-action-button-item:hover {
 /* --- Notifications & Banners --- */
 
 .notification-toast {
-  position: fixed;
-  bottom: 24px;
-  right: 24px;
+  position: relative;
   display: flex;
   align-items: center;
   gap: 14px;
+  width: min(440px, calc(100vw - 32px));
   min-width: 320px;
   max-width: 440px;
   padding: 16px 20px;
@@ -2550,20 +2588,46 @@ body.dark-mode .premium-action-button-item:hover {
   border: 1px solid var(--border-color);
   border-radius: 12px;
   box-shadow: var(--shadow-xl); /* Uses your premium deep shadow */
-  z-index: 9999;
   color: var(--text-color);
-  animation: toastSlideIn 0.4s cubic-bezier(0.16, 1, 0.3, 1) forwards;
+  transform: translateY(0);
+  opacity: 1;
+  transform-style: preserve-3d;
+  backdrop-filter: blur(8px);
+  overflow: hidden;
 }
 
-@keyframes toastSlideIn {
-  from {
-    transform: translateY(120%) scale(0.95);
-    opacity: 0;
-  }
-  to {
-    transform: translateY(0) scale(1);
-    opacity: 1;
-  }
+.notification-toast-stack {
+  position: fixed;
+  right: 16px;
+  bottom: 16px;
+  z-index: 9999;
+  display: flex;
+  flex-direction: column;
+  align-items: flex-end;
+  gap: 10px;
+  pointer-events: none;
+}
+
+.notification-toast-stack .notification-toast {
+  pointer-events: auto;
+}
+
+.notification-toast.is-closing {
+  pointer-events: none;
+}
+
+.notification-toast::before {
+  content: "";
+  position: absolute;
+  inset: 0;
+  pointer-events: none;
+  background: linear-gradient(
+    120deg,
+    transparent 10%,
+    color-mix(in srgb, var(--primary-color) 18%, transparent) 40%,
+    transparent 70%
+  );
+  opacity: 0.45;
 }
 
 .toast-icon {
@@ -2581,6 +2645,8 @@ body.dark-mode .premium-action-button-item:hover {
   line-height: 1.5;
   color: var(--text-color);
   margin-right: 8px;
+  position: relative;
+  z-index: 1;
 }
 
 /* Sleek, ghost-style dismiss button */
@@ -2600,6 +2666,8 @@ body.dark-mode .premium-action-button-item:hover {
   cursor: pointer;
   font-size: 1rem;
   transition: background-color 0.15s ease, color 0.15s ease;
+  position: relative;
+  z-index: 1;
 }
 
 .toast-dismiss:hover {
@@ -2639,6 +2707,29 @@ body.dark-mode .premium-action-button-item:hover {
 }
 .toast-error .toast-icon {
   color: var(--danger-color);
+}
+
+.toast-progress {
+  position: absolute;
+  left: 8px;
+  right: 8px;
+  bottom: 6px;
+  height: 2px;
+  border-radius: 999px;
+  overflow: hidden;
+  background: color-mix(in srgb, var(--border-color) 70%, transparent);
+}
+
+.toast-progress-bar {
+  width: 100%;
+  height: 100%;
+  border-radius: 999px;
+  transform-origin: left center;
+  background: linear-gradient(
+    90deg,
+    color-mix(in srgb, var(--primary-color) 88%, white 12%),
+    var(--primary-color)
+  );
 }
 
 /* Legacy */

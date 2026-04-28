@@ -7,6 +7,7 @@ import {
   AVAILABLE_CURRENTS,
   AVAILABLE_FREQUENCIES,
 } from "../../constants/constants";
+import AnimatedModalShell from "./AnimatedModalShell";
 
 const getValueInAmps = (value, unit) => {
   const numericValue = parseFloat(value);
@@ -275,21 +276,21 @@ function ConfigurationModal({
       }
   };
 
-  if (!isOpen) return null;
-
   const stepTitle = step === 1 ? "Test point setup" : "Select frequencies";
   const stepSubtitle =
     step === 1 ? "Define the shunt range and input current." : "Pick the frequencies to generate.";
 
   return (
-    <div className="modal-overlay" onClick={onClose}>
-      <div
-        className="add-tp-modal"
-        role="dialog"
-        aria-modal="true"
-        aria-labelledby="add-tp-modal-title"
-        onClick={(e) => e.stopPropagation()}
-      >
+    <AnimatedModalShell
+      isOpen={isOpen}
+      onClose={onClose}
+      panelClassName="add-tp-modal"
+      panelProps={{
+        role: "dialog",
+        "aria-modal": "true",
+        "aria-labelledby": "add-tp-modal-title",
+      }}
+    >
         <header className="add-tp-modal-header">
           <div className="add-tp-modal-header-text">
             <span className="add-tp-modal-eyebrow">
@@ -483,8 +484,7 @@ function ConfigurationModal({
             </button>
           )}
         </footer>
-      </div>
-    </div>
+    </AnimatedModalShell>
   );
 }
 

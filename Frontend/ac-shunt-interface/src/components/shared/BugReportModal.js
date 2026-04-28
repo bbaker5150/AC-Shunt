@@ -11,6 +11,7 @@ import {
 } from "react-icons/fa";
 import { API_BASE_URL } from "../../constants/constants";
 import CustomDropdown from "./CustomDropdown";
+import AnimatedModalShell from "./AnimatedModalShell";
 
 const SEVERITY_OPTIONS = [
   { label: "Low", value: "Low" },
@@ -394,21 +395,21 @@ function BugReportModal({
     }
   };
 
-  if (!isOpen) return null;
-
   const systemInfoFormatted = selectedReport
     ? formatSystemInfoBlock(selectedReport.system_info)
     : null;
 
   return (
     <>
-      <div className="modal-overlay" onClick={onClose}>
-        <div
-          className="bug-report-modal"
-        role="dialog"
-        aria-modal="true"
-        aria-labelledby="bug-report-modal-title"
-        onClick={(ev) => ev.stopPropagation()}
+      <AnimatedModalShell
+        isOpen={isOpen}
+        onClose={onClose}
+        panelClassName="bug-report-modal"
+        panelProps={{
+          role: "dialog",
+          "aria-modal": "true",
+          "aria-labelledby": "bug-report-modal-title",
+        }}
       >
         <header className="bug-report-modal-header">
           <div className="bug-report-modal-header-text">
@@ -864,8 +865,7 @@ function BugReportModal({
             )}
           </div>
         )}
-      </div>
-    </div>
+      </AnimatedModalShell>
 
       {isDeleteConfirmOpen && selectedReport ? (
         <div

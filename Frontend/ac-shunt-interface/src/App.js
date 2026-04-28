@@ -1,5 +1,5 @@
 // src/App.js
-import React, { useState, useCallback, useEffect, useMemo, useRef } from "react";
+import React, { useState, useCallback, useEffect, useMemo, useRef, useLayoutEffect } from "react";
 import axios from "axios";
 import SessionSetup from "./components/session/SessionSetup";
 import InstrumentStatusTab from "./components/session/InstrumentStatusTab";
@@ -10,6 +10,7 @@ import TestPointSidebar from "./components/shared/TestPointSidebar";
 import ConfigurationModal from "./components/shared/ConfigurationModal";
 import BugReportModal from "./components/shared/BugReportModal";
 import CorrectionsModal from "./components/calibration/CorrectionsModal";
+import AnimatedModalShell from "./components/shared/AnimatedModalShell";
 import {
   InstrumentContextProvider,
   useInstruments,
@@ -34,6 +35,11 @@ const RELEASE_NOTES = [
     ],
   },
 ];
+
+const shouldReduceMotion = () =>
+  typeof window !== "undefined" &&
+  typeof window.matchMedia === "function" &&
+  window.matchMedia("(prefers-reduced-motion: reduce)").matches;
 
 // Helper functions for corrections (getShuntCorrectionForPoint, getTVCCorrectionForPoint)
 const getShuntCorrectionForPoint = (point, shuntRangeInAmps, shuntsData) => {
@@ -101,20 +107,25 @@ const CorrectionsDetailsModal = ({
   standardTvcSn,
   testTvcSn,
 }) => {
-  if (!isOpen || !point) return null;
+  const lastPointRef = useRef(point);
+  useEffect(() => {
+    if (point) lastPointRef.current = point;
+  }, [point]);
+  const displayPoint = point || lastPointRef.current;
+  if (!displayPoint) return null;
 
   const shuntCorr = getShuntCorrectionForPoint(
-    point,
+    displayPoint,
     tooltipData.shuntRangeInAmps,
     tooltipData.shuntsData
   );
   const stdTvcCorr = getTVCCorrectionForPoint(
-    point,
+    displayPoint,
     standardTvcSn,
     tooltipData.tvcsData
   );
   const tiTvcCorr = getTVCCorrectionForPoint(
-    point,
+    displayPoint,
     testTvcSn,
     tooltipData.tvcsData
   );
@@ -134,14 +145,16 @@ const CorrectionsDetailsModal = ({
     val !== null && val !== undefined ? `${val.toFixed(2)} PPM` : "N/A";
 
   return (
-    <div className="modal-overlay" onClick={onClose}>
-      <div
-        className="point-corrections-modal"
-        role="dialog"
-        aria-modal="true"
-        aria-labelledby="point-corrections-title"
-        onClick={(e) => e.stopPropagation()}
-      >
+    <AnimatedModalShell
+      isOpen={isOpen}
+      onClose={onClose}
+      panelClassName="point-corrections-modal"
+      panelProps={{
+        role: "dialog",
+        "aria-modal": "true",
+        "aria-labelledby": "point-corrections-title",
+      }}
+    >
         <header className="point-corrections-header">
           <div className="point-corrections-header-text">
             <span className="point-corrections-eyebrow">Test point</span>
@@ -149,9 +162,9 @@ const CorrectionsDetailsModal = ({
               id="point-corrections-title"
               className="point-corrections-title"
             >
-              {point.current} A
+              {displayPoint?.current ?? "--"} A
               <span className="point-corrections-title-sep">·</span>
-              {formatFrequency(point.frequency)}
+              {displayPoint ? formatFrequency(displayPoint.frequency) : "--"}
             </h3>
           </div>
           <button
@@ -185,8 +198,7 @@ const CorrectionsDetailsModal = ({
             </span>
           </div>
         </div>
-      </div>
-    </div>
+    </AnimatedModalShell>
   );
 };
 
@@ -202,17 +214,18 @@ const ConfirmationModal = ({
   confirmText = "Confirm",
   confirmButtonClass = "",
 }) => {
-  if (!isOpen) return null;
   const isDanger = /danger/.test(confirmButtonClass);
   return (
-    <div className="modal-overlay" onClick={onCancel}>
-      <div
-        className="confirm-modal"
-        role="dialog"
-        aria-modal="true"
-        aria-labelledby="confirm-modal-title"
-        onClick={(e) => e.stopPropagation()}
-      >
+    <AnimatedModalShell
+      isOpen={isOpen}
+      onClose={onCancel}
+      panelClassName="confirm-modal"
+      panelProps={{
+        role: "dialog",
+        "aria-modal": "true",
+        "aria-labelledby": "confirm-modal-title",
+      }}
+    >
         <header className="confirm-modal-header">
           <div className="confirm-modal-header-text">
             <span className="confirm-modal-eyebrow">
@@ -247,12 +260,90 @@ const ConfirmationModal = ({
             {confirmText}
           </button>
         </footer>
-      </div>
-    </div>
+    </AnimatedModalShell>
   );
 };
-const Notification = ({ message, type, onDismiss }) => {
-  if (!message) return null;
+const Notification = ({
+  id,
+  message,
+  type,
+  duration,
+  isClosing,
+  onDismiss,
+  onExited,
+  registerRef,
+}) => {
+  const toastRef = useRef(null);
+  const iconRef = useRef(null);
+  const progressRef = useRef(null);
+
+  useEffect(() => {
+    if (!toastRef.current) return;
+    const reduceMotion = shouldReduceMotion();
+    const toastNode = toastRef.current;
+    if (isClosing) {
+      if (reduceMotion) {
+        onExited(id);
+        return;
+      }
+      gsap.to(toastNode, {
+        autoAlpha: 0,
+        y: 18,
+        scale: 0.96,
+        duration: 0.22,
+        ease: "power2.inOut",
+        onComplete: () => onExited(id),
+      });
+      return;
+    }
+    if (reduceMotion) {
+      gsap.set(toastNode, { autoAlpha: 1, y: 0, scale: 1, filter: "none" });
+      return;
+    }
+    const tl = gsap.timeline();
+    tl.fromTo(
+      toastNode,
+      {
+        autoAlpha: 0,
+        y: 28,
+        scale: 0.94,
+        rotateX: 8,
+        filter: "blur(6px)",
+      },
+      {
+        autoAlpha: 1,
+        y: 0,
+        scale: 1,
+        rotateX: 0,
+        filter: "blur(0px)",
+        duration: 0.34,
+        ease: "power3.out",
+      }
+    );
+    if (iconRef.current) {
+      tl.fromTo(
+        iconRef.current,
+        { scale: 0.65, rotation: -14, autoAlpha: 0.6 },
+        { scale: 1, rotation: 0, autoAlpha: 1, duration: 0.28, ease: "back.out(2)" },
+        "<+0.02"
+      );
+    }
+    return () => tl.kill();
+  }, [id, isClosing, onExited]);
+
+  useEffect(() => {
+    if (!progressRef.current || !duration || duration <= 0 || isClosing) return;
+    const reduceMotion = shouldReduceMotion();
+    if (reduceMotion) {
+      gsap.set(progressRef.current, { scaleX: 1 });
+      return;
+    }
+    gsap.fromTo(
+      progressRef.current,
+      { scaleX: 1 },
+      { scaleX: 0, duration: duration / 1000, ease: "none", overwrite: "auto" }
+    );
+  }, [duration, id, isClosing]);
 
   // Map the notification type to a contextual icon
   const icons = {
@@ -263,31 +354,44 @@ const Notification = ({ message, type, onDismiss }) => {
   };
 
   return (
-    <div className={`notification-toast toast-${type}`} role="alert">
-      <div className="toast-icon">
+    <div
+      ref={(node) => {
+        toastRef.current = node;
+        registerRef(id, node);
+      }}
+      className={`notification-toast toast-${type}${isClosing ? " is-closing" : ""}`}
+      role="alert"
+    >
+      <div className="toast-icon" ref={iconRef}>
         {icons[type] || <FaInfoCircle />}
       </div>
       <div className="toast-content">
         {message}
       </div>
-      <button onClick={onDismiss} className="toast-dismiss" aria-label="Dismiss">
+      <button onClick={() => onDismiss(id)} className="toast-dismiss" aria-label="Dismiss">
         <FaTimes aria-hidden />
       </button>
+      {duration > 0 && (
+        <div className="toast-progress">
+          <div ref={progressRef} className="toast-progress-bar" />
+        </div>
+      )}
     </div>
   );
 };
 
 const ReleaseNotesModal = ({ isOpen, onClose }) => {
-  if (!isOpen) return null;
   return (
-    <div className="modal-overlay" onClick={onClose}>
-      <div
-        className="release-notes-modal"
-        role="dialog"
-        aria-modal="true"
-        aria-labelledby="release-notes-title"
-        onClick={(e) => e.stopPropagation()}
-      >
+    <AnimatedModalShell
+      isOpen={isOpen}
+      onClose={onClose}
+      panelClassName="release-notes-modal"
+      panelProps={{
+        role: "dialog",
+        "aria-modal": "true",
+        "aria-labelledby": "release-notes-title",
+      }}
+    >
         <header className="release-notes-header">
           <div className="release-notes-header-text">
             <span className="release-notes-eyebrow">Build info</span>
@@ -326,8 +430,7 @@ const ReleaseNotesModal = ({ isOpen, onClose }) => {
             </section>
           ))}
         </div>
-      </div>
-    </div>
+    </AnimatedModalShell>
   );
 };
 
@@ -470,11 +573,10 @@ function AppContent() {
   const [activeTab, setActiveTab] = useState("sessionSetup");
   const [sessionsList, setSessionsList] = useState([]);
   const [isLoadingSessions, setIsLoadingSessions] = useState(false);
-  const [notification, setNotification] = useState({
-    message: "",
-    type: "info",
-    key: 0,
-  });
+  const [notifications, setNotifications] = useState([]);
+  const toastTimeoutsRef = useRef({});
+  const toastNodesRef = useRef({});
+  const previousToastTopsRef = useRef(new Map());
   const { theme, toggleTheme } = useTheme();
 
   const {
@@ -678,15 +780,60 @@ function AppContent() {
 
   const showNotification = useCallback(
     (message, type = "info", duration = 4000) => {
-      const newKey = Date.now();
-      setNotification({ message, type, key: newKey });
+      const id = `${Date.now()}-${Math.random().toString(36).slice(2, 7)}`;
+      setNotifications((prev) => {
+        const next = [{ id, message, type, duration, isClosing: false }, ...prev].slice(0, 4);
+        const retainedIds = new Set(next.map((toast) => toast.id));
+        prev.forEach((toast) => {
+          if (retainedIds.has(toast.id)) return;
+          if (toastTimeoutsRef.current[toast.id]) {
+            window.clearTimeout(toastTimeoutsRef.current[toast.id]);
+            delete toastTimeoutsRef.current[toast.id];
+          }
+        });
+        return next;
+      });
       if (duration > 0) {
-        setTimeout(() => {
-          setNotification((prev) =>
-            prev.key === newKey ? { message: "", type: "info", key: 0 } : prev
+        const timeoutId = window.setTimeout(() => {
+          setNotifications((prev) =>
+            prev.map((toast) =>
+              toast.id === id ? { ...toast, isClosing: true } : toast
+            )
           );
+          delete toastTimeoutsRef.current[id];
         }, duration);
+        toastTimeoutsRef.current[id] = timeoutId;
       }
+    },
+    []
+  );
+
+  useLayoutEffect(() => {
+    if (prefersReducedMotion) return;
+    const nextTops = new Map();
+    notifications.forEach((toast) => {
+      const node = toastNodesRef.current[toast.id];
+      if (!node) return;
+      const top = node.getBoundingClientRect().top;
+      nextTops.set(toast.id, top);
+      const previousTop = previousToastTopsRef.current.get(toast.id);
+      if (previousTop === undefined) return;
+      const deltaY = previousTop - top;
+      if (Math.abs(deltaY) < 1) return;
+      gsap.fromTo(
+        node,
+        { y: deltaY },
+        { y: 0, duration: 0.28, ease: "power2.out", overwrite: "auto" }
+      );
+    });
+    previousToastTopsRef.current = nextTops;
+  }, [notifications, prefersReducedMotion]);
+
+  useEffect(
+    () => () => {
+      Object.values(toastTimeoutsRef.current).forEach((timeoutId) =>
+        window.clearTimeout(timeoutId)
+      );
     },
     []
   );
@@ -1026,8 +1173,31 @@ function AppContent() {
     setSelectedTPs(newSelected);
   };
 
-  const dismissNotification = useCallback(() => {
-    setNotification({ message: "", type: "info", key: 0 });
+  const dismissNotification = useCallback((id) => {
+    if (toastTimeoutsRef.current[id]) {
+      window.clearTimeout(toastTimeoutsRef.current[id]);
+      delete toastTimeoutsRef.current[id];
+    }
+    setNotifications((prev) =>
+      prev.map((toast) =>
+        toast.id === id ? { ...toast, isClosing: true } : toast
+      )
+    );
+  }, []);
+
+  const removeNotification = useCallback((id) => {
+    delete toastNodesRef.current[id];
+    previousToastTopsRef.current.delete(id);
+    setNotifications((prev) => prev.filter((toast) => toast.id !== id));
+  }, []);
+
+  const registerToastRef = useCallback((id, node) => {
+    if (node) {
+      toastNodesRef.current[id] = node;
+      return;
+    }
+    delete toastNodesRef.current[id];
+    previousToastTopsRef.current.delete(id);
   }, []);
 
   const handleViewPointCorrections = (point) => {
@@ -1141,13 +1311,22 @@ function AppContent() {
         confirmText={deleteConfirmationModal.confirmText}
         confirmButtonClass={deleteConfirmationModal.confirmButtonClass}
       />
-      {notification.message && (
-        <Notification
-          message={notification.message}
-          type={notification.type}
-          onDismiss={dismissNotification}
-          key={notification.key}
-        />
+      {notifications.length > 0 && (
+        <div className="notification-toast-stack" aria-live="polite" aria-atomic="false">
+          {notifications.map((toast) => (
+            <Notification
+              key={toast.id}
+              id={toast.id}
+              message={toast.message}
+              type={toast.type}
+              duration={toast.duration}
+              isClosing={toast.isClosing}
+              onDismiss={dismissNotification}
+              onExited={removeNotification}
+              registerRef={registerToastRef}
+            />
+          ))}
+        </div>
       )}
 
       <header className="app-chrome">

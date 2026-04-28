@@ -1,4 +1,5 @@
 import React, { useCallback, useState, useEffect, useRef } from "react";
+import { gsap } from "gsap";
 import { DndContext, closestCenter, MeasuringStrategy } from "@dnd-kit/core";
 import {
   SortableContext,
@@ -209,6 +210,58 @@ const SortableTestPointItem = ({
     transition,
     isDragging,
   } = useSortable({ id: point.key });
+  const itemRef = useRef(null);
+  const auraRef = useRef(null);
+  const auraTweenRef = useRef(null);
+
+  const setCombinedRef = useCallback(
+    (node) => {
+      setNodeRef(node);
+      itemRef.current = node;
+    },
+    [setNodeRef]
+  );
+
+  useEffect(() => {
+    const reduceMotion =
+      typeof window !== "undefined" &&
+      typeof window.matchMedia === "function" &&
+      window.matchMedia("(prefers-reduced-motion: reduce)").matches;
+
+    auraTweenRef.current?.kill();
+    if (!auraRef.current || !itemRef.current) return;
+
+    if (!isFocused) {
+      gsap.to(auraRef.current, {
+        autoAlpha: 0,
+        scale: 0.98,
+        duration: reduceMotion ? 0 : 0.2,
+        ease: "power2.out",
+      });
+      return;
+    }
+
+    if (!reduceMotion) {
+      gsap.fromTo(
+        itemRef.current,
+        { y: 2, scale: 0.994 },
+        { y: 0, scale: 1, duration: 0.24, ease: "power2.out", overwrite: "auto" }
+      );
+      gsap.set(auraRef.current, { autoAlpha: 0.5, scale: 1 });
+      auraTweenRef.current = gsap.to(auraRef.current, {
+        autoAlpha: 0.18,
+        scale: 1.055,
+        duration: 1.45,
+        ease: "sine.inOut",
+        repeat: -1,
+        yoyo: true,
+      });
+    } else {
+      gsap.set(auraRef.current, { autoAlpha: 0.16, scale: 1 });
+    }
+
+    return () => auraTweenRef.current?.kill();
+  }, [isFocused]);
 
   // Prioritize "Failed" -> "Complete" -> "Partial" -> "Idle"
   const statusModifier = isFailed
@@ -238,13 +291,14 @@ const SortableTestPointItem = ({
 
   return (
     <div
-      ref={setNodeRef}
+      ref={setCombinedRef}
       style={style}
       className={classes}
       onClick={() => onFocus(point)}
       onContextMenu={(e) => onContextMenu(e, point)}
       {...attributes}
     >
+      <span className="tp-active-aura" ref={auraRef} aria-hidden />
       <span className="tp-status-rail" aria-hidden />
       
       {!isRemoteViewer && (

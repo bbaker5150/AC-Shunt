@@ -9,6 +9,7 @@ import axios from "axios";
 import { useInstruments } from "../../contexts/InstrumentContext";
 import { FaTimes, FaSave, FaArrowLeft, FaPlus, FaEdit, FaTrash } from "react-icons/fa";
 import { AMPLIFIER_RANGES_A, API_BASE_URL } from "../../constants/constants";
+import AnimatedModalShell from "../shared/AnimatedModalShell";
 
 // --- Static Initial State (Moved outside component to fix dependency warnings) ---
 const initialManualFormState = {
@@ -1079,10 +1080,8 @@ function CorrectionsModal({ isOpen, onClose, showNotification, onUpdate, uniqueT
     );
   };
 
-  if (!isOpen) return null;
-
   return (
-    <div className="modal-overlay">
+    <>
       <ConfirmationModal
         isOpen={deleteConfirm.isOpen}
         title="Confirm Deletion"
@@ -1103,13 +1102,24 @@ function CorrectionsModal({ isOpen, onClose, showNotification, onUpdate, uniqueT
         onCancel={() => setAddPointsConfirm({ isOpen: false, row: null, headers: null })}
       />
 
-      <div className="corrections-modal-content">
+      <AnimatedModalShell
+        isOpen={isOpen}
+        onClose={onClose}
+        panelClassName="corrections-modal-content"
+        panelProps={{
+          role: "dialog",
+          "aria-modal": "true",
+          "aria-labelledby": "corrections-modal-title",
+        }}
+      >
         <header className="corrections-modal-header">
           <div className="corrections-modal-header-text">
             <span className="corrections-modal-eyebrow">
               Reference data{isReadOnly ? " · Read-only" : ""}
             </span>
-            <h3 className="corrections-modal-title">Corrections &amp; Uncertainties</h3>
+            <h3 id="corrections-modal-title" className="corrections-modal-title">
+              Corrections &amp; Uncertainties
+            </h3>
           </div>
           <div className="corrections-modal-header-actions">
             {!isManualFormOpen && (
@@ -1249,8 +1259,8 @@ function CorrectionsModal({ isOpen, onClose, showNotification, onUpdate, uniqueT
             renderTvcDatabasePanels()
           )}
         </main>
-      </div>
-    </div>
+      </AnimatedModalShell>
+    </>
   );
 }
 

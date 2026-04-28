@@ -41,7 +41,11 @@ const CalibrationStatusBar = ({
   const [isRunDropdownOpen, setIsRunDropdownOpen] = useState(false);
   const runDropdownRef = useRef(null);
   const progressBarRef = useRef(null);
+  const progressWidthTweenRef = useRef(null);
   const shimmerTweenRef = useRef(null);
+  const stageLabelRef = useRef(null);
+  const stageValueRef = useRef(null);
+  const stageDetailRef = useRef(null);
 
   useEffect(() => {
     const handleClickOutside = (event) => {
@@ -68,12 +72,58 @@ const CalibrationStatusBar = ({
     collectionProgress.total > 0
       ? (collectionProgress.count / collectionProgress.total) * 100
       : 0;
+  const stageLabelText = timerState.isActive
+    ? `${timerState.label}`
+    : stabilizationStatus
+      ? "Stabilizing"
+      : "Collecting";
+  const stageValueText = timerState.isActive ? `${countdown}s` : getStageName();
+  const stageDetailText = timerState.isActive
+    ? ""
+    : stabilizationStatus && stabilizationInfo
+      ? `Attempt: ${stabilizationInfo.count}`
+      : `${collectionProgress.count} / ${collectionProgress.total} Samples`;
+
+  useEffect(() => {
+    const animateNode = (node) => {
+      if (!node) return;
+      gsap.fromTo(
+        node,
+        { autoAlpha: 0, y: 4 },
+        { autoAlpha: 1, y: 0, duration: 0.2, ease: "power2.out" }
+      );
+    };
+
+    animateNode(stageLabelRef.current);
+    animateNode(stageValueRef.current);
+    animateNode(stageDetailRef.current);
+  }, [stageLabelText, stageValueText, stageDetailText]);
 
   useEffect(() => {
     if (!progressBarRef.current) return;
+    const targetPercent = showRunActivity
+      ? Math.max(0, Math.min(collectionProgressPercent, 100))
+      : 0;
+    progressWidthTweenRef.current?.kill();
 
-    gsap.to(progressBarRef.current, {
-      width: `${showRunActivity ? collectionProgressPercent : 0}%`,
+    if (showRunActivity && targetPercent >= 99.9) {
+      progressWidthTweenRef.current = gsap.timeline({ overwrite: "auto" });
+      progressWidthTweenRef.current
+        .to(progressBarRef.current, {
+          width: "100.6%",
+          duration: 0.16,
+          ease: "power2.out",
+        })
+        .to(progressBarRef.current, {
+          width: "100%",
+          duration: 0.18,
+          ease: "power2.inOut",
+        });
+      return;
+    }
+
+    progressWidthTweenRef.current = gsap.to(progressBarRef.current, {
+      width: `${targetPercent}%`,
       duration: 0.45,
       ease: "power2.out",
       overwrite: "auto",
@@ -103,6 +153,7 @@ const CalibrationStatusBar = ({
   useEffect(
     () => () => {
       shimmerTweenRef.current?.kill();
+      progressWidthTweenRef.current?.kill();
     },
     []
   );
@@ -142,7 +193,7 @@ const CalibrationStatusBar = ({
               </div>
             )}
             <div className="status-section">
-              <span className="status-label">
+              <span className="status-label" ref={stageLabelRef}>
                 {timerState.isActive ? (
                   <>
                     <FaHourglassHalf /> {timerState.label}
@@ -157,10 +208,10 @@ const CalibrationStatusBar = ({
                   </>
                 )}
               </span>
-              <span className="status-value">
-                {timerState.isActive ? `${countdown}s` : getStageName()}
+              <span className="status-value" ref={stageValueRef}>
+                {stageValueText}
               </span>
-              <span className="status-detail">
+              <span className="status-detail" ref={stageDetailRef}>
                 {timerState.isActive
                   ? null
                   : stabilizationStatus && stabilizationInfo
