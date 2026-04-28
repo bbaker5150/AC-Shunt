@@ -363,6 +363,7 @@ function CalibrationChart({
               chartData.datasets[datasetIndex]?.data[dataIndex]?.t;
             if (timestamp) {
               if (footerLines.length > 0) footerLines.push(" ");
+              footerLines.push(`Date: ${timestamp.toLocaleDateString()}`);
               footerLines.push(`Time: ${timestamp.toLocaleTimeString()}`);
             }
 

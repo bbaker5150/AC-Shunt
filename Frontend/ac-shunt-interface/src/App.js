@@ -273,6 +273,7 @@ const Notification = ({
   onDismiss,
   onExited,
   registerRef,
+  updateKey
 }) => {
   const toastRef = useRef(null);
   const iconRef = useRef(null);
@@ -344,7 +345,7 @@ const Notification = ({
       { scaleX: 1 },
       { scaleX: 0, duration: duration / 1000, ease: "none", overwrite: "auto" }
     );
-  }, [duration, id, isClosing]);
+  }, [duration, id, isClosing, updateKey]);
 
   // Map the notification type to a contextual icon
   const icons = {
@@ -575,6 +576,8 @@ function AppContent() {
   const [sessionsList, setSessionsList] = useState([]);
   const [isLoadingSessions, setIsLoadingSessions] = useState(false);
   const [notifications, setNotifications] = useState([]);
+  const notificationsRef = useRef(notifications);
+  notificationsRef.current = notifications;
   const toastTimeoutsRef = useRef({});
   const toastNodesRef = useRef({});
   const previousToastTopsRef = useRef(new Map());
@@ -809,19 +812,22 @@ function AppContent() {
 
   const showNotification = useCallback(
     (message, type = "info", duration = 4000) => {
-      const id = `${Date.now()}-${Math.random().toString(36).slice(2, 7)}`;
-      setNotifications((prev) => {
-        const next = [{ id, message, type, duration, isClosing: false }, ...prev].slice(0, 4);
-        const retainedIds = new Set(next.map((toast) => toast.id));
-        prev.forEach((toast) => {
-          if (retainedIds.has(toast.id)) return;
-          if (toastTimeoutsRef.current[toast.id]) {
-            window.clearTimeout(toastTimeoutsRef.current[toast.id]);
-            delete toastTimeoutsRef.current[toast.id];
-          }
-        });
-        return next;
-      });
+      // Find an active toast with the same message and type
+      const existingToast = notificationsRef.current.find(
+        (t) => t.message === message && t.type === type && !t.isClosing
+      );
+
+      const isNew = !existingToast;
+      const id = isNew ? `${Date.now()}-${Math.random().toString(36).slice(2, 7)}` : existingToast.id;
+      const updateKey = Date.now(); // Used to force the progress bar to restart
+
+      // Clear the old timeout if it exists
+      if (toastTimeoutsRef.current[id]) {
+        window.clearTimeout(toastTimeoutsRef.current[id]);
+        delete toastTimeoutsRef.current[id];
+      }
+
+      // Schedule the new closing timeout
       if (duration > 0) {
         const timeoutId = window.setTimeout(() => {
           setNotifications((prev) =>
@@ -833,6 +839,32 @@ function AppContent() {
         }, duration);
         toastTimeoutsRef.current[id] = timeoutId;
       }
+
+      setNotifications((prev) => {
+        if (isNew) {
+          // Add completely new toast
+          const next = [{ id, message, type, duration, isClosing: false, updateKey }, ...prev].slice(0, 4);
+          
+          const retainedIds = new Set(next.map((t) => t.id));
+          prev.forEach((toast) => {
+            if (retainedIds.has(toast.id)) return;
+            if (toastTimeoutsRef.current[toast.id]) {
+              window.clearTimeout(toastTimeoutsRef.current[toast.id]);
+              delete toastTimeoutsRef.current[toast.id];
+            }
+          });
+          return next;
+        } else {
+          // Update the existing toast and bring it to the top of the stack
+          const filtered = prev.filter((t) => t.id !== id);
+          const updatedToast = { 
+            ...(prev.find((t) => t.id === id) || existingToast), 
+            isClosing: false, 
+            updateKey 
+          };
+          return [updatedToast, ...filtered];
+        }
+      });
     },
     []
   );
@@ -1362,6 +1394,7 @@ function AppContent() {
               onDismiss={dismissNotification}
               onExited={removeNotification}
               registerRef={registerToastRef}
+              updateKey={toast.updateKey}
             />
           ))}
         </div>

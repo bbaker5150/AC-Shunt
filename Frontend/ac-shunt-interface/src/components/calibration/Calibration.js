@@ -546,19 +546,19 @@ function Calibration({
     }
   }, [lastMessage, sendWsCommand, isRemoteViewer]);
 
-  const prevCollectionStatusRef = useRef(collectionStatus);
-  useEffect(() => {
-    const prevStatus = prevCollectionStatusRef.current;
-    const isNewStopEvent =
-      collectionStatus === "collection_stopped" &&
-      prevStatus !== "collection_stopped";
+  // const prevCollectionStatusRef = useRef(collectionStatus);
+  // useEffect(() => {
+  //   const prevStatus = prevCollectionStatusRef.current;
+  //   const isNewStopEvent =
+  //     collectionStatus === "collection_stopped" &&
+  //     prevStatus !== "collection_stopped";
 
-    if (isNewStopEvent) {
-      showNotification("Reading collection stopped by user.", "warning");
-    }
+  //   if (isNewStopEvent) {
+  //     showNotification("Reading collection stopped by user.", "warning");
+  //   }
 
-    prevCollectionStatusRef.current = collectionStatus;
-  }, [collectionStatus, showNotification]);
+  //   prevCollectionStatusRef.current = collectionStatus;
+  // }, [collectionStatus, showNotification]);
 
   useEffect(() => {
     if (!lastMessage) return;
@@ -1188,14 +1188,22 @@ function Calibration({
       const pointsToRunData = selectedOrderedTPs.map((p) => {
         const pointForDirection =
           activeDirection === "Forward" ? p.forward : p.reverse;
+
+        // Grab this specific point's settings, or fallback to the global state
+        const ptSettings = pointForDirection?.settings && Object.keys(pointForDirection.settings).length > 0
+          ? pointForDirection.settings
+          : calibrationSettings;
+
         return {
           id: pointForDirection?.id,
           current: p.current,
           frequency: p.frequency,
           direction: activeDirection,
+          // Explicitly pass the individual point settings for the backend
+          settling_time: parseFloat(ptSettings.settling_time),
+          num_samples: parseInt(ptSettings.num_samples, 10),
         };
       });
-
       if (pointsToRunData.length === 0) {
         showNotification(
           `No test points were selected for the batch run.`,
@@ -1214,7 +1222,7 @@ function Calibration({
       const firstPointForDir = firstPointInBatch?.[dirKey];
       const firstPointSettings =
         firstPointForDir?.settings &&
-        Object.keys(firstPointForDir.settings).length > 0
+          Object.keys(firstPointForDir.settings).length > 0
           ? firstPointForDir.settings
           : calibrationSettings;
 
@@ -1538,11 +1546,18 @@ function Calibration({
           .map((p) => {
             const pointForDirection =
               activeDirection === "Forward" ? p.forward : p.reverse;
+
+            const ptSettings = pointForDirection?.settings && Object.keys(pointForDirection.settings).length > 0
+              ? pointForDirection.settings
+              : calibrationSettings;
+
             return {
               id: pointForDirection?.id,
               current: p.current,
               frequency: p.frequency,
               direction: activeDirection,
+              settling_time: parseFloat(ptSettings.settling_time),
+              num_samples: parseInt(ptSettings.num_samples, 10),
             };
           });
 
@@ -1567,7 +1582,7 @@ function Calibration({
         const firstForActiveDir = firstPointToRun?.[stageDirKey];
         const firstPointSettings =
           firstForActiveDir?.settings &&
-          Object.keys(firstForActiveDir.settings).length > 0
+            Object.keys(firstForActiveDir.settings).length > 0
             ? firstForActiveDir.settings
             : calibrationSettings;
 
@@ -1876,8 +1891,8 @@ function Calibration({
     isCollecting &&
     String(activeCollectionDetails?.tpId) === String(pointForDirection?.id);
 
-  const activeStageKey = isCurrentTPActive 
-    ? (activeCollectionDetails?.stage || activeCollectionDetails?.readingKey) 
+  const activeStageKey = isCurrentTPActive
+    ? (activeCollectionDetails?.stage || activeCollectionDetails?.readingKey)
     : null;
 
   const mergeDataSource = (historical, live, activeStage) => {
@@ -1897,7 +1912,7 @@ function Calibration({
   const stdChartDataSource = isCurrentTPActive
     ? mergeDataSource(historicalReadings, liveReadings, activeStageKey)
     : historicalReadings;
-    
+
   const tiChartDataSource = isCurrentTPActive
     ? mergeDataSource(tiHistoricalReadings, tiLiveReadings, activeStageKey)
     : tiHistoricalReadings;
@@ -1960,15 +1975,15 @@ function Calibration({
     const takeOptions =
       selectedTPs.size > 1
         ? visibleReadingTypes.map(({ key, label }) => ({
-            key: key,
-            label: `Take ${label} on ${selectedTPs.size} Points`,
-            onClick: () => handleRunSingleStageOnSelected(key),
-          }))
+          key: key,
+          label: `Take ${label} on ${selectedTPs.size} Points`,
+          onClick: () => handleRunSingleStageOnSelected(key),
+        }))
         : visibleReadingTypes.map(({ key, label }) => ({
-            key: key,
-            label: `Take ${label} Readings`,
-            onClick: () => handleCollectReadingsRequest(key),
-          }));
+          key: key,
+          label: `Take ${label} Readings`,
+          onClick: () => handleCollectReadingsRequest(key),
+        }));
 
     return [...charOptions, ...takeOptions];
   }, [
@@ -2103,7 +2118,7 @@ function Calibration({
         isOpen={amplifierModal.isOpen}
         eyebrow="Amplifier"
         title="Verify 8100 range"
-        message={`Verify the 8100 range to ${amplifierModal.range} A before continuing. An incorrect range can damage equipment.`}
+        message={`Please ensure the 8100 Amplifier range is set to ${amplifierModal.range} A. Incorrect range setting may damage the equipment.\n\nVerify 5730A calibrators voltage output are correct. Once verified, set the 8100 to operate and click Proceed.`}
         onConfirm={amplifierModal.onConfirm}
         onCancel={amplifierModal.onCancel}
         confirmText="Proceed — range verified"
@@ -2324,123 +2339,123 @@ function Calibration({
 
                               {calibrationSettings.stability_check_method ===
                                 "sliding_window" && (
-                                <>
-                                  <div className="form-section">
-                                    <label htmlFor="stability_window">
-                                      Stability window (# samples)
-                                    </label>
-                                    <input
-                                      type="number"
-                                      id="stability_window"
-                                      name="stability_window"
-                                      min="2"
-                                      max={calibrationSettings.num_samples || 35}
-                                      value={
-                                        calibrationSettings.stability_window || ""
-                                      }
-                                      onChange={(e) => {
-                                        const newWindow = parseInt(e.target.value, 10) || 0;
-                                        const currentSamples = parseInt(calibrationSettings.num_samples, 10) || 35;
-                                        setCalibrationSettings((prev) => ({
-                                          ...prev,
-                                          stability_window: newWindow > currentSamples ? currentSamples : newWindow,
-                                        }));
-                                      }}
-                                      disabled={isRemoteViewer}
-                                    />
-                                  </div>
-                                  <div className="form-section">
-                                    <label htmlFor="stability_threshold_ppm">
-                                      Stability threshold (PPM)
-                                    </label>
-                                    <input
-                                      type="number"
-                                      step="any"
-                                      id="stability_threshold_ppm"
-                                      name="stability_threshold_ppm"
-                                      placeholder="e.g., 10"
-                                      value={
-                                        calibrationSettings.stability_threshold_ppm ||
-                                        ""
-                                      }
-                                      onChange={(e) =>
-                                        setCalibrationSettings((prev) => ({
-                                          ...prev,
-                                          stability_threshold_ppm: e.target.value,
-                                        }))
-                                      }
-                                      disabled={isRemoteViewer}
-                                    />
-                                  </div>
-                                  <div className="form-section">
-                                    <label htmlFor="stability_max_attempts">
-                                      Max stability attempts
-                                    </label>
-                                    <input
-                                      type="number"
-                                      id="stability_max_attempts"
-                                      name="stability_max_attempts"
-                                      value={
-                                        calibrationSettings.stability_max_attempts ||
-                                        50
-                                      }
-                                      onChange={(e) =>
-                                        setCalibrationSettings((prev) => ({
-                                          ...prev,
-                                          stability_max_attempts: parseInt(
-                                            e.target.value,
-                                            10
-                                          ),
-                                        }))
-                                      }
-                                      disabled={isRemoteViewer}
-                                    />
-                                  </div>
-                                  <div className="form-section form-section--checkbox full-width">
-                                    <label className="form-section-checkbox-label">
+                                  <>
+                                    <div className="form-section">
+                                      <label htmlFor="stability_window">
+                                        Stability window (# samples)
+                                      </label>
                                       <input
-                                        type="checkbox"
-                                        className="form-section-checkbox-input"
-                                        checked={calibrationSettings.ignore_instability_after_lock || false}
+                                        type="number"
+                                        id="stability_window"
+                                        name="stability_window"
+                                        min="2"
+                                        max={calibrationSettings.num_samples || 35}
+                                        value={
+                                          calibrationSettings.stability_window || ""
+                                        }
+                                        onChange={(e) => {
+                                          const newWindow = parseInt(e.target.value, 10) || 0;
+                                          const currentSamples = parseInt(calibrationSettings.num_samples, 10) || 35;
+                                          setCalibrationSettings((prev) => ({
+                                            ...prev,
+                                            stability_window: newWindow > currentSamples ? currentSamples : newWindow,
+                                          }));
+                                        }}
+                                        disabled={isRemoteViewer}
+                                      />
+                                    </div>
+                                    <div className="form-section">
+                                      <label htmlFor="stability_threshold_ppm">
+                                        Stability threshold (PPM)
+                                      </label>
+                                      <input
+                                        type="number"
+                                        step="any"
+                                        id="stability_threshold_ppm"
+                                        name="stability_threshold_ppm"
+                                        placeholder="e.g., 10"
+                                        value={
+                                          calibrationSettings.stability_threshold_ppm ||
+                                          ""
+                                        }
                                         onChange={(e) =>
                                           setCalibrationSettings((prev) => ({
                                             ...prev,
-                                            ignore_instability_after_lock: e.target.checked,
+                                            stability_threshold_ppm: e.target.value,
                                           }))
                                         }
                                         disabled={isRemoteViewer}
                                       />
-                                      <span>Bypass stability attempts (post initial)</span>
-                                    </label>
-                                  </div>
-                                </>
-                              )}
+                                    </div>
+                                    <div className="form-section">
+                                      <label htmlFor="stability_max_attempts">
+                                        Max stability attempts
+                                      </label>
+                                      <input
+                                        type="number"
+                                        id="stability_max_attempts"
+                                        name="stability_max_attempts"
+                                        value={
+                                          calibrationSettings.stability_max_attempts ||
+                                          50
+                                        }
+                                        onChange={(e) =>
+                                          setCalibrationSettings((prev) => ({
+                                            ...prev,
+                                            stability_max_attempts: parseInt(
+                                              e.target.value,
+                                              10
+                                            ),
+                                          }))
+                                        }
+                                        disabled={isRemoteViewer}
+                                      />
+                                    </div>
+                                    <div className="form-section form-section--checkbox full-width">
+                                      <label className="form-section-checkbox-label">
+                                        <input
+                                          type="checkbox"
+                                          className="form-section-checkbox-input"
+                                          checked={calibrationSettings.ignore_instability_after_lock || false}
+                                          onChange={(e) =>
+                                            setCalibrationSettings((prev) => ({
+                                              ...prev,
+                                              ignore_instability_after_lock: e.target.checked,
+                                            }))
+                                          }
+                                          disabled={isRemoteViewer}
+                                        />
+                                        <span>Bypass stability attempts (post initial)</span>
+                                      </label>
+                                    </div>
+                                  </>
+                                )}
 
                               {calibrationSettings.stability_check_method ===
                                 "iqr_filter" && (
-                                <div className="form-section">
-                                  <label htmlFor="iqr_filter_ppm_threshold">
-                                    IQR filter threshold (PPM)
-                                  </label>
-                                  <input
-                                    type="number"
-                                    step="any"
-                                    id="iqr_filter_ppm_threshold"
-                                    name="iqr_filter_ppm_threshold"
-                                    value={
-                                      calibrationSettings.iqr_filter_ppm_threshold ||
-                                      15
-                                    }
-                                    onChange={(e) =>
-                                      setCalibrationSettings((prev) => ({
-                                        ...prev,
-                                        iqr_filter_ppm_threshold: e.target.value,
-                                      }))
-                                    }
-                                    disabled={isRemoteViewer}
-                                  />
-                                </div>
-                              )}
+                                  <div className="form-section">
+                                    <label htmlFor="iqr_filter_ppm_threshold">
+                                      IQR filter threshold (PPM)
+                                    </label>
+                                    <input
+                                      type="number"
+                                      step="any"
+                                      id="iqr_filter_ppm_threshold"
+                                      name="iqr_filter_ppm_threshold"
+                                      value={
+                                        calibrationSettings.iqr_filter_ppm_threshold ||
+                                        15
+                                      }
+                                      onChange={(e) =>
+                                        setCalibrationSettings((prev) => ({
+                                          ...prev,
+                                          iqr_filter_ppm_threshold: e.target.value,
+                                        }))
+                                      }
+                                      disabled={isRemoteViewer}
+                                    />
+                                  </div>
+                                )}
                             </div>
                           </div>
 
@@ -2576,8 +2591,8 @@ function Calibration({
                             className={
                               "cal-readings-charts" +
                               (readingsChartLayout === "sideBySide" &&
-                              showStdChart &&
-                              showTiChart
+                                showStdChart &&
+                                showTiChart
                                 ? " cal-readings-charts--side-by-side"
                                 : "")
                             }
@@ -2607,7 +2622,7 @@ function Calibration({
                                   activeStage={
                                     isCurrentTPActive
                                       ? activeCollectionDetails?.stage ||
-                                        activeCollectionDetails?.readingKey
+                                      activeCollectionDetails?.readingKey
                                       : null
                                   }
                                 />
@@ -2638,7 +2653,7 @@ function Calibration({
                                   activeStage={
                                     isCurrentTPActive
                                       ? activeCollectionDetails?.stage ||
-                                        activeCollectionDetails?.readingKey
+                                      activeCollectionDetails?.readingKey
                                       : null
                                   }
                                 />

@@ -35,9 +35,25 @@ function SessionSetup({ sessionsList, isLoadingSessions, showNotification, fetch
         if (cancelled) return;
         const sh = shRes.data || [];
         const tv = tvcRes.data || [];
+        
+        // Formats AC Shunts to include the current rating (e.g., "450274734 (10mA)")
         setShuntSerials(
-          [...new Set(sh.map((r) => String(r.serial_number ?? "").trim()).filter(Boolean))]
+          [...new Set(sh.map((r) => {
+            const serial = String(r.serial_number ?? "").trim();
+            if (!serial) return null;
+            
+            if (r.current !== undefined && r.current !== null) {
+              const amps = parseFloat(r.current);
+              if (!isNaN(amps)) {
+                const currentStr = amps < 1 ? `${amps * 1000}mA` : `${amps}A`;
+                return `${serial} (${currentStr})`;
+              }
+            }
+            return serial;
+          }).filter(Boolean))]
         );
+
+        // TVCs do not need a current rating
         setTvcSerials(
           [...new Set(tv.map((r) => String(r.serial_number ?? "").trim()).filter(Boolean))]
         );

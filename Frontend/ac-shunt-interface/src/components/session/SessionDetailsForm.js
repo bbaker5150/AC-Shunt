@@ -17,7 +17,7 @@ import React, {
 } from "react";
 import { createPortal } from "react-dom";
 import axios from "axios";
-import { FaSave } from "react-icons/fa"; // Import the save icon
+import { FaSave, FaEdit, FaCheck } from "react-icons/fa";
 import { useInstruments } from "../../contexts/InstrumentContext";
 import { API_BASE_URL } from "../../constants/constants";
 import {
@@ -38,13 +38,6 @@ const initialFormData = {
   humidity: "45.0",
   notes: "",
 };
-
-const SERIAL_NAME_KEYS = new Set([
-  "standardInstrumentSerial",
-  "testInstrumentSerial",
-  "standardTvcSerial",
-  "testTvcSerial",
-]);
 
 const SUGGEST_MAX_SHOWN = 50;
 
@@ -172,35 +165,35 @@ function SessionSuggestInput({
   const panel =
     showPanel && typeof document !== "undefined"
       ? createPortal(
-          <ul
-            ref={listRef}
-            className="session-suggest-panel"
-            style={{
-              top: pos.top,
-              left: pos.left,
-              width: pos.width,
-            }}
-            role="listbox"
-          >
-            {filtered.map((opt, i) => (
-              <li
-                key={`${id}-${i}-${String(opt).slice(0, 32)}`}
-                role="option"
-                aria-selected={i === activeIndex}
-                className={i === activeIndex ? "is-active" : undefined}
-                onMouseEnter={() => setActiveIndex(i)}
-                onMouseDown={(e) => {
-                  e.preventDefault();
-                  clearBlurTimer();
-                  pick(opt);
-                }}
-              >
-                {String(opt)}
-              </li>
-            ))}
-          </ul>,
-          document.body
-        )
+        <ul
+          ref={listRef}
+          className="session-suggest-panel"
+          style={{
+            top: pos.top,
+            left: pos.left,
+            width: pos.width,
+          }}
+          role="listbox"
+        >
+          {filtered.map((opt, i) => (
+            <li
+              key={`${id}-${i}-${String(opt).slice(0, 32)}`}
+              role="option"
+              aria-selected={i === activeIndex}
+              className={i === activeIndex ? "is-active" : undefined}
+              onMouseEnter={() => setActiveIndex(i)}
+              onMouseDown={(e) => {
+                e.preventDefault();
+                clearBlurTimer();
+                pick(opt);
+              }}
+            >
+              {String(opt)}
+            </li>
+          ))}
+        </ul>,
+        document.body
+      )
       : null;
 
   return (
@@ -286,33 +279,41 @@ function SessionDetailsForm({
   const [formData, setFormData] = useState(() => ({ ...initialFormData }));
   const [isLoading, setIsLoading] = useState(false);
   const [fieldHistoryTick, setFieldHistoryTick] = useState(0);
+  const [isEditingName, setIsEditingName] = useState(false);
 
-  const correctionSerialPool = useMemo(
-    () => mergeSuggestions([], [...shuntSerials, ...tvcSerials]),
-    [shuntSerials, tvcSerials]
+  const shuntSerialPool = useMemo(
+    () => mergeSuggestions([], shuntSerials),
+    [shuntSerials]
+  );
+
+  const tvcSerialPool = useMemo(
+    () => mergeSuggestions([], tvcSerials),
+    [tvcSerials]
   );
 
   const suggestions = useMemo(() => {
     void fieldHistoryTick; // re-run when history updates (localStorage); satisfies exhaustive-deps
-    const s = (fieldName) =>
-      mergeSuggestions(
-        getHistoryForField(fieldName),
-        SERIAL_NAME_KEYS.has(fieldName) ? correctionSerialPool : []
-      );
+
+    // Accept an optional specific pool to merge with the field's history
+    const s = (fieldName, specificPool = []) =>
+      mergeSuggestions(getHistoryForField(fieldName), specificPool);
+
     return {
       sessionName: s("sessionName"),
       testInstrument: s("testInstrument"),
-      testInstrumentSerial: s("testInstrumentSerial"),
+      testInstrumentSerial: s("testInstrumentSerial", shuntSerialPool),
       standardInstrumentModel: s("standardInstrumentModel"),
-      standardInstrumentSerial: s("standardInstrumentSerial"),
-      standardTvcSerial: s("standardTvcSerial"),
-      testTvcSerial: s("testTvcSerial"),
+      standardInstrumentSerial: s("standardInstrumentSerial", shuntSerialPool),
+      standardTvcSerial: s("standardTvcSerial", tvcSerialPool),
+      testTvcSerial: s("testTvcSerial", tvcSerialPool),
       temperature: s("temperature"),
       humidity: s("humidity"),
     };
-  }, [fieldHistoryTick, correctionSerialPool]);
+  }, [fieldHistoryTick, shuntSerialPool, tvcSerialPool]);
 
   useEffect(() => {
+    setIsEditingName(false); // Reset edit state when switching sessions
+
     if (selectedSessionId && sessionsList.length > 0) {
       const session = sessionsList.find(s => s.id.toString() === selectedSessionId.toString());
       if (session) {
@@ -335,7 +336,36 @@ function SessionDetailsForm({
   }, [selectedSessionId, sessionsList]);
 
   const handleChange = (e) => {
-    setFormData((prev) => ({ ...prev, [e.target.name]: e.target.value }));
+    let { name, value } = e.target;
+
+    if (name === "testInstrumentSerial" || name === "standardInstrumentSerial") {
+      value = value.replace(/\s*\(\s*\d+(?:\.\d+)?\s*m?A\s*\)$/i, "");
+    }
+
+    setFormData((prev) => {
+      const next = { ...prev, [name]: value };
+
+      // Only auto-enforce if it is a NEW session
+      if (name === "testInstrument" && !selectedSessionId) {
+        const dateStr = new Intl.DateTimeFormat("en-US", {
+          month: "2-digit",
+          day: "2-digit",
+          year: "numeric",
+        })
+          .format(new Date())
+          .replace(/\//g, "-");
+
+        if (value.trim()) {
+          const match = value.match(/(\d+(?:\.\d+)?\s*m?a)/i);
+          const currentPart = match ? ` @ ${match[1].toUpperCase().replace(/\s+/g, '')}` : "";
+          next.sessionName = `${value.trim()}${currentPart} (${dateStr})`;
+        } else {
+          next.sessionName = `Calibration Session - ${new Date().toLocaleString()}`;
+        }
+      }
+
+      return next;
+    });
   };
 
   const handleSubmit = async (e) => {
@@ -392,7 +422,7 @@ function SessionDetailsForm({
 
       const savedSession = response.data;
       await fetchSessionsList();
-      
+
       setSelectedSessionId(savedSession.id);
       setSelectedSessionName(savedSession.session_name);
       setStdInstrumentAddress(savedSession.standard_reader_address || null);
@@ -419,6 +449,7 @@ function SessionDetailsForm({
       showNotification("Failed to save session.", "error");
     } finally {
       setIsLoading(false);
+      setIsEditingName(false); // Close edit view on save
     }
   };
 
@@ -428,7 +459,7 @@ function SessionDetailsForm({
     : isEditing
       ? "Update session"
       : "Save new session";
-
+  const showSessionName = isEditing || formData.testInstrument.trim() !== "";
   return (
     <section className="session-panel session-details-container">
       <header className="session-panel-header">
@@ -444,23 +475,62 @@ function SessionDetailsForm({
         onSubmit={handleSubmit}
         className="session-details-form"
       >
-        <div className="session-form-group">
-          <span className="session-form-group-eyebrow">Overview</span>
-          <div className="form-section-group">
-            <div className="form-section full-width">
-              <label htmlFor="sessionName">Session name</label>
-              <SessionSuggestInput
-                id="sessionName"
-                name="sessionName"
-                value={formData.sessionName}
-                onChange={handleChange}
-                required
-                disabled={isRemoteViewer}
-                listOptions={suggestions.sessionName}
-              />
+        {showSessionName && (
+          <div className="session-form-group">
+            <div className="form-section-group">
+              <div className="form-section full-width">
+                <label htmlFor="sessionName">Session name</label>
+                
+                {!isEditingName ? (
+                  <div style={{ display: "flex", gap: "10px", alignItems: "center" }}>
+                    <div
+                      style={{
+                        flex: 1,
+                        color: "var(--text-primary)",
+                        fontWeight: 600,
+                        fontSize: "1.1rem"
+                      }}
+                    >
+                      {formData.sessionName || "—"}
+                    </div>
+                    {!isRemoteViewer && (
+                      <button
+                        type="button"
+                        className="cal-results-excel-icon-btn"
+                        onClick={() => setIsEditingName(true)}
+                        title="Edit Session Name"
+                      >
+                        <FaEdit />
+                      </button>
+                    )}
+                  </div>
+                ) : (
+                  <div style={{ display: "flex", gap: "10px", alignItems: "center" }}>
+                    <div style={{ flex: 1 }}>
+                      <SessionSuggestInput
+                        id="sessionName"
+                        name="sessionName"
+                        value={formData.sessionName}
+                        onChange={handleChange}
+                        required
+                        disabled={isRemoteViewer}
+                        listOptions={suggestions.sessionName}
+                      />
+                    </div>
+                    <button
+                      type="button"
+                      className="cal-results-excel-icon-btn"
+                      onClick={() => setIsEditingName(false)}
+                      title="Confirm Name"
+                    >
+                      <FaCheck />
+                    </button>
+                  </div>
+                )}
+              </div>
             </div>
           </div>
-        </div>
+        )}
 
         <div className="session-form-group">
           <span className="session-form-group-eyebrow">Instruments</span>
@@ -575,7 +645,7 @@ function SessionDetailsForm({
         <div className="form-section-action-icons">
           <button
             type="submit"
-            className="sidebar-action-button"
+            className="cal-results-excel-icon-btn"
             disabled={isLoading || isRemoteViewer}
             aria-label={saveTitle}
             title={saveTitle}
