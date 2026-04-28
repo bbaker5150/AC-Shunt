@@ -1066,6 +1066,12 @@ body.dark-mode .drag-handle:hover svg {
   box-shadow: var(--focus-ring);
 }
 
+.app-chrome-meta-icon.is-active {
+  color: var(--primary-color);
+  background-color: var(--primary-color-soft);
+  border-color: color-mix(in srgb, var(--primary-color) 35%, transparent);
+}
+
 /* Observer-mode affordance. Borrows a chrome meta slot and re-styles it in
    the warning colorway so it reads as
    an active status + single-click exit — it's the only way back to a
@@ -4025,6 +4031,120 @@ body.dark-mode .bug-report-list-item:hover {
   align-items: center;
   min-height: 52px;
   box-sizing: border-box;
+}
+
+/* Floating session notes — non-modal panel (no backdrop), draggable */
+.session-notes-float {
+  display: flex;
+  flex-direction: column;
+  max-height: min(72vh, 640px);
+  background: var(--content-background);
+  border: 1px solid var(--border-color);
+  border-radius: 12px;
+  box-shadow: var(--shadow-md);
+  overflow: hidden;
+  touch-action: none;
+}
+
+.session-notes-float__header {
+  display: flex;
+  align-items: flex-start;
+  gap: 10px;
+  padding: 12px 12px 10px 14px;
+  border-bottom: 1px solid var(--border-color);
+  background: color-mix(in srgb, var(--content-background) 92%, var(--border-color));
+  cursor: grab;
+  user-select: none;
+}
+
+.session-notes-float__header:active {
+  cursor: grabbing;
+}
+
+.session-notes-float__title-wrap {
+  flex: 1;
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+
+.session-notes-float__eyebrow {
+  font-size: 0.625rem;
+  font-weight: 600;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  color: var(--text-color-muted);
+}
+
+.session-notes-float__title {
+  margin: 0;
+  font-size: 1rem;
+  font-weight: 600;
+  letter-spacing: -0.02em;
+  color: var(--text-color);
+}
+
+.session-notes-float__subtitle {
+  font-size: 0.78rem;
+  color: var(--text-color-muted);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.session-notes-float__actions {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  flex-shrink: 0;
+}
+
+.session-notes-float__body {
+  padding: 12px 14px 14px;
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  flex: 1;
+  min-height: 0;
+}
+
+.session-notes-float__hint {
+  margin: 0;
+  font-size: 0.8125rem;
+  line-height: 1.45;
+  color: var(--text-color-muted);
+}
+
+.session-notes-float__hint--warn {
+  color: var(--accent-warning, #d97706);
+}
+
+.session-notes-float__textarea {
+  flex: 1;
+  min-height: 180px;
+  width: 100%;
+  margin: 0;
+  padding: 10px 12px;
+  resize: vertical;
+  border: 1px solid var(--border-color);
+  border-radius: 8px;
+  font-size: 0.9rem;
+  line-height: 1.45;
+  color: var(--text-color);
+  background: var(--input-background);
+  box-sizing: border-box;
+}
+
+.session-notes-float__textarea:focus {
+  outline: none;
+  border-color: var(--button-primary-bg);
+  box-shadow: 0 0 0 2px var(--primary-color-glow);
+}
+
+.session-notes-float__textarea:disabled {
+  opacity: 0.65;
+  cursor: not-allowed;
 }
 
 .confirm-modal-action {

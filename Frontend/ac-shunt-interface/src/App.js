@@ -9,6 +9,7 @@ import CalibrationResults from "./components/calibration/CalibrationResults";
 import TestPointSidebar from "./components/shared/TestPointSidebar";
 import ConfigurationModal from "./components/shared/ConfigurationModal";
 import BugReportModal from "./components/shared/BugReportModal";
+import SessionNotesFloatingPanel from "./components/session/SessionNotesFloatingPanel";
 import CorrectionsModal from "./components/calibration/CorrectionsModal";
 import AnimatedModalShell from "./components/shared/AnimatedModalShell";
 import {
@@ -17,7 +18,7 @@ import {
 } from "./contexts/InstrumentContext";
 import { ThemeProvider, useTheme } from "./contexts/ThemeContext";
 import "bootstrap/dist/css/bootstrap.min.css";
-import { FaInfoCircle, FaTimes, FaSun, FaMoon, FaCheckCircle, FaExclamationTriangle, FaExclamationCircle, FaBug, FaEye, FaEyeSlash } from "react-icons/fa";
+import { FaInfoCircle, FaTimes, FaSun, FaMoon, FaCheckCircle, FaExclamationTriangle, FaExclamationCircle, FaBug, FaEye, FaEyeSlash, FaStickyNote } from "react-icons/fa";
 import "./App.css";
 import { arrayMove } from "@dnd-kit/sortable";
 import { gsap } from "gsap";
@@ -619,6 +620,7 @@ function AppContent() {
   const [isConfigModalOpen, setIsConfigModalOpen] = useState(false);
   const [isCorrectionsModalOpen, setIsCorrectionsModalOpen] = useState(false);
   const [isBugReportModalOpen, setIsBugReportModalOpen] = useState(false);
+  const [isSessionNotesOpen, setIsSessionNotesOpen] = useState(false);
   const [isReleaseNotesOpen, setIsReleaseNotesOpen] = useState(false);
   const [pointCorrectionsModal, setPointCorrectionsModal] = useState({
     isOpen: false,
@@ -1290,6 +1292,15 @@ function AppContent() {
         activeTab={activeTab}
         theme={theme}
       />
+      <SessionNotesFloatingPanel
+        isOpen={isSessionNotesOpen}
+        onClose={() => setIsSessionNotesOpen(false)}
+        selectedSessionId={selectedSessionId}
+        selectedSessionName={selectedSessionName}
+        showNotification={showNotification}
+        fetchSessionsList={fetchSessionsList}
+        isRemoteViewer={isRemoteViewer}
+      />
       <ReleaseNotesModal
         isOpen={isReleaseNotesOpen}
         onClose={() => setIsReleaseNotesOpen(false)}
@@ -1604,6 +1615,21 @@ function AppContent() {
               className="app-chrome-meta-group app-chrome-meta-group--tools"
               aria-label="Feedback"
             >
+              <button
+                type="button"
+                onClick={() => setIsSessionNotesOpen((open) => !open)}
+                className={`app-chrome-meta-icon${isSessionNotesOpen ? " is-active" : ""}`}
+                aria-label={
+                  isSessionNotesOpen ? "Close session notes" : "Session notes"
+                }
+                title={
+                  isSessionNotesOpen
+                    ? "Close session notes panel"
+                    : "Session notes"
+                }
+              >
+                <FaStickyNote aria-hidden />
+              </button>
               <button
                 type="button"
                 onClick={() => setIsBugReportModalOpen(true)}

@@ -341,6 +341,17 @@ function SessionDetailsForm({
   const handleSubmit = async (e) => {
     e.preventDefault();
     setIsLoading(true);
+    let notesPayload = formData.notes ?? "";
+    if (selectedSessionId) {
+      try {
+        const snap = await axios.get(
+          `${API_BASE_URL}/calibration_sessions/${selectedSessionId}/`
+        );
+        notesPayload = snap.data?.notes ?? "";
+      } catch {
+        notesPayload = formData.notes ?? "";
+      }
+    }
     const payload = {
       session_name: formData.sessionName,
       test_instrument_model: formData.testInstrument,
@@ -351,7 +362,7 @@ function SessionDetailsForm({
       test_tvc_serial: formData.testTvcSerial,
       temperature: parseFloat(formData.temperature) || null,
       humidity: parseFloat(formData.humidity) || null,
-      notes: formData.notes,
+      notes: notesPayload,
       standard_reader_address: stdInstrumentAddress,
       standard_reader_model: stdReaderModel,
       standard_reader_serial: stdReaderSN,
@@ -376,7 +387,7 @@ function SessionDetailsForm({
 
       showNotification(selectedSessionId ? "Session updated successfully!" : "New session saved successfully!", "success");
 
-      recordSessionFormHistory(formData);
+      recordSessionFormHistory({ ...formData, notes: notesPayload });
       setFieldHistoryTick((n) => n + 1);
 
       const savedSession = response.data;
@@ -528,7 +539,7 @@ function SessionDetailsForm({
         </div>
 
         <div className="session-form-group">
-          <span className="session-form-group-eyebrow">Environment &amp; notes</span>
+          <span className="session-form-group-eyebrow">Environment</span>
           <div className="form-section-group">
             <div className="form-section">
               <label htmlFor="temperature">Temperature (°C)</label>
@@ -556,18 +567,6 @@ function SessionDetailsForm({
                 required
                 disabled={isRemoteViewer}
                 listOptions={suggestions.humidity}
-              />
-            </div>
-            <div className="form-section full-width">
-              <label htmlFor="notes">Notes</label>
-              <textarea
-                id="notes"
-                name="notes"
-                value={formData.notes}
-                onChange={handleChange}
-                rows="5"
-                disabled={isRemoteViewer}
-                autoComplete="off"
               />
             </div>
           </div>

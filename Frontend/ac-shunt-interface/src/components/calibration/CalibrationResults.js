@@ -555,22 +555,21 @@ function CalibrationResults({
       )}
       {selectedSessionId && (
         <main>
-          {!focusedTP ? (
-            <div className="cal-results-empty" role="status">
-              <div className="cal-results-empty-card">
-                <h3 className="cal-results-empty-title">Select a test point</h3>
-                <p className="cal-results-empty-text">
-                  Choose a point in the sidebar to view AC–DC results,
-                  summaries, and raw readings for this session.
-                </p>
-              </div>
-            </div>
-          ) : (
-            <section
-              className="cal-results-panel"
-              aria-label="Calibration results for selected test point"
-            >
-              <>
+          <div className="calibration-workflow-container">
+            <div className="test-point-content">
+              {!focusedTP ? (
+                <div className="placeholder-content">
+                  <h3>Select a Test Point</h3>
+                  <p>
+                    Please select a test point from the list on the left to begin.
+                  </p>
+                </div>
+              ) : (
+                <section
+                  className="cal-results-panel"
+                  aria-label="Calibration results for selected test point"
+                >
+                  <>
                 <header className="cal-results-bar">
                   <div className="cal-results-bar-meta" aria-live="polite">
                     <span className="cal-results-bar-amps">
@@ -921,9 +920,11 @@ function CalibrationResults({
                     )}
                   </div>
                 )}
-              </>
-            </section>
-          )}
+                  </>
+                </section>
+              )}
+            </div>
+          </div>
         </main>
       )}
     </div>
