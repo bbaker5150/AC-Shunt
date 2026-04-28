@@ -579,6 +579,33 @@ function AppContent() {
   const toastNodesRef = useRef({});
   const previousToastTopsRef = useRef(new Map());
   const { theme, toggleTheme } = useTheme();
+  const themeIconRef = useRef(null);
+  const hasMountedThemeIconRef = useRef(false);
+
+  useLayoutEffect(() => {
+    const node = themeIconRef.current;
+    if (!node) return undefined;
+    // Skip the initial mount so we only animate on actual theme toggles.
+    if (!hasMountedThemeIconRef.current) {
+      hasMountedThemeIconRef.current = true;
+      return undefined;
+    }
+    if (shouldReduceMotion()) return undefined;
+    gsap.killTweensOf(node);
+    gsap.fromTo(
+      node,
+      { rotation: -45, scale: 0.82, autoAlpha: 0 },
+      {
+        rotation: 0,
+        scale: 1,
+        autoAlpha: 1,
+        duration: 0.32,
+        ease: "power3.out",
+        transformOrigin: "50% 50%",
+      }
+    );
+    return () => gsap.killTweensOf(node);
+  }, [theme]);
 
   const {
     selectedSessionName,
@@ -1667,12 +1694,19 @@ function AppContent() {
             >
               <button
                 type="button"
-                onClick={toggleTheme}
-                className="app-chrome-meta-icon"
+                onClick={(e) => toggleTheme(e)}
+                className="app-chrome-meta-icon app-chrome-meta-icon--theme"
                 aria-label={theme === "dark" ? "Switch to light mode" : "Switch to dark mode"}
                 title={theme === "dark" ? "Switch to light mode" : "Switch to dark mode"}
               >
-                {theme === "dark" ? <FaSun aria-hidden /> : <FaMoon aria-hidden />}
+                <span
+                  key={theme}
+                  ref={themeIconRef}
+                  className="app-chrome-meta-icon__glyph"
+                  aria-hidden="true"
+                >
+                  {theme === "dark" ? <FaSun /> : <FaMoon />}
+                </span>
               </button>
             </div>
           </div>

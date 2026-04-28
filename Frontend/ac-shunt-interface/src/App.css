@@ -1072,6 +1072,22 @@ body.dark-mode .drag-handle:hover svg {
   border-color: color-mix(in srgb, var(--primary-color) 35%, transparent);
 }
 
+/* Glyph wrapper for the theme toggle. Gives GSAP a single, transform-friendly
+   target so the icon can spin/scale on swap without the surrounding button
+   shifting around. */
+.app-chrome-meta-icon__glyph {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  line-height: 0;
+  transform-origin: 50% 50%;
+  will-change: transform, opacity;
+}
+
+.app-chrome-meta-icon--theme {
+  overflow: hidden;
+}
+
 /* Observer-mode affordance. Borrows a chrome meta slot and re-styles it in
    the warning colorway so it reads as
    an active status + single-click exit — it's the only way back to a
