@@ -8290,10 +8290,20 @@ body.dark-mode .uncertainty-budget-table tfoot td {
   flex-wrap: wrap;
 }
 
+/* Match native <select> and text input height, padding, and width behavior so they align in one row */
+.isp-workstation-select,
+.isp-workstation-editor input[type="text"] {
+  margin: 0;
+  width: auto;
+  box-sizing: border-box;
+  min-height: 2.75rem;
+  padding: 8px 12px;
+  line-height: 1.35;
+}
+
 .isp-workstation-select {
   flex: 1 1 260px;
   max-width: 420px;
-  margin: 0;
 }
 
 .isp-workstation-editor {
@@ -8301,11 +8311,12 @@ body.dark-mode .uncertainty-budget-table tfoot td {
   align-items: center;
   gap: 6px;
   flex-wrap: wrap;
+  min-width: 0;
 }
 
 .isp-workstation-editor input[type="text"] {
-  margin: 0;
-  min-width: 200px;
+  flex: 1 1 200px;
+  min-width: min(200px, 100%);
 }
 
 /* --- Detected instruments list --- */

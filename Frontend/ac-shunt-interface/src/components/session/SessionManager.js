@@ -21,17 +21,51 @@ const ConfirmationModal = ({
   onCancel,
   confirmText = "Confirm Delete",
   confirmClassName = "button button-danger",
+  eyebrow,
 }) => {
   if (!isOpen) return null;
+  const isDanger = /danger/.test(confirmClassName);
+  const eyebrowText = eyebrow ?? (isDanger ? "Warning" : "Confirm");
   return (
-    <div className="modal-overlay">
-      <div className="modal-content">
-        <h3>{title}</h3>
-        <div style={{ margin: "20px 0" }}>{children}</div>
-        <div className="modal-actions">
-          <button onClick={onCancel} className="button button-secondary">Cancel</button>
-          <button onClick={onConfirm} className={confirmClassName}>{confirmText}</button>
+    <div className="modal-overlay" onClick={onCancel}>
+      <div
+        className="confirm-modal"
+        role="dialog"
+        aria-modal="true"
+        aria-labelledby="session-confirm-modal-title"
+        onClick={(e) => e.stopPropagation()}
+      >
+        <header className="confirm-modal-header">
+          <div className="confirm-modal-header-text">
+            <span className="confirm-modal-eyebrow">{eyebrowText}</span>
+            <h3 id="session-confirm-modal-title" className="confirm-modal-title">
+              {title}
+            </h3>
+          </div>
+          <button
+            type="button"
+            onClick={onCancel}
+            className="cal-results-excel-icon-btn"
+            title="Cancel"
+            aria-label="Cancel"
+          >
+            <FaTimes aria-hidden />
+          </button>
+        </header>
+        <div className="confirm-modal-body">
+          <div className="confirm-modal-message">{children}</div>
         </div>
+        <footer className="confirm-modal-footer confirm-modal-footer--icon">
+          <button
+            type="button"
+            onClick={onConfirm}
+            className={`cal-results-excel-icon-btn${isDanger ? " cal-results-excel-icon-btn--danger" : ""}`}
+            title={confirmText}
+            aria-label={confirmText}
+          >
+            <FaCheck aria-hidden />
+          </button>
+        </footer>
       </div>
     </div>
   );

@@ -7,7 +7,7 @@ import React, {
 } from "react";
 import axios from "axios";
 import { useInstruments } from "../../contexts/InstrumentContext";
-import { FaTimes, FaSave, FaArrowLeft, FaPlus, FaEdit, FaTrash } from "react-icons/fa";
+import { FaTimes, FaSave, FaArrowLeft, FaPlus, FaEdit, FaTrash, FaCheck } from "react-icons/fa";
 import { AMPLIFIER_RANGES_A, API_BASE_URL } from "../../constants/constants";
 import AnimatedModalShell from "../shared/AnimatedModalShell";
 
@@ -51,26 +51,51 @@ const ConfirmationModal = ({
   onCancel,
   confirmText = "Confirm",
   confirmButtonClass = "",
+  eyebrow,
 }) => {
   if (!isOpen) return null;
+  const isDanger = /danger/.test(confirmButtonClass);
+  const eyebrowText = eyebrow ?? (isDanger ? "Warning" : "Confirm");
   return (
-    <div className="modal-overlay modal-overlay--nested">
-      <div className="modal-content modal-content--narrow">
-        <h3>{title}</h3>
-        <p className="confirmation-modal-message">
-          {message}
-        </p>
-        <div className="modal-actions">
-          <button onClick={onCancel} className="button button-secondary">
-            Cancel
-          </button>
+    <div className="modal-overlay modal-overlay--nested" onClick={onCancel}>
+      <div
+        className="confirm-modal"
+        role="dialog"
+        aria-modal="true"
+        aria-labelledby="corrections-confirm-modal-title"
+        onClick={(e) => e.stopPropagation()}
+      >
+        <header className="confirm-modal-header">
+          <div className="confirm-modal-header-text">
+            <span className="confirm-modal-eyebrow">{eyebrowText}</span>
+            <h3 id="corrections-confirm-modal-title" className="confirm-modal-title">
+              {title}
+            </h3>
+          </div>
           <button
-            onClick={onConfirm}
-            className={`button ${confirmButtonClass}`}
+            type="button"
+            onClick={onCancel}
+            className="cal-results-excel-icon-btn"
+            title="Cancel"
+            aria-label="Cancel"
           >
-            {confirmText}
+            <FaTimes aria-hidden />
           </button>
+        </header>
+        <div className="confirm-modal-body">
+          <p className="confirm-modal-message">{message}</p>
         </div>
+        <footer className="confirm-modal-footer confirm-modal-footer--icon">
+          <button
+            type="button"
+            onClick={onConfirm}
+            className={`cal-results-excel-icon-btn${isDanger ? " cal-results-excel-icon-btn--danger" : ""}`}
+            title={confirmText}
+            aria-label={confirmText}
+          >
+            <FaCheck aria-hidden />
+          </button>
+        </footer>
       </div>
     </div>
   );

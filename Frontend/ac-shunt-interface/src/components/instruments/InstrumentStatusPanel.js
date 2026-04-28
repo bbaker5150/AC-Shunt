@@ -93,8 +93,10 @@ function InstrumentStatusPanel({ showNotification, isRemoteViewer }) {
             } else if (gpibMatch) {
                 const localWorkstationKey = 'local';
                 if (!wsMap.has(localWorkstationKey)) {
+                    const customName = localStorage.getItem(`workstationName_${localWorkstationKey}`);
+                    const displayName = customName || 'Local Workstation';
                     wsMap.set(localWorkstationKey, {
-                        name: 'Local Workstation',
+                        name: displayName,
                         instruments: []
                     });
                 }
