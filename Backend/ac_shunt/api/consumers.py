@@ -913,6 +913,30 @@ class CalibrationConsumer(AsyncWebsocketConsumer):
                 if hasattr(inst, 'close'):
                     await sync_to_async(inst.close, thread_sensitive=True)()
 
+    def _is_low_frequency_ac(self, reading_type_base, test_point_data):
+        """Helper to detect if the current stage is low-frequency AC."""
+        # Mirror the exact AC detection logic from the main function
+        if 'char' in reading_type_base:
+            char_source = (test_point_data.get('characterization_source') or 'DC').upper()
+            is_ac_reading = (char_source == 'AC')
+        else:
+            is_ac_reading = 'ac' in reading_type_base
+
+        if not is_ac_reading:
+            return False
+            
+        freq = float(test_point_data.get('frequency', 0))
+        return 0 < freq <= 40
+
+    def _cycle_average_duration(self, frequency, measurement_params):
+        """Calculates the time required to capture the requested number of cycles."""
+        params = measurement_params or {}
+        cycles = float(params.get('cycles_to_average', 40))
+        if frequency <= 0:
+            return 1.0
+        duration = cycles / frequency
+        return max(duration, 1.0)
+
     async def _perform_single_measurement(self, reading_type_base, num_samples, test_point_data, bypass_tvc, amplifier_range, source_instrument, std_reader_instrument, ti_reader_instrument, amplifier_instrument=None, settling_time=0, nplc_setting=None, measurement_params=None):
         """
         Refactored measurement logic: 
@@ -920,9 +944,10 @@ class CalibrationConsumer(AsyncWebsocketConsumer):
         2. Phase 2 (Collection): Collects num_samples while monitoring stability.
         3. Abort: Returns False if max_attempts is reached.
         """
+        measurement_params = measurement_params or {}
+
         # Standard stages are classified purely by their name; characterization
-        # stages ("char_*") defer to the caller's chosen source kind
-        # (DC by default, AC only when explicitly selected in Settings).
+        # stages ("char_*") defer to the caller's chosen source kind.
         if 'char' in reading_type_base:
             char_source = (test_point_data.get('characterization_source') or 'DC').upper()
             is_ac_reading = (char_source == 'AC')
@@ -930,12 +955,24 @@ class CalibrationConsumer(AsyncWebsocketConsumer):
             is_ac_reading = 'ac' in reading_type_base
         target_tvc = test_point_data.get('target_tvc', 'BOTH')
         
+        # --- 1. Calculate Source Drive Voltage ---
+        # This is the command voltage sent to the 5730A to drive the transconductance amplifier
         input_current = float(test_point_data.get('current'))
-        voltage = (input_current / float(amplifier_range)) * 2
-        if 'neg' in reading_type_base: voltage = -voltage
+        source_drive_voltage = (input_current / float(amplifier_range)) * 2
+        if 'neg' in reading_type_base: 
+            source_drive_voltage = -source_drive_voltage
         
-        config_voltage, frequency = abs(voltage), float(test_point_data.get('frequency', 0)) if is_ac_reading else 0
+        abs_source_drive = abs(source_drive_voltage)
+        frequency = float(test_point_data.get('frequency', 0)) if is_ac_reading else 0
         ignore_after_lock = measurement_params.get('ignore_instability_after_lock', False)
+
+        # --- Low Frequency AC Detection ---
+        is_lf_ac = self._is_low_frequency_ac(reading_type_base, test_point_data)
+        lf_mode_enabled = measurement_params.get('low_frequency_ac_mode', True)
+
+        # --- 2. Determine Expected TVC Output Voltage ---
+        # Used strictly for the 34420A on the real workbench to safely engage the analog filter
+        expected_tvc_output_v = float(test_point_data.get('expected_tvc_output_mv', 10.0)) / 1000.0
 
         # Instrument Configuration (Standard and TI) - Targeted Isolation
         instruments_to_config = []
@@ -947,197 +984,284 @@ class CalibrationConsumer(AsyncWebsocketConsumer):
         for instrument in instruments_to_config:
             if isinstance(instrument, Instrument34420A) and nplc_setting is not None:
                 await sync_to_async(instrument.set_integration, thread_sensitive=True)(setting=nplc_setting)
-            if isinstance(instrument, Instrument5790B): 
-                await sync_to_async(instrument.set_range, thread_sensitive=True)(value=config_voltage)
+                # Should always be less than roughly 12 mV
+                await sync_to_async(instrument.device.write, thread_sensitive=True)(f"SENSe:VOLTage:DC:RANGe {expected_tvc_output_v}")
+                # WORKBENCH: The 34420A measures TVCs natively. Engage analog filter for LF AC if under 100mV.
+                if is_lf_ac and expected_tvc_output_v <= 0.12:
+                    try:
+                        await sync_to_async(instrument.device.write, thread_sensitive=True)("INP:FILT:TYPE ANAL")
+                        await sync_to_async(instrument.device.write, thread_sensitive=True)("INP:FILT:STAT ON")
+                    except Exception as e:
+                        print(f"Failed to enable 34420A analog filter: {e}")
+                else:
+                    try:
+                        # Ensure the filter is turned OFF for normal high-frequency/DC points
+                        await sync_to_async(instrument.device.write, thread_sensitive=True)("INP:FILT:STAT OFF")
+                    except Exception as e:
+                        pass
+            
+            elif isinstance(instrument, Instrument5790B): 
+                # TEST LAB: The 5790B reads the RAW source voltage directly.
+                await sync_to_async(instrument.set_range, thread_sensitive=True)(value=abs_source_drive)
                 await sync_to_async(instrument.resource.write, thread_sensitive=True)("HIRES OFF")
-                await sync_to_async(instrument.resource.write, thread_sensitive=True)("DFILT FAST,COARSE")
+                # Automatically apply SLOW digital filter for LF AC to combat ripple
+                if is_lf_ac:
+                    await sync_to_async(instrument.resource.write, thread_sensitive=True)("DFILT SLOW,COARSE")
+                else:
+                    await sync_to_async(instrument.resource.write, thread_sensitive=True)("DFILT FAST,COARSE")
+            
             elif isinstance(instrument, Instrument3458A): 
+                # TEST LAB: The 3458A reads the RAW source voltage directly.
                 await sync_to_async(instrument.configure_measurement, thread_sensitive=True)(
-                    **{'function': 'ACV' if is_ac_reading else 'DCV', 'expected_value': config_voltage, 'frequency': frequency}
+                    **{'function': 'ACV' if is_ac_reading else 'DCV', 'expected_value': abs_source_drive, 'frequency': frequency}
                 )
 
-        await sync_to_async(source_instrument.set_output, thread_sensitive=True)(voltage=voltage, frequency=frequency)
+        # Tell the SOURCE to output the drive voltage
+        await sync_to_async(source_instrument.set_output, thread_sensitive=True)(voltage=source_drive_voltage, frequency=frequency)
         
         try:
             await asyncio.sleep(1.5)
         except asyncio.CancelledError:
             raise
         
-        if settling_time > 0:
-            await self.broadcast(text_data=json.dumps({'type': 'status_update', 'message': f"Settling for {settling_time}s..."}))
-            await asyncio.sleep(settling_time)
+        # Enforce longer settling times for LF AC
+        actual_settling_time = float(settling_time)
+        if is_lf_ac and lf_mode_enabled:
+            lf_settling = float(measurement_params.get('min_low_freq_settling_time', 30.0))
+            if lf_settling > actual_settling_time:
+                actual_settling_time = lf_settling
+
+        if actual_settling_time > 0:
+            await self.broadcast(text_data=json.dumps({'type': 'status_update', 'message': f"Settling for {actual_settling_time}s..."}))
+            await asyncio.sleep(actual_settling_time)
 
         tp_id = test_point_data.get('id')
         if tp_id:
             await self.set_test_point_failed_status(tp_id, False)
 
-        # Stability Logic Setup
-        stability_method = measurement_params.get('stability_check_method', 'sliding_window')
-        max_retries = measurement_params.get('max_attempts', 50)
-        instability_events = 0
-        window_size = measurement_params.get('window', 30)
-        threshold_ppm = measurement_params.get('threshold_ppm', 10)
-
         # Final saved array
         final_std_readings = []
         final_ti_readings = []
-        
-        # Temporary buffers for search phase
-        stable_candidate_std = []
-        stable_candidate_ti = []
-
-        initial_stability_achieved = False if stability_method == 'sliding_window' else True
-
-        def calc_ppm(points):
-            """Welford's Algorithm for high-precision variance calculation."""
-            if len(points) < 2: return float('inf')
-            mean_val = 0.0
-            M2 = 0.0
-            for index, p in enumerate(points):
-                val = p['value']
-                delta = val - mean_val
-                mean_val += delta / (index + 1)
-                M2 += delta * (val - mean_val)
-            variance = M2 / (len(points) - 1)
-            stdev_val = math.sqrt(variance)
-            return (stdev_val / abs(mean_val)) * 1_000_000 if abs(mean_val) > 1e-9 else 0
-
-        await self.broadcast(text_data=json.dumps({'type': 'status_update', 'message': "Monitoring stability..."}))
 
         def get_target_length():
             return len(final_std_readings) if target_tvc in ['STD', 'BOTH'] else len(final_ti_readings)
 
-        # Replaces raw final_std_readings length with the dynamic targeted check
-        while get_target_length() < num_samples and not self.stop_event.is_set():
-            # 1. Global Abort Check (Applies to both Search and Collection phases)
-            if instability_events >= max_retries:
-                tp_key = f"{test_point_data.get('current')}-{test_point_data.get('frequency')}"
-                if tp_id:
-                    await self.set_test_point_failed_status(tp_id, True)
+        # =====================================================================
+        # BRANCH 1: LOW FREQUENCY AC CYCLE AVERAGING
+        # =====================================================================
+        if is_lf_ac and lf_mode_enabled:
+            duration = self._cycle_average_duration(frequency, measurement_params)
+            await self.broadcast(text_data=json.dumps({'type': 'status_update', 'message': f"Averaging {frequency}Hz over {duration:.1f}s..."}))
+
+            start_time = time.time()
+            collected_std = []
+            collected_ti = []
+            sample_count = 0
+
+            while (time.time() - start_time) < duration and not self.stop_event.is_set():
+                tasks = []
+                tasks.append(self._take_one_reading(std_reader_instrument) if target_tvc in ['STD', 'BOTH'] and std_reader_instrument else asyncio.sleep(0))
+                tasks.append(self._take_one_reading(ti_reader_instrument) if target_tvc in ['TI', 'BOTH'] and ti_reader_instrument else asyncio.sleep(0))
+
+                results = await asyncio.gather(*tasks)
+                std_reading_val, ti_reading_val = results[0], results[1]
+                ts = time.time()
+
+                std_point = {'value': std_reading_val, 'timestamp': ts, 'is_stable': True} if std_reading_val is not None else None
+                ti_point = {'value': ti_reading_val, 'timestamp': ts, 'is_stable': True} if ti_reading_val is not None else None
+
+                if std_point: collected_std.append(std_point)
+                if ti_point: collected_ti.append(ti_point)
+                sample_count += 1
+
+                # Mirror to live buffer so viewers get the data
+                self._buffer_append_sample(reading_type_base, std_point, ti_point, sample_count, sample_count)
+                
+                # Push to UI Chart without triggering the stability math
                 await self.broadcast(text_data=json.dumps({
-                    'type': 'warning',
-                    'message': f"Test point aborted: Stability limit ({max_retries}) reached.",
-                    'tpKey': tp_key
+                    'type': 'dual_reading_update',
+                    'std_reading': std_point,
+                    'ti_reading': ti_point,
+                    'count': sample_count,
+                    'stable_count': sample_count,
+                    'total': '∞', # UI display trick for continuous collection
+                    'stage': reading_type_base
                 }))
-                return False
+                await asyncio.sleep(0.05)
 
-            # 2. Take Readings (Targeted Instrument Querying)
-            tasks = []
-            if target_tvc in ['STD', 'BOTH'] and std_reader_instrument:
-                tasks.append(self._take_one_reading(std_reader_instrument))
-            else:
-                tasks.append(asyncio.sleep(0)) # Dummy task
+            # Once the duration completes, compress into a single array point (mean)
+            if not self.stop_event.is_set():
+                if collected_std:
+                    mean_std = sum(p['value'] for p in collected_std) / len(collected_std)
+                    final_std_readings.append({'value': mean_std, 'timestamp': time.time(), 'is_stable': True})
+                if collected_ti:
+                    mean_ti = sum(p['value'] for p in collected_ti) / len(collected_ti)
+                    final_ti_readings.append({'value': mean_ti, 'timestamp': time.time(), 'is_stable': True})
 
-            if target_tvc in ['TI', 'BOTH'] and ti_reader_instrument:
-                tasks.append(self._take_one_reading(ti_reader_instrument))
-            else:
-                tasks.append(asyncio.sleep(0)) # Dummy task
+        # =====================================================================
+        # BRANCH 2: STANDARD SLIDING WINDOW (DC & High Freq AC)
+        # =====================================================================
+        else:
+            # Stability Logic Setup
+            stability_method = measurement_params.get('stability_check_method', 'sliding_window')
+            max_retries = measurement_params.get('max_attempts', 50)
+            instability_events = 0
+            window_size = measurement_params.get('window', 30)
+            threshold_ppm = measurement_params.get('threshold_ppm', 10)
 
-            results = await asyncio.gather(*tasks)
-            
-            std_reading_val = results[0] if target_tvc in ['STD', 'BOTH'] else None
-            ti_reading_val = results[1] if target_tvc in ['TI', 'BOTH'] else None
-            
-            timestamp = time.time()
-            
-            # None creation protects downstream arrays from bloating with fake points
-            std_point = {'value': std_reading_val, 'timestamp': timestamp, 'is_stable': True} if std_reading_val is not None else None
-            ti_point = {'value': ti_reading_val, 'timestamp': timestamp, 'is_stable': True} if ti_reading_val is not None else None
+            # Temporary buffers for search phase
+            stable_candidate_std = []
+            stable_candidate_ti = []
 
-            if stability_method == 'sliding_window':
-                if std_point: stable_candidate_std.append(std_point)
-                if ti_point: stable_candidate_ti.append(ti_point)
+            initial_stability_achieved = False if stability_method == 'sliding_window' else True
 
-                # Route the window length checks and math to whichever array is actively growing
-                primary_candidates = stable_candidate_std if target_tvc in ['STD', 'BOTH'] else stable_candidate_ti
+            def calc_ppm(points):
+                """Welford's Algorithm for high-precision variance calculation."""
+                if len(points) < 2: return float('inf')
+                mean_val = 0.0
+                M2 = 0.0
+                for index, p in enumerate(points):
+                    val = p['value']
+                    delta = val - mean_val
+                    mean_val += delta / (index + 1)
+                    M2 += delta * (val - mean_val)
+                variance = M2 / (len(points) - 1)
+                stdev_val = math.sqrt(variance)
+                return (stdev_val / abs(mean_val)) * 1_000_000 if abs(mean_val) > 1e-9 else 0
 
-                if len(primary_candidates) >= window_size:
-                    # Analyze current window
-                    current_window = primary_candidates[-window_size:]
-                    current_ppm = calc_ppm(current_window)
-                    is_currently_stable = current_ppm < threshold_ppm
+            await self.broadcast(text_data=json.dumps({'type': 'status_update', 'message': "Monitoring stability..."}))
 
-                    # --- EVALUATE STABILITY & INCREMENT BEFORE SENDING ---
-                    if not initial_stability_achieved:
-                        if is_currently_stable:
-                            initial_stability_achieved = True
-                            if std_point: final_std_readings.extend(stable_candidate_std)
-                            if ti_point: final_ti_readings.extend(stable_candidate_ti)
-                        else:
-                            # SEARCH PHASE: Unstable. Increment retry count and slide window
-                            instability_events += 1
-                            if std_point: stable_candidate_std.pop(0)
-                            if ti_point: stable_candidate_ti.pop(0)
-                    else:
-                        # COLLECTION PHASE: Monitor but keep all samples
-                        if not is_currently_stable and not ignore_after_lock:
-                            instability_events += 1
-                        if std_point: final_std_readings.append(std_point)
-                        if ti_point: final_ti_readings.append(ti_point)
-
-                    # --- NOW SEND UPDATES WITH THE ACCURATE METRICS ---
+            # Replaces raw final_std_readings length with the dynamic targeted check
+            while get_target_length() < num_samples and not self.stop_event.is_set():
+                # 1. Global Abort Check (Applies to both Search and Collection phases)
+                if instability_events >= max_retries:
+                    tp_key = f"{test_point_data.get('current')}-{test_point_data.get('frequency')}"
+                    if tp_id:
+                        await self.set_test_point_failed_status(tp_id, True)
                     await self.broadcast(text_data=json.dumps({
-                        'type': 'sliding_window_update',
-                        'ppm': current_ppm,
-                        'stdev_ppm': current_ppm,
-                        'is_stable': is_currently_stable,
-                        'instability_events': instability_events,
-                        'max_retries': max_retries
+                        'type': 'warning',
+                        'message': f"Test point aborted: Stability limit ({max_retries}) reached.",
+                        'tpKey': tp_key
                     }))
-                    
-                    await self.broadcast(text_data=json.dumps({
-                        'type': 'status_update',
-                        'message': f"Stdev: {current_ppm:.2f} PPM [{instability_events}/{max_retries}]"
-                    }))
+                    return False
 
-                    # Announce stability ONLY exactly when it is found
-                    if initial_stability_achieved and is_currently_stable and get_target_length() == window_size:
-                        await self.broadcast(text_data=json.dumps({'type': 'status_update', 'message': "Initial stability achieved."}))
-
+                # 2. Take Readings (Targeted Instrument Querying)
+                tasks = []
+                if target_tvc in ['STD', 'BOTH'] and std_reader_instrument:
+                    tasks.append(self._take_one_reading(std_reader_instrument))
                 else:
-                    # Still filling initial window
-                    await self.broadcast(text_data=json.dumps({
-                        'type': 'status_update',
-                        'message': f"Filling initial window... [{len(primary_candidates)}/{window_size}]"
-                    }))
-                    
-                    temp_ppm = calc_ppm(primary_candidates) if len(primary_candidates) > 1 else None
-                    temp_is_stable = (temp_ppm < threshold_ppm) if temp_ppm is not None else True
-                    
-                    await self.broadcast(text_data=json.dumps({
-                        'type': 'sliding_window_update',
-                        'ppm': temp_ppm,
-                        'stdev_ppm': temp_ppm,
-                        'is_stable': temp_is_stable,
-                        'instability_events': instability_events,
-                        'max_retries': max_retries
-                    }))
-            else:
-                if std_point: final_std_readings.append(std_point)
-                if ti_point: final_ti_readings.append(ti_point)
+                    tasks.append(asyncio.sleep(0)) # Dummy task
 
-            # Update the UI with the latest points depending on targeted length
-            if initial_stability_achieved:
-                current_count = get_target_length()
-            else:
-                current_count = len(stable_candidate_std) if target_tvc in ['STD', 'BOTH'] else len(stable_candidate_ti)
+                if target_tvc in ['TI', 'BOTH'] and ti_reader_instrument:
+                    tasks.append(self._take_one_reading(ti_reader_instrument))
+                else:
+                    tasks.append(asyncio.sleep(0)) # Dummy task
 
-            # Mirror every sample into the server-side live buffer so late-
-            # joining remotes reconstruct the chart from a single source of
-            # truth instead of stitching a host snapshot to DB historicals.
-            self._buffer_append_sample(reading_type_base, std_point, ti_point, current_count, num_samples)
+                results = await asyncio.gather(*tasks)
+                
+                std_reading_val = results[0] if target_tvc in ['STD', 'BOTH'] else None
+                ti_reading_val = results[1] if target_tvc in ['TI', 'BOTH'] else None
+                
+                timestamp = time.time()
+                
+                # None creation protects downstream arrays from bloating with fake points
+                std_point = {'value': std_reading_val, 'timestamp': timestamp, 'is_stable': True} if std_reading_val is not None else None
+                ti_point = {'value': ti_reading_val, 'timestamp': timestamp, 'is_stable': True} if ti_reading_val is not None else None
 
-            await self.broadcast(text_data=json.dumps({
-                'type': 'dual_reading_update',
-                'std_reading': std_point,
-                'ti_reading': ti_point,
-                'count': current_count,
-                'stable_count': get_target_length(),
-                'total': num_samples,
-                'stage': reading_type_base
-            }))
+                if stability_method == 'sliding_window':
+                    if std_point: stable_candidate_std.append(std_point)
+                    if ti_point: stable_candidate_ti.append(ti_point)
 
-            await asyncio.sleep(0.05)
+                    # Route the window length checks and math to whichever array is actively growing
+                    primary_candidates = stable_candidate_std if target_tvc in ['STD', 'BOTH'] else stable_candidate_ti
+
+                    if len(primary_candidates) >= window_size:
+                        # Analyze current window
+                        current_window = primary_candidates[-window_size:]
+                        current_ppm = calc_ppm(current_window)
+                        is_currently_stable = current_ppm < threshold_ppm
+
+                        # --- EVALUATE STABILITY & INCREMENT BEFORE SENDING ---
+                        if not initial_stability_achieved:
+                            if is_currently_stable:
+                                initial_stability_achieved = True
+                                if std_point: final_std_readings.extend(stable_candidate_std)
+                                if ti_point: final_ti_readings.extend(stable_candidate_ti)
+                            else:
+                                # SEARCH PHASE: Unstable. Increment retry count and slide window
+                                instability_events += 1
+                                if std_point: stable_candidate_std.pop(0)
+                                if ti_point: stable_candidate_ti.pop(0)
+                        else:
+                            # COLLECTION PHASE: Monitor but keep all samples
+                            if not is_currently_stable and not ignore_after_lock:
+                                instability_events += 1
+                            if std_point: final_std_readings.append(std_point)
+                            if ti_point: final_ti_readings.append(ti_point)
+
+                        # --- NOW SEND UPDATES WITH THE ACCURATE METRICS ---
+                        await self.broadcast(text_data=json.dumps({
+                            'type': 'sliding_window_update',
+                            'ppm': current_ppm,
+                            'stdev_ppm': current_ppm,
+                            'is_stable': is_currently_stable,
+                            'instability_events': instability_events,
+                            'max_retries': max_retries
+                        }))
+                        
+                        await self.broadcast(text_data=json.dumps({
+                            'type': 'status_update',
+                            'message': f"Stdev: {current_ppm:.2f} PPM [{instability_events}/{max_retries}]"
+                        }))
+
+                        # Announce stability ONLY exactly when it is found
+                        if initial_stability_achieved and is_currently_stable and get_target_length() == window_size:
+                            await self.broadcast(text_data=json.dumps({'type': 'status_update', 'message': "Initial stability achieved."}))
+
+                    else:
+                        # Still filling initial window
+                        await self.broadcast(text_data=json.dumps({
+                            'type': 'status_update',
+                            'message': f"Filling initial window... [{len(primary_candidates)}/{window_size}]"
+                        }))
+                        
+                        temp_ppm = calc_ppm(primary_candidates) if len(primary_candidates) > 1 else None
+                        temp_is_stable = (temp_ppm < threshold_ppm) if temp_ppm is not None else True
+                        
+                        await self.broadcast(text_data=json.dumps({
+                            'type': 'sliding_window_update',
+                            'ppm': temp_ppm,
+                            'stdev_ppm': temp_ppm,
+                            'is_stable': temp_is_stable,
+                            'instability_events': instability_events,
+                            'max_retries': max_retries
+                        }))
+                else:
+                    if std_point: final_std_readings.append(std_point)
+                    if ti_point: final_ti_readings.append(ti_point)
+
+                # Update the UI with the latest points depending on targeted length
+                if initial_stability_achieved:
+                    current_count = get_target_length()
+                else:
+                    current_count = len(stable_candidate_std) if target_tvc in ['STD', 'BOTH'] else len(stable_candidate_ti)
+
+                # Mirror every sample into the server-side live buffer so late-
+                # joining remotes reconstruct the chart from a single source of
+                # truth instead of stitching a host snapshot to DB historicals.
+                self._buffer_append_sample(reading_type_base, std_point, ti_point, current_count, num_samples)
+
+                await self.broadcast(text_data=json.dumps({
+                    'type': 'dual_reading_update',
+                    'std_reading': std_point,
+                    'ti_reading': ti_point,
+                    'count': current_count,
+                    'stable_count': get_target_length(),
+                    'total': num_samples,
+                    'stage': reading_type_base
+                }))
+
+                await asyncio.sleep(0.05)
         
         # Save the final (locked) sets to the database (respects skip targets)
         if not self.stop_event.is_set():

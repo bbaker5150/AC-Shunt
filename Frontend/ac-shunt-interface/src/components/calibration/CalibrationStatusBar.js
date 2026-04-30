@@ -68,21 +68,31 @@ const CalibrationStatusBar = ({
   // Warm-up / Settling in the status bar.
   const showRunActivity =
     isCollecting || isBulkRunning || Boolean(timerState?.isActive);
+    
+  // --- NEW: Handle infinity string for cycle-averaging ---
   const collectionProgressPercent =
-    collectionProgress.total > 0
+    collectionProgress.total === "∞"
+      ? 100 // Force full width so the GSAP shimmer acts as an indeterminate loader
+      : collectionProgress.total > 0
       ? (collectionProgress.count / collectionProgress.total) * 100
       : 0;
+
   const stageLabelText = timerState.isActive
     ? `${timerState.label}`
     : stabilizationStatus
       ? "Stabilizing"
       : "Collecting";
+      
   const stageValueText = timerState.isActive ? `${countdown}s` : getStageName();
+  
+  // --- NEW: Clean up the text so it doesn't literally say "14 / ∞ Samples" ---
   const stageDetailText = timerState.isActive
     ? ""
     : stabilizationStatus && stabilizationInfo
       ? `Attempt: ${stabilizationInfo.count}`
-      : `${collectionProgress.count} / ${collectionProgress.total} Samples`;
+      : collectionProgress.total === "∞"
+        ? `${collectionProgress.count} Samples (Averaging)`
+        : `${collectionProgress.count} / ${collectionProgress.total} Samples`;
 
   useEffect(() => {
     const animateNode = (node) => {
@@ -212,11 +222,14 @@ const CalibrationStatusBar = ({
                 {stageValueText}
               </span>
               <span className="status-detail" ref={stageDetailRef}>
+                {/* --- NEW: Match the clean text logic here --- */}
                 {timerState.isActive
                   ? null
                   : stabilizationStatus && stabilizationInfo
                     ? `Attempt: ${stabilizationInfo.count}`
-                    : `${collectionProgress.count} / ${collectionProgress.total} Samples`}
+                    : collectionProgress.total === "∞"
+                      ? `${collectionProgress.count} Samples (Averaging)`
+                      : `${collectionProgress.count} / ${collectionProgress.total} Samples`}
               </span>
             </div>
 

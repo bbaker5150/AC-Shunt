@@ -333,6 +333,9 @@ function Calibration({
     ignore_instability_after_lock: false,
     characterize_test_first: false,
     characterization_source: "DC",
+    low_frequency_ac_mode: true,
+    cycles_to_average: 40,
+    min_low_freq_settling_time: 120,
   });
   const [correctionInputs, setCorrectionInputs] = useState({
     eta_std: "",
@@ -988,6 +991,9 @@ function Calibration({
       stability_max_attempts: 10,
       iqr_filter_ppm_threshold: 15,
       ignore_instability_after_lock: false,
+      low_frequency_ac_mode: true,
+    cycles_to_average: 40,
+    min_low_freq_settling_time: 120,
     };
 
     const pointForDirection =
@@ -1124,6 +1130,9 @@ function Calibration({
           max_attempts: parseInt(runSettings.stability_max_attempts, 10),
           ppm_threshold: parseFloat(runSettings.iqr_filter_ppm_threshold),
           ignore_instability_after_lock: runSettings.ignore_instability_after_lock || false,
+          low_frequency_ac_mode: runSettings.low_frequency_ac_mode ?? true,
+          cycles_to_average: parseInt(runSettings.cycles_to_average, 10) || 40,
+          min_low_freq_settling_time: parseFloat(runSettings.min_low_freq_settling_time) || 120,
         },
         test_point: {
           current: testPointToRun.current,
@@ -1272,6 +1281,9 @@ function Calibration({
           max_attempts: parseInt(firstPointSettings.stability_max_attempts, 10),
           ppm_threshold: parseFloat(firstPointSettings.iqr_filter_ppm_threshold),
           ignore_instability_after_lock: firstPointSettings.ignore_instability_after_lock || false,
+          low_frequency_ac_mode: firstPointSettings.low_frequency_ac_mode ?? true,
+          cycles_to_average: parseInt(firstPointSettings.cycles_to_average, 10) || 40,
+          min_low_freq_settling_time: parseFloat(firstPointSettings.min_low_freq_settling_time) || 120,
         },
         std_reader_model: stdReaderModel,
         ti_reader_model: tiReaderModel,
@@ -1487,6 +1499,9 @@ function Calibration({
         max_attempts: parseInt(calibrationSettings.stability_max_attempts, 10),
         ppm_threshold: parseFloat(calibrationSettings.iqr_filter_ppm_threshold),
         ignore_instability_after_lock: calibrationSettings.ignore_instability_after_lock || false,
+        low_frequency_ac_mode: calibrationSettings.low_frequency_ac_mode ?? true,
+        cycles_to_average: parseInt(calibrationSettings.cycles_to_average, 10) || 40,
+        min_low_freq_settling_time: parseFloat(calibrationSettings.min_low_freq_settling_time) || 120,
       },
       std_reader_model: stdReaderModel,
       ti_reader_model: tiReaderModel,
@@ -1603,6 +1618,9 @@ function Calibration({
             max_attempts: parseInt(firstPointSettings.stability_max_attempts, 10),
             ppm_threshold: parseFloat(firstPointSettings.iqr_filter_ppm_threshold),
             ignore_instability_after_lock: firstPointSettings.ignore_instability_after_lock || false,
+            low_frequency_ac_mode: firstPointSettings.low_frequency_ac_mode ?? true,
+            cycles_to_average: parseInt(firstPointSettings.cycles_to_average, 10) || 40,
+            min_low_freq_settling_time: parseFloat(firstPointSettings.min_low_freq_settling_time) || 120,
           },
           std_reader_model: stdReaderModel,
           ti_reader_model: tiReaderModel,
@@ -1754,6 +1772,9 @@ function Calibration({
       characterize_test_first: calibrationSettings.characterize_test_first || false,
       characterization_source:
         calibrationSettings.characterization_source === "AC" ? "AC" : "DC",
+      low_frequency_ac_mode: calibrationSettings.low_frequency_ac_mode ?? true,
+      cycles_to_average: parseInt(calibrationSettings.cycles_to_average, 10) || 40,
+      min_low_freq_settling_time: parseFloat(calibrationSettings.min_low_freq_settling_time) || 120,
     };
 
     let pointToUpdate =
@@ -1818,6 +1839,9 @@ function Calibration({
         characterize_test_first: calibrationSettings.characterize_test_first || false,
         characterization_source:
           calibrationSettings.characterization_source === "AC" ? "AC" : "DC",
+        low_frequency_ac_mode: calibrationSettings.low_frequency_ac_mode ?? true,
+        cycles_to_average: parseInt(calibrationSettings.cycles_to_average, 10) || 40,
+        min_low_freq_settling_time: parseFloat(calibrationSettings.min_low_freq_settling_time) || 120,
       };
 
       try {
@@ -2456,6 +2480,67 @@ function Calibration({
                                     />
                                   </div>
                                 )}
+                            </div>
+                          </div>
+                          {/* --- NEW LOW FREQUENCY AC SECTION --- */}
+                          <div className="settings-form-group">
+                            <span className="settings-form-group-eyebrow">
+                              Low Frequency AC (≤ 40 Hz)
+                            </span>
+                            <div className="form-section-group">
+                              <div className="form-section form-section--checkbox full-width">
+                                <label className="form-section-checkbox-label">
+                                  <input
+                                    type="checkbox"
+                                    className="form-section-checkbox-input"
+                                    checked={calibrationSettings.low_frequency_ac_mode ?? true}
+                                    onChange={(e) =>
+                                      setCalibrationSettings((prev) => ({
+                                        ...prev,
+                                        low_frequency_ac_mode: e.target.checked,
+                                      }))
+                                    }
+                                    disabled={isRemoteViewer}
+                                  />
+                                  <span>Enable cycle-based averaging</span>
+                                </label>
+                              </div>
+
+                              {calibrationSettings.low_frequency_ac_mode !== false && (
+                                <>
+                                  <div className="form-section">
+                                    <label htmlFor="cycles_to_average">Cycles to average</label>
+                                    <input
+                                      type="number"
+                                      id="cycles_to_average"
+                                      value={calibrationSettings.cycles_to_average || 40}
+                                      onChange={(e) =>
+                                        setCalibrationSettings((prev) => ({
+                                          ...prev,
+                                          cycles_to_average: e.target.value,
+                                        }))
+                                      }
+                                      disabled={isRemoteViewer}
+                                    />
+                                  </div>
+                                  <div className="form-section">
+                                    <label htmlFor="min_low_freq_settling_time">Low Frequency Settling (sec)</label>
+                                    <input
+                                      type="number"
+                                      step="any"
+                                      id="min_low_freq_settling_time"
+                                      value={calibrationSettings.min_low_freq_settling_time || 30}
+                                      onChange={(e) =>
+                                        setCalibrationSettings((prev) => ({
+                                          ...prev,
+                                          min_low_freq_settling_time: e.target.value,
+                                        }))
+                                      }
+                                      disabled={isRemoteViewer}
+                                    />
+                                  </div>
+                                </>
+                              )}
                             </div>
                           </div>
 
