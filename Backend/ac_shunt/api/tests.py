@@ -1839,3 +1839,143 @@ class SessionStateClaimsDBMirrorTests(TestCase):
         self.assertEqual(entry['role'], 'host')
         self.assertNotIn('owner_label', entry)
         self.assertNotIn('active_session_id', entry)
+
+
+class HarmonicProjectionTests(TestCase):
+    """Verify the ``_project_dc_from_ripple`` helper recovers the DC component
+    of a synthetic SJTVC-like signal regardless of ripple amplitude, phase, and
+    sampling-window truncation.
+
+    The helper is the math core behind the LF AC fix in :mod:`api.consumers`.
+    These tests are pure-Python and do not need any Django DB setup.
+    """
+
+    @staticmethod
+    def _make_samples(frequency, n, duration, dc, amplitude, phase, *, seed=0, harmonic2=0.0, noise=0.0):
+        """Build a synthetic ``[{'value', 'timestamp'}]`` series at ``2*frequency`` ripple."""
+        import math
+        import random
+
+        rng = random.Random(seed)
+        omega = 2.0 * 2.0 * math.pi * frequency
+        samples = []
+        # Non-uniform timestamps to mimic real GPIB jitter.
+        for i in range(n):
+            base_t = (i + 1) * (duration / (n + 1))
+            jitter = rng.uniform(-0.01, 0.01) * (duration / max(n, 1))
+            t = base_t + jitter
+            value = (
+                dc
+                + amplitude * math.cos(omega * t + phase)
+                + harmonic2 * math.cos(2 * omega * t + 0.7)
+                + (rng.gauss(0.0, noise) if noise > 0 else 0.0)
+            )
+            samples.append({'value': value, 'timestamp': t})
+        return samples
+
+    def test_recovers_dc_with_clean_ripple(self):
+        """Pure DC + 2f sinusoid: fit must recover DC to << 1 ppm."""
+        from api.consumers import CalibrationConsumer
+
+        dc = 0.008  # 8 mV, typical TVC output for low-current LF AC point
+        samples = self._make_samples(
+            frequency=10.0, n=120, duration=4.0,
+            dc=dc, amplitude=0.0008, phase=1.234,  # 10% ripple, arbitrary phase
+        )
+        recovered, residual_ppm, n_used = CalibrationConsumer._project_dc_from_ripple(
+            samples, frequency=10.0, harmonics=2,
+        )
+        self.assertEqual(n_used, 120)
+        self.assertAlmostEqual(recovered, dc, delta=dc * 1e-9)
+        self.assertLess(residual_ppm, 0.001)
+
+    def test_arithmetic_mean_is_biased_under_window_truncation(self):
+        """Demonstrate the bug we are fixing: the arithmetic mean shifts with
+        the ripple's starting phase. The fit does not."""
+        import math
+        from api.consumers import CalibrationConsumer
+
+        dc = 0.008
+        amplitude = 0.0008  # 100,000 ppm of DC
+
+        means = []
+        fits = []
+        # Sweep the start phase across the ripple cycle and watch the mean wobble.
+        for phase in [0.0, math.pi / 3, 2 * math.pi / 3, math.pi, 4 * math.pi / 3]:
+            samples = self._make_samples(
+                frequency=10.0, n=12, duration=4.0,
+                dc=dc, amplitude=amplitude, phase=phase,
+            )
+            mean_val = sum(s['value'] for s in samples) / len(samples)
+            fit_val, _residual, _n = CalibrationConsumer._project_dc_from_ripple(
+                samples, frequency=10.0, harmonics=1,
+            )
+            means.append(mean_val)
+            fits.append(fit_val)
+
+        mean_spread_ppm = (max(means) - min(means)) / dc * 1e6
+        fit_spread_ppm = (max(fits) - min(fits)) / dc * 1e6
+        # The arithmetic mean should drift by hundreds-to-thousands of ppm
+        # across phase, the fit should be flat to <= ~1 ppm.
+        self.assertGreater(mean_spread_ppm, 100.0,
+                           f"mean spread {mean_spread_ppm:.2f} ppm - unexpectedly small")
+        self.assertLess(fit_spread_ppm, 1.0,
+                        f"fit spread {fit_spread_ppm:.2f} ppm - regression in projection helper")
+        # The fit should also beat the mean by at least 100x in the worst case.
+        self.assertLess(fit_spread_ppm * 100.0, mean_spread_ppm)
+
+    def test_handles_second_harmonic_with_5_param_fit(self):
+        """If a 4f tone is present, only the 2-harmonic fit (5 params) cleanly
+        rejects it; the 1-harmonic fit may leak some bias."""
+        from api.consumers import CalibrationConsumer
+
+        dc = 0.008
+        samples = self._make_samples(
+            frequency=10.0, n=200, duration=5.0,
+            dc=dc, amplitude=0.0008, phase=0.5, harmonic2=0.0002,
+        )
+        # 5-parameter fit removes both 2f and 4f.
+        recovered_full, residual_full, _n = CalibrationConsumer._project_dc_from_ripple(
+            samples, frequency=10.0, harmonics=2,
+        )
+        self.assertAlmostEqual(recovered_full, dc, delta=dc * 1e-8)
+        self.assertLess(residual_full, 0.01)
+
+    def test_falls_back_to_mean_when_under_determined(self):
+        """If only 2 samples are provided (fewer than the 5 LSQ parameters
+        require), the helper must not crash - it must hand back the mean and
+        flag the residual as inf."""
+        from api.consumers import CalibrationConsumer
+
+        samples = [
+            {'value': 0.0080, 'timestamp': 0.0},
+            {'value': 0.0081, 'timestamp': 0.5},
+        ]
+        recovered, residual_ppm, n_used = CalibrationConsumer._project_dc_from_ripple(
+            samples, frequency=10.0, harmonics=2,
+        )
+        self.assertEqual(n_used, 2)
+        self.assertAlmostEqual(recovered, 0.00805, places=6)
+        self.assertEqual(residual_ppm, float('inf'))
+
+    def test_robust_to_random_noise_via_n(self):
+        """Random Gaussian noise on top of the ripple should average out as N
+        grows; the residual ppm metric should track the noise level."""
+        from api.consumers import CalibrationConsumer
+
+        dc = 0.008
+        samples = self._make_samples(
+            frequency=20.0, n=400, duration=2.0,
+            dc=dc, amplitude=0.0004, phase=2.1, noise=0.000001, seed=42,
+        )
+        recovered, residual_ppm, _n = CalibrationConsumer._project_dc_from_ripple(
+            samples, frequency=20.0, harmonics=2,
+        )
+        # 1 microvolt sigma on 8 mV DC is ~125 ppm per sample. With N=400 the
+        # mean is ~6 ppm; the LSQ DC standard error is similar. Allow 30 ppm
+        # to account for the projection's residual variance amplification.
+        self.assertAlmostEqual(recovered, dc, delta=dc * 30e-6)
+        # Residual ppm reflects per-sample noise level, not the recovered-DC
+        # accuracy. Should be in the ballpark of 100 ppm here.
+        self.assertGreater(residual_ppm, 10.0)
+        self.assertLess(residual_ppm, 1000.0)

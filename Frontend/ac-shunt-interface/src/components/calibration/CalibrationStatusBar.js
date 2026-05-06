@@ -68,31 +68,30 @@ const CalibrationStatusBar = ({
   // Warm-up / Settling in the status bar.
   const showRunActivity =
     isCollecting || isBulkRunning || Boolean(timerState?.isActive);
-    
-  // --- NEW: Handle infinity string for cycle-averaging ---
-  const collectionProgressPercent =
-    collectionProgress.total === "∞"
-      ? 100 // Force full width so the GSAP shimmer acts as an indeterminate loader
-      : collectionProgress.total > 0
-      ? (collectionProgress.count / collectionProgress.total) * 100
-      : 0;
+
+  // --- UNIFIED PROGRESS TRACKING ---
+  // Always use the user's requested num_samples as the finish line
+  const targetSamples = parseInt(calibrationSettings?.num_samples, 10) || 1;
+  const currentCount = collectionProgress?.count || 0;
+
+  // Clamp at 100% so the bar doesn't overflow if the backend overshoots slightly
+  // to grab a perfect cycle boundary.
+  const collectionProgressPercent = Math.min((currentCount / targetSamples) * 100, 100);
 
   const stageLabelText = timerState.isActive
     ? `${timerState.label}`
     : stabilizationStatus
       ? "Stabilizing"
       : "Collecting";
-      
+
   const stageValueText = timerState.isActive ? `${countdown}s` : getStageName();
-  
-  // --- NEW: Clean up the text so it doesn't literally say "14 / ∞ Samples" ---
+
+  // Unified detail text for all collection modes
   const stageDetailText = timerState.isActive
     ? ""
     : stabilizationStatus && stabilizationInfo
       ? `Attempt: ${stabilizationInfo.count}`
-      : collectionProgress.total === "∞"
-        ? `${collectionProgress.count} Samples (Averaging)`
-        : `${collectionProgress.count} / ${collectionProgress.total} Samples`;
+      : `${currentCount} / ${targetSamples} Samples`;
 
   useEffect(() => {
     const animateNode = (node) => {
@@ -221,15 +220,10 @@ const CalibrationStatusBar = ({
               <span className="status-value" ref={stageValueRef}>
                 {stageValueText}
               </span>
+
+              {/* --- CLEANED UP JSX --- */}
               <span className="status-detail" ref={stageDetailRef}>
-                {/* --- NEW: Match the clean text logic here --- */}
-                {timerState.isActive
-                  ? null
-                  : stabilizationStatus && stabilizationInfo
-                    ? `Attempt: ${stabilizationInfo.count}`
-                    : collectionProgress.total === "∞"
-                      ? `${collectionProgress.count} Samples (Averaging)`
-                      : `${collectionProgress.count} / ${collectionProgress.total} Samples`}
+                {stageDetailText}
               </span>
             </div>
 

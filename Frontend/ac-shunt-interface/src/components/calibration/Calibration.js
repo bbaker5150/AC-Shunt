@@ -15,12 +15,14 @@ import {
   FaDownload,
   FaTimes,
   FaSave,
+  FaInfoCircle,
 } from "react-icons/fa";
 import { LuSaveAll } from "react-icons/lu";
 import { useInstruments } from "../../contexts/InstrumentContext";
 import { useTheme } from "../../contexts/ThemeContext";
 import CalibrationChart from "./CalibrationChart";
 import ConfigurationSummaryModal from "./ConfigurationSummaryModal";
+import HarmonicProjectionInfoModal from "./HarmonicProjectionInfoModal";
 import LiveStatisticsTracker from "./LiveStatisticsTracker";
 import CalibrationStatusBar from "./CalibrationStatusBar";
 import { downloadFullSessionExcel } from "./sessionExcelExport";
@@ -260,6 +262,23 @@ let rememberedCalSubTab = "settings";
 // Readings sub-tab: stacked vs. side-by-side chart layout (session only).
 let rememberedReadingsChartLayout = "stacked";
 
+const LINE_FREQUENCY_HZ = 60;
+const CYCLE_CLEAN_TOLERANCE = 1e-6;
+
+const distanceToInteger = (value) => {
+  if (!Number.isFinite(value)) return Infinity;
+  const nearest = Math.round(value);
+  return Math.abs(value - nearest);
+};
+
+const formatCycleCount = (value) => {
+  if (!Number.isFinite(value)) return "---";
+  if (Math.abs(value - Math.round(value)) < 0.001) {
+    return `${Math.round(value)}`;
+  }
+  return value.toFixed(3);
+};
+
 function Calibration({
   showNotification,
   orderedTestPoints,
@@ -333,9 +352,11 @@ function Calibration({
     ignore_instability_after_lock: false,
     characterize_test_first: false,
     characterization_source: "DC",
-    low_frequency_ac_mode: true,
-    cycles_to_average: 40,
-    min_low_freq_settling_time: 120,
+    enable_low_frequency_settings: false,
+    enable_11hz_filter: false,
+    min_low_freq_settling_time: 0,
+    lf_harmonic_projection: false,
+    lf_harmonics: 2,
   });
   const [correctionInputs, setCorrectionInputs] = useState({
     eta_std: "",
@@ -363,6 +384,7 @@ function Calibration({
   const lastAutoFocusedKey = useRef(null);
   const [isCorrectionModalOpen, setIsCorrectionModalOpen] = useState(false);
   const [isSummaryModalOpen, setIsSummaryModalOpen] = useState(false);
+  const [isHarmonicInfoOpen, setIsHarmonicInfoOpen] = useState(false);
   const [countdown, setCountdown] = useState(0);
   const timerInterval = useRef(null);
   const [isCalculatingAverages, setIsCalculatingAverages] = useState(false);
@@ -795,6 +817,98 @@ function Calibration({
     return found ? found.text : `${numValue}`;
   }, []);
 
+  const samplingAdvisor = useMemo(() => {
+    const frequency = parseFloat(focusedTP?.frequency);
+    const nplc = parseFloat(calibrationSettings.nplc);
+    const samples = parseInt(calibrationSettings.num_samples, 10);
+
+    if (
+      !Number.isFinite(frequency) ||
+      frequency <= 0 ||
+      !Number.isFinite(nplc) ||
+      nplc <= 0 ||
+      !Number.isFinite(samples) ||
+      samples < 2
+    ) {
+      return null;
+    }
+
+    const perSampleSeconds = nplc / LINE_FREQUENCY_HZ;
+    const sourceCyclesPerSample = frequency * perSampleSeconds;
+    const totalSeconds = samples * perSampleSeconds;
+    const sourceCycles = samples * sourceCyclesPerSample;
+    const rippleCycles = sourceCycles * 2;
+    const sourceError = distanceToInteger(sourceCycles);
+    const rippleError = distanceToInteger(rippleCycles);
+    const isClean = sourceError <= CYCLE_CLEAN_TOLERANCE;
+    const currentScore = Math.max(sourceError, rippleError / 2);
+
+    const candidates = [];
+    const maxSamples = Math.max(240, samples + 80);
+    for (let count = 2; count <= maxSamples; count += 1) {
+      const candidateSourceCycles = count * sourceCyclesPerSample;
+      const candidateRippleCycles = candidateSourceCycles * 2;
+      const candidateSourceError = distanceToInteger(candidateSourceCycles);
+      const candidateRippleError = distanceToInteger(candidateRippleCycles);
+      const score = Math.max(candidateSourceError, candidateRippleError / 2);
+      candidates.push({
+        count,
+        totalSeconds: count * perSampleSeconds,
+        sourceCycles: candidateSourceCycles,
+        rippleCycles: candidateRippleCycles,
+        sourceError: candidateSourceError,
+        score,
+        isClean: candidateSourceError <= CYCLE_CLEAN_TOLERANCE,
+      });
+    }
+
+    const cleanCandidates = candidates
+      .filter((candidate) => candidate.count !== samples && candidate.isClean)
+      .sort((a, b) => {
+        const distanceA = Math.abs(a.count - samples);
+        const distanceB = Math.abs(b.count - samples);
+        if (distanceA !== distanceB) return distanceA - distanceB;
+        return a.count - b.count;
+      });
+
+    const bestNearby = cleanCandidates[0] || candidates
+      .filter((candidate) => candidate.count !== samples && candidate.score < currentScore)
+      .sort((a, b) => {
+        if (Math.abs(a.score - b.score) > 1e-9) return a.score - b.score;
+        return Math.abs(a.count - samples) - Math.abs(b.count - samples);
+      })[0];
+
+    const nearbyCleanCounts = cleanCandidates
+      .filter((candidate) => Math.abs(candidate.count - samples) <= 24)
+      .slice(0, 4)
+      .map((candidate) => candidate.count);
+
+    return {
+      samples,
+      frequency,
+      nplc,
+      perSampleSeconds,
+      totalSeconds,
+      sourceCycles,
+      rippleCycles,
+      isClean,
+      sourceError,
+      recommended: bestNearby || null,
+      nearbyCleanCounts,
+    };
+  }, [focusedTP?.frequency, calibrationSettings.nplc, calibrationSettings.num_samples]);
+
+  const applyRecommendedSampleCount = useCallback((count) => {
+    setCalibrationSettings((prev) => ({
+      ...prev,
+      num_samples: count,
+      stability_window:
+        parseInt(prev.stability_window, 10) > count
+          ? count
+          : prev.stability_window,
+    }));
+  }, []);
+
   useEffect(() => {
     prevIsBulkRunning.current = isBulkRunning;
   }, [isBulkRunning]);
@@ -991,9 +1105,11 @@ function Calibration({
       stability_max_attempts: 10,
       iqr_filter_ppm_threshold: 15,
       ignore_instability_after_lock: false,
-      low_frequency_ac_mode: true,
-    cycles_to_average: 40,
-    min_low_freq_settling_time: 120,
+      enable_low_frequency_settings: false,
+      enable_11hz_filter: false,
+      min_low_freq_settling_time: 0,
+      lf_harmonic_projection: false,
+      lf_harmonics: 2,
     };
 
     const pointForDirection =
@@ -1007,6 +1123,54 @@ function Calibration({
       setCalibrationSettings(defaultSettings);
     }
   }, [focusedTP, activeDirection, orderedTestPoints]);
+
+  const buildMeasurementParams = useCallback((settings) => {
+    const lowFrequencyEnabled = settings.enable_low_frequency_settings || false;
+    return {
+      stability_check_method: settings.stability_check_method,
+      window: parseInt(settings.stability_window, 10),
+      threshold_ppm: parseFloat(settings.stability_threshold_ppm),
+      max_attempts: parseInt(settings.stability_max_attempts, 10),
+      ppm_threshold: parseFloat(settings.iqr_filter_ppm_threshold),
+      ignore_instability_after_lock: settings.ignore_instability_after_lock || false,
+      enable_low_frequency_settings: lowFrequencyEnabled,
+      enable_11hz_filter: lowFrequencyEnabled && (settings.enable_11hz_filter || false),
+      min_low_freq_settling_time: lowFrequencyEnabled
+        ? parseFloat(settings.min_low_freq_settling_time) || 0
+        : 0,
+      lf_harmonic_projection: lowFrequencyEnabled && (settings.lf_harmonic_projection || false),
+      lf_harmonics: parseInt(settings.lf_harmonics, 10) || 2,
+    };
+  }, []);
+
+  const buildSettingsPayload = useCallback((settings) => {
+    const lowFrequencyEnabled = settings.enable_low_frequency_settings || false;
+    return {
+      initial_warm_up_time:
+        parseFloat(settings.initial_warm_up_time) || 0,
+      num_samples: parseInt(settings.num_samples, 10) || 8,
+      settling_time: parseFloat(settings.settling_time) || 5,
+      nplc: parseFloat(settings.nplc) || 20,
+      stability_check_method: settings.stability_check_method,
+      stability_window: parseInt(settings.stability_window, 10) || 5,
+      stability_threshold_ppm:
+        parseFloat(settings.stability_threshold_ppm) || 10,
+      stability_max_attempts:
+        parseInt(settings.stability_max_attempts, 10) || 50,
+      iqr_filter_ppm_threshold: parseFloat(settings.iqr_filter_ppm_threshold) || 15,
+      ignore_instability_after_lock: settings.ignore_instability_after_lock || false,
+      characterize_test_first: settings.characterize_test_first || false,
+      characterization_source:
+        settings.characterization_source === "AC" ? "AC" : "DC",
+      enable_low_frequency_settings: lowFrequencyEnabled,
+      enable_11hz_filter: lowFrequencyEnabled && (settings.enable_11hz_filter || false),
+      min_low_freq_settling_time: lowFrequencyEnabled
+        ? parseFloat(settings.min_low_freq_settling_time) || 0
+        : 0,
+      lf_harmonic_projection: lowFrequencyEnabled && (settings.lf_harmonic_projection || false),
+      lf_harmonics: parseInt(settings.lf_harmonics, 10) || 2,
+    };
+  }, []);
 
   const handleCorrectionInputChange = (e) =>
     setCorrectionInputs((prev) => ({
@@ -1123,17 +1287,7 @@ function Calibration({
       Object.assign(params, {
         nplc: parseFloat(runSettings.nplc),
         initial_warm_up_time: parseFloat(runSettings.initial_warm_up_time),
-        measurement_params: {
-          stability_check_method: runSettings.stability_check_method,
-          window: parseInt(runSettings.stability_window, 10),
-          threshold_ppm: parseFloat(runSettings.stability_threshold_ppm),
-          max_attempts: parseInt(runSettings.stability_max_attempts, 10),
-          ppm_threshold: parseFloat(runSettings.iqr_filter_ppm_threshold),
-          ignore_instability_after_lock: runSettings.ignore_instability_after_lock || false,
-          low_frequency_ac_mode: runSettings.low_frequency_ac_mode ?? true,
-          cycles_to_average: parseInt(runSettings.cycles_to_average, 10) || 40,
-          min_low_freq_settling_time: parseFloat(runSettings.min_low_freq_settling_time) || 120,
-        },
+        measurement_params: buildMeasurementParams(runSettings),
         test_point: {
           current: testPointToRun.current,
           frequency: testPointToRun.frequency,
@@ -1175,6 +1329,7 @@ function Calibration({
       stdReaderModel,
       tiReaderModel,
       calibrationSettings,
+      buildMeasurementParams,
       validateInstrumentAssignments,
     ]
   );
@@ -1274,17 +1429,7 @@ function Calibration({
         initial_warm_up_time: parseFloat(
           firstPointSettings.initial_warm_up_time
         ),
-        measurement_params: {
-          stability_check_method: firstPointSettings.stability_check_method,
-          window: parseInt(firstPointSettings.stability_window, 10),
-          threshold_ppm: parseFloat(firstPointSettings.stability_threshold_ppm),
-          max_attempts: parseInt(firstPointSettings.stability_max_attempts, 10),
-          ppm_threshold: parseFloat(firstPointSettings.iqr_filter_ppm_threshold),
-          ignore_instability_after_lock: firstPointSettings.ignore_instability_after_lock || false,
-          low_frequency_ac_mode: firstPointSettings.low_frequency_ac_mode ?? true,
-          cycles_to_average: parseInt(firstPointSettings.cycles_to_average, 10) || 40,
-          min_low_freq_settling_time: parseFloat(firstPointSettings.min_low_freq_settling_time) || 120,
-        },
+        measurement_params: buildMeasurementParams(firstPointSettings),
         std_reader_model: stdReaderModel,
         ti_reader_model: tiReaderModel,
         amplifier_range: calibrationConfigurations.amplifier_range,
@@ -1492,17 +1637,7 @@ function Calibration({
       initial_warm_up_time: parseFloat(calibrationSettings.initial_warm_up_time),
       amplifier_range: calibrationConfigurations.amplifier_range,
       nplc: parseFloat(calibrationSettings.nplc),
-      measurement_params: {
-        stability_check_method: calibrationSettings.stability_check_method,
-        window: parseInt(calibrationSettings.stability_window, 10),
-        threshold_ppm: parseFloat(calibrationSettings.stability_threshold_ppm),
-        max_attempts: parseInt(calibrationSettings.stability_max_attempts, 10),
-        ppm_threshold: parseFloat(calibrationSettings.iqr_filter_ppm_threshold),
-        ignore_instability_after_lock: calibrationSettings.ignore_instability_after_lock || false,
-        low_frequency_ac_mode: calibrationSettings.low_frequency_ac_mode ?? true,
-        cycles_to_average: parseInt(calibrationSettings.cycles_to_average, 10) || 40,
-        min_low_freq_settling_time: parseFloat(calibrationSettings.min_low_freq_settling_time) || 120,
-      },
+      measurement_params: buildMeasurementParams(calibrationSettings),
       std_reader_model: stdReaderModel,
       ti_reader_model: tiReaderModel,
     };
@@ -1539,6 +1674,7 @@ function Calibration({
     selectedSessionId,
     stdReaderModel,
     tiReaderModel,
+    buildMeasurementParams,
     validateInstrumentAssignments
   ]);
 
@@ -1611,17 +1747,7 @@ function Calibration({
           num_samples: parseInt(firstPointSettings.num_samples, 10),
           settling_time: parseFloat(firstPointSettings.settling_time),
           nplc: parseFloat(firstPointSettings.nplc),
-          measurement_params: {
-            stability_check_method: firstPointSettings.stability_check_method,
-            window: parseInt(firstPointSettings.stability_window, 10),
-            threshold_ppm: parseFloat(firstPointSettings.stability_threshold_ppm),
-            max_attempts: parseInt(firstPointSettings.stability_max_attempts, 10),
-            ppm_threshold: parseFloat(firstPointSettings.iqr_filter_ppm_threshold),
-            ignore_instability_after_lock: firstPointSettings.ignore_instability_after_lock || false,
-            low_frequency_ac_mode: firstPointSettings.low_frequency_ac_mode ?? true,
-            cycles_to_average: parseInt(firstPointSettings.cycles_to_average, 10) || 40,
-            min_low_freq_settling_time: parseFloat(firstPointSettings.min_low_freq_settling_time) || 120,
-          },
+          measurement_params: buildMeasurementParams(firstPointSettings),
           std_reader_model: stdReaderModel,
           ti_reader_model: tiReaderModel,
           amplifier_range: calibrationConfigurations.amplifier_range,
@@ -1711,6 +1837,7 @@ function Calibration({
       isPartial,
       formatCurrent,
       formatFrequency,
+      buildMeasurementParams,
       validateInstrumentAssignments
     ]
   );
@@ -1755,27 +1882,7 @@ function Calibration({
       return showNotification("No test point selected.", "error");
     }
 
-    const newSettings = {
-      initial_warm_up_time:
-        parseFloat(calibrationSettings.initial_warm_up_time) || 0,
-      num_samples: parseInt(calibrationSettings.num_samples, 10) || 8,
-      settling_time: parseFloat(calibrationSettings.settling_time) || 5,
-      nplc: parseFloat(calibrationSettings.nplc) || 20,
-      stability_check_method: calibrationSettings.stability_check_method,
-      stability_window: parseInt(calibrationSettings.stability_window, 10) || 5,
-      stability_threshold_ppm:
-        parseFloat(calibrationSettings.stability_threshold_ppm) || 10,
-      stability_max_attempts:
-        parseInt(calibrationSettings.stability_max_attempts, 10) || 50,
-      iqr_filter_ppm_threshold: parseFloat(calibrationSettings.iqr_filter_ppm_threshold) || 15,
-      ignore_instability_after_lock: calibrationSettings.ignore_instability_after_lock || false,
-      characterize_test_first: calibrationSettings.characterize_test_first || false,
-      characterization_source:
-        calibrationSettings.characterization_source === "AC" ? "AC" : "DC",
-      low_frequency_ac_mode: calibrationSettings.low_frequency_ac_mode ?? true,
-      cycles_to_average: parseInt(calibrationSettings.cycles_to_average, 10) || 40,
-      min_low_freq_settling_time: parseFloat(calibrationSettings.min_low_freq_settling_time) || 120,
-    };
+    const newSettings = buildSettingsPayload(calibrationSettings);
 
     let pointToUpdate =
       activeDirection === "Forward" ? focusedTP.forward : focusedTP.reverse;
@@ -1821,28 +1928,7 @@ function Calibration({
         return;
       }
 
-      const fullSettingsPayload = {
-        initial_warm_up_time:
-          parseFloat(calibrationSettings.initial_warm_up_time) || 0,
-        num_samples: parseInt(calibrationSettings.num_samples, 10) || 8,
-        settling_time: parseFloat(calibrationSettings.settling_time) || 5,
-        nplc: parseFloat(calibrationSettings.nplc) || 20,
-        stability_check_method: calibrationSettings.stability_check_method,
-        stability_window:
-          parseInt(calibrationSettings.stability_window, 10) || 5,
-        stability_threshold_ppm:
-          parseFloat(calibrationSettings.stability_threshold_ppm) || 10,
-        stability_max_attempts:
-          parseInt(calibrationSettings.stability_max_attempts, 10) || 50,
-        iqr_filter_ppm_threshold: parseFloat(calibrationSettings.iqr_filter_ppm_threshold) || 15,
-        ignore_instability_after_lock: calibrationSettings.ignore_instability_after_lock || false,
-        characterize_test_first: calibrationSettings.characterize_test_first || false,
-        characterization_source:
-          calibrationSettings.characterization_source === "AC" ? "AC" : "DC",
-        low_frequency_ac_mode: calibrationSettings.low_frequency_ac_mode ?? true,
-        cycles_to_average: parseInt(calibrationSettings.cycles_to_average, 10) || 40,
-        min_low_freq_settling_time: parseFloat(calibrationSettings.min_low_freq_settling_time) || 120,
-      };
+      const fullSettingsPayload = buildSettingsPayload(calibrationSettings);
 
       try {
         let { forward, reverse } = focusedTP;
@@ -1961,12 +2047,6 @@ function Calibration({
   const isCalculationReady =
     focusedTP &&
     (hasAllReadings(focusedTP.forward) || hasAllReadings(focusedTP.reverse));
-  const isNplcInstrumentInUse =
-    stdReaderModel === "34420A" ||
-    tiReaderModel === "34420A" ||
-    stdReaderModel === "3458A" ||
-    tiReaderModel === "3458A";
-
   const dropdownOptions = useMemo(() => {
     // Characterization is a single-point operation regardless of how many
     // test points the user has checkboxed in the sidebar: per the
@@ -2130,6 +2210,10 @@ function Calibration({
         onInputChange={handleCorrectionInputChange}
         isReadOnly={isCollecting || isBulkRunning || isRemoteViewer}
       />
+      <HarmonicProjectionInfoModal
+        isOpen={isHarmonicInfoOpen}
+        onClose={() => setIsHarmonicInfoOpen(false)}
+      />
       <ConfirmationModal
         isOpen={confirmationModal.isOpen}
         title={confirmationModal.title}
@@ -2285,6 +2369,57 @@ function Calibration({
                                   }}
                                   disabled={isRemoteViewer}
                                 />
+                                {samplingAdvisor && (
+                                  <div
+                                    className={
+                                      "sample-cycle-advisor" +
+                                      (samplingAdvisor.isClean
+                                        ? " is-clean"
+                                        : " needs-adjustment")
+                                    }
+                                    title={`Based on ${formatFrequency(samplingAdvisor.frequency)}, ${samplingAdvisor.nplc} NPLC, and a ${LINE_FREQUENCY_HZ} Hz line frequency.`}
+                                  >
+                                    <div className="sample-cycle-advisor-main">
+                                      <FaInfoCircle aria-hidden />
+                                      <span>
+                                        {samplingAdvisor.isClean
+                                          ? "Cycle-clean window"
+                                          : "Cleaner cycle window available"}
+                                      </span>
+                                      {!samplingAdvisor.isClean &&
+                                        samplingAdvisor.recommended && (
+                                          <button
+                                            type="button"
+                                            className="sample-cycle-advisor-action"
+                                            onClick={() =>
+                                              applyRecommendedSampleCount(
+                                                samplingAdvisor.recommended.count
+                                              )
+                                            }
+                                            disabled={isRemoteViewer}
+                                            title={`Use ${samplingAdvisor.recommended.count} samples`}
+                                          >
+                                            Use {samplingAdvisor.recommended.count}
+                                          </button>
+                                        )}
+                                    </div>
+                                    <div className="sample-cycle-advisor-detail">
+                                      {samplingAdvisor.samples} samples ={" "}
+                                      {samplingAdvisor.totalSeconds.toFixed(3)}s,{" "}
+                                      {formatCycleCount(samplingAdvisor.sourceCycles)} source cycles,{" "}
+                                      {formatCycleCount(samplingAdvisor.rippleCycles)} ripple cycles
+                                      {!samplingAdvisor.isClean &&
+                                        samplingAdvisor.recommended && (
+                                          <>
+                                            {" "}· {samplingAdvisor.recommended.count} samples gives{" "}
+                                            {formatCycleCount(
+                                              samplingAdvisor.recommended.sourceCycles
+                                            )} source cycles
+                                          </>
+                                        )}
+                                    </div>
+                                  </div>
+                                )}
                               </div>
                               <div className="form-section">
                                 <label htmlFor="settling_time">
@@ -2305,31 +2440,29 @@ function Calibration({
                                   disabled={isRemoteViewer}
                                 />
                               </div>
-                              {isNplcInstrumentInUse && (
-                                <div className="form-section">
-                                  <label htmlFor="nplc">
-                                    Reader integration (NPLC)
-                                  </label>
-                                  <select
-                                    id="nplc"
-                                    name="nplc"
-                                    value={calibrationSettings.nplc || 20}
-                                    onChange={(e) =>
-                                      setCalibrationSettings((prev) => ({
-                                        ...prev,
-                                        nplc: parseFloat(e.target.value),
-                                      }))
-                                    }
-                                    disabled={isRemoteViewer}
-                                  >
-                                    {NPLC_OPTIONS.map((val) => (
-                                      <option key={val} value={val}>
-                                        {val} PLC
-                                      </option>
-                                    ))}
-                                  </select>
-                                </div>
-                              )}
+                              <div className="form-section">
+                                <label htmlFor="nplc">
+                                  Reader integration (NPLC)
+                                </label>
+                                <select
+                                  id="nplc"
+                                  name="nplc"
+                                  value={calibrationSettings.nplc || 20}
+                                  onChange={(e) =>
+                                    setCalibrationSettings((prev) => ({
+                                      ...prev,
+                                      nplc: parseFloat(e.target.value),
+                                    }))
+                                  }
+                                  disabled={isRemoteViewer}
+                                >
+                                  {NPLC_OPTIONS.map((val) => (
+                                    <option key={val} value={val}>
+                                      {val} PLC
+                                    </option>
+                                  ))}
+                                </select>
+                              </div>
                             </div>
                           </div>
 
@@ -2482,7 +2615,11 @@ function Calibration({
                                 )}
                             </div>
                           </div>
-                          {/* --- NEW LOW FREQUENCY AC SECTION --- */}
+                          {/* --- LOW FREQUENCY AC SECTION ---
+                              Hidden while LF-specific calibration behavior is parked.
+                              Keep the settings/state/payload logic intact so the section can
+                              be restored without rebuilding the backend contract. */}
+                          {false && (
                           <div className="settings-form-group">
                             <span className="settings-form-group-eyebrow">
                               Low Frequency AC (≤ 40 Hz)
@@ -2493,56 +2630,142 @@ function Calibration({
                                   <input
                                     type="checkbox"
                                     className="form-section-checkbox-input"
-                                    checked={calibrationSettings.low_frequency_ac_mode ?? true}
+                                    checked={calibrationSettings.enable_low_frequency_settings || false}
                                     onChange={(e) =>
                                       setCalibrationSettings((prev) => ({
                                         ...prev,
-                                        low_frequency_ac_mode: e.target.checked,
+                                        enable_low_frequency_settings: e.target.checked,
                                       }))
                                     }
                                     disabled={isRemoteViewer}
                                   />
-                                  <span>Enable cycle-based averaging</span>
+                                  <span>Enable Low Frequency Settings</span>
                                 </label>
                               </div>
 
-                              {calibrationSettings.low_frequency_ac_mode !== false && (
+                              {calibrationSettings.enable_low_frequency_settings && (
                                 <>
-                                  <div className="form-section">
-                                    <label htmlFor="cycles_to_average">Cycles to average</label>
+                              
+                              {/* New Wrapper to force side-by-side layout */}
+                              <div style={{ display: "flex", gap: "1rem", gridColumn: "1 / -1", width: "100%" }}>
+                                
+                                <div
+                                  className="form-section form-section--checkbox"
+                                  title="Engages the 11 Hz hardware analog low-pass filter on the 34420A nanovoltmeter."
+                                  style={{ flex: 1 }}
+                                >
+                                  <label className="form-section-checkbox-label">
                                     <input
-                                      type="number"
-                                      id="cycles_to_average"
-                                      value={calibrationSettings.cycles_to_average || 40}
+                                      type="checkbox"
+                                      className="form-section-checkbox-input"
+                                      checked={calibrationSettings.enable_11hz_filter || false}
                                       onChange={(e) =>
                                         setCalibrationSettings((prev) => ({
                                           ...prev,
-                                          cycles_to_average: e.target.value,
+                                          enable_11hz_filter: e.target.checked,
                                         }))
                                       }
                                       disabled={isRemoteViewer}
                                     />
-                                  </div>
-                                  <div className="form-section">
-                                    <label htmlFor="min_low_freq_settling_time">Low Frequency Settling (sec)</label>
+                                    <span>Enable 11 Hz Low Pass Filter</span>
+                                  </label>
+                                </div>
+
+                                <div className="form-section form-section--checkbox" style={{ flex: 1 }}>
+                                  <label
+                                    className="form-section-checkbox-label"
+                                    style={{ display: "flex", alignItems: "center", gap: "0.5rem" }}
+                                  >
                                     <input
-                                      type="number"
-                                      step="any"
-                                      id="min_low_freq_settling_time"
-                                      value={calibrationSettings.min_low_freq_settling_time || 30}
+                                      type="checkbox"
+                                      className="form-section-checkbox-input"
+                                      checked={calibrationSettings.lf_harmonic_projection || false}
                                       onChange={(e) =>
                                         setCalibrationSettings((prev) => ({
                                           ...prev,
-                                          min_low_freq_settling_time: e.target.value,
+                                          lf_harmonic_projection: e.target.checked,
                                         }))
                                       }
                                       disabled={isRemoteViewer}
                                     />
-                                  </div>
+                                    <span>Harmonic projection (recommended)</span>
+                                    <button
+                                      type="button"
+                                      onClick={(e) => {
+                                        e.preventDefault();
+                                        e.stopPropagation();
+                                        setIsHarmonicInfoOpen(true);
+                                      }}
+                                      title="What does harmonic projection do? (click for full explanation)"
+                                      style={{
+                                        display: "inline-flex",
+                                        alignItems: "center",
+                                        justifyContent: "center",
+                                        background: "transparent",
+                                        border: "none",
+                                        padding: 0,
+                                        marginLeft: "0.15rem",
+                                        color: "var(--color-accent, #4f8cff)",
+                                        cursor: "pointer",
+                                        fontSize: "1rem",
+                                        lineHeight: 1,
+                                      }}
+                                    >
+                                      <FaInfoCircle aria-hidden />
+                                    </button>
+                                  </label>
+                                </div>
+                                
+                              </div>
+                              
+                              <div
+                                className="form-section"
+                                title="Minimum dwell at the test point before the capture window opens for TVC thermal stabilization."
+                              >
+                                <label htmlFor="min_low_freq_settling_time">Low Frequency Settling (sec)</label>
+                                <input
+                                  type="number"
+                                  step="any"
+                                  id="min_low_freq_settling_time"
+                                  value={calibrationSettings.min_low_freq_settling_time || 0}
+                                  onChange={(e) =>
+                                    setCalibrationSettings((prev) => ({
+                                      ...prev,
+                                      min_low_freq_settling_time: e.target.value,
+                                    }))
+                                  }
+                                  disabled={isRemoteViewer}
+                                />
+                              </div>
+
+                              {calibrationSettings.lf_harmonic_projection && (
+                                <div
+                                  className="form-section"
+                                  title="Number of harmonic pairs fitted. 1 = 2f only (4 params). 2 = 2f + 4f (6 params, default). 3 = 2f + 4f + 6f (8 params) — use at 1–3 Hz where TVC nonlinearity is more significant."
+                                >
+                                  <label htmlFor="lf_harmonics">Harmonic pairs (1–3)</label>
+                                  <select
+                                    id="lf_harmonics"
+                                    value={calibrationSettings.lf_harmonics ?? 2}
+                                    onChange={(e) =>
+                                      setCalibrationSettings((prev) => ({
+                                        ...prev,
+                                        lf_harmonics: parseInt(e.target.value, 10),
+                                      }))
+                                    }
+                                    disabled={isRemoteViewer}
+                                  >
+                                    <option value={1}>1 — 2f only</option>
+                                    <option value={2}>2 — 2f + 4f (recommended)</option>
+                                    <option value={3}>3 — 2f + 4f + 6f</option>
+                                  </select>
+                                </div>
+                              )}
                                 </>
                               )}
                             </div>
                           </div>
+                          )}
 
                           <div className="settings-form-group">
                             <span className="settings-form-group-eyebrow">

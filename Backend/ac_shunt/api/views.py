@@ -854,6 +854,8 @@ class TestPointViewSet(viewsets.ModelViewSet):
 
             # Get all unique (current, frequency) pairs for the session
             unique_points = test_point_set.points.values('current', 'frequency').distinct()
+
+            valid_fields = [f.name for f in CalibrationSettings._meta.get_fields()]
             
             with transaction.atomic():
                 for point_key in unique_points:
@@ -872,6 +874,9 @@ class TestPointViewSet(viewsets.ModelViewSet):
                             forward_settings = full_warmup_settings
                         elif focused_point.direction == 'Reverse':
                             reverse_settings = full_warmup_settings
+                    
+                    forward_settings = {k: v for k, v in forward_settings.items() if k in valid_fields}
+                    reverse_settings = {k: v for k, v in reverse_settings.items() if k in valid_fields}
 
                     # 1. Handle the 'Forward' direction
                     forward_point_obj, _ = TestPoint.objects.get_or_create(

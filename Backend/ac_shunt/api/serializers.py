@@ -289,6 +289,11 @@ class CalibrationSettingsSerializer(serializers.ModelSerializer):
             'ignore_instability_after_lock',
             'characterize_test_first',
             'characterization_source',
+            'enable_low_frequency_settings',
+            'enable_11hz_filter',
+            'lf_harmonic_projection',
+            'min_low_freq_settling_time',
+            'lf_harmonics',
         ]
 
 class FormattedReadingsField(serializers.Field):

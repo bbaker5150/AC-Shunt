@@ -26,7 +26,9 @@ Conventions:
 from __future__ import annotations
 
 import hashlib
+import math
 import random
+import time
 from typing import Optional
 
 from npsl_tools.instruments import (
@@ -49,6 +51,10 @@ _STATE = {
     "source_frequency": 0.0,
     "active_source": None,  # "AC" or "DC" -- set by the switch driver
     "amp_range": 1.0,
+    # Phase offset re-seeded every set_output() call so each run has a fresh,
+    # arbitrary ripple phase -- mimics the real bench where time.time() has no
+    # phase relationship to the AC source.
+    "ripple_phase": 0.0,
 }
 
 
@@ -66,12 +72,38 @@ def _address_bias_ppm(gpib: Optional[str]) -> float:
     return (raw - 0.5) * 16.0
 
 
-def _synthetic_reading(gpib: Optional[str]) -> float:
-    """Return source_voltage * (1 + bias) + gaussian jitter."""
+def _synthetic_reading(gpib: Optional[str], *, inject_lf_ripple: bool = False) -> float:
+    """Return source_voltage * (1 + bias) + gaussian jitter, plus an optional
+    synthetic LF AC thermal ripple.
+
+    When ``inject_lf_ripple`` is True and the active source frequency is in
+    the LF AC band (0 < f <= 40 Hz), this stacks a coherent ripple at exactly
+    ``2 * source_frequency`` on top of the baseline reading. The amplitude
+    rolls off with frequency to mimic an SJTVC's thermal low-pass response::
+
+        ripple_amplitude = base * 0.08 / sqrt(1 + (f/5)^2)
+
+    so a 10 Hz drive produces ~6 % of full-scale ripple and a 40 Hz drive
+    produces ~1 %. Phase comes from ``_STATE['ripple_phase']`` (re-seeded on
+    every ``set_output``) so each run has an arbitrary phase relationship to
+    the wall clock - which is exactly what makes the arithmetic mean biased
+    and exercises the harmonic-projection fix in
+    ``CalibrationConsumer._project_dc_from_ripple``.
+    """
     base = _STATE.get("source_voltage", 0.0) or 0.0
     bias_ppm = _address_bias_ppm(gpib)
     jitter = random.gauss(0.0, max(abs(base), 1e-6) * 1e-7)  # ~0.1 PPM
-    return base * (1.0 + bias_ppm * 1e-6) + jitter
+    reading = base * (1.0 + bias_ppm * 1e-6) + jitter
+
+    if inject_lf_ripple:
+        f = float(_STATE.get("source_frequency", 0.0) or 0.0)
+        if 0.0 < f <= 40.0 and abs(base) > 1e-9:
+            roll_off = 1.0 / math.sqrt(1.0 + (f / 5.0) ** 2)
+            ripple_amp = abs(base) * 0.08 * roll_off
+            phase = float(_STATE.get("ripple_phase", 0.0))
+            reading += ripple_amp * math.cos(2.0 * 2.0 * math.pi * f * time.time() + phase)
+
+    return reading
 
 
 # --- Small shim that stubs out pyvisa for every mock class -------------------
@@ -113,6 +145,9 @@ class Mock5730A(Instrument5730A):
     def set_output(self, voltage: float, frequency: float) -> None:  # type: ignore[override]
         _STATE["source_voltage"] = float(voltage) if voltage is not None else 0.0
         _STATE["source_frequency"] = float(frequency) if frequency is not None else 0.0
+        # Re-seed the ripple phase so each commanded output has an arbitrary
+        # starting phase (the real bench has no phase lock between commands).
+        _STATE["ripple_phase"] = random.uniform(0.0, 2.0 * math.pi)
 
     def set_operate(self) -> None:  # type: ignore[override]
         return None
@@ -163,7 +198,14 @@ class Mock5790B(Instrument5790B):
 
 
 class Mock34420A(Instrument34420A):
-    """Mock 34420A nanovoltmeter."""
+    """Mock 34420A nanovoltmeter.
+
+    Unlike the other mock readers, this one represents the workbench TVC path
+    where the thermal ripple physics actually matters - so its synthetic
+    readings include an injected 2f ripple when the active source is in the
+    LF AC band. This lets the calibration UI exercise the harmonic-projection
+    code path end-to-end without real hardware.
+    """
 
     def __init__(self, gpib: Optional[str] = None, timeout: int = 5000):
         _install_mock_attrs(self, model="34420A", gpib=gpib, timeout=timeout)
@@ -175,7 +217,7 @@ class Mock34420A(Instrument34420A):
         return None
 
     def read_instrument(self) -> float:  # type: ignore[override]
-        return _synthetic_reading(getattr(self, "gpib", None))
+        return _synthetic_reading(getattr(self, "gpib", None), inject_lf_ripple=True)
 
     def close(self) -> None:  # type: ignore[override]
         return None

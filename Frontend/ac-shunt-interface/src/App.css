@@ -5609,6 +5609,64 @@ body.dark-mode .corrections-card-select:focus-visible {
   vertical-align: middle;
 }
 
+.sample-cycle-advisor {
+  margin-top: 8px;
+  padding: 8px 10px;
+  border: 1px solid var(--border-color);
+  border-radius: 8px;
+  background: color-mix(in srgb, var(--input-background) 88%, var(--primary-color) 12%);
+  color: var(--text-color-muted);
+  font-size: 0.75rem;
+  line-height: 1.35;
+}
+
+.sample-cycle-advisor-main {
+  display: flex;
+  align-items: center;
+  gap: 7px;
+  min-width: 0;
+  color: var(--text-color);
+  font-weight: 650;
+}
+
+.sample-cycle-advisor-main svg {
+  width: 0.8rem;
+  height: 0.8rem;
+  color: var(--primary-color);
+  flex: 0 0 auto;
+}
+
+.sample-cycle-advisor-detail {
+  margin-top: 4px;
+}
+
+.sample-cycle-advisor-action {
+  margin-left: auto;
+  padding: 3px 8px;
+  border: 1px solid var(--primary-color);
+  border-radius: 999px;
+  background: var(--primary-color-soft, rgba(0, 123, 255, 0.12));
+  color: var(--primary-color);
+  font-size: 0.72rem;
+  font-weight: 700;
+  line-height: 1.25;
+  cursor: pointer;
+}
+
+.sample-cycle-advisor-action:hover:not(:disabled) {
+  background: var(--primary-color);
+  color: #fff;
+}
+
+.sample-cycle-advisor-action:disabled {
+  cursor: not-allowed;
+  opacity: 0.55;
+}
+
+.sample-cycle-advisor.is-clean {
+  background: color-mix(in srgb, var(--input-background) 92%, #1f9d55 8%);
+}
+
 /* --- Custom Dropdown (canonical, shared) --- */
 .custom-dropdown-container {
   position: relative;

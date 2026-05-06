@@ -589,6 +589,145 @@ class CalibrationConsumer(AsyncWebsocketConsumer):
     def _take_one_reading(self, instrument):
         return instrument.read_instrument()
 
+    @staticmethod
+    def _project_dc_from_ripple(samples, frequency, harmonics=2):
+        """Recover the DC component from a noisy time-series that contains a
+        coherent thermal ripple at exactly ``2 * frequency`` Hz.
+
+        Background (the math, in one place so future maintainers can audit it):
+
+          1. The bench drives a single-junction TVC with v(t) = V_pk * sin(wt),
+             w = 2*pi*frequency. The TVC heater dissipates instantaneous power
+             p(t) = v(t)**2 / R, so by the cosine-squared identity::
+
+                p(t) = (V_pk**2 / 2R) * (1 - cos(2 w t))
+
+             The TVC's thermocouple temperature, and therefore the DC voltage
+             read by the 34420A, is a low-pass-filtered copy of p(t). The
+             unfiltered components are exactly the DC term we want plus a
+             coherent tone at 2f. Higher harmonics (4f, 6f, ...) creep in only
+             via TVC nonlinearity; in practice 2f dominates and a small 4f
+             cleanup helps at low currents.
+
+          2. We have N timestamped readings ``y_i`` taken at irregular times
+             ``t_i``. Standard "average all of them" implicitly assumes the 2f
+             tone integrates to zero over the capture window, which is only
+             true when the window spans exactly an integer number of ripple
+             periods AND every NPLC sample also covers an integer number of
+             ripple periods. Neither holds in practice, so the arithmetic mean
+             is biased by however much ripple was unbalanced at the window
+             edges.
+
+          3. Instead of relying on cancellation, we *fit* the model::
+
+                y_i ~ a + b*t' + c*cos(2*w*t_i) + d*sin(2*w*t_i)      (4 param)
+                       + e*cos(4*w*t_i) + f*sin(4*w*t_i)               (6 param)
+
+             where t' = t_i - T/2 is mean-centered time (zero at window
+             midpoint). The linear ``b*t'`` term captures slow thermal drift
+             during the capture window — important because cold TVCs (e.g.
+             running at 0.8 V on a 1.0 V rated device, or partial-load shunt
+             tests) may still be settling even after the minimum dwell time.
+             Mean-centering ensures the constant ``a`` gives DC at the window
+             midpoint, not the start, which is the more representative value
+             under a drift scenario.
+
+             via ordinary least squares. The closed-form solution is one
+             ``numpy.linalg.lstsq`` call. The returned ``a`` is the DC
+             estimate at the window midpoint; all other coefficients describe
+             drift and ripple shape and are discarded. This is mathematically
+             a single-bin DFT evaluated on a non-uniform grid: it does not
+             assume integer-cycle alignment, it does not care that NPLC
+             integration smeared each sample, and it does not care that the
+             11 Hz analog filter on the 34420A shifted the ripple's phase -
+             the cos/sin basis vectors absorb all of that, and the constant
+             column captures only the DC.
+
+          4. As a quality metric we also return the residual RMS::
+
+                fit_residual_ppm = sqrt(SSR / (N-K)) / |a| * 1e6
+
+             where SSR = sum((y_i - y_hat_i)**2) and K is the parameter count.
+             This is the *random* noise that the fit could not explain and is
+             the honest replacement for "stdev of the mean" on LF AC points -
+             unlike stdev, it is not contaminated by the ripple itself.
+
+        Args:
+            samples: list of dicts, each shaped like
+                ``{'value': float, 'timestamp': float_seconds}``
+                (matches the ``std_point`` / ``ti_point`` records assembled in
+                ``_perform_single_measurement``).
+            frequency: the AC source's fundamental frequency (Hz). The ripple
+                lives at ``2 * frequency``.
+            harmonics: 1 fits only the 2f tone (4 LSQ parameters: DC + drift +
+                2f); 2 also fits the 4f tone (6 parameters); 3 adds 6f (8
+                parameters). Defaults to 2 for safety.
+
+        Returns:
+            ``(dc_value, fit_residual_ppm, n_used)`` tuple. ``dc_value`` is the
+            recovered DC voltage in the same units as ``samples[i]['value']``.
+            ``fit_residual_ppm`` is float('inf') when the fit is
+            under-determined; in that case ``dc_value`` falls back to the
+            arithmetic mean so the caller still gets *something* usable.
+            ``n_used`` is the count of samples that survived NaN filtering.
+        """
+        cleaned = [
+            (float(s['timestamp']), float(s['value']))
+            for s in samples
+            if s is not None
+            and s.get('value') is not None
+            and s.get('timestamp') is not None
+            and math.isfinite(s.get('value', float('nan')))
+        ]
+        n = len(cleaned)
+        if n == 0:
+            return 0.0, float('inf'), 0
+
+        # +1 for the linear drift term; model is now: a + b*t' + ripple harmonics
+        n_params = 2 + 2 * max(1, int(harmonics))
+        if n < n_params + 1 or frequency <= 0:
+            mean_val = sum(v for _, v in cleaned) / n
+            return mean_val, float('inf'), n
+
+        t = np.array([t for t, _ in cleaned], dtype=np.float64)
+        y = np.array([v for _, v in cleaned], dtype=np.float64)
+        # Re-zero time so the cos/sin arguments stay numerically small.
+        t -= t[0]
+        # Mean-center time for the drift column: t_drift = 0 at the window
+        # midpoint, so the constant term 'a' gives DC at the window center
+        # rather than the start — the more representative value when the TVC
+        # is still slowly settling during the capture window.
+        t_drift = t - (t[-1] / 2.0)
+
+        ripple_omega = 2.0 * 2.0 * math.pi * float(frequency)
+
+        cols = [np.ones_like(t)]
+        cols.append(t_drift)  # linear drift term — captures slow thermal settling
+        for h in range(1, int(harmonics) + 1):
+            cols.append(np.cos(h * ripple_omega * t))
+            cols.append(np.sin(h * ripple_omega * t))
+        design = np.column_stack(cols)
+
+        try:
+            coeffs, _residuals, rank, _sv = np.linalg.lstsq(design, y, rcond=None)
+        except np.linalg.LinAlgError:
+            return float(y.mean()), float('inf'), n
+
+        if rank < n_params:
+            return float(y.mean()), float('inf'), n
+
+        dc_value = float(coeffs[0])
+        y_hat = design @ coeffs
+        ssr = float(np.sum((y - y_hat) ** 2))
+        dof = max(n - n_params, 1)
+        residual_rms = math.sqrt(ssr / dof)
+        fit_residual_ppm = (
+            (residual_rms / abs(dc_value)) * 1_000_000.0
+            if abs(dc_value) > 1e-12
+            else float('inf')
+        )
+        return dc_value, fit_residual_ppm, n
+
     # --- Server-side live buffer helpers ---
     # Mirror the frontend's InstrumentContext live state inside the consumer so
     # any viewer joining mid-run gets an authoritative snapshot from a single
@@ -928,13 +1067,37 @@ class CalibrationConsumer(AsyncWebsocketConsumer):
         freq = float(test_point_data.get('frequency', 0))
         return 0 < freq <= 40
 
-    def _cycle_average_duration(self, frequency, measurement_params):
-        """Calculates the time required to capture the requested number of cycles."""
-        params = measurement_params or {}
-        cycles = float(params.get('cycles_to_average', 40))
+    def _cycle_average_duration(self, frequency, num_samples, nplc_setting=None, line_freq=60.0):
+        """Compute the wall-clock duration of the LF AC capture window.
+        
+        Translates the user's requested number of samples into a time duration 
+        based on NPLC speed, pads for GPIB overhead, and mathematically snaps
+        up to the nearest perfect integer cycle to guarantee matrix orthogonality.
+        """
         if frequency <= 0:
             return 1.0
-        duration = cycles / frequency
+
+        target_samples = float(num_samples)
+        
+        # Calculate time per reading based on NPLC
+        if nplc_setting is not None:
+            try:
+                nplc_seconds = float(nplc_setting) / float(line_freq)
+            except (TypeError, ValueError):
+                nplc_seconds = 0.333
+        else:
+            nplc_seconds = 0.333
+
+        # 1. Raw time required to gather the requested samples
+        raw_target_time = target_samples * nplc_seconds
+        
+        # 2. Add 1.0s buffer for analog filter settle and GPIB overhead
+        safe_target_time = raw_target_time + 1.0
+
+        # 3. Snap up to the next perfect integer cycle
+        required_cycles = math.ceil(safe_target_time * frequency)
+        duration = required_cycles / frequency
+
         return max(duration, 1.0)
 
     async def _perform_single_measurement(self, reading_type_base, num_samples, test_point_data, bypass_tvc, amplifier_range, source_instrument, std_reader_instrument, ti_reader_instrument, amplifier_instrument=None, settling_time=0, nplc_setting=None, measurement_params=None):
@@ -968,7 +1131,10 @@ class CalibrationConsumer(AsyncWebsocketConsumer):
 
         # --- Low Frequency AC Detection ---
         is_lf_ac = self._is_low_frequency_ac(reading_type_base, test_point_data)
-        lf_mode_enabled = measurement_params.get('low_frequency_ac_mode', True)
+        lf_settings_enabled = bool(measurement_params.get('enable_low_frequency_settings', False))
+        effective_lf_ac = is_lf_ac and lf_settings_enabled
+        enable_11hz_filter = effective_lf_ac and bool(measurement_params.get('enable_11hz_filter', False))
+        hp_enabled = effective_lf_ac and bool(measurement_params.get('lf_harmonic_projection', False))
 
         # --- 2. Determine Expected TVC Output Voltage ---
         # Used strictly for the 34420A on the real workbench to safely engage the analog filter
@@ -984,10 +1150,10 @@ class CalibrationConsumer(AsyncWebsocketConsumer):
         for instrument in instruments_to_config:
             if isinstance(instrument, Instrument34420A) and nplc_setting is not None:
                 await sync_to_async(instrument.set_integration, thread_sensitive=True)(setting=nplc_setting)
-                # Should always be less than roughly 12 mV
                 await sync_to_async(instrument.device.write, thread_sensitive=True)(f"SENSe:VOLTage:DC:RANGe {expected_tvc_output_v}")
-                # WORKBENCH: The 34420A measures TVCs natively. Engage analog filter for LF AC if under 100mV.
-                if is_lf_ac and expected_tvc_output_v <= 0.12:
+                
+                # WORKBENCH: Engage analog filter for LF AC if explicitly requested and under 120mV.
+                if effective_lf_ac and enable_11hz_filter and expected_tvc_output_v <= 0.12:
                     try:
                         await sync_to_async(instrument.device.write, thread_sensitive=True)("INP:FILT:TYPE ANAL")
                         await sync_to_async(instrument.device.write, thread_sensitive=True)("INP:FILT:STAT ON")
@@ -995,7 +1161,6 @@ class CalibrationConsumer(AsyncWebsocketConsumer):
                         print(f"Failed to enable 34420A analog filter: {e}")
                 else:
                     try:
-                        # Ensure the filter is turned OFF for normal high-frequency/DC points
                         await sync_to_async(instrument.device.write, thread_sensitive=True)("INP:FILT:STAT OFF")
                     except Exception as e:
                         pass
@@ -1005,7 +1170,7 @@ class CalibrationConsumer(AsyncWebsocketConsumer):
                 await sync_to_async(instrument.set_range, thread_sensitive=True)(value=abs_source_drive)
                 await sync_to_async(instrument.resource.write, thread_sensitive=True)("HIRES OFF")
                 # Automatically apply SLOW digital filter for LF AC to combat ripple
-                if is_lf_ac:
+                if effective_lf_ac:
                     await sync_to_async(instrument.resource.write, thread_sensitive=True)("DFILT SLOW,COARSE")
                 else:
                     await sync_to_async(instrument.resource.write, thread_sensitive=True)("DFILT FAST,COARSE")
@@ -1026,7 +1191,7 @@ class CalibrationConsumer(AsyncWebsocketConsumer):
         
         # Enforce longer settling times for LF AC
         actual_settling_time = float(settling_time)
-        if is_lf_ac and lf_mode_enabled:
+        if effective_lf_ac:
             lf_settling = float(measurement_params.get('min_low_freq_settling_time', 30.0))
             if lf_settling > actual_settling_time:
                 actual_settling_time = lf_settling
@@ -1047,11 +1212,30 @@ class CalibrationConsumer(AsyncWebsocketConsumer):
             return len(final_std_readings) if target_tvc in ['STD', 'BOTH'] else len(final_ti_readings)
 
         # =====================================================================
-        # BRANCH 1: LOW FREQUENCY AC CYCLE AVERAGING
+        # BRANCH 1: LOW FREQUENCY AC - HARMONIC PROJECTION
         # =====================================================================
-        if is_lf_ac and lf_mode_enabled:
-            duration = self._cycle_average_duration(frequency, measurement_params)
-            await self.broadcast(text_data=json.dumps({'type': 'status_update', 'message': f"Averaging {frequency}Hz over {duration:.1f}s..."}))
+        # The TVC produces DC + a coherent 2f thermal ripple. We collect
+        # timestamped samples for a window long enough to (a) span several
+        # ripple periods and (b) gather >= ``lf_min_samples`` readings at the
+        # operator's chosen NPLC, then either:
+        #   * fit  y = a + sum_h ( b_h cos(2 pi 2f h t) + c_h sin(...) )
+        #     and report ``a`` as the DC answer (default), or
+        #   * fall back to the legacy arithmetic mean if the operator turned
+        #     ``lf_harmonic_projection`` off for an A/B comparison.
+        # See ``_project_dc_from_ripple`` for the full derivation.
+        if effective_lf_ac and hp_enabled:
+            harmonic_projection = True # Hardcoded to true since we only enter this branch if enabled
+            harmonics = int(measurement_params.get('lf_harmonics', 2))
+            
+            # Calculate the mathematically perfect duration
+            duration = self._cycle_average_duration(
+                frequency, num_samples, nplc_setting=nplc_setting,
+            )
+
+            await self.broadcast(text_data=json.dumps({
+                'type': 'status_update',
+                'message': f"Capturing {frequency}Hz for {duration:.1f}s (Harmonic Projection)...",
+            }))
 
             start_time = time.time()
             collected_std = []
@@ -1065,7 +1249,12 @@ class CalibrationConsumer(AsyncWebsocketConsumer):
 
                 results = await asyncio.gather(*tasks)
                 std_reading_val, ti_reading_val = results[0], results[1]
-                ts = time.time()
+                # Approximate the integration midpoint: the gather completes at
+                # end-of-integration, so subtract half the integration window.
+                # This matters for the drift term, which evaluates at a specific
+                # position within the capture window.
+                half_integration = float(nplc_setting or 20) / (60.0 * 2.0)
+                ts = time.time() - half_integration
 
                 std_point = {'value': std_reading_val, 'timestamp': ts, 'is_stable': True} if std_reading_val is not None else None
                 ti_point = {'value': ti_reading_val, 'timestamp': ts, 'is_stable': True} if ti_reading_val is not None else None
@@ -1074,29 +1263,67 @@ class CalibrationConsumer(AsyncWebsocketConsumer):
                 if ti_point: collected_ti.append(ti_point)
                 sample_count += 1
 
-                # Mirror to live buffer so viewers get the data
                 self._buffer_append_sample(reading_type_base, std_point, ti_point, sample_count, sample_count)
-                
-                # Push to UI Chart without triggering the stability math
+
                 await self.broadcast(text_data=json.dumps({
                     'type': 'dual_reading_update',
                     'std_reading': std_point,
                     'ti_reading': ti_point,
                     'count': sample_count,
                     'stable_count': sample_count,
-                    'total': '∞', # UI display trick for continuous collection
+                    'total': '∞',
                     'stage': reading_type_base
                 }))
                 await asyncio.sleep(0.05)
 
-            # Once the duration completes, compress into a single array point (mean)
             if not self.stop_event.is_set():
-                if collected_std:
-                    mean_std = sum(p['value'] for p in collected_std) / len(collected_std)
-                    final_std_readings.append({'value': mean_std, 'timestamp': time.time(), 'is_stable': True})
-                if collected_ti:
-                    mean_ti = sum(p['value'] for p in collected_ti) / len(collected_ti)
-                    final_ti_readings.append({'value': mean_ti, 'timestamp': time.time(), 'is_stable': True})
+                final_ts = time.time()
+
+                def _condense(points, label):
+                    """Project DC out of the ripple."""
+                    if not points:
+                        return None
+                    dc_value, residual_ppm, n_used = CalibrationConsumer._project_dc_from_ripple(
+                        points, frequency, harmonics=harmonics,
+                    )
+                    if math.isfinite(residual_ppm):
+                        note = (
+                            f"{label}: harmonic fit DC = {dc_value:.6g} "
+                            f"(residual {residual_ppm:.2f} ppm, N={n_used}, "
+                            f"{harmonics} harmonic{'s' if harmonics != 1 else ''})"
+                        )
+                    else:
+                        note = (
+                            f"{label}: harmonic fit fell back to mean = {dc_value:.6g} "
+                            f"(N={n_used}, fit under-determined)"
+                        )
+                    return dc_value, residual_ppm, note
+
+                std_summary = _condense(collected_std, 'STD')
+                ti_summary = _condense(collected_ti, 'TI')
+
+                if std_summary is not None:
+                    final_std_readings.append({'value': std_summary[0], 'timestamp': final_ts, 'is_stable': True})
+                if ti_summary is not None:
+                    final_ti_readings.append({'value': ti_summary[0], 'timestamp': final_ts, 'is_stable': True})
+
+                primary_summary = std_summary if (target_tvc in ['STD', 'BOTH'] and std_summary) else ti_summary
+                if primary_summary is not None:
+                    _dc, primary_residual_ppm, primary_note = primary_summary
+                    await self.broadcast(text_data=json.dumps({
+                        'type': 'sliding_window_update',
+                        'ppm': None if not math.isfinite(primary_residual_ppm) else primary_residual_ppm,
+                        'stdev_ppm': None if not math.isfinite(primary_residual_ppm) else primary_residual_ppm,
+                        'fit_residual_ppm': None if not math.isfinite(primary_residual_ppm) else primary_residual_ppm,
+                        'is_stable': True,
+                        'instability_events': 0,
+                        'max_retries': measurement_params.get('max_attempts', 0),
+                        'mode': 'harmonic_projection',
+                    }))
+                    await self.broadcast(text_data=json.dumps({
+                        'type': 'status_update',
+                        'message': primary_note,
+                    }))
 
         # =====================================================================
         # BRANCH 2: STANDARD SLIDING WINDOW (DC & High Freq AC)

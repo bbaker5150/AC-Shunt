@@ -15,6 +15,7 @@ db.sqlite3
 .pnp.js
 
 # IDE and Editor-specific
+.claude/
 .vscode/
 .idea/
 *.swp

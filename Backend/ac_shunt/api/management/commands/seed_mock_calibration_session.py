@@ -119,6 +119,11 @@ class Command(BaseCommand):
 
             tp_set = session.test_point_set
             pairs = [
+                # Low-frequency points exercise the harmonic-projection branch
+                # (Mock34420A injects synthetic 2f ripple at 0 < f <= 40 Hz).
+                (Decimal("1.0"), 10, -6),
+                (Decimal("1.0"), 20, -4),
+                (Decimal("1.0"), 40, -2),
                 (Decimal("1.0"), 60, 0),
                 (Decimal("1.0"), 1000, 2),
             ]

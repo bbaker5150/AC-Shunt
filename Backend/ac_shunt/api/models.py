@@ -174,6 +174,11 @@ class CalibrationSettings(models.Model):
     ignore_instability_after_lock = models.BooleanField(default=False)
     characterize_test_first = models.BooleanField(default=False)
     characterization_source = models.CharField(max_length=10, default="DC")
+    enable_low_frequency_settings = models.BooleanField(default=False)
+    lf_harmonic_projection = models.BooleanField(default=False)
+    enable_11hz_filter = models.BooleanField(default=True)
+    min_low_freq_settling_time = models.IntegerField(default=0, null=True, blank=True)
+    lf_harmonics = models.IntegerField(default=2, null=True, blank=True)
 
 class CalibrationReadings(models.Model):
 
