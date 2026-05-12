@@ -1,7 +1,7 @@
 import { useEffect, useRef, useState } from "react";
 
 const WS_BASE_URL =
-  process.env.REACT_APP_WS_BASE_URL ||
+  import.meta.env.VITE_WS_BASE_URL ||
   `ws://${window.location.hostname}:8000/ws`;
 
 const INITIAL_STATE = {

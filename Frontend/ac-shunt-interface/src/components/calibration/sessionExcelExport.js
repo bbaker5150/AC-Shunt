@@ -3,7 +3,6 @@
  * AC–DC summary and raw readings (long format).
  */
 import axios from "axios";
-import ExcelJS from "exceljs";
 import { API_BASE_URL } from "../../constants/constants";
 
 const READING_TYPES = [
@@ -334,6 +333,7 @@ export async function downloadFullSessionExcel({
     return { ok: false, error: "No test points to export." };
   }
 
+  const { default: ExcelJS } = await import("exceljs");
   const workbook = new ExcelJS.Workbook();
   workbook.creator = "AC Shunt Calibration";
   workbook.created = new Date();

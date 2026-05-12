@@ -195,7 +195,10 @@ function CalibrationChart({
     const finalLabels = [...new Set(allXLabels)].sort((a, b) => a - b);
 
     return {
-      processedChartData: { labels: finalLabels, datasets: finalChartDatasets },
+      processedChartData: {
+        labels: finalLabels,
+        datasets: finalChartDatasets,
+      },
       processedComparisonData: finalComparisonDatasets,
     };
   }, [chartData, comparisonData, yAxisUnit, hideUnstableReadings]);
@@ -311,6 +314,7 @@ function CalibrationChart({
 
             const dataIndex = activePoint.dataIndex;
             const datasetIndex = activePoint.datasetIndex;
+            const rawPoint = activePoint.raw;
             const footerLines = [];
             const unitLabel = yAxisUnit === "ppm" ? "PPM" : "V";
 
@@ -359,8 +363,7 @@ function CalibrationChart({
               }
             }
 
-            const timestamp =
-              chartData.datasets[datasetIndex]?.data[dataIndex]?.t;
+            const timestamp = rawPoint?.t;
             if (timestamp) {
               if (footerLines.length > 0) footerLines.push(" ");
               footerLines.push(`Date: ${timestamp.toLocaleDateString()}`);
@@ -383,27 +386,17 @@ function CalibrationChart({
     },
     elements: {
       point: {
-        radius: (context) => {
-          return context.raw?.is_stable === false ? 6 : 3;
-        },
-        pointStyle: (context) => {
-          if (context.raw?.is_stable === false) {
-            return "crossRot";
-          }
-          return "circle";
-        },
-        borderColor: (context) => {
-          if (context.raw?.is_stable === false) {
-            return unstableColor;
-          }
-          return context.dataset.borderColor;
-        },
-        backgroundColor: (context) => {
-          if (context.raw?.is_stable === false) {
-            return unstableBgColor;
-          }
-          return context.dataset.backgroundColor;
-        },
+        radius: (context) => (context.raw?.is_stable === false ? 6 : 3),
+        pointStyle: (context) =>
+          context.raw?.is_stable === false ? "crossRot" : "circle",
+        borderColor: (context) =>
+          context.raw?.is_stable === false
+            ? unstableColor
+            : context.dataset.borderColor,
+        backgroundColor: (context) =>
+          context.raw?.is_stable === false
+            ? unstableBgColor
+            : context.dataset.backgroundColor,
       },
     },
     scales: {

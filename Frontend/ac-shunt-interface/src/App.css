@@ -361,10 +361,10 @@ body {
 }
 
 .test-point-sidebar-content .test-point-list {
-  flex: 1 1 0;
-  /* min-height: 0 is critical: without it, this flex child refuses to
-     shrink below the combined height of its children, which cancels
-     out overflow-y: auto and lets the content grow during a drag. */
+  /* flex-basis: auto so the list takes its content height even when the
+     ancestor doesn't supply a definite height (.app-sidebar is fit-content
+     here, so flex-basis: 0 + flex-grow: 1 would collapse to 0). */
+  flex: 1 1 auto;
   min-height: 0;
   padding-right: 4px;
   display: flex;

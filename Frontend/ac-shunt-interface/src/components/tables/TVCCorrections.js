@@ -1,5 +1,4 @@
 import React, { useState, useEffect } from 'react';
-import * as XLSX from 'xlsx';
 import axios from 'axios';
 import { useInstruments } from '../../contexts/InstrumentContext';
 import { API_BASE_URL } from '../../constants/constants';
@@ -120,6 +119,7 @@ const TVCCorrections = ({ handleClose, showNotification }) => {
                 reader.readAsArrayBuffer(file);
             });
 
+            const XLSX = await import('xlsx');
             const data = new Uint8Array(fileData);
             const workbook = XLSX.read(data, { type: 'array' });
             const sheetName = workbook.SheetNames[0];
