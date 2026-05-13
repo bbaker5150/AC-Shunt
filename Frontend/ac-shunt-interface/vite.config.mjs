@@ -6,15 +6,9 @@ import path from 'node:path';
 // - base: './' so the built index.html loads assets via relative URLs
 //   when Electron opens it through file://.
 // - outDir: 'build' to preserve the path electron-builder + serve:build expect.
-// - JS files in this repo contain JSX; configure esbuild + plugin-react to
-//   treat .js as JSX so we don't have to rename every file.
 export default defineConfig({
   base: './',
-  plugins: [
-    react({
-      include: /\.(jsx?|tsx?)$/,
-    }),
-  ],
+  plugins: [react()],
   server: {
     host: '0.0.0.0',
     port: 3000,
@@ -36,18 +30,6 @@ export default defineConfig({
           dnd: ['@dnd-kit/core', '@dnd-kit/sortable', '@dnd-kit/utilities'],
           gsap: ['gsap'],
         },
-      },
-    },
-  },
-  esbuild: {
-    loader: 'jsx',
-    include: [/src\/.*\.jsx?$/],
-    exclude: [],
-  },
-  optimizeDeps: {
-    esbuildOptions: {
-      loader: {
-        '.js': 'jsx',
       },
     },
   },
