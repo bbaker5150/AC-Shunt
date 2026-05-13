@@ -39,6 +39,10 @@ function ConfigurationModal({
   const [shuntRange, setShuntRange] = useState("");
   const [shuntRangeUnit, setShuntRangeUnit] = useState("A");
   const [amplifierRange, setAmplifierRange] = useState("");
+  // Pair-cycle aggregation mode for this session. ABBA (reverse pairing)
+  // is the default and cancels linear drift across the run; toggle off to
+  // fall back to index pairing for side-by-side comparison.
+  const [useAbbaPairing, setUseAbbaPairing] = useState(true);
   const [filteredCurrents, setFilteredCurrents] = useState([]);
   const [selectedFrequencies, setSelectedFrequencies] = useState(new Set());
 
@@ -68,6 +72,12 @@ function ConfigurationModal({
       setShuntRange(shuntDisplay.value);
       setShuntRangeUnit(shuntDisplay.unit);
       setAmplifierRange(configurations?.amplifier_range || "");
+      // Default true when the field is absent (older sessions).
+      setUseAbbaPairing(
+        configurations?.use_abba_pairing === undefined
+          ? true
+          : Boolean(configurations.use_abba_pairing)
+      );
 
       if (uniqueTestPoints && uniqueTestPoints.length > 0) {
         const uniqueCurrents = new Set(uniqueTestPoints.map((p) => p.current));
@@ -183,6 +193,7 @@ function ConfigurationModal({
       configurations: {
         ac_shunt_range: shuntValueInAmps,
         amplifier_range: parseFloat(amplifierRange) || null,
+        use_abba_pairing: useAbbaPairing,
       },
     };
     try {
@@ -348,6 +359,7 @@ function ConfigurationModal({
                   placeholder="Auto-selected from current"
                 />
               </div>
+
 
               <div className="form-section full-width">
                 <label htmlFor="input-current">Input current</label>

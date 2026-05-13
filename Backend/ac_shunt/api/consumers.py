@@ -60,7 +60,17 @@ CALIBRATION_HOST_ONLY_COMMANDS = frozenset({
 })
 
 from npsl_tools.instruments import Instrument11713C, Instrument3458A, Instrument5730A, Instrument5790B, Instrument34420A, Instrument8100
-from .models import CalibrationReadings, CalibrationResults, CalibrationSession, CalibrationSettings, TestPoint, TestPointSet
+from .models import (
+    CalibrationReadings,
+    CalibrationResults,
+    CalibrationResultsCycle,
+    CalibrationSession,
+    CalibrationSettings,
+    TestPoint,
+    TestPointSet,
+    compute_delta_uut_ppm,
+    welford_mean_stddev,
+)
 from .mock_instruments import is_mock_address, mock_isr_for_model
 from .mock_calibration_instruments import resolve_calibration_instrument
 from . import outbox as outbox_module
@@ -326,6 +336,13 @@ class CalibrationConsumer(AsyncWebsocketConsumer):
         return sup.confirmation_event
 
     @property
+    def flip_resume_event(self) -> asyncio.Event:
+        sup = self.supervisor
+        if sup is None:
+            sup = self._ensure_local_supervisor_stub()
+        return sup.flip_resume_event
+
+    @property
     def confirmation_status(self):
         sup = self.supervisor
         if sup is None:
@@ -510,6 +527,19 @@ class CalibrationConsumer(AsyncWebsocketConsumer):
                 )
             return
 
+        if command == 'paired_run_resume':
+            # Operator confirmed they flipped the AC-DC adapter. Release the
+            # paired-batch task from its mid-run pause so the reverse pass
+            # starts. Like amplifier confirmation, this is routed via the
+            # supervisor so a host that reconnected mid-run still works.
+            if self.supervisor is not None:
+                await self.supervisor.signal_flip_resume()
+                await self.broadcast(text_data=json.dumps({
+                    'type': 'paired_run_resuming',
+                    'message': 'Adapter flip acknowledged — starting reverse pass.',
+                }))
+            return
+
         if command == 'stop_collection':
             if self.supervisor is not None:
                 await self.supervisor.stop_task()
@@ -530,6 +560,7 @@ class CalibrationConsumer(AsyncWebsocketConsumer):
             'start_full_calibration': ('full_calibration', self.run_full_calibration_sequence),
             'start_single_stage_batch': ('single_stage_batch', self.run_single_stage_batch),
             'start_full_calibration_batch': ('full_calibration_batch', self.run_full_calibration_batch),
+            'start_paired_batch': ('paired_batch', self.run_paired_batch),
             'tvc_characterization': ('tvc_characterization', self.run_tvc_characterization),
         }
         if command in task_dispatch:
@@ -1100,7 +1131,139 @@ class CalibrationConsumer(AsyncWebsocketConsumer):
 
         return max(duration, 1.0)
 
-    async def _perform_single_measurement(self, reading_type_base, num_samples, test_point_data, bypass_tvc, amplifier_range, source_instrument, std_reader_instrument, ti_reader_instrument, amplifier_instrument=None, settling_time=0, nplc_setting=None, measurement_params=None):
+    # ------------------------------------------------------------------
+    # N-cycle helpers (Type A uncertainty for AC-DC difference)
+    # ------------------------------------------------------------------
+    def _tag_readings_with_cycle(self, readings, cycle_index):
+        """Attach a 1-based `cycle` key to every reading dict in-place and
+        return the same list. Idempotent — if a reading already has a
+        `cycle`, leave it alone (e.g. for re-saves or merges)."""
+        if cycle_index is None:
+            return readings
+        for r in readings or []:
+            if isinstance(r, dict) and 'cycle' not in r:
+                r['cycle'] = cycle_index
+        return readings
+
+    @database_sync_to_async
+    def _read_existing_phase_readings(self, test_point_data, reading_type_full):
+        """Return the currently-persisted JSON list for a phase, or [] if
+        the row doesn't exist yet. Used to merge prior cycles' readings
+        before the outbox overwrites the field."""
+        tp_id = (test_point_data or {}).get('id')
+        try:
+            if tp_id:
+                readings = CalibrationReadings.objects.get(test_point_id=tp_id)
+            else:
+                tps = TestPointSet.objects.get(session_id=self.session_id)
+                tp = TestPoint.objects.get(
+                    test_point_set=tps,
+                    current=test_point_data.get('current'),
+                    frequency=test_point_data.get('frequency'),
+                    direction=test_point_data.get('direction', 'Forward'),
+                )
+                readings = CalibrationReadings.objects.get(test_point=tp)
+        except (CalibrationReadings.DoesNotExist, TestPointSet.DoesNotExist, TestPoint.DoesNotExist):
+            return []
+        return getattr(readings, f"{reading_type_full}_readings", []) or []
+
+    @database_sync_to_async
+    def _finalize_cycle_sync(self, test_point_data, cycle_index):
+        """Compute and persist one CalibrationResultsCycle row from the
+        readings that were just captured for `cycle_index`.
+
+        Pulls the readings JSON, slices by `cycle == cycle_index`,
+        Welfords per-phase avg/stddev, and uses the shared pure δ
+        formula. Idempotent: re-running for the same (test point, cycle)
+        updates the existing row."""
+        tp_id = (test_point_data or {}).get('id')
+        if not tp_id:
+            return None
+        try:
+            tp = TestPoint.objects.get(pk=tp_id)
+            readings_obj = CalibrationReadings.objects.get(test_point=tp)
+        except (TestPoint.DoesNotExist, CalibrationReadings.DoesNotExist):
+            return None
+
+        results, _ = CalibrationResults.objects.get_or_create(test_point=tp)
+        # Make sure the gain / correction fields are populated so the per-
+        # cycle δ uses the same eta / delta_std / delta_ti / delta_std_known
+        # the aggregate calculation would use.
+        results.fetch_automatic_corrections()
+        results.refresh_from_db()
+
+        phase_keys = (
+            'std_ac_open', 'std_dc_pos', 'std_dc_neg', 'std_ac_close',
+            'ti_ac_open', 'ti_dc_pos', 'ti_dc_neg', 'ti_ac_close',
+        )
+        cycle_row, _ = CalibrationResultsCycle.objects.get_or_create(
+            results=results, cycle_index=cycle_index,
+        )
+
+        phase_avgs = {}
+        for phase in phase_keys:
+            raw = getattr(readings_obj, f"{phase}_readings", None) or []
+            # Treat un-tagged legacy readings as cycle 1 so old data still renders.
+            cycle_vals = [
+                r['value']
+                for r in raw
+                if isinstance(r, dict)
+                and 'value' in r
+                and r.get('is_stable', True)
+                and int(r.get('cycle', 1)) == cycle_index
+            ]
+            mean_val, std_dev = welford_mean_stddev(cycle_vals)
+            setattr(cycle_row, f"{phase}_avg", mean_val)
+            setattr(cycle_row, f"{phase}_stddev", std_dev)
+            phase_avgs[f"{phase}_avg"] = mean_val
+
+        cycle_row.delta_uut_ppm = compute_delta_uut_ppm(
+            phase_avgs,
+            eta_std=results.eta_std,
+            eta_ti=results.eta_ti,
+            delta_std=results.delta_std,
+            delta_ti=results.delta_ti,
+            delta_std_known=results.delta_std_known,
+        )
+        cycle_row.save()
+
+        # Roll up onto the parent results row.
+        results.recompute_cycle_aggregates()
+        return cycle_row.delta_uut_ppm
+
+    async def _finalize_cycle(self, test_point_data, cycle_index):
+        """Async wrapper that also broadcasts a status update so the UI
+        can populate the new statistics modal in real time."""
+        delta = await self._finalize_cycle_sync(test_point_data, cycle_index)
+        try:
+            await self.broadcast(text_data=json.dumps({
+                'type': 'cycle_finalized',
+                'tpId': (test_point_data or {}).get('id'),
+                'cycle_index': cycle_index,
+                'delta_uut_ppm': delta,
+            }))
+        except Exception:
+            pass
+        return delta
+
+    async def _resolve_n_cycles(self, test_point_data, fallback=3):
+        """Pick the N for a test point: explicit setting on the TestPoint
+        wins, then `data.get('n_cycles')` (frontend per-run override),
+        then fallback. Floor at 2."""
+        tp_id = (test_point_data or {}).get('id')
+        if tp_id:
+            n = await database_sync_to_async(
+                lambda: CalibrationSettings.objects.filter(test_point_id=tp_id)
+                .values_list('n_cycles', flat=True).first()
+            )()
+            if n:
+                return max(2, int(n))
+        override = (test_point_data or {}).get('n_cycles')
+        if override:
+            return max(2, int(override))
+        return max(2, int(fallback))
+
+    async def _perform_single_measurement(self, reading_type_base, num_samples, test_point_data, bypass_tvc, amplifier_range, source_instrument, std_reader_instrument, ti_reader_instrument, amplifier_instrument=None, settling_time=0, nplc_setting=None, measurement_params=None, cycle_index=None):
         """
         Refactored measurement logic: 
         1. Phase 1 (Search): Discards samples (slides window) until initial stability is found.
@@ -1490,12 +1653,27 @@ class CalibrationConsumer(AsyncWebsocketConsumer):
 
                 await asyncio.sleep(0.05)
         
-        # Save the final (locked) sets to the database (respects skip targets)
+        # Save the final (locked) sets to the database (respects skip targets).
+        # In N-cycle mode (cycle_index is set), tag each new reading with the
+        # cycle ordinal and merge with whatever was already persisted from
+        # earlier cycles so the outbox's overwrite-on-save doesn't drop them.
         if not self.stop_event.is_set():
             if target_tvc in ['STD', 'BOTH'] and final_std_readings:
-                await self.save_readings_to_db(f"std_{reading_type_base}", final_std_readings, test_point_data)
+                payload = final_std_readings
+                rt_full = f"std_{reading_type_base}"
+                if cycle_index is not None:
+                    self._tag_readings_with_cycle(payload, cycle_index)
+                    existing = await self._read_existing_phase_readings(test_point_data, rt_full)
+                    payload = list(existing) + payload
+                await self.save_readings_to_db(rt_full, payload, test_point_data)
             if target_tvc in ['TI', 'BOTH'] and final_ti_readings:
-                await self.save_readings_to_db(f"ti_{reading_type_base}", final_ti_readings, test_point_data)
+                payload = final_ti_readings
+                rt_full = f"ti_{reading_type_base}"
+                if cycle_index is not None:
+                    self._tag_readings_with_cycle(payload, cycle_index)
+                    existing = await self._read_existing_phase_readings(test_point_data, rt_full)
+                    payload = list(existing) + payload
+                await self.save_readings_to_db(rt_full, payload, test_point_data)
             
             await self.broadcast(text_data=json.dumps({
                 'type': 'connection_sync',
@@ -1677,38 +1855,80 @@ class CalibrationConsumer(AsyncWebsocketConsumer):
 
             settling_time, num_samples, nplc_setting, measurement_params = float(data.get('settling_time', 5.0)), data.get('num_samples', 8), data.get('nplc'), data.get('measurement_params')
 
-            for stage in ['ac_open', 'dc_pos', 'dc_neg', 'ac_close']:
-                if self.stop_event.is_set(): break
-                
-                switch_driver = None
-                try:
-                    if session_details.get('switch_driver_address'):
-                        switch_driver = await sync_to_async(_inst, thread_sensitive=True)(Instrument11713C, gpib=session_details.get('switch_driver_address'))
-                        required_switch_state = 'AC' if 'ac' in stage else 'DC'
-                        await self.broadcast(text_data=json.dumps({'type': 'status_update', 'message': f"Switching to {required_switch_state} source..."}))
-                        if required_switch_state == 'AC': await sync_to_async(switch_driver.select_ac_source, thread_sensitive=True)()
-                        else: await sync_to_async(switch_driver.select_dc_source, thread_sensitive=True)()
-                        await self.broadcast(text_data=json.dumps({'type': 'switch_status_update', 'active_source': required_switch_state}))
-                        await asyncio.sleep(1)
+            n_cycles = await self._resolve_n_cycles(data.get('test_point'), fallback=data.get('n_cycles') or 3)
 
-                    source_instrument = ac_source if 'ac' in stage else dc_source
-                    if not source_instrument: raise Exception(f"Required {'AC' if 'ac' in stage else 'DC'} Source is not assigned.")
-                    
-                    self._buffer_set_stage(stage, tp_id=(data.get('test_point') or {}).get('id'), total=num_samples)
-                    await self.broadcast(text_data=json.dumps({'type': 'calibration_stage_update', 'stage': stage, 'total': num_samples}))
-                    
-                    success = await self._perform_single_measurement(stage, num_samples, data.get('test_point'), data.get('bypass_tvc'), data.get('amplifier_range'), source_instrument, std_reader, ti_reader, amplifier, settling_time, nplc_setting, measurement_params)
-                    
-                    # Stop sequence if measurement fails due to instability limits
-                    if not success: 
-                        if not self.stop_event.is_set():
-                            await self.broadcast(text_data=json.dumps({'type': 'error', 'message': f"Sequence aborted: Stability limit reached on {stage}."}))
-                        break 
-                finally:
-                    if switch_driver and hasattr(switch_driver, 'close'): await sync_to_async(switch_driver.close, thread_sensitive=True)()
-            
-            if not self.stop_event.is_set():
-                await self.broadcast(text_data=json.dumps({'type': 'collection_finished', 'message': 'All readings complete.'}))
+            cycles_completed = False
+            for cycle_index in range(1, n_cycles + 1):
+                if self.stop_event.is_set(): break
+
+                await self.broadcast(text_data=json.dumps({
+                    'type': 'cycle_progress_update',
+                    'cycle_index': cycle_index,
+                    'total_cycles': n_cycles,
+                    'tpId': (data.get('test_point') or {}).get('id'),
+                }))
+                await self.broadcast(text_data=json.dumps({
+                    'type': 'status_update',
+                    'message': f"Cycle {cycle_index} of {n_cycles}",
+                }))
+
+                cycle_aborted = False
+                for stage in ['ac_open', 'dc_pos', 'dc_neg', 'ac_close']:
+                    if self.stop_event.is_set(): break
+
+                    switch_driver = None
+                    try:
+                        if session_details.get('switch_driver_address'):
+                            switch_driver = await sync_to_async(_inst, thread_sensitive=True)(Instrument11713C, gpib=session_details.get('switch_driver_address'))
+                            required_switch_state = 'AC' if 'ac' in stage else 'DC'
+                            await self.broadcast(text_data=json.dumps({'type': 'status_update', 'message': f"Switching to {required_switch_state} source..."}))
+                            if required_switch_state == 'AC': await sync_to_async(switch_driver.select_ac_source, thread_sensitive=True)()
+                            else: await sync_to_async(switch_driver.select_dc_source, thread_sensitive=True)()
+                            await self.broadcast(text_data=json.dumps({'type': 'switch_status_update', 'active_source': required_switch_state}))
+                            await asyncio.sleep(1)
+
+                        source_instrument = ac_source if 'ac' in stage else dc_source
+                        if not source_instrument: raise Exception(f"Required {'AC' if 'ac' in stage else 'DC'} Source is not assigned.")
+
+                        self._buffer_set_stage(stage, tp_id=(data.get('test_point') or {}).get('id'), total=num_samples)
+                        await self.broadcast(text_data=json.dumps({'type': 'calibration_stage_update', 'stage': stage, 'total': num_samples, 'cycle_index': cycle_index}))
+
+                        success = await self._perform_single_measurement(
+                            stage, num_samples, data.get('test_point'),
+                            data.get('bypass_tvc'), data.get('amplifier_range'),
+                            source_instrument, std_reader, ti_reader, amplifier,
+                            settling_time, nplc_setting, measurement_params,
+                            cycle_index=cycle_index,
+                        )
+
+                        # Stop sequence if measurement fails due to instability limits
+                        if not success:
+                            if not self.stop_event.is_set():
+                                await self.broadcast(text_data=json.dumps({'type': 'error', 'message': f"Sequence aborted on cycle {cycle_index}: Stability limit reached on {stage}."}))
+                            cycle_aborted = True
+                            break
+                    finally:
+                        if switch_driver and hasattr(switch_driver, 'close'): await sync_to_async(switch_driver.close, thread_sensitive=True)()
+
+                if cycle_aborted or self.stop_event.is_set():
+                    break
+
+                # All four phases of this cycle completed — persist per-cycle results.
+                await self._finalize_cycle(data.get('test_point'), cycle_index)
+
+                if cycle_index == n_cycles:
+                    cycles_completed = True
+
+            if cycles_completed and not self.stop_event.is_set():
+                # If this single-direction run was the Reverse half of a pair
+                # whose Forward already has cycles, recompute the pair-level
+                # aggregate so the headline updates without needing the new
+                # paired batch flow.
+                await self._maybe_recompute_pair_for_single_direction(data.get('test_point'))
+                await self.broadcast(text_data=json.dumps({'type': 'collection_finished', 'message': f'All {n_cycles} cycles complete.'}))
+            elif not self.stop_event.is_set():
+                # Partial completion (one cycle aborted mid-run); still notify so UI unblocks.
+                await self.broadcast(text_data=json.dumps({'type': 'collection_finished', 'message': 'Collection ended early.'}))
 
         except asyncio.CancelledError:
             print(f"Collection task cancelled for session {self.session_id}.")
@@ -1794,45 +2014,71 @@ class CalibrationConsumer(AsyncWebsocketConsumer):
                 }))
 
                 point_aborted = False
-                for stage in ['ac_open', 'dc_pos', 'dc_neg', 'ac_close']:
-                    if self.stop_event.is_set(): break
-                    
-                    required_switch_state = 'AC' if 'ac' in stage else 'DC'
-                    if switch_driver:
-                        await self.broadcast(text_data=json.dumps({'type': 'status_update', 'message': f"Switching to {required_switch_state} source..."}))
-                        if required_switch_state == 'AC': await sync_to_async(switch_driver.select_ac_source, thread_sensitive=True)()
-                        else: await sync_to_async(switch_driver.select_dc_source, thread_sensitive=True)()
-                        await self.broadcast(text_data=json.dumps({'type': 'switch_status_update', 'active_source': required_switch_state}))
-                        await asyncio.sleep(1)
+                point_n_cycles = await self._resolve_n_cycles(point_data, fallback=data.get('n_cycles') or 3)
 
-                    source_instrument = ac_source if 'ac' in stage else dc_source
-                    if not source_instrument: raise Exception(f"Required source for stage '{stage}' is not assigned.")
-                    
-                    self._buffer_set_stage(stage, tp_id=point_data.get('id'), total=current_num_samples)
+                for cycle_index in range(1, point_n_cycles + 1):
+                    if self.stop_event.is_set(): break
+
                     await self.broadcast(text_data=json.dumps({
-                        'type': 'calibration_stage_update', 
-                        'stage': stage, 
-                        'total': current_num_samples,
-                        'tpId': point_data.get('id')
+                        'type': 'cycle_progress_update',
+                        'cycle_index': cycle_index,
+                        'total_cycles': point_n_cycles,
+                        'tpId': point_data.get('id'),
                     }))
-                    
-                    success = await self._perform_single_measurement(
-                        stage, 
-                        current_num_samples, 
-                        point_data, 
-                        data.get('bypass_tvc'), 
-                        data.get('amplifier_range'), 
-                        source_instrument, std_reader, ti_reader, amplifier, 
-                        current_settling_time, 
-                        nplc_setting, 
-                        measurement_params
-                    )
-                    
-                    if not success:
-                        print(f"[DEBUG - BACKEND] Batch caught failure on {stage}. Breaking loop and moving to next point.", flush=True)
-                        point_aborted = True
-                        break 
-                
+                    await self.broadcast(text_data=json.dumps({
+                        'type': 'status_update',
+                        'message': f"Cycle {cycle_index} of {point_n_cycles}",
+                    }))
+
+                    cycle_aborted = False
+                    for stage in ['ac_open', 'dc_pos', 'dc_neg', 'ac_close']:
+                        if self.stop_event.is_set(): break
+
+                        required_switch_state = 'AC' if 'ac' in stage else 'DC'
+                        if switch_driver:
+                            await self.broadcast(text_data=json.dumps({'type': 'status_update', 'message': f"Switching to {required_switch_state} source..."}))
+                            if required_switch_state == 'AC': await sync_to_async(switch_driver.select_ac_source, thread_sensitive=True)()
+                            else: await sync_to_async(switch_driver.select_dc_source, thread_sensitive=True)()
+                            await self.broadcast(text_data=json.dumps({'type': 'switch_status_update', 'active_source': required_switch_state}))
+                            await asyncio.sleep(1)
+
+                        source_instrument = ac_source if 'ac' in stage else dc_source
+                        if not source_instrument: raise Exception(f"Required source for stage '{stage}' is not assigned.")
+
+                        self._buffer_set_stage(stage, tp_id=point_data.get('id'), total=current_num_samples)
+                        await self.broadcast(text_data=json.dumps({
+                            'type': 'calibration_stage_update',
+                            'stage': stage,
+                            'total': current_num_samples,
+                            'tpId': point_data.get('id'),
+                            'cycle_index': cycle_index,
+                        }))
+
+                        success = await self._perform_single_measurement(
+                            stage,
+                            current_num_samples,
+                            point_data,
+                            data.get('bypass_tvc'),
+                            data.get('amplifier_range'),
+                            source_instrument, std_reader, ti_reader, amplifier,
+                            current_settling_time,
+                            nplc_setting,
+                            measurement_params,
+                            cycle_index=cycle_index,
+                        )
+
+                        if not success:
+                            print(f"[DEBUG - BACKEND] Batch caught failure on cycle {cycle_index} stage {stage}. Breaking inner loops and moving to next point.", flush=True)
+                            cycle_aborted = True
+                            point_aborted = True
+                            break
+
+                    if cycle_aborted or self.stop_event.is_set():
+                        break
+
+                    # Cycle's four phases done — persist cycle row + roll-up.
+                    await self._finalize_cycle(point_data, cycle_index)
+
                 # Gracefully move on to the next test point if max retry limit failed
                 if point_aborted: continue
 
@@ -1856,10 +2102,349 @@ class CalibrationConsumer(AsyncWebsocketConsumer):
                 await sync_to_async(source.reset, thread_sensitive=True)()
 
             if amplifier: await sync_to_async(amplifier.set_standby, thread_sensitive=True)()
-            
+
             for inst in filter(None, {std_reader, ti_reader, amplifier, ac_source, dc_source}):
                 if hasattr(inst, 'close'):
                     await sync_to_async(inst.close, thread_sensitive=True)()
+
+    # ------------------------------------------------------------------
+    # Paired AC-DC batch (Forward pass → flip prompt → Reverse pass).
+    # See plan: AC-DC δ is defined per Fwd+Rev pair, so we run the whole
+    # session's Forward halves first, pause for the operator to flip the
+    # adapter, then run the Reverse halves in reverse test-point order.
+    # Reverse pairing (Fwd_i ↔ Rev_{N+1-i}) then cancels linear drift
+    # across the whole run when CalibrationResults.recompute_pair_aggregate
+    # rolls the cycle deltas up.
+    # ------------------------------------------------------------------
+    async def _run_direction_pass(
+        self,
+        test_points,
+        direction,
+        data,
+        ac_source, dc_source,
+        std_reader, ti_reader,
+        amplifier, switch_driver,
+        session_details,
+    ):
+        """Run the N-cycle loop for every test point in ``test_points`` in
+        the order given, restricted to one ``direction``. Reused by both the
+        forward and reverse passes of ``run_paired_batch``.
+
+        Returns True on full completion, False on user-stop or in-flight
+        failure (matches the existing batch contract — caller decides what
+        to do next based on stop_event).
+        """
+        nplc_setting = data.get('nplc')
+        measurement_params = data.get('measurement_params')
+        bypass_tvc = data.get('bypass_tvc')
+        amplifier_range = data.get('amplifier_range')
+
+        for i, point_data in enumerate(test_points):
+            if self.stop_event.is_set():
+                return False
+            if point_data.get('direction') != direction:
+                # Defensive: the caller already filtered, but skip just in case.
+                continue
+
+            current_settling_time = float(point_data.get('settling_time', data.get('settling_time', 5.0)))
+            current_num_samples = int(point_data.get('num_samples', data.get('num_samples', 8)))
+
+            self._buffer_set_batch_point(point_data)
+            await self.broadcast(text_data=json.dumps({
+                'type': 'batch_progress_update',
+                'test_point': point_data,
+                'current': i + 1,
+                'total': len(test_points),
+                'pass_direction': direction,
+            }))
+
+            point_n_cycles = await self._resolve_n_cycles(point_data, fallback=data.get('n_cycles') or 3)
+            point_aborted = False
+
+            for cycle_index in range(1, point_n_cycles + 1):
+                if self.stop_event.is_set():
+                    return False
+
+                await self.broadcast(text_data=json.dumps({
+                    'type': 'cycle_progress_update',
+                    'cycle_index': cycle_index,
+                    'total_cycles': point_n_cycles,
+                    'tpId': point_data.get('id'),
+                    'pass_direction': direction,
+                }))
+                await self.broadcast(text_data=json.dumps({
+                    'type': 'status_update',
+                    'message': f"{direction} cycle {cycle_index} of {point_n_cycles}",
+                }))
+
+                cycle_aborted = False
+                for stage in ['ac_open', 'dc_pos', 'dc_neg', 'ac_close']:
+                    if self.stop_event.is_set():
+                        return False
+
+                    required_switch_state = 'AC' if 'ac' in stage else 'DC'
+                    if switch_driver:
+                        await self.broadcast(text_data=json.dumps({
+                            'type': 'status_update',
+                            'message': f"Switching to {required_switch_state} source...",
+                        }))
+                        if required_switch_state == 'AC':
+                            await sync_to_async(switch_driver.select_ac_source, thread_sensitive=True)()
+                        else:
+                            await sync_to_async(switch_driver.select_dc_source, thread_sensitive=True)()
+                        await self.broadcast(text_data=json.dumps({
+                            'type': 'switch_status_update',
+                            'active_source': required_switch_state,
+                        }))
+                        await asyncio.sleep(1)
+
+                    source_instrument = ac_source if 'ac' in stage else dc_source
+                    if not source_instrument:
+                        raise Exception(f"Required source for stage '{stage}' is not assigned.")
+
+                    self._buffer_set_stage(stage, tp_id=point_data.get('id'), total=current_num_samples)
+                    await self.broadcast(text_data=json.dumps({
+                        'type': 'calibration_stage_update',
+                        'stage': stage,
+                        'total': current_num_samples,
+                        'tpId': point_data.get('id'),
+                        'cycle_index': cycle_index,
+                    }))
+
+                    success = await self._perform_single_measurement(
+                        stage,
+                        current_num_samples,
+                        point_data,
+                        bypass_tvc,
+                        amplifier_range,
+                        source_instrument, std_reader, ti_reader, amplifier,
+                        current_settling_time,
+                        nplc_setting,
+                        measurement_params,
+                        cycle_index=cycle_index,
+                    )
+                    if not success:
+                        cycle_aborted = True
+                        point_aborted = True
+                        break
+
+                if cycle_aborted or self.stop_event.is_set():
+                    break
+
+                # Persist per-direction cycle row.
+                await self._finalize_cycle(point_data, cycle_index)
+
+            if point_aborted:
+                # Carry on with the next point (matches run_full_calibration_batch behavior).
+                continue
+
+        return True
+
+    async def run_paired_batch(self, data):
+        """Single-flip paired AC-DC batch.
+
+        Payload:
+            data['forward_points'] : list of Forward TestPoint dicts (with id, current, frequency, settings)
+            data['reverse_points'] : list of Reverse TestPoint dicts, in the same (current, frequency) order
+            plus the standard batch keys (nplc, settling_time, num_samples, measurement_params, ...).
+
+        Order of operations:
+            1. Forward pass over forward_points in natural order.
+            2. Broadcast 'paired_run_awaiting_flip' + status, then await flip_resume_event.
+            3. Reverse pass over reverse_points in REVERSE order so each
+               (current, frequency) pair has a symmetric midpoint time across
+               Fwd and Rev. Within each point cycles run 1..N as usual; the
+               cycle reverse-pairing happens in aggregate_paired_cycles.
+            4. After each Reverse point's cycles finish, recompute_pair_aggregate
+               mirrors the pair-level mean δ and u_A onto both rows.
+        """
+        ac_source, dc_source, std_reader, ti_reader, amplifier, switch_driver = None, None, None, None, None, None
+        try:
+            session_details = await self.get_session_details()
+            if not session_details:
+                raise Exception("Session not found.")
+
+            forward_points = data.get('forward_points') or []
+            reverse_points = data.get('reverse_points') or []
+            if not forward_points or not reverse_points:
+                raise Exception("run_paired_batch requires forward_points and reverse_points.")
+            if len(forward_points) != len(reverse_points):
+                raise Exception(
+                    "Mismatched forward/reverse point counts in paired batch. "
+                    "Every (current, frequency) pair must have both directions defined."
+                )
+
+            # ----- Instrument setup (same as run_full_calibration_batch) -----
+            std_addr, ti_addr = session_details.get('std_reader_address'), session_details.get('ti_reader_address')
+            std_model, ti_model = session_details.get('std_reader_model'), session_details.get('ti_reader_model')
+
+            ac_source_address, dc_source_address = session_details.get('ac_source_address'), session_details.get('dc_source_address')
+            if ac_source_address and ac_source_address == dc_source_address:
+                shared_source = await sync_to_async(_inst, thread_sensitive=True)(Instrument5730A, model="5730A", gpib=ac_source_address)
+                ac_source, dc_source = shared_source, shared_source
+            else:
+                if ac_source_address: ac_source = await sync_to_async(_inst, thread_sensitive=True)(Instrument5730A, model="5730A", gpib=ac_source_address)
+                if dc_source_address: dc_source = await sync_to_async(_inst, thread_sensitive=True)(Instrument5730A, model="5730A", gpib=dc_source_address)
+
+            std_reader_class, ti_reader_class = INSTRUMENT_CLASS_MAP.get(std_model), INSTRUMENT_CLASS_MAP.get(ti_model)
+            std_reader = await sync_to_async(_inst, thread_sensitive=True)(std_reader_class, gpib=std_addr) if std_reader_class == Instrument34420A else await sync_to_async(_inst, thread_sensitive=True)(std_reader_class, model=std_model, gpib=std_addr)
+            ti_reader = await sync_to_async(_inst, thread_sensitive=True)(ti_reader_class, gpib=ti_addr) if ti_reader_class == Instrument34420A else await sync_to_async(_inst, thread_sensitive=True)(ti_reader_class, model=ti_model, gpib=ti_addr)
+
+            if session_details.get('switch_driver_address'):
+                switch_driver = await sync_to_async(_inst, thread_sensitive=True)(Instrument11713C, gpib=session_details.get('switch_driver_address'))
+
+            # Configure sources / amplifier using the first point as a probe
+            # (matches run_full_calibration_batch's behavior).
+            all_points = forward_points + reverse_points
+            await self._configure_sources(
+                all_points,
+                data.get('bypass_tvc'),
+                data.get('amplifier_range'),
+                ac_source=ac_source,
+                dc_source=dc_source,
+            )
+
+            if session_details.get('amplifier_address'):
+                amplifier = await sync_to_async(_inst, thread_sensitive=True)(Instrument8100, model='8100', gpib=session_details.get('amplifier_address'))
+                if not await self._handle_amplifier_confirmation(amplifier, data.get('amplifier_range'), data):
+                    return
+
+            await self._activate_sources(ac_source=ac_source, dc_source=dc_source)
+
+            warmup_time = data.get('initial_warm_up_time') or 0
+            if warmup_time > 0:
+                await self._perform_warmup(warmup_time)
+
+            # ----- Forward pass -----
+            await self.broadcast(text_data=json.dumps({
+                'type': 'paired_run_pass_started',
+                'pass_direction': 'Forward',
+                'total_points': len(forward_points),
+            }))
+            fwd_ok = await self._run_direction_pass(
+                forward_points, 'Forward', data,
+                ac_source, dc_source, std_reader, ti_reader,
+                amplifier, switch_driver, session_details,
+            )
+            if not fwd_ok or self.stop_event.is_set():
+                return
+
+            # ----- Pause for adapter flip -----
+            self.flip_resume_event.clear()
+            await self.broadcast(text_data=json.dumps({
+                'type': 'paired_run_awaiting_flip',
+                'message': (
+                    "Forward pass complete. Flip the AC-DC adapter, "
+                    "then click \"Resume reverse pass\"."
+                ),
+            }))
+            # Wait either for the operator's resume click or a stop.
+            stop_wait = asyncio.create_task(self.stop_event.wait())
+            flip_wait = asyncio.create_task(self.flip_resume_event.wait())
+            done, pending = await asyncio.wait(
+                {stop_wait, flip_wait}, return_when=asyncio.FIRST_COMPLETED,
+            )
+            for t in pending:
+                t.cancel()
+            if self.stop_event.is_set():
+                return
+
+            # ----- Reverse pass, in REVERSE test-point order -----
+            reverse_in_reverse = list(reversed(reverse_points))
+            await self.broadcast(text_data=json.dumps({
+                'type': 'paired_run_pass_started',
+                'pass_direction': 'Reverse',
+                'total_points': len(reverse_in_reverse),
+            }))
+            rev_ok = await self._run_direction_pass(
+                reverse_in_reverse, 'Reverse', data,
+                ac_source, dc_source, std_reader, ti_reader,
+                amplifier, switch_driver, session_details,
+            )
+            if not rev_ok or self.stop_event.is_set():
+                return
+
+            # ----- Pair-level aggregation -----
+            await self._recompute_pair_aggregates_for_points(reverse_in_reverse)
+
+            await self.broadcast(text_data=json.dumps({
+                'type': 'paired_run_complete',
+                'message': 'Paired AC-DC run complete. Per-pair aggregates updated.',
+            }))
+
+        except asyncio.CancelledError:
+            print(f"Paired batch cancelled for session {self.session_id}.")
+        except Exception as e:
+            traceback.print_exc()
+            await self.broadcast(text_data=json.dumps({'type': 'error', 'message': f"Paired batch error: {e}"}))
+        finally:
+            self.state = "IDLE"
+            self._buffer_clear()
+            if switch_driver:
+                try:
+                    await sync_to_async(switch_driver.deactivate_all, thread_sensitive=True)()
+                except Exception:
+                    pass
+                if hasattr(switch_driver, 'close'):
+                    await sync_to_async(switch_driver.close, thread_sensitive=True)()
+
+            sources_to_shutdown = list(filter(None, {ac_source, dc_source}))
+            for source in sources_to_shutdown:
+                try:
+                    await sync_to_async(source.reset, thread_sensitive=True)()
+                except Exception:
+                    pass
+
+            if amplifier:
+                try:
+                    await sync_to_async(amplifier.set_standby, thread_sensitive=True)()
+                except Exception:
+                    pass
+
+            for inst in filter(None, {std_reader, ti_reader, amplifier, ac_source, dc_source}):
+                if hasattr(inst, 'close'):
+                    try:
+                        await sync_to_async(inst.close, thread_sensitive=True)()
+                    except Exception:
+                        pass
+
+    @database_sync_to_async
+    def _maybe_recompute_pair_for_single_direction(self, test_point_data):
+        """Convenience: after a single-direction `run_single_collection`
+        finishes, if a Reverse half is now present alongside an existing
+        Forward, mirror the paired aggregate onto both rows. Idempotent —
+        if the pair is incomplete the helper persists null fields.
+        """
+        if not isinstance(test_point_data, dict):
+            return
+        tp_id = test_point_data.get('id')
+        if not tp_id:
+            return
+        try:
+            tp = TestPoint.objects.select_related('results').get(pk=tp_id)
+        except TestPoint.DoesNotExist:
+            return
+        results = getattr(tp, 'results', None)
+        if results is not None:
+            results.recompute_pair_aggregate()
+
+    @database_sync_to_async
+    def _recompute_pair_aggregates_for_points(self, reverse_points):
+        """For each Reverse point in the batch, recompute the pair aggregate
+        (mirrored onto both Fwd and Rev CalibrationResults rows). Called once
+        after the reverse pass completes.
+        """
+        for rev_point in reverse_points:
+            tp_id = rev_point.get('id') if isinstance(rev_point, dict) else None
+            if not tp_id:
+                continue
+            try:
+                tp = TestPoint.objects.select_related('results').get(pk=tp_id)
+                results = getattr(tp, 'results', None)
+                if results is not None:
+                    results.recompute_pair_aggregate()
+            except TestPoint.DoesNotExist:
+                continue
 
     async def run_single_stage_batch(self, data):
         ac_source, dc_source, std_reader, ti_reader, amplifier = None, None, None, None, None

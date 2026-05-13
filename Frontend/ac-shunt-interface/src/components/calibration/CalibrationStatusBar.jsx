@@ -17,6 +17,8 @@ const CalibrationStatusBar = ({
   isCollecting,
   isBulkRunning,
   bulkRunProgress,
+  activeCollectionDetails,
+  pairedRun,
   timerState,
   countdown,
   stabilizationStatus,
@@ -38,6 +40,16 @@ const CalibrationStatusBar = ({
   dropdownOptions,
   isRemoteViewer,
 }) => {
+  // Pull the current cycle ordinal off the latest stage update broadcast.
+  // Falls back to nothing when not in a multi-cycle run (e.g. legacy
+  // single-direction collect, or characterization).
+  const activeCycle = activeCollectionDetails?.cycle_index;
+  const totalCycles =
+    Math.max(
+      2,
+      parseInt(calibrationSettings?.n_cycles, 10) || 3,
+    );
+  const passDirection = pairedRun?.pass; // 'Forward' | 'Reverse' | null
   const [isRunDropdownOpen, setIsRunDropdownOpen] = useState(false);
   const runDropdownRef = useRef(null);
   const progressBarRef = useRef(null);
@@ -182,6 +194,13 @@ const CalibrationStatusBar = ({
           </span>
           <span className="status-detail">
             {formatFrequency(activeRunningTP.frequency)}
+            {showRunActivity && activeCycle ? (
+              <span className="status-cycle-pill" title="Active paired-cycle ordinal at this test point">
+                {passDirection ? `${passDirection.charAt(0)}·` : ""}
+                Cycle {activeCycle}
+                {Number.isFinite(totalCycles) ? `/${totalCycles}` : ""}
+              </span>
+            ) : null}
           </span>
         </div>
         <div style={{ flexGrow: 1 }}></div>

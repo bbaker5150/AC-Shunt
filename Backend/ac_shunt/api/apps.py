@@ -11,6 +11,18 @@ class ApiConfig(AppConfig):
     def ready(self):
         """
         App initialization logic.
+        """
+        # Connect cross-row sync signals (e.g. CalibrationSettings.n_cycles
+        # mirror between Fwd/Rev TestPoint siblings). Importing the module
+        # is sufficient — the receivers register themselves via @receiver.
+        from . import signals  # noqa: F401
+
+        return self._actual_ready()
+
+    def _actual_ready(self):
+        """Original ready() body — heavy startup work kept separate so signal
+        registration above happens unconditionally, even for management
+        commands that short-circuit the rest.
 
         Most heavy startup (default DB migration, corrections sync) lives in
         entry_point.py to avoid RuntimeWarnings and to keep ``manage.py``

@@ -3117,6 +3117,278 @@ input:checked+.slider:before {
 /* === CORRECTIONS MODAL (REFINED STRUCTURE) ===                                  */
 /* ============================================================================== */
 
+/* --- Cycle statistics modal --- */
+.cycle-stats-modal-content {
+  max-width: min(960px, 92vw);
+  width: 100%;
+  max-height: 86vh;
+  min-height: 0;
+  display: flex;
+  flex-direction: column;
+  background-color: var(--content-background);
+  border: 1px solid var(--border-color);
+  border-radius: 14px;
+  box-shadow: 0 20px 60px rgba(15, 23, 42, 0.18);
+  padding: 0;
+  overflow: hidden;
+}
+
+.cycle-stats-modal-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 16px;
+  padding: 16px 20px 16px 24px;
+  border-bottom: 1px solid var(--border-color);
+  flex-shrink: 0;
+}
+
+.cycle-stats-modal-header-text {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  min-width: 0;
+}
+
+.cycle-stats-modal-eyebrow {
+  font-size: 0.75rem;
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+  color: var(--text-color-muted);
+}
+
+.cycle-stats-modal-title {
+  margin: 0;
+  font-size: 1.1rem;
+  font-weight: 600;
+  color: var(--text-color);
+}
+
+.cycle-stats-modal-subtitle {
+  font-size: 0.85rem;
+  color: var(--text-color-muted);
+}
+
+.cycle-stats-modal-body {
+  padding: 18px 20px 22px;
+  overflow-y: auto;
+  display: flex;
+  flex-direction: column;
+  gap: 18px;
+}
+
+.cycle-stats-summary {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(180px, 1fr));
+  gap: 12px;
+}
+
+.cycle-stats-summary-item {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  padding: 12px 14px;
+  background-color: var(--surface-sunken, var(--background-color));
+  border: 1px solid var(--border-color);
+  border-radius: 10px;
+}
+
+.cycle-stats-summary-label {
+  font-size: 0.75rem;
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+  color: var(--text-color-muted);
+}
+
+.cycle-stats-summary-value {
+  font-size: 1.05rem;
+  font-weight: 600;
+  color: var(--text-color);
+}
+
+.cycle-stats-unit {
+  font-size: 0.85rem;
+  font-weight: 500;
+  color: var(--text-color-muted);
+  margin-left: 3px;
+}
+
+.cycle-stats-table-container {
+  overflow-x: auto;
+  border: 1px solid var(--border-color);
+  border-radius: 10px;
+}
+
+.cycle-stats-empty {
+  padding: 24px;
+  text-align: center;
+  border: 1px dashed var(--border-color);
+  border-radius: 10px;
+  background-color: var(--surface-sunken, var(--background-color));
+}
+
+.cycle-stats-empty-title {
+  margin: 0 0 6px 0;
+  font-size: 0.95rem;
+  font-weight: 600;
+  color: var(--text-color);
+}
+
+.cycle-stats-empty-text {
+  margin: 0;
+  font-size: 0.85rem;
+  color: var(--text-color-muted);
+  line-height: 1.5;
+}
+
+.cycle-stats-empty--warn {
+  border-color: var(--warning-color, #f59e0b);
+  background-color: rgba(245, 158, 11, 0.08);
+}
+
+.cycle-stats-footnote {
+  margin: 0;
+  font-size: 0.78rem;
+  color: var(--text-color-muted);
+  font-style: italic;
+  line-height: 1.55;
+}
+
+.cycle-stats-trigger-row {
+  display: flex;
+  justify-content: flex-end;
+  margin-top: 8px;
+}
+
+.cycle-stats-trigger-btn {
+  font-size: 0.82rem;
+  font-weight: 600;
+  padding: 6px 12px;
+  border-radius: 8px;
+  border: 1px solid var(--border-color);
+  background-color: var(--surface-sunken, var(--background-color));
+  color: var(--text-color);
+  cursor: pointer;
+  transition: background-color 0.15s ease, border-color 0.15s ease;
+}
+
+.cycle-stats-trigger-btn:hover:not(:disabled) {
+  background-color: var(--content-background);
+  border-color: var(--border-color-strong, var(--border-color));
+}
+
+.cycle-stats-trigger-btn:disabled {
+  opacity: 0.55;
+  cursor: not-allowed;
+}
+
+/* --- Pair-aware UI bits --- */
+.cfg-modal-checkbox-label {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  font-weight: 500;
+  cursor: pointer;
+}
+
+.cfg-modal-help-text {
+  margin: 6px 0 0 0;
+  font-size: 0.78rem;
+  color: var(--text-color-muted);
+  line-height: 1.5;
+}
+
+.paired-run-flip-modal {
+  max-width: min(440px, 90vw);
+  background-color: var(--content-background);
+  border: 1px solid var(--border-color);
+  border-radius: 14px;
+  padding: 22px 24px;
+  box-shadow: 0 20px 60px rgba(15, 23, 42, 0.18);
+  text-align: center;
+}
+
+.paired-run-flip-modal h3 {
+  margin: 0 0 8px 0;
+  font-size: 1.1rem;
+  font-weight: 600;
+  color: var(--text-color);
+}
+
+.paired-run-flip-modal p {
+  margin: 0 0 18px 0;
+  font-size: 0.92rem;
+  color: var(--text-color-muted);
+  line-height: 1.55;
+}
+
+.paired-run-flip-actions {
+  display: flex;
+  justify-content: center;
+  gap: 10px;
+}
+
+.paired-run-flip-actions button {
+  padding: 8px 18px;
+  border-radius: 8px;
+  font-weight: 600;
+  font-size: 0.88rem;
+  cursor: pointer;
+}
+
+.paired-run-flip-resume {
+  background-color: var(--primary-color, #2563eb);
+  color: white;
+  border: 1px solid var(--primary-color, #2563eb);
+}
+
+.paired-run-flip-abort {
+  background-color: transparent;
+  color: var(--text-color);
+  border: 1px solid var(--border-color);
+}
+
+.run-paired-btn {
+  font-size: 0.88rem;
+  font-weight: 600;
+  padding: 8px 16px;
+  border-radius: 8px;
+  border: 1px solid var(--primary-color, #2563eb);
+  background-color: var(--primary-color, #2563eb);
+  color: white;
+  cursor: pointer;
+  margin-left: 8px;
+  transition: opacity 0.15s ease;
+}
+
+.run-paired-btn:disabled {
+  opacity: 0.55;
+  cursor: not-allowed;
+}
+
+.n-cycles-lock-indicator {
+  margin-left: 6px;
+  font-size: 0.7rem;
+  color: var(--text-color-muted);
+  font-style: italic;
+}
+
+.status-cycle-pill {
+  margin-left: 8px;
+  padding: 2px 8px;
+  font-size: 0.72rem;
+  font-weight: 600;
+  letter-spacing: 0.02em;
+  color: var(--text-color-muted);
+  background-color: var(--surface-sunken, rgba(148, 163, 184, 0.16));
+  border: 1px solid var(--border-color);
+  border-radius: 999px;
+  white-space: nowrap;
+  vertical-align: middle;
+}
+
 /* --- Modal Shell --- */
 .corrections-modal-content {
   max-width: min(1180px, 92vw);
@@ -7402,6 +7674,22 @@ body.dark-mode .cal-results-excel-icon-btn:hover:not(:disabled) svg {
   font-size: 1rem;
   font-weight: 500;
   color: var(--text-color-muted);
+}
+
+.cal-results-kpi-uncertainty {
+  font-size: 1.5rem;
+  font-weight: 500;
+  font-variant-numeric: tabular-nums;
+  color: var(--text-color-muted);
+  letter-spacing: -0.02em;
+}
+
+.cal-results-kpi-uA-caption {
+  margin: 4px 0 0 0;
+  font-size: 0.75rem;
+  font-weight: 500;
+  color: var(--text-color-muted);
+  text-align: center;
 }
 
 .cal-results-kpi-formula {

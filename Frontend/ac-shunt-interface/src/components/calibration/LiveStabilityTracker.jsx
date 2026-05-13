@@ -73,7 +73,7 @@ const StatCard = ({ title, stats, unit, isActive }) => (
     </div>
 );
 
-function LiveStatisticsTracker({ title, readings, activeStage }) {
+function LiveStabilityTracker({ title, readings, activeStage }) {
     const [isOpen, setIsOpen] = useState(false);
     const [unit, setUnit] = useState('PPM');
 
@@ -122,4 +122,4 @@ function LiveStatisticsTracker({ title, readings, activeStage }) {
     );
 }
 
-export default LiveStatisticsTracker;
+export default LiveStabilityTracker;

@@ -75,6 +75,15 @@ export const InstrumentContextProvider = ({ children }) => {
 
   // Collection States
   const [isCollecting, setIsCollecting] = useState(false);
+  // Paired-batch state — the backend's run_paired_batch runs the Forward
+  // pass, broadcasts `paired_run_awaiting_flip`, then waits for the user
+  // to click "Resume reverse pass" (which the frontend posts as
+  // `paired_run_resume`). The pass label drives the modal + status copy.
+  const [pairedRun, setPairedRun] = useState({
+    inProgress: false,
+    awaitingFlip: false,
+    pass: null, // 'Forward' | 'Reverse' | null
+  });
   const [collectionProgress, setCollectionProgress] = useState({
     count: 0,
     total: 0,
@@ -123,6 +132,10 @@ export const InstrumentContextProvider = ({ children }) => {
   const lastLiveSyncSigRef = useRef({ sig: null, ts: 0 });
   const hostSyncWs = useRef(null);
   const selectedSessionIdRef = useRef(selectedSessionId);
+  // Mirror the active cycle (set by calibration_stage_update) so the
+  // dual_reading_update handler can tag live points without re-rendering
+  // every time `activeCollectionDetails` changes.
+  const activeCycleRef = useRef(null);
 
   const [myClientId] = useState(() => Math.random().toString(36).substring(2, 15));
   const [claimedWorkstations, setClaimedWorkstations] = useState({});
@@ -604,6 +617,13 @@ export const InstrumentContextProvider = ({ children }) => {
       if (data.type === "calibration_stage_update") {
         const updates = { stage: data.stage };
         if (data.tpId) updates.tpId = data.tpId;
+        // Track the cycle ordinal that's currently mid-flight so live
+        // readings can be tagged with it (used by CalibrationChart's
+        // cycle-filter and by CycleStatisticsModal).
+        if (data.cycle_index != null) {
+          updates.cycle_index = data.cycle_index;
+          activeCycleRef.current = data.cycle_index;
+        }
         setActiveCollectionDetails((prev) => ({ ...prev, ...updates }));
 
         setIsCollecting(true);
@@ -630,6 +650,11 @@ export const InstrumentContextProvider = ({ children }) => {
             return { ...prevReadings, [key]: newReadings };
           };
 
+          // Tag each live point with the cycle that's currently in flight
+          // (read from the ref so we don't depend on the rendered closure).
+          const liveCycle =
+            data.cycle_index != null ? data.cycle_index : activeCycleRef.current;
+
           // ONLY parse and update STD readings if the data is not null
           if (stdReadingData !== null && stdReadingData !== undefined) {
             const stdPoint = {
@@ -637,6 +662,7 @@ export const InstrumentContextProvider = ({ children }) => {
               y: stdReadingData.value,
               t: new Date(stdReadingData.timestamp * 1000),
               is_stable: stdReadingData.is_stable,
+              cycle: liveCycle,
             };
             setLiveReadings((readings) => updateReadings(readings, stdPoint));
           }
@@ -648,6 +674,7 @@ export const InstrumentContextProvider = ({ children }) => {
               y: tiReadingData.value,
               t: new Date(tiReadingData.timestamp * 1000),
               is_stable: tiReadingData.is_stable,
+              cycle: liveCycle,
             };
             setTiLiveReadings((readings) => updateReadings(readings, tiPoint));
           }
@@ -722,10 +749,34 @@ export const InstrumentContextProvider = ({ children }) => {
           setBulkRunProgress({ current: 0, total: 0, pointKey: null });
           setFocusedTPKey(null);
           setDataRefreshTrigger((prev) => prev + 1);
+          // Clear paired-run state if the run ended (stopped / errored
+          // mid-pass). `paired_run_complete` is the happy-path counterpart
+          // and is handled below; both routes reset the modal.
+          setPairedRun({ inProgress: false, awaitingFlip: false, pass: null });
         }
         setStabilizationStatus(null);
         setSlidingWindowStatus(null);
         setTimerState({ isActive: false, duration: 0, label: "" });
+      } else if (data.type === "paired_run_pass_started") {
+        setPairedRun({
+          inProgress: true,
+          awaitingFlip: false,
+          pass: data.pass_direction || null,
+        });
+      } else if (data.type === "paired_run_awaiting_flip") {
+        // Forward pass done; show the flip modal and stop expecting
+        // sample broadcasts until the operator resumes.
+        setPairedRun({ inProgress: true, awaitingFlip: true, pass: 'Forward' });
+        setIsCollecting(false);
+      } else if (data.type === "paired_run_resuming") {
+        setPairedRun({ inProgress: true, awaitingFlip: false, pass: 'Reverse' });
+      } else if (data.type === "paired_run_complete") {
+        setPairedRun({ inProgress: false, awaitingFlip: false, pass: null });
+        setIsCollecting(false);
+        // Trigger a final data refresh so the new pair_delta / pair_uA
+        // values are rendered (recompute_pair_aggregate has already
+        // mirrored them onto both CalibrationResults rows by this point).
+        setDataRefreshTrigger((prev) => prev + 1);
       } else if (data.type === "switch_status_update") {
         setSwitchStatus({ status: data.active_source, isConnected: true });
       }
@@ -1073,6 +1124,7 @@ export const InstrumentContextProvider = ({ children }) => {
     setAmplifierRange,
     lastMessage,
     sendWsCommand,
+    pairedRun,
     stabilizationStatus,
     slidingWindowStatus,
     timerState,

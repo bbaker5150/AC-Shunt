@@ -74,8 +74,9 @@ const MathDisplay = React.memo(({ math }) => {
   return <div dangerouslySetInnerHTML={{ __html: renderedMath }} />;
 });
 
-const ResultsKpi = ({ title, value, formula }) => {
+const ResultsKpi = ({ title, value, formula, uncertainty = null, nCycles = null }) => {
   const isCalculated = value !== null && value !== undefined;
+  const hasUncertainty = uncertainty !== null && uncertainty !== undefined;
   return (
     <div className="cal-results-kpi">
       <p className="cal-results-kpi-label">{title}</p>
@@ -83,8 +84,18 @@ const ResultsKpi = ({ title, value, formula }) => {
         <span className="cal-results-kpi-num">
           {isCalculated ? parseFloat(value).toFixed(3) : "—"}
         </span>
+        {hasUncertainty && (
+          <span className="cal-results-kpi-uncertainty">
+            &nbsp;±&nbsp;{parseFloat(uncertainty).toFixed(3)}
+          </span>
+        )}
         <span className="cal-results-kpi-unit">ppm</span>
       </div>
+      {hasUncertainty && nCycles ? (
+        <p className="cal-results-kpi-uA-caption">
+          Type A (u_A = s/√N), N = {nCycles}
+        </p>
+      ) : null}
       {formula && (
         <div className="cal-results-kpi-formula">
           <MathDisplay math={formula} />
@@ -749,18 +760,62 @@ function CalibrationResults({
                 {activeTab === "summary" && activeDirection !== "Overview" && (
                   <div className="cal-results-summary">
                     <div className="cal-results-kpi-wrap">
-                      <ResultsKpi
-                        title="AC–DC difference (UUT)"
-                        value={calResults?.delta_uut_ppm}
-                        formula={
-                          activeDirection === "Combined"
-                            ? `$$ \\text{Avg} = (\\delta_{Fwd} + \\delta_{Rev}) / 2 $$`
-                            : `$$ \\delta_{${activeDirection === "Forward"
-                              ? "Fwd"
-                              : "Rev"
-                            }} $$`
+                      {/*
+                        Source-of-truth priority (matches recompute_pair_aggregate on the backend):
+                          1. Pair aggregate (`pair_delta_uut_ppm` ± `pair_type_a_uncertainty_ppm`) —
+                             present once both Fwd and Rev have ≥2 cycles. This is what gets compared
+                             against spec.
+                          2. Per-direction mean (`delta_uut_ppm_avg` ± `type_a_uncertainty_ppm`) —
+                             shown with a "pair incomplete" caption when only one direction has run.
+                          3. Legacy single-pass `delta_uut_ppm` for pre-N-cycle sessions.
+                      */}
+                      {(() => {
+                        const pairMean = calResults?.pair_delta_uut_ppm;
+                        const pairUA = calResults?.pair_type_a_uncertainty_ppm;
+                        // Reading from either side works because the backend mirrors
+                        // pair_* onto both rows; cycles arrays themselves are
+                        // per-direction so we count both to display "N pairs".
+                        const fwdCount = focusedTP?.forward?.results?.cycles?.length || 0;
+                        const revCount = focusedTP?.reverse?.results?.cycles?.length || 0;
+                        const nPairs = Math.min(fwdCount, revCount);
+
+                        if (pairMean !== null && pairMean !== undefined) {
+                          return (
+                            <ResultsKpi
+                              title="AC–DC difference (paired)"
+                              value={pairMean}
+                              uncertainty={pairUA}
+                              nCycles={nPairs || null}
+                              formula={`$$ \\bar{\\delta} = \\overline{(\\delta_{Fwd,i} + \\delta_{Rev,N+1-i})/2} $$`}
+                            />
+                          );
                         }
-                      />
+
+                        // Pair incomplete — fall back to per-direction mean.
+                        return (
+                          <ResultsKpi
+                            title={
+                              fwdCount === 0 && revCount === 0
+                                ? "AC–DC difference (UUT)"
+                                : "AC–DC difference (pair incomplete)"
+                            }
+                            value={
+                              calResults?.delta_uut_ppm_avg ??
+                              calResults?.delta_uut_ppm
+                            }
+                            uncertainty={calResults?.type_a_uncertainty_ppm}
+                            nCycles={calResults?.cycles?.length || null}
+                            formula={
+                              activeDirection === "Combined"
+                                ? `$$ \\text{Avg} = (\\delta_{Fwd} + \\delta_{Rev}) / 2 $$`
+                                : `$$ \\delta_{${activeDirection === "Forward"
+                                  ? "Fwd"
+                                  : "Rev"
+                                }} $$`
+                            }
+                          />
+                        );
+                      })()}
                     </div>
 
                     {activeDirection !== "Combined" && (

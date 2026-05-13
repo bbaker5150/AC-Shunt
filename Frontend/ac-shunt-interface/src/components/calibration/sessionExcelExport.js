@@ -343,7 +343,7 @@ export async function downloadFullSessionExcel({
     properties: { tabColor: { argb: TAB_SUMMARY } },
     views: [{ showGridLines: false, state: "frozen", ySplit: 4, activeCell: "A5" }],
   });
-  sumSheet.mergeCells("A1:E1");
+  sumSheet.mergeCells("A1:G1");
   const sumTitle = sumSheet.getCell("A1");
   sumTitle.value = "AC–DC difference summary (ppm)";
   sumTitle.font = {
@@ -364,7 +364,7 @@ export async function downloadFullSessionExcel({
   sumSheet.getRow(1).height = 34;
   sumSheet.getRow(2).height = 6;
 
-  sumSheet.mergeCells("A3:E3");
+  sumSheet.mergeCells("A3:G3");
   applySectionBar(
     sumSheet.getCell("A3"),
     "Test instrument (UUT)",
@@ -379,27 +379,44 @@ export async function downloadFullSessionExcel({
     "Frequency",
     "Forward",
     "Reverse",
-    "Combined",
+    "Paired δ (ppm)",
+    "u_A (ppm)",
+    "N pairs",
   ];
-  applyHeaderRow(hdrUut, 5);
+  applyHeaderRow(hdrUut, 7);
 
   let r = 5;
-  const SUM_COLS = 5;
+  const SUM_COLS = 7;
   points.forEach((pt, idx) => {
     const row = sumSheet.getRow(r);
     const tiFwd = pt.forward?.results?.delta_uut_ppm;
     const tiRev = pt.reverse?.results?.delta_uut_ppm;
-    const tiComb = pt.forward?.results?.delta_uut_ppm_avg;
+    // Pair fields are mirrored on both sides; per-direction mean is a
+    // diagnostic fallback for runs where one direction is still pending.
+    const pairMean =
+      pt.forward?.results?.pair_delta_uut_ppm
+      ?? pt.reverse?.results?.pair_delta_uut_ppm
+      ?? pt.forward?.results?.delta_uut_ppm_avg
+      ?? pt.forward?.results?.delta_uut_ppm;
+    const pairUA =
+      pt.forward?.results?.pair_type_a_uncertainty_ppm
+      ?? pt.reverse?.results?.pair_type_a_uncertainty_ppm
+      ?? pt.forward?.results?.type_a_uncertainty_ppm;
+    const fwdCyc = pt.forward?.results?.cycles?.length || 0;
+    const revCyc = pt.reverse?.results?.cycles?.length || 0;
+    const nPairs = Math.min(fwdCyc, revCyc) || null;
     row.values = [
       Number(pt.current),
       formatFrequency(pt.frequency),
       tiFwd != null ? parseFloat(tiFwd) : null,
       tiRev != null ? parseFloat(tiRev) : null,
-      tiComb != null ? parseFloat(tiComb) : null,
+      pairMean != null ? parseFloat(pairMean) : null,
+      pairUA != null ? parseFloat(pairUA) : null,
+      nPairs,
     ];
     row.getCell(1).numFmt = "0.###";
     row.getCell(2).alignment = { horizontal: "left" };
-    [3, 4, 5].forEach((c) => {
+    [3, 4, 5, 6].forEach((c) => {
       const cell = row.getCell(c);
       if (cell.value != null && cell.value !== "") {
         cell.numFmt = "0.000";
@@ -409,12 +426,19 @@ export async function downloadFullSessionExcel({
         cell.alignment = { horizontal: "center" };
       }
     });
+    const nCell = row.getCell(7);
+    if (nCell.value == null) {
+      nCell.value = "—";
+      nCell.alignment = { horizontal: "center" };
+    } else {
+      nCell.alignment = { horizontal: "right" };
+    }
     styleDataRow(row, idx % 2 === 1, SUM_COLS);
     r += 1;
   });
 
   r += 1;
-  sumSheet.mergeCells(`A${r}:E${r}`);
+  sumSheet.mergeCells(`A${r}:G${r}`);
   applySectionBar(
     sumSheet.getCell(`A${r}`),
     "Standard",
@@ -460,8 +484,8 @@ export async function downloadFullSessionExcel({
     r += 1;
   });
 
-  [1, 2, 3, 4, 5].forEach((i) => {
-    sumSheet.getColumn(i).width = i === 2 ? 16 : 14;
+  [1, 2, 3, 4, 5, 6, 7].forEach((i) => {
+    sumSheet.getColumn(i).width = i === 2 ? 16 : i === 7 ? 10 : 14;
   });
 
   // ----- Raw readings -----

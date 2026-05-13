@@ -1,5 +1,7 @@
 # Backend/ac_shunt/api/models.py
 from django.db import models
+from django.core.validators import MinValueValidator
+import math
 import uuid
 import numpy as np
 
@@ -143,6 +145,16 @@ class CalibrationConfigurations(models.Model):
     )
     ac_shunt_range = models.FloatField(null=True, blank=True)
     amplifier_range = models.FloatField(null=True, blank=True)
+    # When true, reverse-pair Fwd_i with Rev_{N+1-i} (cancels linear drift).
+    # When false, pair Fwd_i with Rev_i. Operator-toggleable for testing.
+    use_abba_pairing = models.BooleanField(
+        default=True,
+        help_text=(
+            "When true, reverse-pair Fwd_i with Rev_{N+1-i} so linear drift "
+            "across the run cancels. When false, index-pair Fwd_i with Rev_i. "
+            "Toggle for testing/comparison."
+        ),
+    )
     
 class CalibrationSettings(models.Model):
     test_point = models.OneToOneField(
@@ -179,6 +191,124 @@ class CalibrationSettings(models.Model):
     enable_11hz_filter = models.BooleanField(default=True)
     min_low_freq_settling_time = models.IntegerField(default=0, null=True, blank=True)
     lf_harmonics = models.IntegerField(default=2, null=True, blank=True)
+
+    # Number of full AC-DC measurement cycles to repeat at this test point.
+    # Required for Type A statistical uncertainty: u_A = s(delta_i) / sqrt(N),
+    # which is meaningful only with N >= 2. Default = 3 to give 2 degrees of
+    # freedom while keeping run time reasonable.
+    n_cycles = models.PositiveIntegerField(
+        default=3,
+        validators=[MinValueValidator(2)],
+        help_text="Number of full AC-DC cycles to average per test point (>= 2).",
+    )
+
+
+# ---------------------------------------------------------------------------
+# Pure math helpers — extracted so the per-cycle finalizer in
+# CalibrationConsumer can compute δ for a single cycle's phase averages
+# without duplicating the formula, and so a CalibrationResults row can
+# reuse the same code in `calculate_ac_dc_difference`. The frontend has a
+# parallel copy in `sessionExcelExport.js:calcFullyCorrectedStandard` —
+# any change here must be mirrored there.
+# ---------------------------------------------------------------------------
+def welford_mean_stddev(values):
+    """Return (mean, sample_stddev) for an iterable of floats using Welford's
+    one-pass algorithm. Returns (None, None) if fewer than 2 values.
+    """
+    vals = [v for v in values if v is not None]
+    if len(vals) < 2:
+        return (None, None)
+    mean_val = 0.0
+    M2 = 0.0
+    for index, val in enumerate(vals):
+        delta = val - mean_val
+        mean_val += delta / (index + 1)
+        M2 += delta * (val - mean_val)
+    variance = M2 / (len(vals) - 1)
+    return (mean_val, math.sqrt(variance))
+
+
+def compute_delta_uut_ppm(phase_avgs, eta_std, eta_ti, delta_std, delta_ti, delta_std_known):
+    """Compute the per-cycle (or aggregate) UUT AC-DC difference in ppm.
+
+    `phase_avgs` is a dict with the 8 keys: std_ac_open_avg, std_dc_pos_avg,
+    std_dc_neg_avg, std_ac_close_avg, ti_ac_open_avg, ti_dc_pos_avg,
+    ti_dc_neg_avg, ti_ac_close_avg. Any None → returns None.
+
+    Returns float ppm or None.
+    """
+    required = (
+        'std_dc_pos_avg', 'std_dc_neg_avg', 'std_ac_open_avg', 'std_ac_close_avg',
+        'ti_dc_pos_avg', 'ti_dc_neg_avg', 'ti_ac_open_avg', 'ti_ac_close_avg',
+    )
+    if any(phase_avgs.get(k) is None for k in required):
+        return None
+    eta_std = eta_std if eta_std is not None else 1.0
+    eta_ti = eta_ti if eta_ti is not None else 1.0
+    delta_std = delta_std if delta_std is not None else 0.0
+    delta_ti = delta_ti if delta_ti is not None else 0.0
+    delta_std_known = delta_std_known if delta_std_known is not None else 0.0
+
+    try:
+        V_DCSTD = (abs(phase_avgs['std_dc_pos_avg']) + abs(phase_avgs['std_dc_neg_avg'])) / 2
+        V_ACSTD = (abs(phase_avgs['std_ac_open_avg']) + abs(phase_avgs['std_ac_close_avg'])) / 2
+        V_DCUUT = (abs(phase_avgs['ti_dc_pos_avg']) + abs(phase_avgs['ti_dc_neg_avg'])) / 2
+        V_ACUUT = (abs(phase_avgs['ti_ac_open_avg']) + abs(phase_avgs['ti_ac_close_avg'])) / 2
+
+        term_STD = ((V_ACSTD - V_DCSTD) * 1_000_000) / (eta_std * V_DCSTD)
+        term_UUT = ((V_ACUUT - V_DCUUT) * 1_000_000) / (eta_ti * V_DCUUT)
+
+        return delta_std_known + term_STD - term_UUT + delta_std - delta_ti
+    except ZeroDivisionError:
+        return None
+
+
+def aggregate_cycle_deltas(cycle_deltas):
+    """Given a list of per-cycle δ values, return (mean, type_a_uncertainty)
+    where type_a = s / √N. Returns (None, None) if fewer than 2 numeric
+    entries.
+    """
+    nums = [d for d in cycle_deltas if d is not None]
+    if len(nums) < 2:
+        return (None, None)
+    mean_val, std_dev = welford_mean_stddev(nums)
+    if mean_val is None:
+        return (None, None)
+    return (mean_val, std_dev / math.sqrt(len(nums)))
+
+
+def aggregate_paired_cycles(fwd_deltas, rev_deltas, use_abba=True):
+    """Pair Fwd and Rev cycle δ values and roll up to the AC-DC pair
+    aggregate (mean, u_A).
+
+    Two pairing modes:
+
+    - ``use_abba=True`` (default, NIST/NPL standard): reverse pairing —
+      Fwd_i is paired with Rev_{N+1-i}. All paired midpoint times collapse
+      to the same instant, which fully cancels any linear-in-time drift
+      contribution to ``s`` (and therefore to u_A). Strongly preferred.
+    - ``use_abba=False``: index pairing — Fwd_i with Rev_i. Simpler, but
+      linear drift across the run inflates ``s``. Exposed via a session-
+      level checkbox for side-by-side comparison.
+
+    Returns ``(mean_pair_delta_ppm, type_a_ppm, n_used)`` or
+    ``(None, None, 0)`` when the two lists do not have matched non-null
+    lengths ≥ 2 (we need at least 2 paired deltas to define ``s``).
+    """
+    fwd = [d for d in (fwd_deltas or []) if d is not None]
+    rev = [d for d in (rev_deltas or []) if d is not None]
+    n = min(len(fwd), len(rev))
+    if n < 2:
+        return (None, None, n)
+    if use_abba:
+        paired = [(fwd[i] + rev[n - 1 - i]) / 2 for i in range(n)]
+    else:
+        paired = [(fwd[i] + rev[i]) / 2 for i in range(n)]
+    mean_val, std_dev = welford_mean_stddev(paired)
+    if mean_val is None:
+        return (None, None, n)
+    return (mean_val, std_dev / math.sqrt(n), n)
+
 
 class CalibrationReadings(models.Model):
 
@@ -408,27 +538,123 @@ class CalibrationResults(models.Model):
             self.ti_dc_pos_avg, self.ti_dc_neg_avg, self.ti_ac_open_avg, self.ti_ac_close_avg
         ]
         if any(v is None for v in required_avgs):
-            return None # Not ready to calculate yet
+            return None  # Not ready to calculate yet
 
         # 2. Fetch corrections automatically if not already set
         self.fetch_automatic_corrections()
 
-        # 3. Perform Math
-        try:
-            V_DCSTD = (abs(self.std_dc_pos_avg) + abs(self.std_dc_neg_avg)) / 2
-            V_ACSTD = (abs(self.std_ac_open_avg) + abs(self.std_ac_close_avg)) / 2
-            V_DCUUT = (abs(self.ti_dc_pos_avg) + abs(self.ti_dc_neg_avg)) / 2
-            V_ACUUT = (abs(self.ti_ac_open_avg) + abs(self.ti_ac_close_avg)) / 2
-
-            term_STD = ((V_ACSTD - V_DCSTD) * 1000000) / (self.eta_std * V_DCSTD)
-            term_UUT = ((V_ACUUT - V_DCUUT) * 1000000) / (self.eta_ti * V_DCUUT)
-
-            self.delta_uut_ppm = self.delta_std_known + term_STD - term_UUT + self.delta_std - self.delta_ti
-            self.save(update_fields=['delta_uut_ppm'])
-            
-            return self.delta_uut_ppm
-        except ZeroDivisionError:
+        # 3. Perform Math (delegated to the shared pure function so the
+        #    per-cycle finalizer and this aggregate path compute δ via one
+        #    source of truth).
+        phase_avgs = {
+            'std_ac_open_avg': self.std_ac_open_avg,
+            'std_dc_pos_avg': self.std_dc_pos_avg,
+            'std_dc_neg_avg': self.std_dc_neg_avg,
+            'std_ac_close_avg': self.std_ac_close_avg,
+            'ti_ac_open_avg': self.ti_ac_open_avg,
+            'ti_dc_pos_avg': self.ti_dc_pos_avg,
+            'ti_dc_neg_avg': self.ti_dc_neg_avg,
+            'ti_ac_close_avg': self.ti_ac_close_avg,
+        }
+        delta = compute_delta_uut_ppm(
+            phase_avgs,
+            eta_std=self.eta_std,
+            eta_ti=self.eta_ti,
+            delta_std=self.delta_std,
+            delta_ti=self.delta_ti,
+            delta_std_known=self.delta_std_known,
+        )
+        if delta is None:
             return None
+
+        self.delta_uut_ppm = delta
+        self.save(update_fields=['delta_uut_ppm'])
+        return self.delta_uut_ppm
+
+    def recompute_cycle_aggregates(self):
+        """After per-cycle δ values are persisted in CalibrationResultsCycle,
+        roll them up onto this row: `delta_uut_ppm_avg` = mean(δᵢ),
+        `type_a_uncertainty_ppm` = s(δᵢ) / √N. Leaves `delta_uut_ppm` (the
+        legacy single-pass value) untouched so older sessions keep showing
+        their original number.
+
+        These are *per-direction* aggregates and are diagnostic-only — the
+        headline AC-DC δ comes from ``recompute_pair_aggregate`` below.
+        """
+        cycle_deltas = list(
+            self.cycles.exclude(delta_uut_ppm__isnull=True)
+            .order_by('cycle_index')
+            .values_list('delta_uut_ppm', flat=True)
+        )
+        mean_val, type_a = aggregate_cycle_deltas(cycle_deltas)
+        update_fields = []
+        if mean_val is not None:
+            self.delta_uut_ppm_avg = mean_val
+            update_fields.append('delta_uut_ppm_avg')
+        if type_a is not None:
+            self.type_a_uncertainty_ppm = type_a
+            update_fields.append('type_a_uncertainty_ppm')
+        if update_fields:
+            self.save(update_fields=update_fields)
+        return (mean_val, type_a)
+
+    def recompute_pair_aggregate(self):
+        """Find the opposite-direction sibling TestPoint at the same
+        (current, frequency) and pair-up the cycle δ values across the two.
+
+        Computes ``pair_delta_uut_ppm`` and ``pair_type_a_uncertainty_ppm``
+        per the session's pairing preference (ABBA by default, index when
+        ``CalibrationConfigurations.use_abba_pairing`` is False) and
+        **mirrors the result onto both rows** so either side can serve as
+        the canonical headline source.
+
+        Idempotent — safe to call after any cycle row mutates. Returns the
+        paired mean δ in ppm (or ``None`` when the pair is incomplete).
+        """
+        tp = self.test_point
+        if tp is None:
+            return None
+        opposite_direction = 'Reverse' if tp.direction == 'Forward' else 'Forward'
+        try:
+            sibling_tp = TestPoint.objects.get(
+                test_point_set=tp.test_point_set,
+                current=tp.current,
+                frequency=tp.frequency,
+                direction=opposite_direction,
+            )
+        except TestPoint.DoesNotExist:
+            return None
+        sibling_results = getattr(sibling_tp, 'results', None)
+        if sibling_results is None:
+            return None
+
+        fwd_results, rev_results = (
+            (self, sibling_results) if tp.direction == 'Forward' else (sibling_results, self)
+        )
+        fwd_deltas = list(
+            fwd_results.cycles.exclude(delta_uut_ppm__isnull=True)
+            .order_by('cycle_index').values_list('delta_uut_ppm', flat=True)
+        )
+        rev_deltas = list(
+            rev_results.cycles.exclude(delta_uut_ppm__isnull=True)
+            .order_by('cycle_index').values_list('delta_uut_ppm', flat=True)
+        )
+
+        # Read the session's pairing preference (defaults to ABBA on).
+        session = tp.test_point_set.session
+        cal_cfg = getattr(getattr(session, 'calibration', None), 'configurations', None)
+        use_abba = bool(getattr(cal_cfg, 'use_abba_pairing', True))
+
+        mean_val, u_a, _ = aggregate_paired_cycles(fwd_deltas, rev_deltas, use_abba=use_abba)
+
+        # Mirror onto BOTH rows. Persist `None` symmetrically when the pair
+        # is incomplete so the UI can render the "pair incomplete" state
+        # without holding stale partial data.
+        for row in (fwd_results, rev_results):
+            row.pair_delta_uut_ppm = mean_val
+            row.pair_type_a_uncertainty_ppm = u_a
+            row.save(update_fields=['pair_delta_uut_ppm', 'pair_type_a_uncertainty_ppm'])
+        return mean_val
 
     std_ac_open_avg = models.FloatField(null=True, blank=True)
     std_ac_open_stddev = models.FloatField(null=True, blank=True)
@@ -454,8 +680,23 @@ class CalibrationResults(models.Model):
     delta_ti = models.FloatField(null=True, blank=True, help_text="Known AC-DC difference of the TI TVC in PPM")
     delta_std_known = models.FloatField(null=True, blank=True, help_text="Known AC-DC difference of the Standard Shunt in PPM")
 
-    delta_uut_ppm = models.FloatField(null=True, blank=True, help_text="Final calculated UUT AC-DC difference in PPM -> Forward or Revers")
-    delta_uut_ppm_avg = models.FloatField(null=True, blank=True, help_text="Final averaged UUT AC-DC difference in PPM")
+    delta_uut_ppm = models.FloatField(null=True, blank=True, help_text="Legacy single-pass UUT AC-DC difference in PPM (pre-N-cycle workflow)")
+    delta_uut_ppm_avg = models.FloatField(null=True, blank=True, help_text="Per-direction mean δ across this TestPoint's cycles (ppm). Diagnostic only — the headline AC-DC δ is pair_delta_uut_ppm.")
+    type_a_uncertainty_ppm = models.FloatField(
+        null=True, blank=True,
+        help_text="Per-direction Type A u_A = s(δᵢ)/√N across this TestPoint's cycles (ppm). Diagnostic only — the headline u_A is pair_type_a_uncertainty_ppm."
+    )
+    # Pair-level aggregate (Forward + Reverse paired). Mirrored on BOTH the
+    # Fwd and Rev CalibrationResults rows of a (current, frequency) pair so
+    # either side can serve as the source of truth.
+    pair_delta_uut_ppm = models.FloatField(
+        null=True, blank=True,
+        help_text="Paired AC-DC δ_UUT = mean over pair_i = (δ_Fwd_i + δ_Rev_{N+1-i})/2 (ppm). Mirrored on both Fwd and Rev results rows."
+    )
+    pair_type_a_uncertainty_ppm = models.FloatField(
+        null=True, blank=True,
+        help_text="Pair-level Type A u_A = s(pair_δ_i)/√N (ppm). Mirrored on both Fwd and Rev results rows."
+    )
 
     combined_uncertainty = models.FloatField(null=True, blank=True, help_text="Calculated combined standard uncertainty (uc) in PPM")
     effective_dof = models.FloatField(null=True, blank=True, help_text="Calculated effective degrees of freedom (veff)")
@@ -470,7 +711,60 @@ class CalibrationResults(models.Model):
 
     def __str__(self):
         return f"Calibration Results for {self.test_point.test_point_set.session.session_name} at Test Point {self.test_point.id}" if self.test_point else "Calibration Results (no test point)"
-    
+
+
+class CalibrationResultsCycle(models.Model):
+    """One row per AC-DC measurement cycle at a test point.
+
+    Each cycle owns the full `ac_open → dc_pos → dc_neg → ac_close` sequence
+    that yielded a single estimate of δ_UUT. The per-cycle phase averages
+    and stddevs are persisted here so the new statistics modal and chart
+    cycle-filter can reconstruct what happened in each cycle without
+    re-aggregating from raw readings.
+
+    The parent `CalibrationResults.delta_uut_ppm_avg` is the mean across
+    all `cycle.delta_uut_ppm` values; `type_a_uncertainty_ppm` is
+    s(δᵢ)/√N over the same set.
+    """
+
+    results = models.ForeignKey(
+        CalibrationResults,
+        related_name='cycles',
+        on_delete=models.CASCADE,
+    )
+    cycle_index = models.PositiveIntegerField(help_text="1-based cycle ordinal within a test point.")
+    delta_uut_ppm = models.FloatField(null=True, blank=True, help_text="δ_UUT for this cycle alone, in PPM.")
+
+    # Per-cycle phase averages (mirror the 8 *_avg fields on CalibrationResults)
+    std_ac_open_avg = models.FloatField(null=True, blank=True)
+    std_dc_pos_avg = models.FloatField(null=True, blank=True)
+    std_dc_neg_avg = models.FloatField(null=True, blank=True)
+    std_ac_close_avg = models.FloatField(null=True, blank=True)
+    ti_ac_open_avg = models.FloatField(null=True, blank=True)
+    ti_dc_pos_avg = models.FloatField(null=True, blank=True)
+    ti_dc_neg_avg = models.FloatField(null=True, blank=True)
+    ti_ac_close_avg = models.FloatField(null=True, blank=True)
+
+    # Per-cycle within-phase stddevs (short-term sample noise; diagnostic only)
+    std_ac_open_stddev = models.FloatField(null=True, blank=True)
+    std_dc_pos_stddev = models.FloatField(null=True, blank=True)
+    std_dc_neg_stddev = models.FloatField(null=True, blank=True)
+    std_ac_close_stddev = models.FloatField(null=True, blank=True)
+    ti_ac_open_stddev = models.FloatField(null=True, blank=True)
+    ti_dc_pos_stddev = models.FloatField(null=True, blank=True)
+    ti_dc_neg_stddev = models.FloatField(null=True, blank=True)
+    ti_ac_close_stddev = models.FloatField(null=True, blank=True)
+
+    created_at = models.DateTimeField(auto_now_add=True)
+
+    class Meta:
+        unique_together = ('results', 'cycle_index')
+        ordering = ['cycle_index']
+
+    def __str__(self):
+        return f"Cycle {self.cycle_index} for Results {self.results_id} (δ={self.delta_uut_ppm})"
+
+
 class Shunt(models.Model):
     """
     Represents a single AC Shunt device at a specific range and current.

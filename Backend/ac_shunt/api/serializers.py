@@ -2,11 +2,11 @@ import re
 from rest_framework import serializers
 from .models import (
     Message, Shunt, ShuntCorrection, TVC, TVCCorrection, TVCSensitivity,
-    CalibrationSession, TestPoint, TestPointSet, Calibration, 
-    CalibrationTVCCorrections, CalibrationConfigurations, CalibrationSettings, 
-    CalibrationReadings, CalibrationResults, BugReport,
+    CalibrationSession, TestPoint, TestPointSet, Calibration,
+    CalibrationTVCCorrections, CalibrationConfigurations, CalibrationSettings,
+    CalibrationReadings, CalibrationResults, CalibrationResultsCycle, BugReport,
     Workstation, WorkstationClaim,
-)
+)  # noqa: F401  -- TestPoint is used in CalibrationSettingsSerializer.validate_n_cycles
 from datetime import datetime
 
 
@@ -272,6 +272,7 @@ class CalibrationConfigurationsSerializer(serializers.ModelSerializer):
 
 class CalibrationSettingsSerializer(serializers.ModelSerializer):
     test_point = serializers.PrimaryKeyRelatedField(read_only=True)
+
     class Meta:
         model = CalibrationSettings
         fields = [
@@ -294,7 +295,43 @@ class CalibrationSettingsSerializer(serializers.ModelSerializer):
             'lf_harmonic_projection',
             'min_low_freq_settling_time',
             'lf_harmonics',
+            'n_cycles',
         ]
+
+    def validate_n_cycles(self, value):
+        """Reject n_cycles changes once cycles have already been captured
+        on either side of the (current, frequency) pair. AC-DC δ pairing
+        requires N to match between Fwd and Rev — changing it mid-run would
+        silently strand orphan cycles.
+        """
+        if value is None:
+            return value
+        instance = self.instance
+        if instance is None or instance.test_point is None:
+            return value
+        if value == instance.n_cycles:
+            return value
+
+        tp = instance.test_point
+        # Check both sides of the (current, frequency) pair for persisted cycles.
+        for direction in ('Forward', 'Reverse'):
+            try:
+                sibling = TestPoint.objects.get(
+                    test_point_set=tp.test_point_set,
+                    current=tp.current,
+                    frequency=tp.frequency,
+                    direction=direction,
+                )
+            except TestPoint.DoesNotExist:
+                continue
+            results = getattr(sibling, 'results', None)
+            if results and results.cycles.exists():
+                raise serializers.ValidationError(
+                    "Cannot change n_cycles after measurement cycles exist on this "
+                    "pair. Clear the existing readings/results for both Forward and "
+                    "Reverse at this (current, frequency) first."
+                )
+        return value
 
 class FormattedReadingsField(serializers.Field):
     """ Custom serializer field to add a human-readable timestamp. """
@@ -324,8 +361,23 @@ class CalibrationReadingsSerializer(serializers.ModelSerializer):
         model = CalibrationReadings
         fields = '__all__'
 
+class CalibrationResultsCycleSerializer(serializers.ModelSerializer):
+    class Meta:
+        model = CalibrationResultsCycle
+        fields = [
+            'id', 'cycle_index', 'delta_uut_ppm',
+            'std_ac_open_avg', 'std_dc_pos_avg', 'std_dc_neg_avg', 'std_ac_close_avg',
+            'ti_ac_open_avg', 'ti_dc_pos_avg', 'ti_dc_neg_avg', 'ti_ac_close_avg',
+            'std_ac_open_stddev', 'std_dc_pos_stddev', 'std_dc_neg_stddev', 'std_ac_close_stddev',
+            'ti_ac_open_stddev', 'ti_dc_pos_stddev', 'ti_dc_neg_stddev', 'ti_ac_close_stddev',
+            'created_at',
+        ]
+
+
 class CalibrationResultsSerializer(serializers.ModelSerializer):
     test_point = serializers.PrimaryKeyRelatedField(read_only=True)
+    cycles = CalibrationResultsCycleSerializer(many=True, read_only=True)
+
     class Meta:
         model = CalibrationResults
         fields = '__all__'

@@ -21,7 +21,7 @@ const RangeSummaryTable = ({ title, results, prefix }) => {
               <tr>
                 <th>Measurement</th>
                 <th>Average (V)</th>
-                <th>Std. Dev. (V)</th>
+                <th title="Standard deviation of raw voltage samples within this phase. Diagnostic only — not the same as the headline Type A u_A.">Within-phase σ (V)</th>
               </tr>
             </thead>
             <tbody>
@@ -46,15 +46,28 @@ const RangeSummaryTable = ({ title, results, prefix }) => {
   );
 };
 
-const ModalFinalResultCard = ({ value }) => (
-  <div className="final-result-card modal-result-card">
-    <h4>Calculated AC-DC Difference</h4>
-    <p>
-      {value != null ? parseFloat(value).toFixed(3) : "---"}
-      <span>PPM</span>
-    </p>
-  </div>
-);
+const ModalFinalResultCard = ({ value, uncertainty, nCycles }) => {
+  const hasUA = uncertainty !== null && uncertainty !== undefined;
+  return (
+    <div className="final-result-card modal-result-card">
+      <h4>Calculated AC-DC Difference</h4>
+      <p>
+        {value != null ? parseFloat(value).toFixed(3) : "---"}
+        {hasUA && (
+          <span style={{ fontWeight: 500, opacity: 0.8 }}>
+            &nbsp;±&nbsp;{parseFloat(uncertainty).toFixed(3)}
+          </span>
+        )}
+        <span> PPM</span>
+      </p>
+      {hasUA && nCycles ? (
+        <p style={{ margin: "4px 0 0 0", fontSize: "0.78rem", opacity: 0.7 }}>
+          Type A (u_A = s/√N), N = {nCycles}
+        </p>
+      ) : null}
+    </div>
+  );
+};
 
 const RangeResultsModal = ({ isOpen, onClose, results, rangeInfo }) => {
   if (!isOpen || !results) return null;
@@ -79,7 +92,18 @@ const RangeResultsModal = ({ isOpen, onClose, results, rangeInfo }) => {
         </div>
 
         <div className="modal-body" style={{ padding: "20px 0" }}>
-          <ModalFinalResultCard value={results.delta_uut_ppm} />
+          <ModalFinalResultCard
+            value={
+              results.pair_delta_uut_ppm
+              ?? results.delta_uut_ppm_avg
+              ?? results.delta_uut_ppm
+            }
+            uncertainty={
+              results.pair_type_a_uncertainty_ppm
+              ?? results.type_a_uncertainty_ppm
+            }
+            nCycles={results.cycles?.length || null}
+          />
           <RangeSummaryTable
             title="Standard Instrument"
             results={results}

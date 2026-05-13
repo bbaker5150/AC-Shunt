@@ -136,6 +136,9 @@ class SessionSupervisor:
         self.stop_event: asyncio.Event = asyncio.Event()
         self.confirmation_event: asyncio.Event = asyncio.Event()
         self.confirmation_status: Optional[str] = None
+        # Set by the operator when they click "Resume reverse pass" after
+        # flipping the AC-DC adapter mid paired-batch run.
+        self.flip_resume_event: asyncio.Event = asyncio.Event()
         self.state: str = self.STATE_IDLE
 
         self.task: Optional[asyncio.Task] = None
@@ -258,6 +261,7 @@ class SessionSupervisor:
 
         self.stop_event.clear()
         self.confirmation_event.clear()
+        self.flip_resume_event.clear()
         self.confirmation_status = None
         self.state = self.STATE_BUSY
         self.task_kind = kind
@@ -301,6 +305,10 @@ class SessionSupervisor:
         """Forward an amplifier-range confirmation decision to the task."""
         self.confirmation_status = status
         self.confirmation_event.set()
+
+    async def signal_flip_resume(self) -> None:
+        """Operator clicked 'Adapter flipped, resume reverse pass'."""
+        self.flip_resume_event.set()
 
     # -- grace window --------------------------------------------------------
 

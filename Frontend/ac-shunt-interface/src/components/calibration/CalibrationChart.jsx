@@ -91,6 +91,10 @@ function CalibrationChart({
   const [isStabilityOpen, setIsStabilityOpen] = useState(false);
   const stabilityMenuRef = useRef(null);
   const [hideUnstableReadings, setHideUnstableReadings] = useState(false);
+  // Cycle filter: which N-cycle of the AC-DC sequence to render. `null` =
+  // auto (live → currently-active cycle; otherwise the latest cycle in the
+  // dataset). A user can pin a specific cycle via the chart options menu.
+  const [selectedCycle, setSelectedCycle] = useState(null);
   const [voltSigFigs, setVoltSigFigs] = useState(4);
   const [voltSigFigsError, setVoltSigFigsError] = useState("");
   const [ppmDecimalPlaces, setPpmDecimalPlaces] = useState(2);
@@ -138,11 +142,46 @@ function CalibrationChart({
     };
   }, [optionsMenuRef, stabilityMenuRef]);
 
+  // Distinct cycle ordinals present across every dataset in chartData.
+  // Treats untagged legacy readings as cycle 1 so older sessions still render.
+  const availableCycles = useMemo(() => {
+    const seen = new Set();
+    (chartData?.datasets || []).forEach((ds) => {
+      (ds.data || []).forEach((pt) => {
+        const c = Number.isFinite(pt?.cycle) ? Number(pt.cycle) : 1;
+        seen.add(c);
+      });
+    });
+    return Array.from(seen).sort((a, b) => a - b);
+  }, [chartData]);
+
+  // Effective cycle: explicit user choice wins, else the latest cycle in
+  // view (which during a live run is the currently-running one because
+  // earlier cycles are already complete and later ones don't exist yet).
+  const effectiveCycle = useMemo(() => {
+    if (selectedCycle != null && availableCycles.includes(selectedCycle)) {
+      return selectedCycle;
+    }
+    return availableCycles.length ? availableCycles[availableCycles.length - 1] : 1;
+  }, [selectedCycle, availableCycles]);
+
   const { processedChartData, processedComparisonData } = useMemo(() => {
+    const filterByCycle = (data) =>
+      (data || []).filter((pt) => {
+        const c = Number.isFinite(pt?.cycle) ? Number(pt.cycle) : 1;
+        return c === effectiveCycle;
+      });
+
     const processDatasets = (dataToProcess) => {
       if (!dataToProcess || !dataToProcess.datasets) return [];
       return dataToProcess.datasets.map((ds) => {
-        let processedData = ds.data || [];
+        // Filter to the chosen cycle first, then re-index so x is contiguous
+        // within this cycle (mirrors the non-cycle behavior the chart had
+        // for years).
+        let processedData = filterByCycle(ds.data).map((point, index) => ({
+          ...point,
+          x: index + 1,
+        }));
 
         if (hideUnstableReadings) {
           processedData = processedData
@@ -155,9 +194,14 @@ function CalibrationChart({
 
         if (yAxisUnit === "ppm") {
           if (processedData.length === 0) return { ...ds, data: [] };
+          // Reference mean for the PPM transform is computed over the
+          // currently-selected cycle only — otherwise the deviation y-values
+          // get pulled toward the cross-cycle mean which defeats the
+          // purpose of cycle filtering.
+          const cycleData = filterByCycle(ds.data);
           const originalMean =
-            (ds.data || []).reduce((acc, curr) => acc + curr.y, 0) /
-            (ds.data.length || 1);
+            cycleData.reduce((acc, curr) => acc + curr.y, 0) /
+            (cycleData.length || 1);
 
           return {
             ...ds,
@@ -201,7 +245,7 @@ function CalibrationChart({
       },
       processedComparisonData: finalComparisonDatasets,
     };
-  }, [chartData, comparisonData, yAxisUnit, hideUnstableReadings]);
+  }, [chartData, comparisonData, yAxisUnit, hideUnstableReadings, effectiveCycle]);
 
   const handleVoltSigFigChange = (e) => {
     const value = e.target.value;
@@ -368,6 +412,11 @@ function CalibrationChart({
               if (footerLines.length > 0) footerLines.push(" ");
               footerLines.push(`Date: ${timestamp.toLocaleDateString()}`);
               footerLines.push(`Time: ${timestamp.toLocaleTimeString()}`);
+            }
+
+            const cycleNum = Number.isFinite(rawPoint?.cycle) ? Number(rawPoint.cycle) : null;
+            if (cycleNum != null) {
+              footerLines.push(`Cycle: ${cycleNum}`);
             }
 
             return footerLines;
@@ -607,6 +656,30 @@ function CalibrationChart({
                       </div>
                     )}
 
+                    {availableCycles.length > 1 && (
+                      <div className="chart-options-form-group">
+                        <label>Cycle</label>
+                        <div className="unit-toggle unit-toggle--wrap">
+                          {availableCycles.map((c) => (
+                            <button
+                              key={c}
+                              className={effectiveCycle === c ? "active" : ""}
+                              onClick={() => setSelectedCycle(c)}
+                              title={`Show readings from cycle ${c}`}
+                            >
+                              {c}
+                            </button>
+                          ))}
+                          <button
+                            className={selectedCycle == null ? "active" : ""}
+                            onClick={() => setSelectedCycle(null)}
+                            title="Track the latest cycle automatically (live)"
+                          >
+                            Auto
+                          </button>
+                        </div>
+                      </div>
+                    )}
                     <div className="chart-options-form-group">
                       <label>Y-Axis Unit</label>
                       <div className="unit-toggle">

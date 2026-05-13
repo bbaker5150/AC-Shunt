@@ -23,7 +23,8 @@ import { useTheme } from "../../contexts/ThemeContext";
 import CalibrationChart from "./CalibrationChart";
 import ConfigurationSummaryModal from "./ConfigurationSummaryModal";
 import HarmonicProjectionInfoModal from "./HarmonicProjectionInfoModal";
-import LiveStatisticsTracker from "./LiveStatisticsTracker";
+import LiveStabilityTracker from "./LiveStabilityTracker";
+import CycleStatisticsModal from "./CycleStatisticsModal";
 import CalibrationStatusBar from "./CalibrationStatusBar";
 import { downloadFullSessionExcel } from "./sessionExcelExport";
 import {
@@ -320,6 +321,7 @@ function Calibration({
     amplifierAddress,
     lastMessage,
     sendWsCommand,
+    pairedRun,
     stabilizationStatus,
     slidingWindowStatus,
     timerState,
@@ -357,6 +359,7 @@ function Calibration({
     min_low_freq_settling_time: 0,
     lf_harmonic_projection: false,
     lf_harmonics: 2,
+    n_cycles: 3,
   });
   const [correctionInputs, setCorrectionInputs] = useState({
     eta_std: "",
@@ -390,6 +393,7 @@ function Calibration({
   const [isCalculatingAverages, setIsCalculatingAverages] = useState(false);
   const prevIsBulkRunning = useRef(isBulkRunning);
   const [activeChartView, setActiveChartView] = useState("calibration");
+  const [isCycleStatsOpen, setIsCycleStatsOpen] = useState(false);
   const [readingsChartLayout, setReadingsChartLayoutState] = useState(
     rememberedReadingsChartLayout
   );
@@ -629,6 +633,44 @@ function Calibration({
       );
     }
   }, [selectedSessionId, showNotification]);
+
+  // ABBA toggle lives session-wide in CalibrationConfigurations. The PUT
+  // mirrors how ConfigurationModal saves the shunt range; we keep the
+  // other configuration fields intact and only flip use_abba_pairing.
+  const handleSetAbbaPairing = useCallback(async (nextValue) => {
+    if (!selectedSessionId) return;
+    // Optimistically reflect the toggle so the UI doesn't lag the click.
+    setCalibrationConfigurations((prev) => ({ ...prev, use_abba_pairing: nextValue }));
+    try {
+      await axios.put(
+        `${API_BASE_URL}/calibration_sessions/${selectedSessionId}/information/`,
+        {
+          configurations: {
+            ac_shunt_range: calibrationConfigurations.ac_shunt_range ?? null,
+            amplifier_range: calibrationConfigurations.amplifier_range ?? null,
+            use_abba_pairing: nextValue,
+          },
+        }
+      );
+      if (onDataUpdate) onDataUpdate();
+    } catch (err) {
+      // Roll back the optimistic update on failure.
+      setCalibrationConfigurations((prev) => ({
+        ...prev,
+        use_abba_pairing: !nextValue,
+      }));
+      showNotification(
+        `Could not update pairing mode: ${err.message || "unknown error"}`,
+        "error"
+      );
+    }
+  }, [
+    selectedSessionId,
+    calibrationConfigurations.ac_shunt_range,
+    calibrationConfigurations.amplifier_range,
+    onDataUpdate,
+    showNotification,
+  ]);
 
   useEffect(() => {
     // The master refresh function
@@ -1110,6 +1152,7 @@ function Calibration({
       min_low_freq_settling_time: 0,
       lf_harmonic_projection: false,
       lf_harmonics: 2,
+      n_cycles: 3,
     };
 
     const pointForDirection =
@@ -1169,6 +1212,7 @@ function Calibration({
         : 0,
       lf_harmonic_projection: lowFrequencyEnabled && (settings.lf_harmonic_projection || false),
       lf_harmonics: parseInt(settings.lf_harmonics, 10) || 2,
+      n_cycles: Math.max(2, parseInt(settings.n_cycles, 10) || 3),
     };
   }, []);
 
@@ -1507,6 +1551,118 @@ function Calibration({
     // No warnings needed, just run
     setLastCollectionDirection(activeDirection);
     runBatchSequence();
+  };
+
+  // ----------------------------------------------------------------------
+  // Paired AC-DC batch (one cycle = one Forward + one Reverse sequence).
+  // Sends both halves of every selected pair to the backend. Forward pass
+  // runs first; when `paired_run_awaiting_flip` lands the UI shows the
+  // flip modal; user clicks "Resume" and the reverse pass runs in
+  // reverse test-point order. recompute_pair_aggregate mirrors the
+  // pair-level mean δ + u_A onto both rows.
+  // ----------------------------------------------------------------------
+  const handleRunPairedBatch = () => {
+    if (selectedTPs.size === 0) {
+      showNotification("No test points selected.", "warning");
+      return;
+    }
+    if (!validateInstrumentAssignments("start paired AC-DC batch")) {
+      return;
+    }
+    setFailedTPKeys(new Set());
+
+    const selectedOrderedTPs = orderedTestPoints.filter((p) =>
+      selectedTPs.has(p.key)
+    );
+
+    // Each pair contributes a Forward and a Reverse entry. The backend
+    // requires both halves to exist for every (current, frequency) pair.
+    const missingHalves = selectedOrderedTPs.filter(
+      (p) => !p.forward || !p.reverse
+    );
+    if (missingHalves.length > 0) {
+      const labels = missingHalves
+        .map((p) => `${formatCurrent(p.current)} @ ${formatFrequency(p.frequency)}`)
+        .join(", ");
+      showNotification(
+        `Paired run needs both Forward and Reverse for every selected pair. Missing: ${labels}`,
+        "error"
+      );
+      return;
+    }
+
+    const buildPayloadEntry = (tp, direction) => {
+      const ptSettings =
+        tp?.settings && Object.keys(tp.settings).length > 0
+          ? tp.settings
+          : calibrationSettings;
+      return {
+        id: tp.id,
+        current: tp.current ?? null,
+        frequency: tp.frequency ?? null,
+        direction,
+        settling_time: parseFloat(ptSettings.settling_time),
+        num_samples: parseInt(ptSettings.num_samples, 10),
+        n_cycles: Math.max(2, parseInt(ptSettings.n_cycles, 10) || 3),
+      };
+    };
+
+    const forwardPoints = selectedOrderedTPs.map((p) =>
+      buildPayloadEntry(p.forward, "Forward")
+    );
+    const reversePoints = selectedOrderedTPs.map((p) =>
+      buildPayloadEntry(p.reverse, "Reverse")
+    );
+
+    const firstPoint = selectedOrderedTPs[0];
+    const firstFwdSettings =
+      firstPoint?.forward?.settings &&
+      Object.keys(firstPoint.forward.settings).length > 0
+        ? firstPoint.forward.settings
+        : calibrationSettings;
+
+    setFocusedTP(firstPoint);
+    setIsBulkRunning(true);
+
+    const params = {
+      command: "start_paired_batch",
+      forward_points: forwardPoints,
+      reverse_points: reversePoints,
+      num_samples: parseInt(firstFwdSettings.num_samples, 10),
+      settling_time: parseFloat(firstFwdSettings.settling_time),
+      nplc: parseFloat(firstFwdSettings.nplc),
+      n_cycles: Math.max(2, parseInt(firstFwdSettings.n_cycles, 10) || 3),
+      initial_warm_up_time: parseFloat(firstFwdSettings.initial_warm_up_time),
+      measurement_params: buildMeasurementParams(firstFwdSettings),
+      std_reader_model: stdReaderModel,
+      ti_reader_model: tiReaderModel,
+      amplifier_range: calibrationConfigurations.amplifier_range,
+      bypass_amplifier_confirmation: false,
+    };
+
+    if (startReadingCollection(params)) {
+      waitForCollection()
+        .then((result) => {
+          if (result === "collection_stopped" || result === "error") {
+            showNotification("Paired AC-DC run stopped.", "warning");
+          } else {
+            showNotification("Paired AC-DC run complete.", "success");
+          }
+        })
+        .catch((err) => {
+          showNotification(
+            `Paired run failed: ${err.message || "unknown error"}`,
+            "error"
+          );
+        })
+        .finally(() => {
+          setIsBulkRunning(false);
+          onDataUpdate();
+        });
+    } else {
+      showNotification("WebSocket is not connected.", "error");
+      setIsBulkRunning(false);
+    }
   };
 
   const handleCollectReadingsRequest = useCallback(
@@ -2274,6 +2430,8 @@ function Calibration({
               isCollecting={isCollecting}
               isBulkRunning={isBulkRunning}
               bulkRunProgress={bulkRunProgressFromContext}
+              activeCollectionDetails={activeCollectionDetails}
+              pairedRun={pairedRun}
               timerState={timerState}
               countdown={countdown}
               stabilizationStatus={stabilizationStatus}
@@ -2462,6 +2620,53 @@ function Calibration({
                                     </option>
                                   ))}
                                 </select>
+                              </div>
+                              <div className="form-section">
+                                <label htmlFor="n_cycles">
+                                  Paired cycles (N)
+                                  {(focusedTP?.forward?.results?.cycles?.length > 0 ||
+                                    focusedTP?.reverse?.results?.cycles?.length > 0) && (
+                                    <span className="n-cycles-lock-indicator">
+                                      (locked — cycles already captured)
+                                    </span>
+                                  )}
+                                </label>
+                                <input
+                                  type="number"
+                                  id="n_cycles"
+                                  name="n_cycles"
+                                  min="2"
+                                  step="1"
+                                  value={calibrationSettings.n_cycles ?? 3}
+                                  onChange={(e) =>
+                                    setCalibrationSettings((prev) => ({
+                                      ...prev,
+                                      n_cycles: e.target.value,
+                                    }))
+                                  }
+                                  disabled={
+                                    isRemoteViewer ||
+                                    focusedTP?.forward?.results?.cycles?.length > 0 ||
+                                    focusedTP?.reverse?.results?.cycles?.length > 0
+                                  }
+                                  title="One cycle = one Forward + one Reverse sequence. Backend enforces N_Fwd = N_Rev for a (current, frequency) pair and locks the value once cycles exist. Min 2; recommended ≥3."
+                                />
+                              </div>
+                              <div className="form-section form-section--checkbox full-width">
+                                <label className="form-section-checkbox-label">
+                                  <input
+                                    type="checkbox"
+                                    className="form-section-checkbox-input"
+                                    checked={
+                                      calibrationConfigurations?.use_abba_pairing === undefined
+                                        ? true
+                                        : Boolean(calibrationConfigurations.use_abba_pairing)
+                                    }
+                                    onChange={(e) => handleSetAbbaPairing(e.target.checked)}
+                                    disabled={isRemoteViewer}
+                                  />
+                                  <span>Utilize ABBA Pairing</span>
+                                </label>
                               </div>
                             </div>
                           </div>
@@ -2924,8 +3129,8 @@ function Calibration({
                                   activeChartView={activeChartView}
                                   setActiveChartView={setActiveChartView}
                                 />
-                                <LiveStatisticsTracker
-                                  title="Standard Instrument Statistics"
+                                <LiveStabilityTracker
+                                  title="Standard Instrument Stability"
                                   readings={stdChartDataSource}
                                   activeStage={
                                     isCurrentTPActive
@@ -2934,6 +3139,17 @@ function Calibration({
                                       : null
                                   }
                                 />
+                                <div className="cycle-stats-trigger-row">
+                                  <button
+                                    type="button"
+                                    className="cycle-stats-trigger-btn"
+                                    onClick={() => setIsCycleStatsOpen(true)}
+                                    disabled={!focusedTP}
+                                    title="Per-cycle AC-DC statistics (mean δ, Type A u_A)"
+                                  >
+                                    Cycle statistics…
+                                  </button>
+                                </div>
                               </div>
                             )}
                             {showTiChart && (
@@ -2955,8 +3171,8 @@ function Calibration({
                                   activeChartView={activeChartView}
                                   setActiveChartView={setActiveChartView}
                                 />
-                                <LiveStatisticsTracker
-                                  title="Test Instrument Statistics"
+                                <LiveStabilityTracker
+                                  title="Test Instrument Stability"
                                   readings={tiChartDataSource}
                                   activeStage={
                                     isCurrentTPActive
@@ -2965,6 +3181,17 @@ function Calibration({
                                       : null
                                   }
                                 />
+                                <div className="cycle-stats-trigger-row">
+                                  <button
+                                    type="button"
+                                    className="cycle-stats-trigger-btn"
+                                    onClick={() => setIsCycleStatsOpen(true)}
+                                    disabled={!focusedTP}
+                                    title="Per-cycle AC-DC statistics (mean δ, Type A u_A)"
+                                  >
+                                    Cycle statistics…
+                                  </button>
+                                </div>
                               </div>
                             )}
                           </div>
@@ -3120,6 +3347,57 @@ function Calibration({
             </div>
           </div>
         </>
+      )}
+
+      <CycleStatisticsModal
+        isOpen={isCycleStatsOpen}
+        onClose={() => setIsCycleStatsOpen(false)}
+        focusedTestPoint={focusedTP}
+        useAbba={
+          calibrationConfigurations?.use_abba_pairing === undefined
+            ? true
+            : Boolean(calibrationConfigurations.use_abba_pairing)
+        }
+      />
+
+      {pairedRun?.awaitingFlip && (
+        <div className="modal-overlay">
+          <div
+            className="paired-run-flip-modal"
+            role="dialog"
+            aria-modal="true"
+            aria-labelledby="paired-run-flip-title"
+            onClick={(e) => e.stopPropagation()}
+          >
+            <h3 id="paired-run-flip-title">Flip the AC-DC adapter</h3>
+            <p>
+              Forward pass complete. Physically flip the adapter so current
+              flows in the opposite direction, then click <strong>Resume</strong>.
+              The reverse pass will run the same test points in reverse order
+              so linear drift across the run cancels in the paired result.
+            </p>
+            <div className="paired-run-flip-actions">
+              <button
+                type="button"
+                className="paired-run-flip-abort"
+                onClick={() => {
+                  stopReadingCollection();
+                }}
+              >
+                Abort
+              </button>
+              <button
+                type="button"
+                className="paired-run-flip-resume"
+                onClick={() => {
+                  sendWsCommand({ command: "paired_run_resume" });
+                }}
+              >
+                Resume reverse pass
+              </button>
+            </div>
+          </div>
+        </div>
       )}
     </>
   );
