@@ -3389,6 +3389,106 @@ input:checked+.slider:before {
   vertical-align: middle;
 }
 
+.accordion-header-cycle {
+  margin-left: 10px;
+  padding: 1px 7px;
+  font-size: 0.7rem;
+  font-weight: 600;
+  letter-spacing: 0.02em;
+  color: var(--text-color-muted);
+  background-color: var(--surface-sunken, rgba(148, 163, 184, 0.16));
+  border: 1px solid var(--border-color);
+  border-radius: 999px;
+  vertical-align: middle;
+}
+
+.cycle-stats-headline-inline {
+  font-size: 0.82rem;
+  font-weight: 600;
+  color: var(--text-color);
+  font-variant-numeric: tabular-nums;
+  margin-right: 10px;
+  white-space: nowrap;
+}
+
+.cycle-stats-headline-n {
+  font-weight: 500;
+  color: var(--text-color-muted);
+}
+
+/* --- Per-cycle calculation card rows on the Overview tab --- */
+.cal-results-cycle-list {
+  display: flex;
+  flex-direction: column;
+  gap: 16px;
+  margin-top: 6px;
+}
+
+.cal-results-cycle-row {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.cal-results-cycle-label {
+  font-size: 0.78rem;
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+  color: var(--text-color-muted);
+}
+
+.cal-results-cycle-cards {
+  grid-template-columns: repeat(3, 1fr) !important;
+}
+
+.cal-results-overview-card--accent {
+  border: 1px solid var(--primary-color, #2563eb);
+  background-color: rgba(37, 99, 235, 0.04);
+}
+
+.cal-results-cycle-context {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  padding: 10px 14px;
+  margin-bottom: 16px;
+  font-size: 0.85rem;
+  background-color: rgba(37, 99, 235, 0.06);
+  border: 1px solid var(--primary-color, #2563eb);
+  border-radius: 10px;
+  color: var(--text-color);
+}
+
+.cal-results-cycle-context-label strong {
+  color: var(--primary-color, #2563eb);
+}
+
+.cal-results-cycle-context-back {
+  font-size: 0.78rem;
+  font-weight: 600;
+  padding: 5px 12px;
+  border-radius: 6px;
+  border: 1px solid var(--border-color);
+  background-color: var(--content-background);
+  color: var(--text-color);
+  cursor: pointer;
+  transition: background-color 0.15s ease, border-color 0.15s ease;
+}
+
+.cal-results-cycle-context-back:hover {
+  background-color: var(--surface-sunken, var(--background-color));
+  border-color: var(--primary-color, #2563eb);
+}
+
+.cal-results-overview-caption {
+  margin: 6px 0 0 0;
+  font-size: 0.78rem;
+  font-weight: 500;
+  color: var(--text-color-muted);
+}
+
 /* --- Modal Shell --- */
 .corrections-modal-content {
   max-width: min(1180px, 92vw);

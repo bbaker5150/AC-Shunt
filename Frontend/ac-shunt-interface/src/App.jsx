@@ -1817,9 +1817,10 @@ function AppContent() {
                 onDataUpdate={fetchSessionData}
                 activeDirection={activeDirection}
                 isRemoteViewer={isRemoteViewer}
-                onOpenResultsDirection={(direction) => {
+                onOpenResultsDirection={(direction, cycleIndex = null) => {
                   setResultsNavigationRequest({
                     direction,
+                    cycleIndex,
                     requestedAt: Date.now(),
                   });
                   setActiveTab("calibrationResults");

@@ -242,6 +242,11 @@ function CalibrationResults({
       : null;
   }, [navigationRequest]);
 
+  const requestedCycle = useMemo(() => {
+    const c = navigationRequest?.cycleIndex;
+    return Number.isFinite(c) && c > 0 ? c : null;
+  }, [navigationRequest]);
+
   const [activeTab, setActiveTab] = useState("summary");
   const [detailsView, setDetailsView] = useState("chart");
   const [activeInstrument, setActiveInstrument] = useState("std");
@@ -250,23 +255,95 @@ function CalibrationResults({
   const [activeDirection, setActiveDirection] = useState(
     () => requestedDirection || "Overview"
   );
+  // When set to a 1-based cycle ordinal, the summary view drills into a
+  // specific cycle's results instead of the aggregate. Composes with
+  // activeDirection: e.g. (Forward, 2) shows cycle 2's Forward breakdown.
+  // null = aggregate / legacy view.
+  const [activeCycle, setActiveCycle] = useState(null);
+  // Reset the cycle drill-in whenever the user navigates back to Overview
+  // (clicking a per-cycle card in Overview re-sets it to a number).
+  useEffect(() => {
+    if (activeDirection === "Overview") setActiveCycle(null);
+  }, [activeDirection]);
 
   const hasBothDirections =
     focusedTP?.forward?.results && focusedTP?.reverse?.results;
 
-  // At-a-glance deltas (used by the Overview summary view)
+  // At-a-glance deltas (used by the Overview summary view).
+  //
+  // Now produces:
+  //   - `overall`: the pair-level mean (`pair_delta_uut_ppm`, mirrored on
+  //     both Fwd and Rev results rows by recompute_pair_aggregate). Reads
+  //     from either side; falls back to the legacy mean-of-direction-means
+  //     for pre-cycle sessions where pair_* is null.
+  //   - `overallUA`: pair-level Type A u_A = s(paired δ_i)/√N from the
+  //     backend. Null when the pair is incomplete or pre-cycle data.
+  //   - `cyclePairs`: ordered list of {i, fwd, rev, avg} — one entry per
+  //     cycle ordinal. avg is the simple (fwd_i + rev_i)/2. Entries
+  //     missing a half (e.g. mid-run when only fwd is done) still appear,
+  //     so the operator can see partial progress.
+  //   - Legacy `forward`/`reverse`/`combined` retained for the Fwd/Rev
+  //     button row, which still renders the per-direction single-value
+  //     entry into the direction-specific tabs.
   const overviewStats = useMemo(() => {
-    const fwd = focusedTP?.forward?.results?.delta_uut_ppm;
-    const rev = focusedTP?.reverse?.results?.delta_uut_ppm;
-    const fwdNum = fwd != null ? parseFloat(fwd) : null;
-    const revNum = rev != null ? parseFloat(rev) : null;
+    const fwdLegacy = focusedTP?.forward?.results?.delta_uut_ppm;
+    const revLegacy = focusedTP?.reverse?.results?.delta_uut_ppm;
+    const fwdLegacyNum = fwdLegacy != null ? parseFloat(fwdLegacy) : null;
+    const revLegacyNum = revLegacy != null ? parseFloat(revLegacy) : null;
     const combined =
-      fwdNum != null && revNum != null ? (fwdNum + revNum) / 2 : null;
+      fwdLegacyNum != null && revLegacyNum != null
+        ? (fwdLegacyNum + revLegacyNum) / 2
+        : null;
+
+    // Pair-level overall — backend-mirrored.
+    const pairMean =
+      focusedTP?.forward?.results?.pair_delta_uut_ppm
+      ?? focusedTP?.reverse?.results?.pair_delta_uut_ppm
+      ?? null;
+    const pairUA =
+      focusedTP?.forward?.results?.pair_type_a_uncertainty_ppm
+      ?? focusedTP?.reverse?.results?.pair_type_a_uncertainty_ppm
+      ?? null;
+
+    // Per-cycle pairs (simple index pairing by cycle_index for display).
+    const fwdCycles = (focusedTP?.forward?.results?.cycles || [])
+      .slice()
+      .sort((a, b) => (a.cycle_index || 0) - (b.cycle_index || 0));
+    const revCycles = (focusedTP?.reverse?.results?.cycles || [])
+      .slice()
+      .sort((a, b) => (a.cycle_index || 0) - (b.cycle_index || 0));
+    const maxN = Math.max(fwdCycles.length, revCycles.length);
+    const cyclePairs = [];
+    for (let i = 0; i < maxN; i += 1) {
+      const fwd = fwdCycles[i]?.delta_uut_ppm;
+      const rev = revCycles[i]?.delta_uut_ppm;
+      const fwdNum = fwd != null ? parseFloat(fwd) : null;
+      const revNum = rev != null ? parseFloat(rev) : null;
+      const avg =
+        fwdNum != null && revNum != null ? (fwdNum + revNum) / 2 : null;
+      cyclePairs.push({
+        i: i + 1,
+        fwd: fwdNum,
+        rev: revNum,
+        avg,
+      });
+    }
+
+    const overall = pairMean != null ? Number(pairMean) : combined;
+    const hasAny =
+      overall != null
+      || fwdLegacyNum != null
+      || revLegacyNum != null
+      || cyclePairs.length > 0;
+
     return {
-      forward: fwdNum,
-      reverse: revNum,
+      forward: fwdLegacyNum,
+      reverse: revLegacyNum,
       combined,
-      hasAny: fwdNum != null || revNum != null,
+      overall,
+      overallUA: pairUA != null ? Number(pairUA) : null,
+      cyclePairs,
+      hasAny,
     };
   }, [focusedTP]);
 
@@ -282,6 +359,83 @@ function CalibrationResults({
 
     if (activeDirection === "Overview") {
       return { calResults: null, calReadings: null };
+    }
+
+    // Per-cycle drill-in. When activeCycle is set, synthesize calResults
+    // from the CalibrationResultsCycle row(s) so the breakdown shows that
+    // cycle's own phase averages instead of the aggregate. Correction
+    // factors (η, δ_std, δ_ti, δ_std_known) are pulled from the parent
+    // direction's results so the KaTeX formula renders the same constants
+    // the backend used to compute the per-cycle δ.
+    if (activeCycle != null && activeDirection !== "Overview") {
+      const findCycle = (results) =>
+        (results?.cycles || []).find((c) => c.cycle_index === activeCycle);
+
+      if (activeDirection === "Combined") {
+        // Per-cycle Combined: average the matching cycle row from each
+        // direction. The breakdown then renders the combined-phase
+        // averages → simple (δ_Fwd_i + δ_Rev_i)/2.
+        const fwdCycle = findCycle(focusedTP?.forward?.results);
+        const revCycle = findCycle(focusedTP?.reverse?.results);
+        if (!fwdCycle || !revCycle) {
+          return { calResults: null, calReadings: null };
+        }
+        const phaseKeys = [
+          'std_ac_open_avg', 'std_dc_pos_avg', 'std_dc_neg_avg', 'std_ac_close_avg',
+          'ti_ac_open_avg', 'ti_dc_pos_avg', 'ti_dc_neg_avg', 'ti_ac_close_avg',
+        ];
+        const stddevKeys = phaseKeys.map((k) => k.replace('_avg', '_stddev'));
+        const synth = {};
+        phaseKeys.forEach((k) => {
+          const f = fwdCycle[k];
+          const r = revCycle[k];
+          synth[k] = f != null && r != null ? (Number(f) + Number(r)) / 2 : null;
+        });
+        stddevKeys.forEach((k) => {
+          const f = fwdCycle[k];
+          const r = revCycle[k];
+          synth[k] = typeof f === 'number' && typeof r === 'number' ? (f + r) / 2 : null;
+        });
+        // Correction factors are session-level (same for both sides).
+        const corrSrc = focusedTP?.forward?.results || focusedTP?.reverse?.results || {};
+        synth.eta_std = corrSrc.eta_std;
+        synth.eta_ti = corrSrc.eta_ti;
+        synth.delta_std = corrSrc.delta_std;
+        synth.delta_ti = corrSrc.delta_ti;
+        synth.delta_std_known = corrSrc.delta_std_known;
+        synth.delta_uut_ppm =
+          fwdCycle.delta_uut_ppm != null && revCycle.delta_uut_ppm != null
+            ? (Number(fwdCycle.delta_uut_ppm) + Number(revCycle.delta_uut_ppm)) / 2
+            : null;
+        // No readings array per-cycle (readings are flat across cycles in
+        // the JSON; we'd have to filter them here if the user drills into
+        // detailed readings for a single cycle. The Details tab will pull
+        // from the parent direction's full readings when calReadings is
+        // null, which is fine — the breakdown view doesn't need them).
+        return { calResults: synth, calReadings: null };
+      }
+
+      // Per-cycle Forward or Reverse.
+      const dirResults =
+        activeDirection === 'Forward'
+          ? focusedTP?.forward?.results
+          : focusedTP?.reverse?.results;
+      const cycleRow = findCycle(dirResults);
+      if (!cycleRow || !dirResults) {
+        return { calResults: null, calReadings: null };
+      }
+      return {
+        calResults: {
+          ...cycleRow,
+          // Inherit correction factors from the parent direction's results.
+          eta_std: dirResults.eta_std,
+          eta_ti: dirResults.eta_ti,
+          delta_std: dirResults.delta_std,
+          delta_ti: dirResults.delta_ti,
+          delta_std_known: dirResults.delta_std_known,
+        },
+        calReadings: null,
+      };
     }
 
     if (activeDirection === "Combined") {
@@ -335,6 +489,34 @@ function CalibrationResults({
           ? (parseFloat(fwdPpm) + parseFloat(revPpm)) / 2
           : null;
 
+      // Propagate the pair-level aggregate + correction factors onto the
+      // synthesized Combined row so the headline KPI's pair-complete
+      // branch fires (was reading these directly, which were undefined on
+      // the synth — fix for the "pair incomplete" false negative).
+      combinedResults.pair_delta_uut_ppm =
+        forward.results.pair_delta_uut_ppm
+        ?? reverse.results.pair_delta_uut_ppm
+        ?? null;
+      combinedResults.pair_type_a_uncertainty_ppm =
+        forward.results.pair_type_a_uncertainty_ppm
+        ?? reverse.results.pair_type_a_uncertainty_ppm
+        ?? null;
+      combinedResults.delta_uut_ppm_avg =
+        forward.results.delta_uut_ppm_avg
+        ?? reverse.results.delta_uut_ppm_avg
+        ?? null;
+      combinedResults.type_a_uncertainty_ppm =
+        forward.results.type_a_uncertainty_ppm
+        ?? reverse.results.type_a_uncertainty_ppm
+        ?? null;
+      combinedResults.eta_std = forward.results.eta_std ?? reverse.results.eta_std;
+      combinedResults.eta_ti = forward.results.eta_ti ?? reverse.results.eta_ti;
+      combinedResults.delta_std = forward.results.delta_std ?? reverse.results.delta_std;
+      combinedResults.delta_ti = forward.results.delta_ti ?? reverse.results.delta_ti;
+      combinedResults.delta_std_known =
+        forward.results.delta_std_known ?? reverse.results.delta_std_known;
+      combinedResults.cycles = forward.results.cycles ?? reverse.results.cycles ?? [];
+
       return { calResults: combinedResults, calReadings: combinedReadings };
     }
 
@@ -344,7 +526,7 @@ function CalibrationResults({
       calResults: pointForDirection?.results || null,
       calReadings: pointForDirection?.readings || null,
     };
-  }, [focusedTP, activeDirection]);
+  }, [focusedTP, activeDirection, activeCycle]);
 
   // Refetch data when the WebSocket sends a 'connection_sync' signal
   useEffect(() => {
@@ -357,7 +539,10 @@ function CalibrationResults({
     if (!requestedDirection) return;
     setActiveTab("summary");
     setActiveDirection(requestedDirection);
-  }, [requestedDirection]);
+    // requestedCycle is optional — clear when not present so a follow-up
+    // aggregate request doesn't inherit a stale cycle drill-in.
+    setActiveCycle(requestedCycle);
+  }, [requestedDirection, requestedCycle]);
 
   const handleMarkStability = useCallback(async (stabilityData) => {
     if (!focusedTP || !selectedSessionId) {
@@ -675,7 +860,14 @@ function CalibrationResults({
                   <div className="cal-results-summary cal-results-overview">
                     {overviewStats.hasAny ? (
                       <>
-                        {overviewStats.combined != null && (
+                        {/*
+                          Headline card: average across all cycles (pair-level
+                          mean δ + u_A from `pair_delta_uut_ppm`, mirrored on
+                          both Fwd and Rev results rows). Falls back to the
+                          legacy (Fwd + Rev) / 2 single-pass value for
+                          pre-cycle sessions.
+                        */}
+                        {overviewStats.overall != null && (
                           <button
                             type="button"
                             className="cal-calc-kpi cal-calc-kpi--primary cal-results-overview-card"
@@ -687,60 +879,176 @@ function CalibrationResults({
                             </p>
                             <div className="cal-calc-kpi-value-row">
                               <span className="cal-calc-kpi-num">
-                                {overviewStats.combined.toFixed(3)}
+                                {overviewStats.overall.toFixed(3)}
                               </span>
+                              {overviewStats.overallUA != null && (
+                                <span className="cal-calc-kpi-uncertainty">
+                                  &nbsp;±&nbsp;{overviewStats.overallUA.toFixed(3)}
+                                </span>
+                              )}
                               <span className="cal-calc-kpi-unit">ppm</span>
                             </div>
+                            {overviewStats.cyclePairs.length > 0 && (
+                              <p className="cal-results-overview-caption">
+                                Mean across {
+                                  overviewStats.cyclePairs.filter((p) => p.avg != null).length
+                                }{" "}
+                                paired cycle{
+                                  overviewStats.cyclePairs.filter((p) => p.avg != null).length === 1
+                                    ? ""
+                                    : "s"
+                                }
+                              </p>
+                            )}
                           </button>
                         )}
 
-                        <div className="cal-calc-direction-grid">
-                          <button
-                            type="button"
-                            className="cal-calc-kpi cal-results-overview-card"
-                            onClick={() =>
-                              overviewStats.forward != null &&
-                              setActiveDirection("Forward")
-                            }
-                            disabled={overviewStats.forward == null}
-                            aria-label="View forward details"
-                          >
-                            <p className="cal-calc-kpi-label">
-                              Forward · δ UUT
-                            </p>
-                            <div className="cal-calc-kpi-value-row">
-                              <span className="cal-calc-kpi-num">
-                                {overviewStats.forward != null
-                                  ? overviewStats.forward.toFixed(3)
-                                  : "—"}
-                              </span>
-                              <span className="cal-calc-kpi-unit">ppm</span>
-                            </div>
-                          </button>
+                        {/*
+                          Per-cycle cards. Each row is one cycle, with three
+                          clickable cards: that cycle's Forward δ, Reverse δ,
+                          and the direct (Fwd_i + Rev_i)/2 average. Clicking
+                          one drills into the per-cycle KaTeX breakdown by
+                          setting `activeDirection` + `activeCycle`.
+                        */}
+                        {overviewStats.cyclePairs.length > 0 && (
+                          <div className="cal-results-cycle-list">
+                            {overviewStats.cyclePairs.map((p) => (
+                              <div
+                                key={p.i}
+                                className="cal-results-cycle-row"
+                                aria-label={`Cycle ${p.i} results`}
+                              >
+                                <span className="cal-results-cycle-label">
+                                  Cycle {p.i}
+                                </span>
+                                <div className="cal-calc-direction-grid cal-results-cycle-cards">
+                                  <button
+                                    type="button"
+                                    className="cal-calc-kpi cal-results-overview-card"
+                                    onClick={() => {
+                                      setActiveCycle(p.i);
+                                      setActiveDirection("Forward");
+                                    }}
+                                    disabled={p.fwd == null}
+                                    title={`View cycle ${p.i} forward breakdown`}
+                                    aria-label={`View cycle ${p.i} forward breakdown`}
+                                  >
+                                    <p className="cal-calc-kpi-label">
+                                      Forward · δ
+                                    </p>
+                                    <div className="cal-calc-kpi-value-row">
+                                      <span className="cal-calc-kpi-num">
+                                        {p.fwd != null ? p.fwd.toFixed(3) : "—"}
+                                      </span>
+                                      <span className="cal-calc-kpi-unit">ppm</span>
+                                    </div>
+                                  </button>
 
-                          <button
-                            type="button"
-                            className="cal-calc-kpi cal-results-overview-card"
-                            onClick={() =>
-                              overviewStats.reverse != null &&
-                              setActiveDirection("Reverse")
-                            }
-                            disabled={overviewStats.reverse == null}
-                            aria-label="View reverse details"
-                          >
-                            <p className="cal-calc-kpi-label">
-                              Reverse · δ UUT
-                            </p>
-                            <div className="cal-calc-kpi-value-row">
-                              <span className="cal-calc-kpi-num">
-                                {overviewStats.reverse != null
-                                  ? overviewStats.reverse.toFixed(3)
-                                  : "—"}
-                              </span>
-                              <span className="cal-calc-kpi-unit">ppm</span>
-                            </div>
-                          </button>
-                        </div>
+                                  <button
+                                    type="button"
+                                    className="cal-calc-kpi cal-results-overview-card"
+                                    onClick={() => {
+                                      setActiveCycle(p.i);
+                                      setActiveDirection("Reverse");
+                                    }}
+                                    disabled={p.rev == null}
+                                    title={`View cycle ${p.i} reverse breakdown`}
+                                    aria-label={`View cycle ${p.i} reverse breakdown`}
+                                  >
+                                    <p className="cal-calc-kpi-label">
+                                      Reverse · δ
+                                    </p>
+                                    <div className="cal-calc-kpi-value-row">
+                                      <span className="cal-calc-kpi-num">
+                                        {p.rev != null ? p.rev.toFixed(3) : "—"}
+                                      </span>
+                                      <span className="cal-calc-kpi-unit">ppm</span>
+                                    </div>
+                                  </button>
+
+                                  <button
+                                    type="button"
+                                    className="cal-calc-kpi cal-results-overview-card cal-results-overview-card--accent"
+                                    onClick={() => {
+                                      setActiveCycle(p.i);
+                                      setActiveDirection("Combined");
+                                    }}
+                                    disabled={p.avg == null}
+                                    title={`View cycle ${p.i} paired breakdown`}
+                                    aria-label={`View cycle ${p.i} paired breakdown`}
+                                  >
+                                    <p className="cal-calc-kpi-label">
+                                      Cycle avg · (Fwd + Rev) / 2
+                                    </p>
+                                    <div className="cal-calc-kpi-value-row">
+                                      <span className="cal-calc-kpi-num">
+                                        {p.avg != null ? p.avg.toFixed(3) : "—"}
+                                      </span>
+                                      <span className="cal-calc-kpi-unit">ppm</span>
+                                    </div>
+                                  </button>
+                                </div>
+                              </div>
+                            ))}
+                          </div>
+                        )}
+
+                        {/*
+                          Legacy per-direction cards retained as click-targets
+                          to drill into Forward/Reverse detail tabs. Only
+                          renders when there's no per-cycle data (pre-cycle
+                          sessions) — otherwise the per-cycle grid above
+                          covers the same ground in a richer way.
+                        */}
+                        {overviewStats.cyclePairs.length === 0 && (
+                          <div className="cal-calc-direction-grid">
+                            <button
+                              type="button"
+                              className="cal-calc-kpi cal-results-overview-card"
+                              onClick={() =>
+                                overviewStats.forward != null &&
+                                setActiveDirection("Forward")
+                              }
+                              disabled={overviewStats.forward == null}
+                              aria-label="View forward details"
+                            >
+                              <p className="cal-calc-kpi-label">
+                                Forward · δ UUT
+                              </p>
+                              <div className="cal-calc-kpi-value-row">
+                                <span className="cal-calc-kpi-num">
+                                  {overviewStats.forward != null
+                                    ? overviewStats.forward.toFixed(3)
+                                    : "—"}
+                                </span>
+                                <span className="cal-calc-kpi-unit">ppm</span>
+                              </div>
+                            </button>
+
+                            <button
+                              type="button"
+                              className="cal-calc-kpi cal-results-overview-card"
+                              onClick={() =>
+                                overviewStats.reverse != null &&
+                                setActiveDirection("Reverse")
+                              }
+                              disabled={overviewStats.reverse == null}
+                              aria-label="View reverse details"
+                            >
+                              <p className="cal-calc-kpi-label">
+                                Reverse · δ UUT
+                              </p>
+                              <div className="cal-calc-kpi-value-row">
+                                <span className="cal-calc-kpi-num">
+                                  {overviewStats.reverse != null
+                                    ? overviewStats.reverse.toFixed(3)
+                                    : "—"}
+                                </span>
+                                <span className="cal-calc-kpi-unit">ppm</span>
+                              </div>
+                            </button>
+                          </div>
+                        )}
                       </>
                     ) : (
                       <div className="cal-calc-empty">
@@ -759,17 +1067,57 @@ function CalibrationResults({
 
                 {activeTab === "summary" && activeDirection !== "Overview" && (
                   <div className="cal-results-summary">
+                    {activeCycle != null && (
+                      <div className="cal-results-cycle-context">
+                        <span className="cal-results-cycle-context-label">
+                          Drilled into <strong>Cycle {activeCycle} · {activeDirection}</strong>
+                        </span>
+                        <button
+                          type="button"
+                          className="cal-results-cycle-context-back"
+                          onClick={() => setActiveCycle(null)}
+                          title="Back to aggregate (all cycles)"
+                        >
+                          Show all cycles
+                        </button>
+                      </div>
+                    )}
                     <div className="cal-results-kpi-wrap">
                       {/*
                         Source-of-truth priority (matches recompute_pair_aggregate on the backend):
-                          1. Pair aggregate (`pair_delta_uut_ppm` ± `pair_type_a_uncertainty_ppm`) —
+                          1. Per-cycle drill-in (activeCycle != null): use that cycle's own
+                             δ value from the synthesized calResults — same row as the
+                             card the user clicked on the Overview tab.
+                          2. Pair aggregate (`pair_delta_uut_ppm` ± `pair_type_a_uncertainty_ppm`) —
                              present once both Fwd and Rev have ≥2 cycles. This is what gets compared
                              against spec.
-                          2. Per-direction mean (`delta_uut_ppm_avg` ± `type_a_uncertainty_ppm`) —
+                          3. Per-direction mean (`delta_uut_ppm_avg` ± `type_a_uncertainty_ppm`) —
                              shown with a "pair incomplete" caption when only one direction has run.
-                          3. Legacy single-pass `delta_uut_ppm` for pre-N-cycle sessions.
+                          4. Legacy single-pass `delta_uut_ppm` for pre-N-cycle sessions.
                       */}
                       {(() => {
+                        // Per-cycle drill-in.
+                        if (activeCycle != null) {
+                          const cycleDelta = calResults?.delta_uut_ppm;
+                          const titleSuffix =
+                            activeDirection === "Combined"
+                              ? `Cycle ${activeCycle} · paired`
+                              : `Cycle ${activeCycle} · ${activeDirection}`;
+                          return (
+                            <ResultsKpi
+                              title={`AC–DC difference · ${titleSuffix}`}
+                              value={cycleDelta}
+                              uncertainty={null}
+                              nCycles={null}
+                              formula={
+                                activeDirection === "Combined"
+                                  ? `$$ \\delta_{${activeCycle}} = (\\delta_{Fwd,${activeCycle}} + \\delta_{Rev,${activeCycle}}) / 2 $$`
+                                  : `$$ \\delta_{${activeDirection === "Forward" ? "Fwd" : "Rev"},${activeCycle}} $$`
+                              }
+                            />
+                          );
+                        }
+
                         const pairMean = calResults?.pair_delta_uut_ppm;
                         const pairUA = calResults?.pair_type_a_uncertainty_ppm;
                         // Reading from either side works because the backend mirrors
@@ -818,7 +1166,7 @@ function CalibrationResults({
                       })()}
                     </div>
 
-                    {activeDirection !== "Combined" && (
+                    {(activeDirection !== "Combined" || activeCycle != null) && (
                       <details
                         className="cal-results-disclosure cal-results-disclosure--math"
                         open
@@ -832,7 +1180,7 @@ function CalibrationResults({
                       </details>
                     )}
 
-                    {activeDirection !== "Combined" && (
+                    {(activeDirection !== "Combined" || activeCycle != null) && (
                       <>
                         <details className="cal-results-disclosure">
                           <summary className="cal-results-disclosure-summary">

@@ -73,17 +73,37 @@ const StatCard = ({ title, stats, unit, isActive }) => (
     </div>
 );
 
-function LiveStabilityTracker({ title, readings, activeStage }) {
+function LiveStabilityTracker({ title, readings, activeStage, activeCycle = null }) {
     const [isOpen, setIsOpen] = useState(false);
     const [unit, setUnit] = useState('PPM');
+
+    // Restrict the stats to the cycle currently being captured. Earlier
+    // cycles linger in the readings array (so the chart cycle-picker can
+    // still display them) but the live tracker should reflect ONLY what's
+    // in flight right now — otherwise std-dev gets inflated by cross-cycle
+    // variation that's already accounted for at the pair level (u_A).
+    //
+    // When activeCycle is null (legacy single-pass, characterization, or
+    // an idle chart), pass everything through unchanged.
+    const cycleReadings = useMemo(() => {
+        if (activeCycle == null) return readings || {};
+        const filtered = {};
+        Object.entries(readings || {}).forEach(([stageKey, list]) => {
+            filtered[stageKey] = (list || []).filter((p) => {
+                const c = Number.isFinite(p?.cycle) ? Number(p.cycle) : 1;
+                return c === activeCycle;
+            });
+        });
+        return filtered;
+    }, [readings, activeCycle]);
 
     const stats = useMemo(() => {
         const calculated = {};
         READING_TYPES.forEach(({ key }) => {
-            calculated[key] = calculateStats(readings[key]);
+            calculated[key] = calculateStats(cycleReadings[key]);
         });
         return calculated;
-    }, [readings]);
+    }, [cycleReadings]);
 
     const availableStats = READING_TYPES.filter(({ key }) => stats[key]?.count > 0);
 
@@ -94,7 +114,12 @@ function LiveStabilityTracker({ title, readings, activeStage }) {
     return (
         <div className="accordion-card" style={{ marginTop: '20px' }}>
             <div className="accordion-header" onClick={() => setIsOpen(!isOpen)}>
-                <h4>{title}</h4>
+                <h4>
+                    {title}
+                    {activeCycle != null && (
+                        <span className="accordion-header-cycle">Cycle {activeCycle}</span>
+                    )}
+                </h4>
                 <div className="header-controls">
                     <div className="unit-toggle" onClick={(e) => e.stopPropagation()}>
                         <button title="Show Absolute Units (Volts)" className={unit === 'V' ? 'active' : ''} onClick={() => setUnit('V')}>V</button>

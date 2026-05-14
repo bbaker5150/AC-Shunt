@@ -24,7 +24,7 @@ import CalibrationChart from "./CalibrationChart";
 import ConfigurationSummaryModal from "./ConfigurationSummaryModal";
 import HarmonicProjectionInfoModal from "./HarmonicProjectionInfoModal";
 import LiveStabilityTracker from "./LiveStabilityTracker";
-import CycleStatisticsModal from "./CycleStatisticsModal";
+import CycleStatisticsTracker from "./CycleStatisticsTracker";
 import CalibrationStatusBar from "./CalibrationStatusBar";
 import { downloadFullSessionExcel } from "./sessionExcelExport";
 import {
@@ -393,7 +393,6 @@ function Calibration({
   const [isCalculatingAverages, setIsCalculatingAverages] = useState(false);
   const prevIsBulkRunning = useRef(isBulkRunning);
   const [activeChartView, setActiveChartView] = useState("calibration");
-  const [isCycleStatsOpen, setIsCycleStatsOpen] = useState(false);
   const [readingsChartLayout, setReadingsChartLayoutState] = useState(
     rememberedReadingsChartLayout
   );
@@ -1436,6 +1435,10 @@ function Calibration({
 
       // Pre-run hook: if the user opted in, characterize the Test TVC first
       // so its η is fresh before the batch/single run uses it downstream.
+      // The characterization run already handles its own amplifier-range
+      // confirmation prompt and warm-up; flag those as "already done" so
+      // the follow-on batch doesn't re-prompt the operator a second time.
+      let characterizationJustRan = false;
       if (calibrationSettings.characterize_test_first && firstPointInBatch) {
         showNotification("Characterizing Test TVC first…", "info");
         const charResult = await handleCharacterizationRequest("TI", {
@@ -1452,6 +1455,7 @@ function Calibration({
           );
           return;
         }
+        characterizationJustRan = true;
         // Swap the chart view back to the main calibration view for the
         // actual run that follows the characterization.
         setActiveChartView("calibration");
@@ -1470,14 +1474,19 @@ function Calibration({
         num_samples: parseInt(firstPointSettings.num_samples, 10),
         settling_time: parseFloat(firstPointSettings.settling_time),
         nplc: parseFloat(firstPointSettings.nplc),
-        initial_warm_up_time: parseFloat(
-          firstPointSettings.initial_warm_up_time
-        ),
+        // Skip the warm-up sleep when characterization just ran — it
+        // already burned through warmup time and the operator shouldn't
+        // wait again before the first AC-DC measurement.
+        initial_warm_up_time: characterizationJustRan
+          ? 0
+          : parseFloat(firstPointSettings.initial_warm_up_time),
         measurement_params: buildMeasurementParams(firstPointSettings),
         std_reader_model: stdReaderModel,
         ti_reader_model: tiReaderModel,
         amplifier_range: calibrationConfigurations.amplifier_range,
-        bypass_amplifier_confirmation: false,
+        // Same logic for the "confirm amplifier range" modal: char run
+        // already prompted the operator, so don't prompt again.
+        bypass_amplifier_confirmation: characterizationJustRan,
       };
 
       if (startReadingCollection(params)) {
@@ -3138,18 +3147,12 @@ function Calibration({
                                       activeCollectionDetails?.readingKey
                                       : null
                                   }
+                                  activeCycle={
+                                    isCurrentTPActive
+                                      ? activeCollectionDetails?.cycle_index ?? null
+                                      : null
+                                  }
                                 />
-                                <div className="cycle-stats-trigger-row">
-                                  <button
-                                    type="button"
-                                    className="cycle-stats-trigger-btn"
-                                    onClick={() => setIsCycleStatsOpen(true)}
-                                    disabled={!focusedTP}
-                                    title="Per-cycle AC-DC statistics (mean δ, Type A u_A)"
-                                  >
-                                    Cycle statistics…
-                                  </button>
-                                </div>
                               </div>
                             )}
                             {showTiChart && (
@@ -3180,20 +3183,26 @@ function Calibration({
                                       activeCollectionDetails?.readingKey
                                       : null
                                   }
+                                  activeCycle={
+                                    isCurrentTPActive
+                                      ? activeCollectionDetails?.cycle_index ?? null
+                                      : null
+                                  }
                                 />
-                                <div className="cycle-stats-trigger-row">
-                                  <button
-                                    type="button"
-                                    className="cycle-stats-trigger-btn"
-                                    onClick={() => setIsCycleStatsOpen(true)}
-                                    disabled={!focusedTP}
-                                    title="Per-cycle AC-DC statistics (mean δ, Type A u_A)"
-                                  >
-                                    Cycle statistics…
-                                  </button>
-                                </div>
                               </div>
                             )}
+                            {/* One pair-level cycle statistics tracker for the
+                                whole chart area (peer of the per-instrument
+                                stability trackers above). */}
+                            <CycleStatisticsTracker
+                              focusedTestPoint={focusedTP}
+                              title="AC-DC Pair Statistics"
+                              useAbba={
+                                calibrationConfigurations?.use_abba_pairing === undefined
+                                  ? true
+                                  : Boolean(calibrationConfigurations.use_abba_pairing)
+                              }
+                            />
                           </div>
                         </>
                       )}
@@ -3239,89 +3248,231 @@ function Calibration({
                             </div>
                           </header>
 
-                          {averagedPpmDifference != null && (
-                            <button
-                              type="button"
-                              className="cal-calc-kpi cal-calc-kpi--primary cal-results-overview-card"
-                              onClick={() =>
-                                onOpenResultsDirection &&
-                                onOpenResultsDirection("Combined")
-                              }
-                              title="View combined results"
-                              aria-label="View combined results"
-                            >
-                              <p className="cal-calc-kpi-label">
-                                Final averaged AC–DC difference
-                              </p>
-                              <div className="cal-calc-kpi-value-row">
-                                <span className="cal-calc-kpi-num">
-                                  {parseFloat(averagedPpmDifference).toFixed(3)}
-                                </span>
-                                <span className="cal-calc-kpi-unit">ppm</span>
-                              </div>
-                            </button>
-                          )}
+                          {(() => {
+                            // Build the same overviewStats shape as
+                            // CalibrationResults so the two surfaces render
+                            // identically. Inline'd to avoid a third memo
+                            // helper just for the rare second call site.
+                            const fwdCyclesArr = (focusedTP.forward?.results?.cycles || [])
+                              .slice()
+                              .sort((a, b) => (a.cycle_index || 0) - (b.cycle_index || 0));
+                            const revCyclesArr = (focusedTP.reverse?.results?.cycles || [])
+                              .slice()
+                              .sort((a, b) => (a.cycle_index || 0) - (b.cycle_index || 0));
+                            const maxN = Math.max(fwdCyclesArr.length, revCyclesArr.length);
+                            const cyclePairs = [];
+                            for (let i = 0; i < maxN; i += 1) {
+                              const fwd = fwdCyclesArr[i]?.delta_uut_ppm;
+                              const rev = revCyclesArr[i]?.delta_uut_ppm;
+                              const fwdNum = fwd != null ? parseFloat(fwd) : null;
+                              const revNum = rev != null ? parseFloat(rev) : null;
+                              const avg =
+                                fwdNum != null && revNum != null
+                                  ? (fwdNum + revNum) / 2
+                                  : null;
+                              cyclePairs.push({ i: i + 1, fwd: fwdNum, rev: revNum, avg });
+                            }
+                            const pairMean =
+                              focusedTP.forward?.results?.pair_delta_uut_ppm
+                              ?? focusedTP.reverse?.results?.pair_delta_uut_ppm
+                              ?? null;
+                            const pairUA =
+                              focusedTP.forward?.results?.pair_type_a_uncertainty_ppm
+                              ?? focusedTP.reverse?.results?.pair_type_a_uncertainty_ppm
+                              ?? null;
+                            const overall =
+                              pairMean != null ? Number(pairMean) : averagedPpmDifference;
+                            const hasAny =
+                              overall != null
+                              || focusedTP.forward?.results?.delta_uut_ppm != null
+                              || focusedTP.reverse?.results?.delta_uut_ppm != null
+                              || cyclePairs.length > 0;
 
-                          {(focusedTP.forward?.results?.delta_uut_ppm != null ||
-                            focusedTP.reverse?.results?.delta_uut_ppm != null) && (
-                              <div className="cal-calc-direction-grid">
-                                {focusedTP.forward?.results?.delta_uut_ppm !=
-                                  null && (
-                                    <button
-                                      type="button"
-                                      className="cal-calc-kpi cal-results-overview-card"
-                                      onClick={() =>
-                                        onOpenResultsDirection &&
-                                        onOpenResultsDirection("Forward")
-                                      }
-                                      title="View forward results"
-                                      aria-label="View forward results"
-                                    >
-                                      <p className="cal-calc-kpi-label">
-                                        Forward · δ UUT
+                            return (
+                              <>
+                                {overall != null && (
+                                  <button
+                                    type="button"
+                                    className="cal-calc-kpi cal-calc-kpi--primary cal-results-overview-card"
+                                    onClick={() =>
+                                      onOpenResultsDirection &&
+                                      onOpenResultsDirection("Combined")
+                                    }
+                                    title="View combined results"
+                                    aria-label="View combined results"
+                                  >
+                                    <p className="cal-calc-kpi-label">
+                                      Final averaged AC–DC difference
+                                    </p>
+                                    <div className="cal-calc-kpi-value-row">
+                                      <span className="cal-calc-kpi-num">
+                                        {parseFloat(overall).toFixed(3)}
+                                      </span>
+                                      {pairUA != null && (
+                                        <span className="cal-calc-kpi-uncertainty">
+                                          &nbsp;±&nbsp;{Number(pairUA).toFixed(3)}
+                                        </span>
+                                      )}
+                                      <span className="cal-calc-kpi-unit">ppm</span>
+                                    </div>
+                                    {cyclePairs.length > 0 && (
+                                      <p className="cal-results-overview-caption">
+                                        Mean across {
+                                          cyclePairs.filter((p) => p.avg != null).length
+                                        }{" "}
+                                        paired cycle{
+                                          cyclePairs.filter((p) => p.avg != null).length === 1
+                                            ? ""
+                                            : "s"
+                                        }
                                       </p>
-                                      <div className="cal-calc-kpi-value-row">
-                                        <span className="cal-calc-kpi-num">
-                                          {parseFloat(
-                                            focusedTP.forward.results.delta_uut_ppm
-                                          ).toFixed(3)}
-                                        </span>
-                                        <span className="cal-calc-kpi-unit">
-                                          ppm
-                                        </span>
-                                      </div>
-                                    </button>
-                                  )}
+                                    )}
+                                  </button>
+                                )}
 
-                                {focusedTP.reverse?.results?.delta_uut_ppm !=
-                                  null && (
-                                    <button
-                                      type="button"
-                                      className="cal-calc-kpi cal-results-overview-card"
-                                      onClick={() =>
-                                        onOpenResultsDirection &&
-                                        onOpenResultsDirection("Reverse")
-                                      }
-                                      title="View reverse results"
-                                      aria-label="View reverse results"
-                                    >
-                                      <p className="cal-calc-kpi-label">
-                                        Reverse · δ UUT
-                                      </p>
-                                      <div className="cal-calc-kpi-value-row">
-                                        <span className="cal-calc-kpi-num">
-                                          {parseFloat(
-                                            focusedTP.reverse.results.delta_uut_ppm
-                                          ).toFixed(3)}
+                                {cyclePairs.length > 0 && (
+                                  <div className="cal-results-cycle-list">
+                                    {cyclePairs.map((p) => (
+                                      <div
+                                        key={p.i}
+                                        className="cal-results-cycle-row"
+                                        aria-label={`Cycle ${p.i} results`}
+                                      >
+                                        <span className="cal-results-cycle-label">
+                                          Cycle {p.i}
                                         </span>
-                                        <span className="cal-calc-kpi-unit">
-                                          ppm
-                                        </span>
+                                        <div className="cal-calc-direction-grid cal-results-cycle-cards">
+                                          <button
+                                            type="button"
+                                            className="cal-calc-kpi cal-results-overview-card"
+                                            onClick={() =>
+                                              onOpenResultsDirection &&
+                                              onOpenResultsDirection("Forward", p.i)
+                                            }
+                                            disabled={p.fwd == null}
+                                            title={`View cycle ${p.i} forward breakdown`}
+                                          >
+                                            <p className="cal-calc-kpi-label">
+                                              Forward · δ
+                                            </p>
+                                            <div className="cal-calc-kpi-value-row">
+                                              <span className="cal-calc-kpi-num">
+                                                {p.fwd != null ? p.fwd.toFixed(3) : "—"}
+                                              </span>
+                                              <span className="cal-calc-kpi-unit">
+                                                ppm
+                                              </span>
+                                            </div>
+                                          </button>
+                                          <button
+                                            type="button"
+                                            className="cal-calc-kpi cal-results-overview-card"
+                                            onClick={() =>
+                                              onOpenResultsDirection &&
+                                              onOpenResultsDirection("Reverse", p.i)
+                                            }
+                                            disabled={p.rev == null}
+                                            title={`View cycle ${p.i} reverse breakdown`}
+                                          >
+                                            <p className="cal-calc-kpi-label">
+                                              Reverse · δ
+                                            </p>
+                                            <div className="cal-calc-kpi-value-row">
+                                              <span className="cal-calc-kpi-num">
+                                                {p.rev != null ? p.rev.toFixed(3) : "—"}
+                                              </span>
+                                              <span className="cal-calc-kpi-unit">
+                                                ppm
+                                              </span>
+                                            </div>
+                                          </button>
+                                          <button
+                                            type="button"
+                                            className="cal-calc-kpi cal-results-overview-card cal-results-overview-card--accent"
+                                            onClick={() =>
+                                              onOpenResultsDirection &&
+                                              onOpenResultsDirection("Combined", p.i)
+                                            }
+                                            disabled={p.avg == null}
+                                            title={`View cycle ${p.i} paired breakdown`}
+                                          >
+                                            <p className="cal-calc-kpi-label">
+                                              Cycle avg · (Fwd + Rev) / 2
+                                            </p>
+                                            <div className="cal-calc-kpi-value-row">
+                                              <span className="cal-calc-kpi-num">
+                                                {p.avg != null ? p.avg.toFixed(3) : "—"}
+                                              </span>
+                                              <span className="cal-calc-kpi-unit">
+                                                ppm
+                                              </span>
+                                            </div>
+                                          </button>
+                                        </div>
                                       </div>
-                                    </button>
-                                  )}
-                              </div>
-                            )}
+                                    ))}
+                                  </div>
+                                )}
+
+                                {cyclePairs.length === 0 && hasAny && (
+                                  <div className="cal-calc-direction-grid">
+                                    {focusedTP.forward?.results?.delta_uut_ppm != null && (
+                                      <button
+                                        type="button"
+                                        className="cal-calc-kpi cal-results-overview-card"
+                                        onClick={() =>
+                                          onOpenResultsDirection &&
+                                          onOpenResultsDirection("Forward")
+                                        }
+                                        title="View forward results"
+                                        aria-label="View forward results"
+                                      >
+                                        <p className="cal-calc-kpi-label">
+                                          Forward · δ UUT
+                                        </p>
+                                        <div className="cal-calc-kpi-value-row">
+                                          <span className="cal-calc-kpi-num">
+                                            {parseFloat(
+                                              focusedTP.forward.results.delta_uut_ppm
+                                            ).toFixed(3)}
+                                          </span>
+                                          <span className="cal-calc-kpi-unit">
+                                            ppm
+                                          </span>
+                                        </div>
+                                      </button>
+                                    )}
+                                    {focusedTP.reverse?.results?.delta_uut_ppm != null && (
+                                      <button
+                                        type="button"
+                                        className="cal-calc-kpi cal-results-overview-card"
+                                        onClick={() =>
+                                          onOpenResultsDirection &&
+                                          onOpenResultsDirection("Reverse")
+                                        }
+                                        title="View reverse results"
+                                        aria-label="View reverse results"
+                                      >
+                                        <p className="cal-calc-kpi-label">
+                                          Reverse · δ UUT
+                                        </p>
+                                        <div className="cal-calc-kpi-value-row">
+                                          <span className="cal-calc-kpi-num">
+                                            {parseFloat(
+                                              focusedTP.reverse.results.delta_uut_ppm
+                                            ).toFixed(3)}
+                                          </span>
+                                          <span className="cal-calc-kpi-unit">
+                                            ppm
+                                          </span>
+                                        </div>
+                                      </button>
+                                    )}
+                                  </div>
+                                )}
+                              </>
+                            );
+                          })()}
 
                           {!(
                             focusedTP.forward?.results?.delta_uut_ppm ||
@@ -3348,17 +3499,6 @@ function Calibration({
           </div>
         </>
       )}
-
-      <CycleStatisticsModal
-        isOpen={isCycleStatsOpen}
-        onClose={() => setIsCycleStatsOpen(false)}
-        focusedTestPoint={focusedTP}
-        useAbba={
-          calibrationConfigurations?.use_abba_pairing === undefined
-            ? true
-            : Boolean(calibrationConfigurations.use_abba_pairing)
-        }
-      />
 
       {pairedRun?.awaitingFlip && (
         <div className="modal-overlay">

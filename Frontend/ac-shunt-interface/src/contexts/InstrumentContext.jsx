@@ -619,18 +619,37 @@ export const InstrumentContextProvider = ({ children }) => {
         if (data.tpId) updates.tpId = data.tpId;
         // Track the cycle ordinal that's currently mid-flight so live
         // readings can be tagged with it (used by CalibrationChart's
-        // cycle-filter and by CycleStatisticsModal).
-        if (data.cycle_index != null) {
-          updates.cycle_index = data.cycle_index;
-          activeCycleRef.current = data.cycle_index;
+        // cycle-filter and by the cycle statistics view).
+        const incomingCycle = data.cycle_index;
+        if (incomingCycle != null) {
+          updates.cycle_index = incomingCycle;
+          activeCycleRef.current = incomingCycle;
         }
         setActiveCollectionDetails((prev) => ({ ...prev, ...updates }));
 
         setIsCollecting(true);
 
         if (data.total !== undefined) setCollectionProgress({ count: 0, total: data.total });
-        setLiveReadings((prev) => ({ ...prev, [data.stage]: [] }));
-        setTiLiveReadings((prev) => ({ ...prev, [data.stage]: [] }));
+
+        // Drop only the data we're about to overwrite for THIS stage at
+        // THIS cycle. Earlier cycles' samples for the same stage stay so
+        // the chart's cycle-picker still has them to render after the
+        // current cycle takes over. On cycle 1 (or when cycle is null)
+        // this collapses to "clear the stage entirely" — same behavior
+        // as before the N-cycle workflow existed.
+        const dropCurrentCycleForStage = (prev) => {
+          const list = prev[data.stage] || [];
+          if (incomingCycle == null || incomingCycle <= 1) {
+            return { ...prev, [data.stage]: [] };
+          }
+          const filtered = list.filter((p) => {
+            const c = Number.isFinite(p?.cycle) ? Number(p.cycle) : 1;
+            return c !== incomingCycle;
+          });
+          return { ...prev, [data.stage]: filtered };
+        };
+        setLiveReadings(dropCurrentCycleForStage);
+        setTiLiveReadings(dropCurrentCycleForStage);
         setTimerState({ isActive: false, duration: 0, label: "" });
       } else if (data.type === "dual_reading_update") {
         setIsCollecting(true);
@@ -641,7 +660,15 @@ export const InstrumentContextProvider = ({ children }) => {
 
           const updateReadings = (prevReadings, point) => {
             const newReadings = [...(prevReadings[key] || [])];
-            const existingIndex = newReadings.findIndex((p) => p.x === point.x);
+            // Dedupe by (x, cycle) — sample x indices reset every cycle so
+            // x alone would let cycle 2's x=1 overwrite cycle 1's x=1, which
+            // wipes the older cycle the chart filter needs. `cycle` may be
+            // undefined on legacy / pre-cycle data; that case still dedupes
+            // by x exactly as it did before this change.
+            const pointCycle = point?.cycle;
+            const existingIndex = newReadings.findIndex(
+              (p) => p.x === point.x && p?.cycle === pointCycle
+            );
             if (existingIndex > -1) {
               newReadings[existingIndex] = point;
             } else {
