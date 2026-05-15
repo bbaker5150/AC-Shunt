@@ -260,6 +260,7 @@ function CalibrationResults({
   // activeDirection: e.g. (Forward, 2) shows cycle 2's Forward breakdown.
   // null = aggregate / legacy view.
   const [activeCycle, setActiveCycle] = useState(null);
+  const [useAbba, setUseAbba] = useState(true);
   // Reset the cycle drill-in whenever the user navigates back to Overview
   // (clicking a per-cycle card in Overview re-sets it to a number).
   useEffect(() => {
@@ -268,6 +269,10 @@ function CalibrationResults({
 
   const hasBothDirections =
     focusedTP?.forward?.results && focusedTP?.reverse?.results;
+
+  const hasCycles =
+    (focusedTP?.forward?.results?.cycles?.length || 0) > 0 ||
+    (focusedTP?.reverse?.results?.cycles?.length || 0) > 0;
 
   // At-a-glance deltas (used by the Overview summary view).
   //
@@ -286,100 +291,117 @@ function CalibrationResults({
   //     button row, which still renders the per-direction single-value
   //     entry into the direction-specific tabs.
   const overviewStats = useMemo(() => {
-    const fwdLegacy = focusedTP?.forward?.results?.delta_uut_ppm;
-    const revLegacy = focusedTP?.reverse?.results?.delta_uut_ppm;
-    const fwdLegacyNum = fwdLegacy != null ? parseFloat(fwdLegacy) : null;
-    const revLegacyNum = revLegacy != null ? parseFloat(revLegacy) : null;
-    const combined =
-      fwdLegacyNum != null && revLegacyNum != null
-        ? (fwdLegacyNum + revLegacyNum) / 2
-        : null;
+    const fwdLegacyNum = focusedTP?.forward?.results?.delta_uut_ppm != null ? parseFloat(focusedTP.forward.results.delta_uut_ppm) : null;
+    const revLegacyNum = focusedTP?.reverse?.results?.delta_uut_ppm != null ? parseFloat(focusedTP.reverse.results.delta_uut_ppm) : null;
+    const combinedLegacy = fwdLegacyNum != null && revLegacyNum != null ? (fwdLegacyNum + revLegacyNum) / 2 : null;
 
-    // Pair-level overall — backend-mirrored.
-    const pairMean =
-      focusedTP?.forward?.results?.pair_delta_uut_ppm
-      ?? focusedTP?.reverse?.results?.pair_delta_uut_ppm
-      ?? null;
-    const pairUA =
-      focusedTP?.forward?.results?.pair_type_a_uncertainty_ppm
-      ?? focusedTP?.reverse?.results?.pair_type_a_uncertainty_ppm
-      ?? null;
-
-    // Per-cycle pairs (simple index pairing by cycle_index for display).
-    const fwdCycles = (focusedTP?.forward?.results?.cycles || [])
-      .slice()
-      .sort((a, b) => (a.cycle_index || 0) - (b.cycle_index || 0));
-    const revCycles = (focusedTP?.reverse?.results?.cycles || [])
-      .slice()
-      .sort((a, b) => (a.cycle_index || 0) - (b.cycle_index || 0));
+    const fwdCycles = (focusedTP?.forward?.results?.cycles || []).slice().sort((a, b) => (a.cycle_index || 0) - (b.cycle_index || 0));
+    const revCycles = (focusedTP?.reverse?.results?.cycles || []).slice().sort((a, b) => (a.cycle_index || 0) - (b.cycle_index || 0));
+    
+    const minN = Math.min(fwdCycles.length, revCycles.length);
     const maxN = Math.max(fwdCycles.length, revCycles.length);
+
     const cyclePairs = [];
+    const pairedVals = [];
+
     for (let i = 0; i < maxN; i += 1) {
       const fwd = fwdCycles[i]?.delta_uut_ppm;
-      const rev = revCycles[i]?.delta_uut_ppm;
+      let revIndex = null;
+      if (i < minN) revIndex = useAbba ? (minN - 1 - i) : i;
+
+      const rev = revIndex !== null ? revCycles[revIndex]?.delta_uut_ppm : null;
       const fwdNum = fwd != null ? parseFloat(fwd) : null;
       const revNum = rev != null ? parseFloat(rev) : null;
-      const avg =
-        fwdNum != null && revNum != null ? (fwdNum + revNum) / 2 : null;
+      const avg = fwdNum != null && revNum != null ? (fwdNum + revNum) / 2 : null;
+
+      if (avg !== null) pairedVals.push(avg);
+
       cyclePairs.push({
         i: i + 1,
+        fwdIndex: i + 1,
+        revIndex: revIndex !== null ? revIndex + 1 : null,
         fwd: fwdNum,
         rev: revNum,
         avg,
       });
     }
 
-    const overall = pairMean != null ? Number(pairMean) : combined;
-    const hasAny =
-      overall != null
-      || fwdLegacyNum != null
-      || revLegacyNum != null
-      || cyclePairs.length > 0;
+    let pairMean = null;
+    let pairUA = null;
+    if (pairedVals.length > 0) {
+      pairMean = pairedVals.reduce((a, b) => a + b, 0) / pairedVals.length;
+      if (pairedVals.length > 1) {
+        const variance = pairedVals.reduce((a, b) => a + Math.pow(b - pairMean, 2), 0) / (pairedVals.length - 1);
+        pairUA = Math.sqrt(variance) / Math.sqrt(pairedVals.length);
+      }
+    }
+
+    // NEW: Calculate the independent Forward and Reverse Means for the new overview cards
+    let fwdMean = null, revMean = null, fwdUA = null, revUA = null;
+    
+    if (fwdCycles.length > 0) {
+      const vals = fwdCycles.map(c => parseFloat(c.delta_uut_ppm)).filter(v => !isNaN(v));
+      if (vals.length > 0) {
+        fwdMean = vals.reduce((a, b) => a + b, 0) / vals.length;
+        if (vals.length > 1) {
+          const variance = vals.reduce((a, b) => a + Math.pow(b - fwdMean, 2), 0) / (vals.length - 1);
+          fwdUA = Math.sqrt(variance) / Math.sqrt(vals.length);
+        }
+      }
+    } else {
+      fwdMean = fwdLegacyNum;
+    }
+
+    if (revCycles.length > 0) {
+      const vals = revCycles.map(c => parseFloat(c.delta_uut_ppm)).filter(v => !isNaN(v));
+      if (vals.length > 0) {
+        revMean = vals.reduce((a, b) => a + b, 0) / vals.length;
+        if (vals.length > 1) {
+          const variance = vals.reduce((a, b) => a + Math.pow(b - revMean, 2), 0) / (vals.length - 1);
+          revUA = Math.sqrt(variance) / Math.sqrt(vals.length);
+        }
+      }
+    } else {
+      revMean = revLegacyNum;
+    }
 
     return {
       forward: fwdLegacyNum,
       reverse: revLegacyNum,
-      combined,
-      overall,
-      overallUA: pairUA != null ? Number(pairUA) : null,
+      combined: combinedLegacy,
+      overall: pairMean != null ? pairMean : combinedLegacy,
+      overallUA: pairUA,
       cyclePairs,
-      hasAny,
+      fwdMean,
+      revMean,
+      fwdUA,
+      revUA,
+      hasAny: pairMean != null || combinedLegacy != null || fwdLegacyNum != null || revLegacyNum != null
     };
-  }, [focusedTP]);
+  }, [focusedTP, useAbba]);
 
-  // Derive per-direction results / readings synchronously so the first
-  // paint already has the correct data. Previously these lived in React
-  // state populated by a post-mount useEffect, which caused a visible
-  // flicker (the "Calculation cannot be shown..." placeholder briefly
-  // rendered before the KaTeX equations on tab/card navigation).
   const { calResults, calReadings } = useMemo(() => {
-    if (!focusedTP) {
-      return { calResults: null, calReadings: null };
-    }
+    if (!focusedTP) return { calResults: null, calReadings: null };
+    if (activeDirection === "Overview") return { calResults: null, calReadings: null };
 
-    if (activeDirection === "Overview") {
-      return { calResults: null, calReadings: null };
-    }
-
-    // Per-cycle drill-in. When activeCycle is set, synthesize calResults
-    // from the CalibrationResultsCycle row(s) so the breakdown shows that
-    // cycle's own phase averages instead of the aggregate. Correction
-    // factors (η, δ_std, δ_ti, δ_std_known) are pulled from the parent
-    // direction's results so the KaTeX formula renders the same constants
-    // the backend used to compute the per-cycle δ.
+    // Per-cycle drill-in (THIS IS WHERE THE BUG WAS)
     if (activeCycle != null && activeDirection !== "Overview") {
-      const findCycle = (results) =>
-        (results?.cycles || []).find((c) => c.cycle_index === activeCycle);
+      const fwdCycles = (focusedTP?.forward?.results?.cycles || []).slice().sort((a,b) => (a.cycle_index || 0) - (b.cycle_index || 0));
+      const revCycles = (focusedTP?.reverse?.results?.cycles || []).slice().sort((a,b) => (a.cycle_index || 0) - (b.cycle_index || 0));
+      const minN = Math.min(fwdCycles.length, revCycles.length);
+      const pairIndex = activeCycle - 1;
 
       if (activeDirection === "Combined") {
-        // Per-cycle Combined: average the matching cycle row from each
-        // direction. The breakdown then renders the combined-phase
-        // averages → simple (δ_Fwd_i + δ_Rev_i)/2.
-        const fwdCycle = findCycle(focusedTP?.forward?.results);
-        const revCycle = findCycle(focusedTP?.reverse?.results);
-        if (!fwdCycle || !revCycle) {
-          return { calResults: null, calReadings: null };
-        }
+        if (pairIndex < 0 || pairIndex >= minN) return { calResults: null, calReadings: null };
+        
+        const fwdCycle = fwdCycles[pairIndex];
+        
+        // DYNAMIC ABBA INDEXING
+        const revIndex = useAbba ? (minN - 1 - pairIndex) : pairIndex;
+        const revCycle = revCycles[revIndex];
+
+        if (!fwdCycle || !revCycle) return { calResults: null, calReadings: null };
+
         const phaseKeys = [
           'std_ac_open_avg', 'std_dc_pos_avg', 'std_dc_neg_avg', 'std_ac_close_avg',
           'ti_ac_open_avg', 'ti_dc_pos_avg', 'ti_dc_neg_avg', 'ti_ac_close_avg',
@@ -396,38 +418,34 @@ function CalibrationResults({
           const r = revCycle[k];
           synth[k] = typeof f === 'number' && typeof r === 'number' ? (f + r) / 2 : null;
         });
-        // Correction factors are session-level (same for both sides).
+
         const corrSrc = focusedTP?.forward?.results || focusedTP?.reverse?.results || {};
         synth.eta_std = corrSrc.eta_std;
         synth.eta_ti = corrSrc.eta_ti;
         synth.delta_std = corrSrc.delta_std;
         synth.delta_ti = corrSrc.delta_ti;
         synth.delta_std_known = corrSrc.delta_std_known;
-        synth.delta_uut_ppm =
-          fwdCycle.delta_uut_ppm != null && revCycle.delta_uut_ppm != null
-            ? (Number(fwdCycle.delta_uut_ppm) + Number(revCycle.delta_uut_ppm)) / 2
-            : null;
-        // No readings array per-cycle (readings are flat across cycles in
-        // the JSON; we'd have to filter them here if the user drills into
-        // detailed readings for a single cycle. The Details tab will pull
-        // from the parent direction's full readings when calReadings is
-        // null, which is fine — the breakdown view doesn't need them).
+        synth.delta_uut_ppm = (Number(fwdCycle.delta_uut_ppm) + Number(revCycle.delta_uut_ppm)) / 2;
+        synth.fwd_cycle_index = fwdCycle.cycle_index;
+        synth.rev_cycle_index = revCycle.cycle_index;
+
         return { calResults: synth, calReadings: null };
       }
 
-      // Per-cycle Forward or Reverse.
-      const dirResults =
-        activeDirection === 'Forward'
-          ? focusedTP?.forward?.results
-          : focusedTP?.reverse?.results;
-      const cycleRow = findCycle(dirResults);
-      if (!cycleRow || !dirResults) {
-        return { calResults: null, calReadings: null };
-      }
+      // Per-cycle Forward or Reverse drill-in (ALSO REQUIRED DYNAMIC INDEXING)
+      const isRev = activeDirection === 'Reverse';
+      const cyclesArray = isRev ? revCycles : fwdCycles;
+      
+      // If we drill into "Reverse Pair 2" while ABBA is ON, we must grab Reverse Cycle N-1
+      const targetIndex = (isRev && useAbba) ? (minN - 1 - pairIndex) : pairIndex;
+      const cycleRow = cyclesArray[targetIndex];
+      const dirResults = isRev ? focusedTP?.reverse?.results : focusedTP?.forward?.results;
+
+      if (!cycleRow || !dirResults) return { calResults: null, calReadings: null };
+      
       return {
         calResults: {
           ...cycleRow,
-          // Inherit correction factors from the parent direction's results.
           eta_std: dirResults.eta_std,
           eta_ti: dirResults.eta_ti,
           delta_std: dirResults.delta_std,
@@ -526,7 +544,7 @@ function CalibrationResults({
       calResults: pointForDirection?.results || null,
       calReadings: pointForDirection?.readings || null,
     };
-  }, [focusedTP, activeDirection, activeCycle]);
+  }, [focusedTP, activeDirection, activeCycle, useAbba]);
 
   // Refetch data when the WebSocket sends a 'connection_sync' signal
   useEffect(() => {
@@ -652,6 +670,137 @@ function CalibrationResults({
   };
 
   const CalculationBreakdown = ({ results }) => {
+    const fwdCycles = focusedTP?.forward?.results?.cycles || [];
+    const revCycles = focusedTP?.reverse?.results?.cycles || [];
+    const isAggregate = activeCycle == null;
+
+    // 1. COMBINED AGGREGATE
+    if (isAggregate && activeDirection === "Combined" && hasCycles) {
+      const nPairs = Math.min(fwdCycles.length, revCycles.length);
+      if (nPairs === 0) {
+        return (
+          <div className="form-section-warning">
+            <p>Waiting for both directions to complete to calculate combined average.</p>
+          </div>
+        );
+      }
+
+      const fSorted = [...fwdCycles].sort((a, b) => (a.cycle_index || 0) - (b.cycle_index || 0));
+      const rSorted = [...revCycles].sort((a, b) => (a.cycle_index || 0) - (b.cycle_index || 0));
+
+      const pairStrings = [];
+      for (let i = 0; i < nPairs; i++) {
+        const fVal = parseFloat(fSorted[i].delta_uut_ppm).toFixed(3);
+        const revIndex = useAbba ? (nPairs - 1 - i) : i;
+        const rVal = parseFloat(rSorted[revIndex].delta_uut_ppm).toFixed(3);
+        pairStrings.push(`\\frac{${fVal} + ${rVal}}{2}`);
+      }
+
+      const joinedPairs = pairStrings.join(" + ");
+      const finalVal = overviewStats.overall.toFixed(3); // Grab direct from overviewStats
+      const step = `$$ \\bar{\\delta} = \\frac{${joinedPairs}}{${nPairs}} = ${finalVal} \\text{ ppm} $$`;
+      const baseFormula = useAbba
+        ? `$$ \\bar{\\delta} = \\frac{1}{N} \\sum_{i=1}^{N} \\frac{\\delta_{Fwd,i} + \\delta_{Rev,N+1-i}}{2} $$`
+        : `$$ \\bar{\\delta} = \\frac{1}{N} \\sum_{i=1}^{N} \\frac{\\delta_{Fwd,i} + \\delta_{Rev,i}}{2} $$`;
+
+      return (
+        <div className="calculation-breakdown cal-results-calc-breakdown cal-results-calc-breakdown--flat">
+          <p className="cal-results-calc-lead">
+            Direction: <strong>Combined (Aggregate)</strong>
+          </p>
+          <p className="cal-results-calc-step-label">
+            <strong>1. Paired Averaging Formula</strong>
+          </p>
+          <p>
+            <MathDisplay math={baseFormula} />
+          </p>
+          <hr />
+          <p className="cal-results-calc-step-label">
+            <strong>2. Applied Values</strong>
+          </p>
+          <p className="cal-results-calc-math-scroll">
+            <MathDisplay math={step} />
+          </p>
+          <hr />
+          <p className="cal-results-calc-step-label">
+            <strong>3. Final Aggregate Result</strong>
+          </p>
+          <p>
+            <MathDisplay math={`$$ \\bar{\\delta} = ${finalVal} \\text{ ppm} $$`} />
+          </p>
+          <p style={{ fontSize: "0.85rem", opacity: 0.8, marginTop: "10px", lineHeight: "1.4" }}>
+            <em>Note: The final combined average utilizes reverse (ABBA) pairing by default to cancel linear thermal drift across the measurement sequence.</em>
+          </p>
+        </div>
+      );
+    }
+
+    // 2. FORWARD/REVERSE AGGREGATE
+    if (isAggregate && (activeDirection === "Forward" || activeDirection === "Reverse") && hasCycles) {
+      const cycles = activeDirection === "Forward" ? fwdCycles : revCycles;
+      const N = cycles.length;
+      const sorted = [...cycles].sort((a, b) => (a.cycle_index || 0) - (b.cycle_index || 0));
+      const vals = sorted.map(c => parseFloat(c.delta_uut_ppm).toFixed(3));
+      const finalAvg = parseFloat(results?.delta_uut_ppm_avg ?? results?.delta_uut_ppm).toFixed(3);
+
+      const joinedVals = vals.join(" + ");
+
+      const formula = `$$ \\bar{\\delta}_{${activeDirection === "Forward" ? "Fwd" : "Rev"}} = \\frac{1}{${N}} \\sum_{i=1}^{${N}} \\delta_{i} $$`;
+      const step = `$$ \\bar{\\delta} = \\frac{${joinedVals}}{${N}} = ${finalAvg} \\text{ ppm} $$`;
+
+      return (
+        <div className="calculation-breakdown cal-results-calc-breakdown cal-results-calc-breakdown--flat">
+          <p className="cal-results-calc-lead">
+            Direction: <strong>{activeDirection} (Aggregate)</strong>
+          </p>
+          <p className="cal-results-calc-step-label">
+            <strong>1. Cycle Averaging Formula</strong>
+          </p>
+          <p>
+            <MathDisplay math={formula} />
+          </p>
+          <hr />
+          <p className="cal-results-calc-step-label">
+            <strong>2. Applied Values</strong>
+          </p>
+          <p className="cal-results-calc-math-scroll">
+            <MathDisplay math={step} />
+          </p>
+        </div>
+      );
+    }
+
+    // 3. SPECIFIC CYCLE COMBINED
+    if (activeCycle != null && activeDirection === "Combined") {
+       const fwdCycle = fwdCycles.find(c => c.cycle_index === results.fwd_cycle_index);
+       const revCycle = revCycles.find(c => c.cycle_index === results.rev_cycle_index);
+       
+       if (!fwdCycle || !revCycle) {
+         return <div className="form-section-warning"><p>Missing data for this cycle.</p></div>;
+       }
+
+       const fVal = parseFloat(fwdCycle.delta_uut_ppm);
+       const rVal = parseFloat(revCycle.delta_uut_ppm);
+       const avg = (fVal + rVal) / 2;
+
+       const formula = `$$ \\delta_{Pair\\ ${activeCycle}} = \\frac{\\delta_{Fwd,${fwdCycle.cycle_index}} + \\delta_{Rev,${revCycle.cycle_index}}}{2} $$`;
+       const step = `$$ \\delta_{Pair\\ ${activeCycle}} = \\frac{${fVal.toFixed(3)} + ${rVal.toFixed(3)}}{2} = ${avg.toFixed(3)} \\text{ ppm} $$`;
+
+       return (
+           <div className="calculation-breakdown cal-results-calc-breakdown cal-results-calc-breakdown--flat">
+              <p className="cal-results-calc-lead">
+                Direction: <strong>Combined (Pair {activeCycle})</strong>
+              </p>
+              <p className="cal-results-calc-step-label"><strong>1. Simple Pair Average</strong></p>
+              <p><MathDisplay math={formula} /></p>
+              <hr />
+              <p className="cal-results-calc-step-label"><strong>2. Applied Values</strong></p>
+              <p><MathDisplay math={step} /></p>
+           </div>
+       );
+    }
+
+    // 4. RAW VOLTAGE MATH (Single cycle Fwd/Rev or Legacy Single Pass)
     if (
       !results ||
       results.delta_std_known == null ||
@@ -670,43 +819,23 @@ function CalibrationResults({
         </div>
       );
     }
-    const V_DCSTD =
-      (Math.abs(results.std_dc_pos_avg) + Math.abs(results.std_dc_neg_avg)) / 2;
-    const V_ACSTD =
-      (Math.abs(results.std_ac_open_avg) + Math.abs(results.std_ac_close_avg)) /
-      2;
-    const V_DCUUT =
-      (Math.abs(results.ti_dc_pos_avg) + Math.abs(results.ti_dc_neg_avg)) / 2;
-    const V_ACUUT =
-      (Math.abs(results.ti_ac_open_avg) + Math.abs(results.ti_ac_close_avg)) /
-      2;
-    const term_STD =
-      ((V_ACSTD - V_DCSTD) * 1000000) / (results.eta_std * V_DCSTD);
-    const term_UUT =
-      ((V_ACUUT - V_DCUUT) * 1000000) / (results.eta_ti * V_DCUUT);
+
+    const V_DCSTD = (Math.abs(results.std_dc_pos_avg) + Math.abs(results.std_dc_neg_avg)) / 2;
+    const V_ACSTD = (Math.abs(results.std_ac_open_avg) + Math.abs(results.std_ac_close_avg)) / 2;
+    const V_DCUUT = (Math.abs(results.ti_dc_pos_avg) + Math.abs(results.ti_dc_neg_avg)) / 2;
+    const V_ACUUT = (Math.abs(results.ti_ac_open_avg) + Math.abs(results.ti_ac_close_avg)) / 2;
+    const term_STD = ((V_ACSTD - V_DCSTD) * 1000000) / (results.eta_std * V_DCSTD);
+    const term_UUT = ((V_ACUUT - V_DCUUT) * 1000000) / (results.eta_ti * V_DCUUT);
+
     const mainFormula = `$$ \\delta_{UUT} \\approx \\delta_{STD} + \\left( \\frac{V_{AC} - V_{DC}}{\\eta \\times V_{DC}} \\right)_{STD} \\times 10^6 - \\left( \\frac{V_{AC} - V_{DC}}{\\eta \\times V_{DC}} \\right)_{UUT} \\times 10^6 + \\delta_{USTD:TVC} - \\delta_{UUT:TVC} $$`;
-    const appliedValues = `$$ \\delta_{UUT} \\approx ${results.delta_std_known
-      } + \\left( \\frac{${V_ACSTD.toPrecision(8)} - ${V_DCSTD.toPrecision(8)}}{${results.eta_std
-      } \\times ${V_DCSTD.toPrecision(
-        8
-      )}} \\right) \\times 10^6 - \\left( \\frac{${V_ACUUT.toPrecision(
-        8
-      )} - ${V_DCUUT.toPrecision(8)}}{${results.eta_ti
-      } \\times ${V_DCUUT.toPrecision(8)}} \\right) \\times 10^6 + ${results.delta_std
-      } - ${results.delta_ti} $$`;
-    const intermediateBreakdown = `$$ \\delta_{UUT} \\approx ${results.delta_std_known.toFixed(
-      3
-    )} + ${term_STD.toFixed(3)} - ${term_UUT.toFixed(
-      3
-    )} + ${results.delta_std.toFixed(3)} - ${results.delta_ti.toFixed(3)} $$`;
-    const finalResult = `$$ \\delta_{UUT} \\approx ${parseFloat(
-      results.delta_uut_ppm
-    ).toFixed(3)} \\text{ PPM} $$`;
+    const appliedValues = `$$ \\delta_{UUT} \\approx ${results.delta_std_known} + \\left( \\frac{${V_ACSTD.toPrecision(8)} - ${V_DCSTD.toPrecision(8)}}{${results.eta_std} \\times ${V_DCSTD.toPrecision(8)}} \\right) \\times 10^6 - \\left( \\frac{${V_ACUUT.toPrecision(8)} - ${V_DCUUT.toPrecision(8)}}{${results.eta_ti} \\times ${V_DCUUT.toPrecision(8)}} \\right) \\times 10^6 + ${results.delta_std} - ${results.delta_ti} $$`;
+    const intermediateBreakdown = `$$ \\delta_{UUT} \\approx ${results.delta_std_known.toFixed(3)} + ${term_STD.toFixed(3)} - ${term_UUT.toFixed(3)} + ${results.delta_std.toFixed(3)} - ${results.delta_ti.toFixed(3)} $$`;
+    const finalResult = `$$ \\delta_{UUT} \\approx ${parseFloat(results.delta_uut_ppm).toFixed(3)} \\text{ PPM} $$`;
 
     return (
       <div className="calculation-breakdown cal-results-calc-breakdown cal-results-calc-breakdown--flat">
         <p className="cal-results-calc-lead">
-          Direction: <strong>{activeDirection}</strong>
+          Direction: <strong>{activeCycle != null ? `${activeDirection} (Pair ${activeCycle} ➔ Cycle ${results.cycle_index})` : activeDirection}</strong>
         </p>
         <p className="cal-results-calc-step-label">
           <strong>1. Full formula</strong>
@@ -766,97 +895,115 @@ function CalibrationResults({
                   aria-label="Calibration results for selected test point"
                 >
                   <>
-                <header className="cal-results-bar">
-                  <div className="cal-results-bar-meta" aria-live="polite">
-                    <span className="cal-results-bar-amps">
-                      {focusedTP.current} A
-                    </span>
-                    <span className="cal-results-bar-freq">
-                      {formatFrequency(focusedTP.frequency)}
-                    </span>
-                  </div>
+                    <header className="cal-results-bar">
+                      <div className="cal-results-bar-meta" aria-live="polite">
+                        <span className="cal-results-bar-amps">
+                          {focusedTP.current} A
+                        </span>
+                        <span className="cal-results-bar-freq">
+                          {formatFrequency(focusedTP.frequency)}
+                        </span>
+                      </div>
 
-                  <div className="cal-results-tabs-cluster">
-                    <nav
-                      className="cal-results-tabs"
-                      role="tablist"
-                      aria-label="Results view"
-                    >
-                      <button
-                        type="button"
-                        role="tab"
-                        aria-selected={activeTab === "summary"}
-                        className={`cal-results-tab ${activeTab === "summary" ? "is-active" : ""
-                          }`}
-                        onClick={() => setActiveTab("summary")}
-                      >
-                        Summary
-                      </button>
-                      <button
-                        type="button"
-                        role="tab"
-                        aria-selected={activeTab === "details"}
-                        className={`cal-results-tab ${activeTab === "details" ? "is-active" : ""
-                          }`}
-                        onClick={() => {
-                          setActiveTab("details");
-                          if (activeDirection === "Overview") {
-                            setActiveDirection("Forward");
-                          }
-                        }}
-                      >
-                        Raw data
-                      </button>
-                    </nav>
-                    <button
-                      type="button"
-                      className="cal-results-excel-icon-btn"
-                      aria-label="Export session to Excel"
-                      title="Export session to Excel — AC–DC summary and all raw readings"
-                      disabled={!uniqueTestPoints?.length}
-                      onClick={async () => {
-                        const r = await downloadFullSessionExcel({
-                          uniqueTestPoints,
-                          sessionName: selectedSessionName,
-                          sessionId: selectedSessionId,
-                        });
-                        if (!r.ok) {
-                          showNotification(r.error, "warning");
-                        } else {
-                          showNotification("Workbook downloaded.", "success");
-                        }
-                      }}
-                    >
-                      <FaDownload aria-hidden />
-                    </button>
-                  </div>
+                      <div className="cal-results-tabs-cluster">
+                        <nav
+                          className="cal-results-tabs"
+                          role="tablist"
+                          aria-label="Results view"
+                        >
+                          <button
+                            type="button"
+                            role="tab"
+                            aria-selected={activeTab === "summary"}
+                            className={`cal-results-tab ${activeTab === "summary" ? "is-active" : ""
+                              }`}
+                            onClick={() => setActiveTab("summary")}
+                          >
+                            Summary
+                          </button>
+                          <button
+                            type="button"
+                            role="tab"
+                            aria-selected={activeTab === "details"}
+                            className={`cal-results-tab ${activeTab === "details" ? "is-active" : ""
+                              }`}
+                            onClick={() => {
+                              setActiveTab("details");
+                              if (activeDirection === "Overview") {
+                                setActiveDirection("Forward");
+                              }
+                            }}
+                          >
+                            Raw data
+                          </button>
+                        </nav>
+                        <button
+                          type="button"
+                          className="cal-results-excel-icon-btn"
+                          aria-label="Export session to Excel"
+                          title="Export session to Excel — AC–DC summary and all raw readings"
+                          disabled={!uniqueTestPoints?.length}
+                          onClick={async () => {
+                            const r = await downloadFullSessionExcel({
+                              uniqueTestPoints,
+                              sessionName: selectedSessionName,
+                              sessionId: selectedSessionId,
+                            });
+                            if (!r.ok) {
+                              showNotification(r.error, "warning");
+                            } else {
+                              showNotification("Workbook downloaded.", "success");
+                            }
+                          }}
+                        >
+                          <FaDownload aria-hidden />
+                        </button>
+                      </div>
 
-                  <div className="cal-results-bar-tools">
-                    <CustomDropdown
-                      className="cal-results-dir-dropdown"
-                      ariaLabel="Measurement direction"
-                      searchable={false}
-                      value={activeDirection}
-                      onChange={setActiveDirection}
-                      options={[
-                        // Overview is a Summary-only concept; hide it from
-                        // the picker while viewing raw readings.
-                        ...(activeTab === "summary"
-                          ? [{ label: "Overview", value: "Overview" }]
-                          : []),
-                        { label: "Forward", value: "Forward" },
-                        { label: "Reverse", value: "Reverse" },
-                        {
-                          label: "Combined",
-                          value: "Combined",
-                          disabled: !hasBothDirections,
-                        },
-                      ]}
-                    />
-                  </div>
-                </header>
+                      <div className="cal-results-bar-tools">
+                        {hasCycles && (activeDirection === "Combined" || activeDirection === "Overview") && (
+                          <div className="cal-results-pill-group" style={{ marginRight: "1rem" }}>
+                            <button
+                              type="button"
+                              className={`cal-results-pill ${useAbba ? "is-active" : ""}`}
+                              onClick={() => setUseAbba(true)}
+                            >
+                              ABBA
+                            </button>
+                            <button
+                              type="button"
+                              className={`cal-results-pill ${!useAbba ? "is-active" : ""}`}
+                              onClick={() => setUseAbba(false)}
+                            >
+                              Standard
+                            </button>
+                          </div>
+                        )}
+                        <CustomDropdown
+                          className="cal-results-dir-dropdown"
+                          ariaLabel="Measurement direction"
+                          searchable={false}
+                          value={activeDirection}
+                          onChange={setActiveDirection}
+                          options={[
+                            // Overview is a Summary-only concept; hide it from
+                            // the picker while viewing raw readings.
+                            ...(activeTab === "summary"
+                              ? [{ label: "Overview", value: "Overview" }]
+                              : []),
+                            { label: "Forward", value: "Forward" },
+                            { label: "Reverse", value: "Reverse" },
+                            {
+                              label: "Combined",
+                              value: "Combined",
+                              disabled: !hasBothDirections,
+                            },
+                          ]}
+                        />
+                      </div>
+                    </header>
 
-                {activeTab === "summary" && activeDirection === "Overview" && (
+                    {activeTab === "summary" && activeDirection === "Overview" && (
                   <div className="cal-results-summary cal-results-overview">
                     {overviewStats.hasAny ? (
                       <>
@@ -901,6 +1048,44 @@ function CalibrationResults({
                               </p>
                             )}
                           </button>
+                        )}
+
+                        {/* NEW: Forward and Reverse Aggregate Cards */}
+                        {(overviewStats.fwdMean != null || overviewStats.revMean != null) && (
+                          <div className="cal-calc-direction-grid" style={{ marginBottom: "20px" }}>
+                            {overviewStats.fwdMean != null && (
+                              <button
+                                type="button"
+                                className="cal-calc-kpi cal-results-overview-card"
+                                onClick={() => setActiveDirection("Forward")}
+                              >
+                                <p className="cal-calc-kpi-label">Forward Averaged AC–DC</p>
+                                <div className="cal-calc-kpi-value-row">
+                                  <span className="cal-calc-kpi-num">{overviewStats.fwdMean.toFixed(3)}</span>
+                                  {overviewStats.fwdUA != null && (
+                                    <span className="cal-calc-kpi-uncertainty">&nbsp;±&nbsp;{overviewStats.fwdUA.toFixed(3)}</span>
+                                  )}
+                                  <span className="cal-calc-kpi-unit">ppm</span>
+                                </div>
+                              </button>
+                            )}
+                            {overviewStats.revMean != null && (
+                              <button
+                                type="button"
+                                className="cal-calc-kpi cal-results-overview-card"
+                                onClick={() => setActiveDirection("Reverse")}
+                              >
+                                <p className="cal-calc-kpi-label">Reverse Averaged AC–DC</p>
+                                <div className="cal-calc-kpi-value-row">
+                                  <span className="cal-calc-kpi-num">{overviewStats.revMean.toFixed(3)}</span>
+                                  {overviewStats.revUA != null && (
+                                    <span className="cal-calc-kpi-uncertainty">&nbsp;±&nbsp;{overviewStats.revUA.toFixed(3)}</span>
+                                  )}
+                                  <span className="cal-calc-kpi-unit">ppm</span>
+                                </div>
+                              </button>
+                            )}
+                          </div>
                         )}
 
                         {/*
@@ -992,63 +1177,6 @@ function CalibrationResults({
                             ))}
                           </div>
                         )}
-
-                        {/*
-                          Legacy per-direction cards retained as click-targets
-                          to drill into Forward/Reverse detail tabs. Only
-                          renders when there's no per-cycle data (pre-cycle
-                          sessions) — otherwise the per-cycle grid above
-                          covers the same ground in a richer way.
-                        */}
-                        {overviewStats.cyclePairs.length === 0 && (
-                          <div className="cal-calc-direction-grid">
-                            <button
-                              type="button"
-                              className="cal-calc-kpi cal-results-overview-card"
-                              onClick={() =>
-                                overviewStats.forward != null &&
-                                setActiveDirection("Forward")
-                              }
-                              disabled={overviewStats.forward == null}
-                              aria-label="View forward details"
-                            >
-                              <p className="cal-calc-kpi-label">
-                                Forward · δ UUT
-                              </p>
-                              <div className="cal-calc-kpi-value-row">
-                                <span className="cal-calc-kpi-num">
-                                  {overviewStats.forward != null
-                                    ? overviewStats.forward.toFixed(3)
-                                    : "—"}
-                                </span>
-                                <span className="cal-calc-kpi-unit">ppm</span>
-                              </div>
-                            </button>
-
-                            <button
-                              type="button"
-                              className="cal-calc-kpi cal-results-overview-card"
-                              onClick={() =>
-                                overviewStats.reverse != null &&
-                                setActiveDirection("Reverse")
-                              }
-                              disabled={overviewStats.reverse == null}
-                              aria-label="View reverse details"
-                            >
-                              <p className="cal-calc-kpi-label">
-                                Reverse · δ UUT
-                              </p>
-                              <div className="cal-calc-kpi-value-row">
-                                <span className="cal-calc-kpi-num">
-                                  {overviewStats.reverse != null
-                                    ? overviewStats.reverse.toFixed(3)
-                                    : "—"}
-                                </span>
-                                <span className="cal-calc-kpi-unit">ppm</span>
-                              </div>
-                            </button>
-                          </div>
-                        )}
                       </>
                     ) : (
                       <div className="cal-calc-empty">
@@ -1065,264 +1193,250 @@ function CalibrationResults({
                   </div>
                 )}
 
-                {activeTab === "summary" && activeDirection !== "Overview" && (
-                  <div className="cal-results-summary">
-                    {activeCycle != null && (
-                      <div className="cal-results-cycle-context">
-                        <span className="cal-results-cycle-context-label">
-                          Drilled into <strong>Cycle {activeCycle} · {activeDirection}</strong>
-                        </span>
-                        <button
-                          type="button"
-                          className="cal-results-cycle-context-back"
-                          onClick={() => setActiveCycle(null)}
-                          title="Back to aggregate (all cycles)"
+                    {activeTab === "summary" && activeDirection !== "Overview" && (
+                      <div className="cal-results-summary">
+                        {activeCycle != null && (
+                          <div className="cal-results-cycle-context">
+                            <span className="cal-results-cycle-context-label">
+                              Drilled into <strong>Cycle {activeCycle} · {activeDirection}</strong>
+                            </span>
+                            <button
+                              type="button"
+                              className="cal-results-cycle-context-back"
+                              onClick={() => setActiveCycle(null)}
+                              title="Back to aggregate (all cycles)"
+                            >
+                              Show all cycles
+                            </button>
+                          </div>
+                        )}
+                        <div className="cal-results-kpi-wrap">
+                          {/*
+                        Source-of-truth priority:
+                          1. Per-cycle drill-in (activeCycle != null)
+                          2. Active Direction Aggregate (Combined / Forward / Reverse)
+                      */}
+                          {(() => {
+                            // Per-cycle drill-in.
+                            if (activeCycle != null) {
+                              const cycleDelta = calResults?.delta_uut_ppm;
+                              const titleSuffix =
+                                activeDirection === "Combined"
+                                  ? `Cycle ${activeCycle} · paired`
+                                  : `Cycle ${activeCycle} · ${activeDirection}`;
+                              return (
+                                <ResultsKpi
+                                  title={`AC–DC difference · ${titleSuffix}`}
+                                  value={cycleDelta}
+                                  uncertainty={null}
+                                  nCycles={null}
+                                  formula={
+                                    activeDirection === "Combined"
+                                      ? `$$ \\delta_{${activeCycle}} = \\frac{\\delta_{Fwd,${activeCycle}} + \\delta_{Rev,${activeCycle}}}{2} $$`
+                                      : `$$ \\delta_{${activeDirection === "Forward" ? "Fwd" : "Rev"},${activeCycle}} $$`
+                                  }
+                                />
+                              );
+                            }
+
+                            const fwdCount = focusedTP?.forward?.results?.cycles?.length || 0;
+                            const revCount = focusedTP?.reverse?.results?.cycles?.length || 0;
+                            const nPairs = Math.min(fwdCount, revCount);
+
+                            // Combined View
+                            if (activeDirection === "Combined") {
+                              const combinedVal = calResults?.pair_delta_uut_ppm ?? calResults?.delta_uut_ppm;
+                              const hasMultiplePairs = nPairs > 1;
+                              return (
+                                <ResultsKpi
+                                  title="AC–DC difference · Combined"
+                                  value={combinedVal}
+                                  uncertainty={calResults?.pair_type_a_uncertainty_ppm ?? calResults?.type_a_uncertainty_ppm}
+                                  nCycles={nPairs || null}
+                                  formula={
+                                    hasMultiplePairs
+                                      ? `$$ \\bar{\\delta} = \\frac{1}{N} \\sum_{i=1}^{N} \\frac{\\delta_{Fwd,i} + \\delta_{Rev,N+1-i}}{2} $$`
+                                      : `$$ \\text{Avg} = \\frac{\\delta_{Fwd} + \\delta_{Rev}}{2} $$`
+                                  }
+                                />
+                              );
+                            }
+
+                            // Forward or Reverse Views
+                            const dirVal = calResults?.delta_uut_ppm_avg ?? calResults?.delta_uut_ppm;
+                            const dirCount = activeDirection === "Forward" ? fwdCount : revCount;
+
+                            return (
+                              <ResultsKpi
+                                title={`AC–DC difference · ${activeDirection}`}
+                                value={dirVal}
+                                uncertainty={calResults?.type_a_uncertainty_ppm}
+                                nCycles={dirCount || null}
+                                formula={
+                                  dirCount > 1
+                                    ? `$$ \\bar{\\delta}_{${activeDirection === "Forward" ? "Fwd" : "Rev"}} = \\frac{1}{N}\\sum_{i=1}^{N} \\delta_{i} $$`
+                                    : `$$ \\delta_{${activeDirection === "Forward" ? "Fwd" : "Rev"}} $$`
+                                }
+                              />
+                            );
+                          })()}
+                        </div>
+
+                        <details
+                          className="cal-results-disclosure cal-results-disclosure--math"
+                          open
                         >
-                          Show all cycles
-                        </button>
+                          <summary className="cal-results-disclosure-summary">
+                            Calculation breakdown
+                          </summary>
+                          <div className="cal-results-disclosure-body">
+                            <CalculationBreakdown results={calResults} />
+                          </div>
+                        </details>
+
+                        {(!hasCycles || activeCycle != null) && activeDirection !== "Combined" && (
+                          <>
+                            <details className="cal-results-disclosure">
+                              <summary className="cal-results-disclosure-summary">
+                                Standard instrument
+                              </summary>
+                              <div className="cal-results-disclosure-body">
+                                <SummaryTable
+                                  results={calResults}
+                                  prefix="std_"
+                                />
+                              </div>
+                            </details>
+
+                            <details className="cal-results-disclosure">
+                              <summary className="cal-results-disclosure-summary">
+                                Test instrument
+                              </summary>
+                              <div className="cal-results-disclosure-body">
+                                <SummaryTable
+                                  results={calResults}
+                                  prefix="ti_"
+                                />
+                              </div>
+                            </details>
+                          </>
+                        )}
                       </div>
                     )}
-                    <div className="cal-results-kpi-wrap">
-                      {/*
-                        Source-of-truth priority (matches recompute_pair_aggregate on the backend):
-                          1. Per-cycle drill-in (activeCycle != null): use that cycle's own
-                             δ value from the synthesized calResults — same row as the
-                             card the user clicked on the Overview tab.
-                          2. Pair aggregate (`pair_delta_uut_ppm` ± `pair_type_a_uncertainty_ppm`) —
-                             present once both Fwd and Rev have ≥2 cycles. This is what gets compared
-                             against spec.
-                          3. Per-direction mean (`delta_uut_ppm_avg` ± `type_a_uncertainty_ppm`) —
-                             shown with a "pair incomplete" caption when only one direction has run.
-                          4. Legacy single-pass `delta_uut_ppm` for pre-N-cycle sessions.
-                      */}
-                      {(() => {
-                        // Per-cycle drill-in.
-                        if (activeCycle != null) {
-                          const cycleDelta = calResults?.delta_uut_ppm;
-                          const titleSuffix =
-                            activeDirection === "Combined"
-                              ? `Cycle ${activeCycle} · paired`
-                              : `Cycle ${activeCycle} · ${activeDirection}`;
-                          return (
-                            <ResultsKpi
-                              title={`AC–DC difference · ${titleSuffix}`}
-                              value={cycleDelta}
-                              uncertainty={null}
-                              nCycles={null}
-                              formula={
-                                activeDirection === "Combined"
-                                  ? `$$ \\delta_{${activeCycle}} = (\\delta_{Fwd,${activeCycle}} + \\delta_{Rev,${activeCycle}}) / 2 $$`
-                                  : `$$ \\delta_{${activeDirection === "Forward" ? "Fwd" : "Rev"},${activeCycle}} $$`
+
+                    {activeTab === "details" && activeDirection === "Overview" && (
+                      <div className="cal-results-details">
+                        <div className="cal-calc-empty">
+                          <h3 className="cal-calc-empty-title">
+                            Pick a direction
+                          </h3>
+                          <p className="cal-calc-empty-text">
+                            Choose Forward, Reverse, or Combined above to view raw
+                            readings for that direction.
+                          </p>
+                        </div>
+                      </div>
+                    )}
+
+                    {activeTab === "details" && activeDirection !== "Overview" && (
+                      <div className="cal-results-details">
+                        <div className="cal-results-strip">
+                          <div
+                            className="cal-results-pill-group"
+                            role="group"
+                            aria-label="Instrument"
+                          >
+                            <button
+                              type="button"
+                              className={`cal-results-pill ${activeInstrument === "std" ? "is-active" : ""
+                                }`}
+                              onClick={() => setActiveInstrument("std")}
+                            >
+                              Standard
+                            </button>
+                            <button
+                              type="button"
+                              className={`cal-results-pill ${activeInstrument === "ti" ? "is-active" : ""
+                                }`}
+                              onClick={() => setActiveInstrument("ti")}
+                            >
+                              UUT
+                            </button>
+                          </div>
+                          <div
+                            className="cal-results-pill-group"
+                            role="group"
+                            aria-label="Data view"
+                          >
+                            <button
+                              type="button"
+                              className={`cal-results-pill ${detailsView === "chart" ? "is-active" : ""
+                                }`}
+                              onClick={() => setDetailsView("chart")}
+                            >
+                              Chart
+                            </button>
+                            <button
+                              type="button"
+                              className={`cal-results-pill ${detailsView === "table" ? "is-active" : ""
+                                }`}
+                              onClick={() => setDetailsView("table")}
+                            >
+                              Table
+                            </button>
+                          </div>
+                          {detailsView === "table" && (
+                            <select
+                              id="cal-results-measurement-type"
+                              className="cal-results-inline-select"
+                              value={selectedReadingType}
+                              onChange={(e) =>
+                                setSelectedReadingType(e.target.value)
+                              }
+                              aria-label="Measurement type"
+                            >
+                              {READING_TYPES.map((opt) => (
+                                <option key={opt.value} value={opt.value}>
+                                  {opt.label}
+                                </option>
+                              ))}
+                            </select>
+                          )}
+                        </div>
+
+                        {detailsView === "table" && (
+                          <div className="cal-results-table-panel">
+                            <DetailedReadingsTable
+                              readingsArray={
+                                calReadings
+                                  ? calReadings[
+                                  `${activeInstrument}_${selectedReadingType}`
+                                  ]
+                                  : []
                               }
                             />
-                          );
-                        }
+                          </div>
+                        )}
 
-                        const pairMean = calResults?.pair_delta_uut_ppm;
-                        const pairUA = calResults?.pair_type_a_uncertainty_ppm;
-                        // Reading from either side works because the backend mirrors
-                        // pair_* onto both rows; cycles arrays themselves are
-                        // per-direction so we count both to display "N pairs".
-                        const fwdCount = focusedTP?.forward?.results?.cycles?.length || 0;
-                        const revCount = focusedTP?.reverse?.results?.cycles?.length || 0;
-                        const nPairs = Math.min(fwdCount, revCount);
-
-                        if (pairMean !== null && pairMean !== undefined) {
-                          return (
-                            <ResultsKpi
-                              title="AC–DC difference (paired)"
-                              value={pairMean}
-                              uncertainty={pairUA}
-                              nCycles={nPairs || null}
-                              formula={`$$ \\bar{\\delta} = \\overline{(\\delta_{Fwd,i} + \\delta_{Rev,N+1-i})/2} $$`}
-                            />
-                          );
-                        }
-
-                        // Pair incomplete — fall back to per-direction mean.
-                        return (
-                          <ResultsKpi
-                            title={
-                              fwdCount === 0 && revCount === 0
-                                ? "AC–DC difference (UUT)"
-                                : "AC–DC difference (pair incomplete)"
-                            }
-                            value={
-                              calResults?.delta_uut_ppm_avg ??
-                              calResults?.delta_uut_ppm
-                            }
-                            uncertainty={calResults?.type_a_uncertainty_ppm}
-                            nCycles={calResults?.cycles?.length || null}
-                            formula={
-                              activeDirection === "Combined"
-                                ? `$$ \\text{Avg} = (\\delta_{Fwd} + \\delta_{Rev}) / 2 $$`
-                                : `$$ \\delta_{${activeDirection === "Forward"
-                                  ? "Fwd"
-                                  : "Rev"
-                                }} $$`
-                            }
-                          />
-                        );
-                      })()}
-                    </div>
-
-                    {(activeDirection !== "Combined" || activeCycle != null) && (
-                      <details
-                        className="cal-results-disclosure cal-results-disclosure--math"
-                        open
-                      >
-                        <summary className="cal-results-disclosure-summary">
-                          Calculation breakdown
-                        </summary>
-                        <div className="cal-results-disclosure-body">
-                          <CalculationBreakdown results={calResults} />
-                        </div>
-                      </details>
-                    )}
-
-                    {(activeDirection !== "Combined" || activeCycle != null) && (
-                      <>
-                        <details className="cal-results-disclosure">
-                          <summary className="cal-results-disclosure-summary">
-                            Standard instrument
-                          </summary>
-                          <div className="cal-results-disclosure-body">
-                            <SummaryTable
-                              results={calResults}
-                              prefix="std_"
+                        {detailsView === "chart" && (
+                          <div className="chart-container cal-results-chart-wrap">
+                            <CalibrationChart
+                              title={`${activeInstrument === "std"
+                                ? "Standard"
+                                : "Test"
+                                } · ${activeDirection}`}
+                              chartData={buildRawReadingsChartData(
+                                `${activeInstrument}_`
+                              )}
+                              theme={theme}
+                              chartType="line"
+                              onMarkStability={handleMarkStability}
+                              instrumentType={activeInstrument}
                             />
                           </div>
-                        </details>
-
-                        <details className="cal-results-disclosure">
-                          <summary className="cal-results-disclosure-summary">
-                            Test instrument
-                          </summary>
-                          <div className="cal-results-disclosure-body">
-                            <SummaryTable
-                              results={calResults}
-                              prefix="ti_"
-                            />
-                          </div>
-                        </details>
-                      </>
-                    )}
-                  </div>
-                )}
-
-                {activeTab === "details" && activeDirection === "Overview" && (
-                  <div className="cal-results-details">
-                    <div className="cal-calc-empty">
-                      <h3 className="cal-calc-empty-title">
-                        Pick a direction
-                      </h3>
-                      <p className="cal-calc-empty-text">
-                        Choose Forward, Reverse, or Combined above to view raw
-                        readings for that direction.
-                      </p>
-                    </div>
-                  </div>
-                )}
-
-                {activeTab === "details" && activeDirection !== "Overview" && (
-                  <div className="cal-results-details">
-                    <div className="cal-results-strip">
-                      <div
-                        className="cal-results-pill-group"
-                        role="group"
-                        aria-label="Instrument"
-                      >
-                        <button
-                          type="button"
-                          className={`cal-results-pill ${activeInstrument === "std" ? "is-active" : ""
-                            }`}
-                          onClick={() => setActiveInstrument("std")}
-                        >
-                          Standard
-                        </button>
-                        <button
-                          type="button"
-                          className={`cal-results-pill ${activeInstrument === "ti" ? "is-active" : ""
-                            }`}
-                          onClick={() => setActiveInstrument("ti")}
-                        >
-                          UUT
-                        </button>
-                      </div>
-                      <div
-                        className="cal-results-pill-group"
-                        role="group"
-                        aria-label="Data view"
-                      >
-                        <button
-                          type="button"
-                          className={`cal-results-pill ${detailsView === "chart" ? "is-active" : ""
-                            }`}
-                          onClick={() => setDetailsView("chart")}
-                        >
-                          Chart
-                        </button>
-                        <button
-                          type="button"
-                          className={`cal-results-pill ${detailsView === "table" ? "is-active" : ""
-                            }`}
-                          onClick={() => setDetailsView("table")}
-                        >
-                          Table
-                        </button>
-                      </div>
-                      {detailsView === "table" && (
-                        <select
-                          id="cal-results-measurement-type"
-                          className="cal-results-inline-select"
-                          value={selectedReadingType}
-                          onChange={(e) =>
-                            setSelectedReadingType(e.target.value)
-                          }
-                          aria-label="Measurement type"
-                        >
-                          {READING_TYPES.map((opt) => (
-                            <option key={opt.value} value={opt.value}>
-                              {opt.label}
-                            </option>
-                          ))}
-                        </select>
-                      )}
-                    </div>
-
-                    {detailsView === "table" && (
-                      <div className="cal-results-table-panel">
-                        <DetailedReadingsTable
-                          readingsArray={
-                            calReadings
-                              ? calReadings[
-                              `${activeInstrument}_${selectedReadingType}`
-                              ]
-                              : []
-                          }
-                        />
+                        )}
                       </div>
                     )}
-
-                    {detailsView === "chart" && (
-                      <div className="chart-container cal-results-chart-wrap">
-                        <CalibrationChart
-                          title={`${activeInstrument === "std"
-                              ? "Standard"
-                              : "Test"
-                            } · ${activeDirection}`}
-                          chartData={buildRawReadingsChartData(
-                            `${activeInstrument}_`
-                          )}
-                          theme={theme}
-                          chartType="line"
-                          onMarkStability={handleMarkStability}
-                          instrumentType={activeInstrument}
-                        />
-                      </div>
-                    )}
-                  </div>
-                )}
                   </>
                 </section>
               )}

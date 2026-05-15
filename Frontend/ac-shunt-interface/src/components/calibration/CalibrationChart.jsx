@@ -658,26 +658,23 @@ function CalibrationChart({
 
                     {availableCycles.length > 1 && (
                       <div className="chart-options-form-group">
-                        <label>Cycle</label>
-                        <div className="unit-toggle unit-toggle--wrap">
+                        <label htmlFor="cycleSelectInput">Cycle</label>
+                        <select
+                          id="cycleSelectInput"
+                          value={selectedCycle === null ? "auto" : selectedCycle}
+                          onChange={(e) => {
+                            const val = e.target.value;
+                            setSelectedCycle(val === "auto" ? null : Number(val));
+                          }}
+                          title="Select which cycle to display, or Auto for the latest."
+                        >
+                          <option value="auto">Auto (Latest)</option>
                           {availableCycles.map((c) => (
-                            <button
-                              key={c}
-                              className={effectiveCycle === c ? "active" : ""}
-                              onClick={() => setSelectedCycle(c)}
-                              title={`Show readings from cycle ${c}`}
-                            >
-                              {c}
-                            </button>
+                            <option key={c} value={c}>
+                              Cycle {c}
+                            </option>
                           ))}
-                          <button
-                            className={selectedCycle == null ? "active" : ""}
-                            onClick={() => setSelectedCycle(null)}
-                            title="Track the latest cycle automatically (live)"
-                          >
-                            Auto
-                          </button>
-                        </div>
+                        </select>
                       </div>
                     )}
                     <div className="chart-options-form-group">

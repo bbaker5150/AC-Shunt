@@ -1,6 +1,7 @@
 // src/App.js
 import React, { useState, useCallback, useEffect, useMemo, useRef, useLayoutEffect } from "react";
 import axios from "axios";
+import axiosRetry from "axios-retry";
 import SessionSetup from "./components/session/SessionSetup";
 import InstrumentStatusTab from "./components/session/InstrumentStatusTab";
 import Calibration from "./components/calibration/Calibration";
@@ -24,6 +25,19 @@ import { arrayMove } from "@dnd-kit/sortable";
 import { gsap } from "gsap";
 import { AVAILABLE_FREQUENCIES, API_BASE_URL } from "./constants/constants";
 import useDbHealth from "./hooks/useDbHealth";
+
+axiosRetry(axios, {
+  retries: 15, // Try up to 15 times (plenty of time for the ~21s cold boot)
+  retryDelay: (retryCount) => {
+    return 2000; // Wait exactly 2 seconds between each attempt
+  },
+  retryCondition: (error) => {
+    // Catch standard network drops and connection refused errors
+    return axiosRetry.isNetworkOrIdempotentRequestError(error) || 
+           error.code === 'ERR_NETWORK' || 
+           error.code === 'ECONNREFUSED';
+  }
+});
 
 const APP_VERSION = "v1.0.0";
 const RELEASE_NOTES = [

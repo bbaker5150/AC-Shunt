@@ -396,6 +396,7 @@ function Calibration({
   const [readingsChartLayout, setReadingsChartLayoutState] = useState(
     rememberedReadingsChartLayout
   );
+  const [useAbba, setUseAbba] = useState(true);
   const setReadingsChartLayout = useCallback((value) => {
     rememberedReadingsChartLayout = value;
     setReadingsChartLayoutState(value);
@@ -1113,13 +1114,30 @@ function Calibration({
 
   const averagedPpmDifference = useMemo(() => {
     if (!focusedTP) return null;
+    const fwdCycles = focusedTP.forward?.results?.cycles || [];
+    const revCycles = focusedTP.reverse?.results?.cycles || [];
+    const n = Math.min(fwdCycles.length, revCycles.length);
+
+    if (n > 0) {
+      let sum = 0;
+      let validPairs = 0;
+      for (let i = 0; i < n; i++) {
+        const f = parseFloat(fwdCycles[i]?.delta_uut_ppm);
+        const r = parseFloat(useAbba ? revCycles[n - 1 - i]?.delta_uut_ppm : revCycles[i]?.delta_uut_ppm);
+        if (Number.isFinite(f) && Number.isFinite(r)) {
+          sum += (f + r) / 2;
+          validPairs++;
+        }
+      }
+      return validPairs > 0 ? (sum / validPairs).toFixed(3) : null;
+    }
+
+    // Legacy pre-cycle fallback
     const forwardResult = focusedTP.forward?.results?.delta_uut_ppm;
     const reverseResult = focusedTP.reverse?.results?.delta_uut_ppm;
     if (forwardResult == null || reverseResult == null) return null;
-    const averagePpm =
-      (parseFloat(forwardResult) + parseFloat(reverseResult)) / 2;
-    return averagePpm.toFixed(3);
-  }, [focusedTP]);
+    return ((parseFloat(forwardResult) + parseFloat(reverseResult)) / 2).toFixed(3);
+  }, [focusedTP, useAbba]);
 
   // Settings are user-editable (sliders, number inputs) so they have to
   // live in state. Use useLayoutEffect for the per-test-point reset so the
@@ -3194,15 +3212,17 @@ function Calibration({
                             {/* One pair-level cycle statistics tracker for the
                                 whole chart area (peer of the per-instrument
                                 stability trackers above). */}
-                            <CycleStatisticsTracker
-                              focusedTestPoint={focusedTP}
-                              title="AC-DC Pair Statistics"
-                              useAbba={
-                                calibrationConfigurations?.use_abba_pairing === undefined
-                                  ? true
-                                  : Boolean(calibrationConfigurations.use_abba_pairing)
-                              }
-                            />
+                            <div style={{ gridColumn: "1 / -1", width: "100%" }}>
+                              <CycleStatisticsTracker
+                                focusedTestPoint={focusedTP}
+                                title="AC-DC Pair Statistics"
+                                useAbba={
+                                  calibrationConfigurations?.use_abba_pairing === undefined
+                                    ? true
+                                    : Boolean(calibrationConfigurations.use_abba_pairing)
+                                }
+                              />
+                            </div>
                           </div>
                         </>
                       )}
@@ -3218,6 +3238,26 @@ function Calibration({
                               </span>
                             </div>
                             <div className="cal-calc-bar-actions">
+                              {/* NEW ABBA TOGGLE */}
+                              <div className="cal-results-pill-group" style={{ marginRight: "1rem" }}>
+                                <button
+                                  type="button"
+                                  className={`cal-results-pill ${useAbba ? "is-active" : ""}`}
+                                  onClick={() => setUseAbba(true)}
+                                  title="Reverse Pairing (ABBA)"
+                                >
+                                  ABBA
+                                </button>
+                                <button
+                                  type="button"
+                                  className={`cal-results-pill ${!useAbba ? "is-active" : ""}`}
+                                  onClick={() => setUseAbba(false)}
+                                  title="Standard Index Pairing"
+                                >
+                                  Standard
+                                </button>
+                              </div>
+
                               <button
                                 type="button"
                                 onClick={handleOpenCorrectionModal}
@@ -3249,43 +3289,92 @@ function Calibration({
                           </header>
 
                           {(() => {
-                            // Build the same overviewStats shape as
-                            // CalibrationResults so the two surfaces render
-                            // identically. Inline'd to avoid a third memo
-                            // helper just for the rare second call site.
+                            // Dynamically build the cycles and pair them based on the useAbba toggle
                             const fwdCyclesArr = (focusedTP.forward?.results?.cycles || [])
                               .slice()
                               .sort((a, b) => (a.cycle_index || 0) - (b.cycle_index || 0));
                             const revCyclesArr = (focusedTP.reverse?.results?.cycles || [])
                               .slice()
                               .sort((a, b) => (a.cycle_index || 0) - (b.cycle_index || 0));
+                            
+                            const minN = Math.min(fwdCyclesArr.length, revCyclesArr.length);
                             const maxN = Math.max(fwdCyclesArr.length, revCyclesArr.length);
+                            
                             const cyclePairs = [];
+                            const pairedVals = [];
+
                             for (let i = 0; i < maxN; i += 1) {
                               const fwd = fwdCyclesArr[i]?.delta_uut_ppm;
-                              const rev = revCyclesArr[i]?.delta_uut_ppm;
+                              let revIndex = null;
+                              
+                              // Check the toggle to determine which reverse cycle to grab
+                              if (i < minN) revIndex = useAbba ? (minN - 1 - i) : i;
+
+                              const rev = revIndex !== null ? revCyclesArr[revIndex]?.delta_uut_ppm : null;
                               const fwdNum = fwd != null ? parseFloat(fwd) : null;
                               const revNum = rev != null ? parseFloat(rev) : null;
-                              const avg =
-                                fwdNum != null && revNum != null
-                                  ? (fwdNum + revNum) / 2
-                                  : null;
-                              cyclePairs.push({ i: i + 1, fwd: fwdNum, rev: revNum, avg });
+                              const avg = fwdNum != null && revNum != null ? (fwdNum + revNum) / 2 : null;
+
+                              if (avg !== null) pairedVals.push(avg);
+
+                              cyclePairs.push({ 
+                                i: i + 1, 
+                                fwd: fwdNum, 
+                                rev: revNum, 
+                                avg 
+                              });
                             }
-                            const pairMean =
-                              focusedTP.forward?.results?.pair_delta_uut_ppm
-                              ?? focusedTP.reverse?.results?.pair_delta_uut_ppm
-                              ?? null;
-                            const pairUA =
-                              focusedTP.forward?.results?.pair_type_a_uncertainty_ppm
-                              ?? focusedTP.reverse?.results?.pair_type_a_uncertainty_ppm
-                              ?? null;
-                            const overall =
-                              pairMean != null ? Number(pairMean) : averagedPpmDifference;
+
+                            // Dynamically calculate the Mean and Type A Uncertainty (uA) based on the pairs
+                            let pairMean = null;
+                            let pairUA = null;
+                            if (pairedVals.length > 0) {
+                              pairMean = pairedVals.reduce((a, b) => a + b, 0) / pairedVals.length;
+                              if (pairedVals.length > 1) {
+                                const variance = pairedVals.reduce((a, b) => a + Math.pow(b - pairMean, 2), 0) / (pairedVals.length - 1);
+                                pairUA = Math.sqrt(variance) / Math.sqrt(pairedVals.length);
+                              }
+                            }
+
+                            // Calculate Forward and Reverse independent means
+                            let fwdMean = null, revMean = null, fwdUA = null, revUA = null;
+                            if (fwdCyclesArr.length > 0) {
+                              const vals = fwdCyclesArr.map(c => parseFloat(c.delta_uut_ppm)).filter(v => !isNaN(v));
+                              if (vals.length > 0) {
+                                fwdMean = vals.reduce((a, b) => a + b, 0) / vals.length;
+                                if (vals.length > 1) {
+                                  const variance = vals.reduce((a, b) => a + Math.pow(b - fwdMean, 2), 0) / (vals.length - 1);
+                                  fwdUA = Math.sqrt(variance) / Math.sqrt(vals.length);
+                                }
+                              }
+                            } else {
+                              fwdMean = focusedTP.forward?.results?.delta_uut_ppm != null ? parseFloat(focusedTP.forward.results.delta_uut_ppm) : null;
+                            }
+
+                            if (revCyclesArr.length > 0) {
+                              const vals = revCyclesArr.map(c => parseFloat(c.delta_uut_ppm)).filter(v => !isNaN(v));
+                              if (vals.length > 0) {
+                                revMean = vals.reduce((a, b) => a + b, 0) / vals.length;
+                                if (vals.length > 1) {
+                                  const variance = vals.reduce((a, b) => a + Math.pow(b - revMean, 2), 0) / (vals.length - 1);
+                                  revUA = Math.sqrt(variance) / Math.sqrt(vals.length);
+                                }
+                              }
+                            } else {
+                              revMean = focusedTP.reverse?.results?.delta_uut_ppm != null ? parseFloat(focusedTP.reverse.results.delta_uut_ppm) : null;
+                            }
+
+                            // Fallback for old single-pass sessions
+                            const legacyCombined =
+                              (focusedTP.forward?.results?.delta_uut_ppm != null && focusedTP.reverse?.results?.delta_uut_ppm != null)
+                                ? (parseFloat(focusedTP.forward.results.delta_uut_ppm) + parseFloat(focusedTP.reverse.results.delta_uut_ppm)) / 2
+                                : null;
+
+                            const overall = pairMean != null ? pairMean : legacyCombined;
                             const hasAny =
                               overall != null
-                              || focusedTP.forward?.results?.delta_uut_ppm != null
-                              || focusedTP.reverse?.results?.delta_uut_ppm != null
+                              || fwdMean != null
+                              || revMean != null
                               || cyclePairs.length > 0;
 
                             return (
@@ -3328,6 +3417,44 @@ function Calibration({
                                       </p>
                                     )}
                                   </button>
+                                )}
+
+                                {/* NEW: Forward and Reverse Aggregate Cards */}
+                                {(fwdMean != null || revMean != null) && (
+                                  <div className="cal-calc-direction-grid" style={{ marginBottom: "20px" }}>
+                                    {fwdMean != null && (
+                                      <button
+                                        type="button"
+                                        className="cal-calc-kpi cal-results-overview-card"
+                                        onClick={() => onOpenResultsDirection && onOpenResultsDirection("Forward")}
+                                      >
+                                        <p className="cal-calc-kpi-label">Forward Averaged AC–DC</p>
+                                        <div className="cal-calc-kpi-value-row">
+                                          <span className="cal-calc-kpi-num">{fwdMean.toFixed(3)}</span>
+                                          {fwdUA != null && (
+                                            <span className="cal-calc-kpi-uncertainty">&nbsp;±&nbsp;{fwdUA.toFixed(3)}</span>
+                                          )}
+                                          <span className="cal-calc-kpi-unit">ppm</span>
+                                        </div>
+                                      </button>
+                                    )}
+                                    {revMean != null && (
+                                      <button
+                                        type="button"
+                                        className="cal-calc-kpi cal-results-overview-card"
+                                        onClick={() => onOpenResultsDirection && onOpenResultsDirection("Reverse")}
+                                      >
+                                        <p className="cal-calc-kpi-label">Reverse Averaged AC–DC</p>
+                                        <div className="cal-calc-kpi-value-row">
+                                          <span className="cal-calc-kpi-num">{revMean.toFixed(3)}</span>
+                                          {revUA != null && (
+                                            <span className="cal-calc-kpi-uncertainty">&nbsp;±&nbsp;{revUA.toFixed(3)}</span>
+                                          )}
+                                          <span className="cal-calc-kpi-unit">ppm</span>
+                                        </div>
+                                      </button>
+                                    )}
+                                  </div>
                                 )}
 
                                 {cyclePairs.length > 0 && (
