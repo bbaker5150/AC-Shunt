@@ -171,7 +171,7 @@ DATABASES['outbox'] = {
     'NAME': str(OUTBOX_DB_PATH),
 }
 
-DATABASE_ROUTERS = ['api.db_routers.OutboxRouter']
+DATABASE_ROUTERS = ['api.db_routers.WorkbenchRouter']
 
 # ---------------------------------------------------------
 # 3. STANDARD DJANGO SETTINGS
