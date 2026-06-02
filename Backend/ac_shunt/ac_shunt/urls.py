@@ -1,24 +1,28 @@
 """
-URL configuration for ac_shunt project.
+URL configuration for the Metrology Workbench project.
 
-The `urlpatterns` list routes URLs to views. For more information please see:
-    https://docs.djangoproject.com/en/5.2/topics/http/urls/
-Examples:
-Function views
-    1. Add an import:  from my_app import views
-    2. Add a URL to urlpatterns:  path('', views.home, name='home')
-Class-based views
-    1. Add an import:  from other_app.views import Home
-    2. Add a URL to urlpatterns:  path('', Home.as_view(), name='home')
-Including another URLconf
-    1. Import the include() function: from django.urls import include, path
-    2. Add a URL to urlpatterns:  path('blog/', include('blog.urls'))
+Each workbench module backend is mounted under its own ``/api/<module>/``
+namespace. The AC-Shunt module (the ``api`` app) is additionally kept on the
+legacy ``/api/`` prefix for backwards compatibility, so existing clients — the
+frontend's ``API_BASE_URL`` (``http://<host>:8000/api``) — keep working
+unchanged while new code can migrate to ``/api/ac-shunt/``.
+
+Specific module prefixes are listed before the legacy ``/api/`` catch-all; the
+resolver still backtracks across includes, but ordering keeps the intent clear.
 """
 from django.contrib import admin
 from django.urls import path, include
-from api.views import discover_instruments
 
 urlpatterns = [
     path('admin/', admin.site.urls),
+
+    # AC-Shunt module — namespaced path (preferred going forward).
+    path('api/ac-shunt/', include('api.urls')),
+    # Per-module backends.
+    path('api/uncertainty/', include('uncertainty.urls')),
+    path('api/reports/', include('reports.urls')),
+
+    # Back-compat legacy alias for the AC-Shunt API. Keep LAST so the
+    # module-specific prefixes above take precedence.
     path('api/', include('api.urls')),
 ]
