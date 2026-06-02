@@ -1,0 +1,42 @@
+/* src/modules/uncertainty/UncertaintyApp.css
+ *
+ * Module-private styles for the Uncertainty Budget tool. Scoped under
+ * .uncertainty-module so selectors can't collide with other modules. Uses the
+ * shared design tokens (--background-color / --text-color) that App.css
+ * defines on :root and body.dark-mode, with literal fallbacks so the
+ * placeholder is themed even before the AC-Shunt module has ever mounted. */
+.uncertainty-module {
+  min-height: calc(100vh - 48px);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 48px 24px;
+  background: var(--background-color, #f5f7fb);
+  color: var(--text-color, #1a2332);
+}
+
+.uncertainty-placeholder {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 12px;
+  text-align: center;
+}
+
+.uncertainty-placeholder-icon {
+  font-size: 2.75rem;
+  opacity: 0.5;
+}
+
+.uncertainty-placeholder-title {
+  margin: 0;
+  font-size: 1.75rem;
+  font-weight: 600;
+}
+
+.uncertainty-placeholder-subtitle {
+  margin: 0;
+  font-size: 1rem;
+  opacity: 0.6;
+  letter-spacing: 0.02em;
+}

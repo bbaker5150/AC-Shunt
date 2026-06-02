@@ -1,0 +1,57 @@
+# Python/Django
+__pycache__/
+*.pyc
+*.pyo
+*.pyd
+db.sqlite3
+/venv/
+/env/
+.env
+
+# Frontend (React)
+/node_modules/
+/build/
+.pnp
+.pnp.js
+
+# IDE and Editor-specific
+.claude/
+.vscode/
+.idea/
+*.swp
+
+# OS-specific
+.DS_Store
+Thumbs.db
+
+# Generated data files from the script
+correction_data.json
+uncertainty_data.json
+corrections_hash.json
+
+# The source Excel file (optional)
+corrections.xlsx
+
+# --- PyInstaller (Backend Build Artifacts) ---
+# Ignores the temporary build files and the final packaged output
+Backend/ac_shunt/build/
+Backend/ac_shunt/dist/
+
+# Ignore automatically generated .spec files in subfolders, 
+# but keep your primary configuration in Backend/ac_shunt/
+Backend/ac_shunt/ac_shunt/*.spec
+
+# --- Electron Builder (Frontend Build Artifacts) ---
+# Ignores the folder where the Windows Setup .exe is created
+Frontend/workbench/dist/
+
+# --- Python package build artifacts (NPSL_Tools) ---
+# Built wheels/sdists should not be tracked; they bloat the repo.
+Backend/ac_shunt/api/NPSL_Tools/dist/
+Backend/ac_shunt/api/NPSL_Tools/build/
+Backend/ac_shunt/api/NPSL_Tools/*.egg-info/
+
+# --- Local Environment / Credentials ---
+# Since you use the Documents/Portal folder for real creds, 
+# keep any local mock creds out of the repo.
+*.txt

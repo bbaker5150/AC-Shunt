@@ -1,0 +1,206 @@
+/* ------------------------------------------------------------------ */
+/* WorkbenchShell — thin global top bar (window chrome).               */
+/* ------------------------------------------------------------------ */
+/* Self-contained styling (theme-keyed off body.light/dark-mode) so the   */
+/* bar renders correctly on the launcher too, before any module's CSS is  */
+/* loaded. The bar is the frameless Electron drag region; interactive     */
+/* children opt out via -webkit-app-region: no-drag.                      */
+
+:root {
+  --workbench-topbar-h: 40px;
+}
+
+.workbench-topbar {
+  position: sticky;
+  top: 0;
+  z-index: 1500;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  height: var(--workbench-topbar-h);
+  padding: 0 10px 0 14px;
+  box-sizing: border-box;
+  font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+  -webkit-app-region: drag; /* drag the frameless window from the bar */
+}
+body.light-mode .workbench-topbar {
+  background: #eef1f6;
+  border-bottom: 1px solid #dce2ea;
+  color: #3e4757;
+}
+body.dark-mode .workbench-topbar {
+  background: #0e1726;
+  border-bottom: 1px solid #1d2840;
+  color: #c2cde0;
+}
+
+/* Interactive children must opt out of the drag region. */
+.workbench-topbar button {
+  -webkit-app-region: no-drag;
+}
+
+.workbench-topbar-left,
+.workbench-topbar-right {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+}
+
+.workbench-topbar-title {
+  font-size: 0.8rem;
+  font-weight: 600;
+  letter-spacing: 0.02em;
+  opacity: 0.85;
+}
+
+/* Return-to-launcher pill */
+.workbench-topbar-home {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.45rem;
+  height: 28px;
+  padding: 0 0.7rem 0 0.55rem;
+  margin: 0;
+  border-radius: 999px;
+  border: 1px solid transparent;
+  background: transparent;
+  color: inherit;
+  cursor: pointer;
+  font-size: 0.78rem;
+  font-weight: 600;
+  line-height: 1;
+  box-shadow: none;
+  transform: none;
+  transition: background 0.15s ease, border-color 0.15s ease;
+}
+.workbench-topbar-home-chevron {
+  font-size: 0.62rem;
+  opacity: 0.7;
+}
+body.light-mode .workbench-topbar-home:hover {
+  background: #ffffff;
+  border-color: #cfd6e0;
+  box-shadow: none;
+  transform: none;
+}
+body.dark-mode .workbench-topbar-home:hover {
+  background: #18233a;
+  border-color: #2c3b52;
+  box-shadow: none;
+  transform: none;
+}
+.workbench-topbar-home:active {
+  box-shadow: none;
+  transform: none;
+}
+
+/* Theme toggle + any future bar icon button */
+.workbench-topbar-icon-btn {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 28px;
+  height: 28px;
+  padding: 0;
+  margin: 0;
+  border: none;
+  border-radius: 8px;
+  background: transparent;
+  color: inherit;
+  cursor: pointer;
+  font-size: 0.9rem;
+  line-height: 1;
+  box-shadow: none;
+  transform: none;
+  transition: background 0.15s ease, color 0.15s ease;
+}
+body.light-mode .workbench-topbar-icon-btn:hover {
+  background: #ffffff;
+  color: #1d2535;
+  box-shadow: none;
+  transform: none;
+}
+body.dark-mode .workbench-topbar-icon-btn:hover {
+  background: #18233a;
+  color: #e4ecf7;
+  box-shadow: none;
+  transform: none;
+}
+.workbench-topbar-icon-btn:active {
+  box-shadow: none;
+  transform: none;
+}
+.workbench-topbar-icon-btn svg {
+  display: block;
+  width: 0.9rem;
+  height: 0.9rem;
+}
+
+/* Window caption controls (min / max / close) — Electron only. */
+.workbench-caption {
+  display: inline-flex;
+  align-items: center;
+  gap: 2px;
+  margin-left: 4px;
+}
+.workbench-caption-btn {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 30px;
+  height: 28px;
+  padding: 0;
+  margin: 0;
+  border: none;
+  border-radius: 8px;
+  background: transparent;
+  color: inherit;
+  cursor: pointer;
+  opacity: 0.8;
+  box-shadow: none;
+  transform: none;
+  transition: background 0.15s ease, color 0.15s ease, opacity 0.15s ease;
+}
+.workbench-caption-btn:hover {
+  opacity: 1;
+  box-shadow: none;
+  transform: none;
+}
+.workbench-caption-btn:active {
+  box-shadow: none;
+  transform: none;
+}
+body.light-mode .workbench-caption-btn:hover {
+  background: #ffffff;
+}
+body.dark-mode .workbench-caption-btn:hover {
+  background: #18233a;
+}
+.workbench-caption-btn--close:hover {
+  background: #e0341f !important;
+  color: #ffffff;
+  opacity: 1;
+}
+.workbench-caption-btn svg {
+  width: 9px;
+  height: 9px;
+  display: block;
+}
+
+/* Suspense fallback while a lazy module chunk loads. */
+.workbench-module-loading {
+  min-height: calc(100vh - var(--workbench-topbar-h, 40px));
+  display: grid;
+  place-items: center;
+  font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+  font-size: 0.95rem;
+  opacity: 0.7;
+}
+body.light-mode .workbench-module-loading {
+  background: #f5f7fb;
+  color: #1d2535;
+}
+body.dark-mode .workbench-module-loading {
+  background: #0b1220;
+  color: #e4ecf7;
+}
