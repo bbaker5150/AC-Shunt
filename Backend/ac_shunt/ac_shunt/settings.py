@@ -171,6 +171,24 @@ DATABASES['outbox'] = {
     'NAME': str(OUTBOX_DB_PATH),
 }
 
+# ---------------------------------------------------------
+# 2c. PER-MODULE DATABASES (Metrology Workbench modular shell)
+# ---------------------------------------------------------
+# Each workbench module backend gets its own SQLite database so a module's
+# tables stay isolated from the AC-Shunt (`api`) tables on `default` and from
+# each other. WorkbenchRouter (api/db_routers.py) pins each mapped app's models
+# (reads/writes/migrations) to its alias via APP_DB_MAP. The `api` app is NOT
+# mapped, so the AC-Shunt schema/migration history on `default` is untouched.
+# These files live in the writable Portal dir, like the outbox.
+DATABASES['uncertainty'] = {
+    'ENGINE': 'django.db.backends.sqlite3',
+    'NAME': str(CREDENTIALS_DIR / 'uncertainty.sqlite3'),
+}
+DATABASES['reports'] = {
+    'ENGINE': 'django.db.backends.sqlite3',
+    'NAME': str(CREDENTIALS_DIR / 'reports.sqlite3'),
+}
+
 DATABASE_ROUTERS = ['api.db_routers.WorkbenchRouter']
 
 # ---------------------------------------------------------

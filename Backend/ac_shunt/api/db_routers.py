@@ -23,9 +23,13 @@ OUTBOX_APP_LABEL = 'api'
 OUTBOX_MODEL_NAME = 'pendingreadingwrite'
 
 # Maps a module ``app_label`` -> its dedicated database alias. The ``api``
-# (AC-Shunt) app is intentionally absent: it stays on ``default``. Populated in
-# a later Phase 2 step once the per-module DB aliases exist in settings.
-APP_DB_MAP = {}
+# (AC-Shunt) app is intentionally absent: it stays on ``default``, so its
+# api_* tables and MSSQL migration history are untouched. Each alias here must
+# also exist in settings.DATABASES.
+APP_DB_MAP = {
+    'uncertainty': 'uncertainty',
+    'reports': 'reports',
+}
 
 
 class WorkbenchRouter:
