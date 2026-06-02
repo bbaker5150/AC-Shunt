@@ -198,6 +198,7 @@ INSTALLED_APPS = [
     # Workbench module backends (mirror the frontend src/modules/*). Each is a
     # self-contained Django app; see docs/adding-a-module.md.
     'uncertainty',
+    'reports',
 ]
 
 MIDDLEWARE = [
