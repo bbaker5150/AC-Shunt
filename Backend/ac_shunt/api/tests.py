@@ -427,6 +427,48 @@ class WorkstationResolveResourceTests(TestCase):
         self.assertEqual(ws.resolve_resource(None), '')
 
 
+class GetSessionDetailsAddressResolutionTests(TestCase):
+    """``CalibrationConsumer.get_session_details`` qualifies instrument
+    addresses through the session's bench so a remote VM opens them on the
+    right NI-VISA host."""
+
+    databases = {'default'}
+
+    def _details_for(self, session):
+        from asgiref.sync import async_to_sync
+        from api.consumers import CalibrationConsumer
+
+        consumer = CalibrationConsumer()
+        consumer.session_id = session.pk
+        with self.settings(MOCK_INSTRUMENTS=False):
+            return async_to_sync(consumer.get_session_details)()
+
+    def test_addresses_resolved_through_bench_visa_host(self):
+        ws = Workstation.objects.create(
+            name='Bench A', identifier='bench-a', visa_host='10.0.0.42'
+        )
+        session = CalibrationSession.objects.create(
+            session_name='Remote',
+            workstation=ws,
+            ac_source_address='GPIB0::5::INSTR',
+            standard_reader_address='GPIB0::22::INSTR',
+        )
+        details = self._details_for(session)
+        self.assertEqual(
+            details['ac_source_address'], 'visa://10.0.0.42/GPIB0::5::INSTR'
+        )
+        self.assertEqual(
+            details['std_reader_address'], 'visa://10.0.0.42/GPIB0::22::INSTR'
+        )
+
+    def test_default_bench_leaves_addresses_unchanged(self):
+        session = CalibrationSession.objects.create(
+            session_name='Local', ac_source_address='GPIB0::5::INSTR'
+        )
+        details = self._details_for(session)
+        self.assertEqual(details['ac_source_address'], 'GPIB0::5::INSTR')
+
+
 class CalibrationSessionWorkstationTests(TestCase):
     """Backward-compat guarantees for the new nullable FK."""
 

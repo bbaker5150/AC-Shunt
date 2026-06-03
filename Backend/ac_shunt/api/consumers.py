@@ -68,6 +68,7 @@ from .models import (
     CalibrationSettings,
     TestPoint,
     TestPointSet,
+    Workstation,
     compute_delta_uut_ppm,
     welford_mean_stddev,
 )
@@ -827,15 +828,27 @@ class CalibrationConsumer(AsyncWebsocketConsumer):
     def get_session_details(self):
         try:
             session = CalibrationSession.objects.get(pk=self.session_id)
+            # Resolve every instrument address through the session's bench so a
+            # centrally-hosted VM opens each instrument on the correct NI-VISA
+            # remote host (visa://<host>/<addr>). Falls back to the default
+            # (local) bench, whose blank visa_host leaves addresses untouched —
+            # single-machine installs are unaffected. Skipped entirely under
+            # MOCK_INSTRUMENTS so mock-address detection keeps working.
+            ws = session.workstation or Workstation.get_default()
+            mock = getattr(settings, "MOCK_INSTRUMENTS", False)
+
+            def _addr(value):
+                return value if mock else ws.resolve_resource(value)
+
             return {
-                'ac_source_address': session.ac_source_address,
-                'dc_source_address': session.dc_source_address,
-                'std_reader_address': session.standard_reader_address,
+                'ac_source_address': _addr(session.ac_source_address),
+                'dc_source_address': _addr(session.dc_source_address),
+                'std_reader_address': _addr(session.standard_reader_address),
                 'std_reader_model': session.standard_reader_model,
-                'ti_reader_address': session.test_reader_address,
+                'ti_reader_address': _addr(session.test_reader_address),
                 'ti_reader_model': session.test_reader_model,
-                'amplifier_address': session.amplifier_address,
-                'switch_driver_address': session.switch_driver_address,
+                'amplifier_address': _addr(session.amplifier_address),
+                'switch_driver_address': _addr(session.switch_driver_address),
             }
         except CalibrationSession.DoesNotExist: return None
 
