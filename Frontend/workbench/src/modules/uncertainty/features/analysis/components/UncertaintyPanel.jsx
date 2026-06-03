@@ -1971,6 +1971,14 @@ function DetailedView({
       uutNominal.value !== undefined &&
       uutNominal.value !== "" &&
       uutNominal.value !== null);
+  const showSectionColumn = useMemo(
+    () =>
+      Boolean(testPointData.section) ||
+      (sessionData.testPoints || []).some((point) =>
+        Boolean(String(point.section || "").trim()),
+      ),
+    [sessionData.testPoints, testPointData.section],
+  );
   const hasUnassignedVariables =
     isDerived && equationDisplayData?.variables.some((v) => !v.isAssigned);
 
@@ -2270,17 +2278,17 @@ function DetailedView({
             style={{ width: "100%", tableLayout: "fixed" }}
           >
             <colgroup>
-              <col style={{ width: "15%" }} />
-              <col style={{ width: "15%" }} />
+              {showSectionColumn && <col style={{ width: "15%" }} />}
+              <col style={{ width: showSectionColumn ? "15%" : "18%" }} />
               <col style={{ width: "10%" }} />
-              <col style={{ width: "20%" }} />
+              <col style={{ width: showSectionColumn ? "20%" : "24%" }} />
               <col style={{ width: "15%" }} />
               <col style={{ width: "15%" }} />
               <col style={{ width: "10%" }} />
             </colgroup>
             <thead>
               <tr>
-                <th style={{ paddingLeft: "20px" }}>Section</th>
+                {showSectionColumn && <th style={{ paddingLeft: "20px" }}>Section</th>}
                 <th>Point</th>
                 <th>Unit</th>
                 <th>Tolerance</th>
@@ -2292,20 +2300,22 @@ function DetailedView({
             <tbody>
               {hasMeasurementPoint ? (
                 <tr>
-                  <td style={{ paddingLeft: "20px" }}>
-                    <div
-                      style={{ fontWeight: 600, color: "var(--text-color)" }}
-                    >
-                      <EditableCell
-                        value={testPointData.section}
-                        onSave={(val) =>
-                          onUpdateTestPoint &&
-                          onUpdateTestPoint({ section: val })
-                        }
-                        placeholder="General"
-                      />
-                    </div>
-                  </td>
+                  {showSectionColumn && (
+                    <td style={{ paddingLeft: "20px" }}>
+                      <div
+                        style={{ fontWeight: 600, color: "var(--text-color)" }}
+                      >
+                        <EditableCell
+                          value={testPointData.section}
+                          onSave={(val) =>
+                            onUpdateTestPoint &&
+                            onUpdateTestPoint({ section: val })
+                          }
+                          placeholder="General"
+                        />
+                      </div>
+                    </td>
+                  )}
 
                   <td style={{ overflow: "hidden", textOverflow: "ellipsis" }}>
                     <div
@@ -2415,7 +2425,7 @@ function DetailedView({
                 </tr>
               ) : (
                 <tr className="panel-empty-row">
-                  <td colSpan="6">
+                  <td colSpan={showSectionColumn ? 7 : 6}>
                     No active point. Select a UUT range on the left and define a
                     point.
                   </td>

@@ -622,7 +622,9 @@ const UniversalInstrumentModal = ({
                                         value={metaData.measurementAreaColor}
                                         onChange={e => handleMetaChange('measurementAreaColor', e.target.value)}
                                         title="Area Color"
+                                        aria-label="Measurement area color"
                                     />
+                                    <span className="color-picker-label">Area Color</span>
                                 </div>
                             </div>
                         </div>

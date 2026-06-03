@@ -9,7 +9,6 @@ import React, {
   useRef,
 } from "react";
 import { v4 as uuidv4 } from "uuid";
-import Select from "react-select";
 
 // --- Components ---
 import Analysis from "./features/analysis/Analysis";
@@ -17,7 +16,6 @@ import NotificationModal from "./components/modals/NotificationModal";
 import AddTestPointModal from "./features/testPoints/components/AddTestPointModal";
 import TestPointDetailView from "./features/testPoints/components/TestPointDetailView";
 import ToleranceToolModal from "./features/testPoints/components/ToleranceToolModal";
-import EditSessionModal from "./features/session/components/EditSessionModal";
 // OverviewModal Removed
 import ContextMenu from "./components/common/ContextMenu";
 import FullBreakdownModal from "./features/analysis/components/BreakdownModals/FullBreakdownModal";
@@ -42,15 +40,7 @@ import { useNotifications } from "../../shared/NotificationContext";
 // --- Utils & Hooks ---
 import useSessionManager from "./hooks/useSessionManager";
 import { saveSessionToPdf, parseSessionPdf } from "./utils/fileIo";
-import { unitCategories } from "./utils/uncertaintyMath";
 import "./App.css";
-
-const groupedUnitOptions = Object.entries(unitCategories).map(
-  ([category, units]) => ({
-    label: category,
-    options: units.map((u) => ({ value: u, label: u })),
-  }),
-);
 
 // --- Icons ---
 import appLogo from "./assets/icon.svg";
@@ -76,14 +66,11 @@ import {
   faCopy,
   faPaste,
   faCheckCircle,
-  faCheck,
-  faFilter,
   faSlidersH,
   faChevronDown,
   faChevronRight,
   faExpandArrowsAlt,
   faCompressArrowsAlt,
-  faTimesCircle,
 } from "@fortawesome/free-solid-svg-icons";
 
 import ThemeContext from "./context/ThemeContext";
@@ -473,6 +460,7 @@ const SidebarSessionHeader = ({
 }) => {
   const [editingField, setEditingField] = useState(null);
   const [tempValue, setTempValue] = useState("");
+  const [isRequirementsOpen, setIsRequirementsOpen] = useState(true);
 
   if (!sessionData) return null;
 
@@ -484,7 +472,15 @@ const SidebarSessionHeader = ({
 
   const commitEdit = () => {
     if (editingField) {
-      onUpdate({ ...sessionData, [editingField]: tempValue });
+      if (editingField.startsWith("uncReq.")) {
+        const reqKey = editingField.slice("uncReq.".length);
+        onUpdate({
+          ...sessionData,
+          uncReq: { ...(sessionData.uncReq || {}), [reqKey]: tempValue },
+        });
+      } else {
+        onUpdate({ ...sessionData, [editingField]: tempValue });
+      }
       setEditingField(null);
     }
   };
@@ -503,6 +499,34 @@ const SidebarSessionHeader = ({
     const [y, m, d] = isoString.split("-");
     return `${m}/${d}/${y}`;
   };
+
+  const renderEditableField = (field, value, label, inputType = "text") => (
+    <div className="session-header-field">
+      <span className="session-header-label">{label}</span>
+      {editingField === field ? (
+        <input
+          type={inputType}
+          autoFocus
+          value={tempValue}
+          onChange={(e) => setTempValue(e.target.value)}
+          onBlur={commitEdit}
+          onKeyDown={handleKeyDown}
+          onClick={(e) => e.stopPropagation()}
+          className="session-header-input"
+        />
+      ) : (
+        <div
+          onClick={(e) => startEdit(e, field, value)}
+          className="session-header-value"
+          title={`Edit ${label}`}
+        >
+          {inputType === "date" ? formatDate(value) : value || "-"}
+        </div>
+      )}
+    </div>
+  );
+
+  const requirements = sessionData.uncReq || {};
 
   return (
     <div
@@ -536,102 +560,45 @@ const SidebarSessionHeader = ({
 
       {/* 2x2 GRID FOR ORG, ANALYST, DOC, DATE */}
       <div className="session-header-grid">
-        {/* Organization */}
-        <div className="session-header-field">
-          <span className="session-header-label">Organization</span>
-          {editingField === "organization" ? (
-            <input
-              autoFocus
-              value={tempValue}
-              onChange={(e) => setTempValue(e.target.value)}
-              onBlur={commitEdit}
-              onKeyDown={handleKeyDown}
-              onClick={(e) => e.stopPropagation()}
-              className="session-header-input"
-            />
-          ) : (
-            <div
-              onClick={(e) =>
-                startEdit(e, "organization", sessionData.organization)
-              }
-              className="session-header-value"
-            >
-              {sessionData.organization || "-"}
-            </div>
-          )}
-        </div>
+        {renderEditableField("organization", sessionData.organization, "Organization")}
+        {renderEditableField("analyst", sessionData.analyst, "Analyst")}
+        {renderEditableField("document", sessionData.document, "Doc ID")}
+        {renderEditableField("documentDate", sessionData.documentDate, "Date", "date")}
+      </div>
 
-        {/* Analyst */}
-        <div className="session-header-field">
-          <span className="session-header-label">Analyst</span>
-          {editingField === "analyst" ? (
-            <input
-              autoFocus
-              value={tempValue}
-              onChange={(e) => setTempValue(e.target.value)}
-              onBlur={commitEdit}
-              onKeyDown={handleKeyDown}
-              onClick={(e) => e.stopPropagation()}
-              className="session-header-input"
-            />
-          ) : (
-            <div
-              onClick={(e) => startEdit(e, "analyst", sessionData.analyst)}
-              className="session-header-value"
-            >
-              {sessionData.analyst || "-"}
-            </div>
-          )}
-        </div>
-
-        {/* Doc ID */}
-        <div className="session-header-field">
-          <span className="session-header-label">Doc ID</span>
-          {editingField === "document" ? (
-            <input
-              autoFocus
-              value={tempValue}
-              onChange={(e) => setTempValue(e.target.value)}
-              onBlur={commitEdit}
-              onKeyDown={handleKeyDown}
-              onClick={(e) => e.stopPropagation()}
-              className="session-header-input"
-            />
-          ) : (
-            <div
-              onClick={(e) => startEdit(e, "document", sessionData.document)}
-              className="session-header-value"
-            >
-              {sessionData.document || "-"}
-            </div>
-          )}
-        </div>
-
-        {/* Date */}
-        <div className="session-header-field">
-          <span className="session-header-label">Date</span>
-          {editingField === "documentDate" ? (
-            <input
-              type="date"
-              autoFocus
-              value={tempValue}
-              onChange={(e) => setTempValue(e.target.value)}
-              onBlur={commitEdit}
-              onKeyDown={handleKeyDown}
-              onClick={(e) => e.stopPropagation()}
-              className="session-header-input"
-            />
-          ) : (
-            <div
-              onClick={(e) =>
-                startEdit(e, "documentDate", sessionData.documentDate)
-              }
-              className="session-header-value"
-            >
-              {formatDate(sessionData.documentDate)}
-            </div>
-          )}
-        </div>
+      <div className="session-requirements-block">
+        <button
+          type="button"
+          className="session-requirements-toggle"
+          onClick={(e) => {
+            e.stopPropagation();
+            setIsRequirementsOpen((open) => !open);
+          }}
+          aria-expanded={isRequirementsOpen}
+        >
+          <span>Uncertainty Requirements</span>
+          <FontAwesomeIcon icon={isRequirementsOpen ? faChevronDown : faChevronRight} />
+        </button>
+        {isRequirementsOpen && (
+          <div className="session-requirements-grid">
+            {renderEditableField(
+              "uncReq.uncertaintyConfidence",
+              requirements.uncertaintyConfidence,
+              "Confidence %",
+              "number",
+            )}
+            {renderEditableField("uncReq.reliability", requirements.reliability, "Meas Rel %", "number")}
+            {renderEditableField("uncReq.calInt", requirements.calInt, "Cal Interval", "number")}
+            {renderEditableField(
+              "uncReq.measRelCalcAssumed",
+              requirements.measRelCalcAssumed,
+              "Calc/Assumed %",
+              "number",
+            )}
+            {renderEditableField("uncReq.neededTUR", requirements.neededTUR, "Needed TUR", "number")}
+            {renderEditableField("uncReq.reqPFA", requirements.reqPFA, "Req PFA %", "number")}
+          </div>
+        )}
       </div>
     </div>
   );
@@ -661,8 +628,6 @@ function App() {
     updateTestPointData,
     deleteTmdeDefinition,
     decrementTmdeQuantity,
-    loadSessionImages,
-    deleteSessionImage,
   } = useSessionManager();
 
   // Theme + toasts are provided by the workbench shell (global light/dark
@@ -672,9 +637,7 @@ function App() {
   const isDarkMode = theme === "dark";
 
   const [isAddModalOpen, setIsAddModalOpen] = useState(false);
-  const [isQuickAddSuccess, setIsQuickAddSuccess] = useState(false);
   const [editingTestPoint, setEditingTestPoint] = useState(null);
-  const [editingSession, setEditingSession] = useState(null);
   const [isToleranceModalOpen, setIsToleranceModalOpen] = useState(false);
 
   const [breakdownPoint, setBreakdownPoint] = useState(null);
@@ -701,7 +664,6 @@ function App() {
   const [isHelpOpen, setIsHelpOpen] = useState(false);
   const [isBugReportOpen, setIsBugReportOpen] = useState(false);
 
-  const [initialSessionTab, setInitialSessionTab] = useState("details");
   const [sessionImageCache, setSessionImageCache] = useState(new Map());
   const [riskResults, setRiskResults] = useState(null);
 
@@ -726,6 +688,20 @@ function App() {
     tur: false,
     tar: false,
   });
+  const hasAnySectionedPoint = useMemo(
+    () =>
+      (currentTestPoints || []).some((point) =>
+        Boolean(String(point.section || "").trim()),
+      ),
+    [currentTestPoints],
+  );
+  const visibleSidebarColumns = useMemo(
+    () => ({
+      ...sidebarColumns,
+      section: sidebarColumns.section && hasAnySectionedPoint,
+    }),
+    [hasAnySectionedPoint, sidebarColumns],
+  );
   const [isGlobalExpanded, setIsGlobalExpanded] = useState(false);
 
   // Resize Effect
@@ -825,7 +801,7 @@ function App() {
       setIsGlobalExpanded(true);
 
       // Auto-resize sidebar to fit expanded columns if too narrow
-      const minRequiredWidth = getMinSidebarWidth(sidebarColumns);
+      const minRequiredWidth = getMinSidebarWidth(visibleSidebarColumns);
       if (sidebarWidth < minRequiredWidth) {
         setSidebarWidth(minRequiredWidth);
       }
@@ -834,11 +810,6 @@ function App() {
 
   const [isColumnMenuOpen, setIsColumnMenuOpen] = useState(false);
   const columnMenuRef = useRef(null);
-
-  // --- QUICK ADD STATE (Sidebar) ---
-  const [quickAddSection, setQuickAddSection] = useState("");
-  const [quickAddValue, setQuickAddValue] = useState("");
-  const [quickAddUnit, setQuickAddUnit] = useState("");
 
   useEffect(() => {
     const handleClickOutside = (event) => {
@@ -1511,7 +1482,10 @@ function App() {
 
   const handleAddNewSession = () => {
     const newSession = addSession();
-    setEditingSession(newSession);
+    if (newSession?.id) {
+      setSelectedSessionId(newSession.id);
+      handleSelectSession(newSession.id);
+    }
   };
 
   const toggleUutEmptyRanges = (uutId) => {
@@ -1552,9 +1526,38 @@ function App() {
 
     // Logic to build Initial Data
     let initialData = {};
+    const applyUutDefaults = (data, targetUutIds, range) => {
+      const primaryUut = currentSessionData?.uuts?.find(
+        (u) => u.id === targetUutIds?.[0],
+      );
+      const fallbackRange =
+        range ||
+        (primaryUut ? getAllUutRanges(primaryUut)[activeRangeIndices[primaryUut.id] || 0] : null);
+      const functionName =
+        fallbackRange?.functionName ||
+        primaryUut?.instrument?.functions?.[0]?.name ||
+        "Measurement";
+      const unit =
+        fallbackRange?.unit ||
+        primaryUut?.instrument?.functions?.[0]?.unit ||
+        "";
+
+      return {
+        ...data,
+        uutTolerance: data.uutTolerance || range || null,
+        testPointInfo: {
+          ...(data.testPointInfo || {}),
+          parameter: {
+            ...(data.testPointInfo?.parameter || {}),
+            name: data.testPointInfo?.parameter?.name || functionName,
+            unit: data.testPointInfo?.parameter?.unit || unit,
+          },
+        },
+      };
+    };
 
     if (uutIds.length > 0 && specificRange) {
-      initialData = {
+      initialData = applyUutDefaults({
         measurementAreaId: areaId,
         associatedUutIds: uutIds,
         uutTolerance: specificRange,
@@ -1564,7 +1567,7 @@ function App() {
             unit: specificRange.unit || "",
           },
         },
-      };
+      }, uutIds, specificRange);
       // Ensure context is set so it opens in the right folder visually
       setSelectedTestPointContextUutId(uutIds[0]);
       if (specificRange._id !== undefined) {
@@ -1574,17 +1577,17 @@ function App() {
         }));
       }
     } else if (uutIds.length > 0) {
-      initialData = {
+      initialData = applyUutDefaults({
         measurementAreaId: areaId,
         associatedUutIds: uutIds,
-      };
+      }, uutIds, null);
       setSelectedTestPointContextUutId(uutIds[0]);
     } else if (currentUutSelection.length > 0) {
       // Fallback to global selection if no args passed (e.g. main add button)
-      initialData = {
+      initialData = applyUutDefaults({
         measurementAreaId: areaId || selectedAreaId,
         associatedUutIds: currentUutSelection,
-      };
+      }, currentUutSelection, null);
 
       const primaryUutId = currentUutSelection[0];
       const primaryUut = currentSessionData?.uuts?.find(
@@ -1602,9 +1605,24 @@ function App() {
         }
       }
     } else {
-      initialData =
-        virtualPoint ||
-        (areaId ? { measurementAreaId: areaId, associatedUutIds: [] } : null);
+      const contextUuts = areaId
+        ? (currentSessionData?.uuts || []).filter(
+            (u) => u.measurementAreaId === areaId,
+          )
+        : currentSessionData?.uuts || [];
+      if (contextUuts.length === 1) {
+        initialData = applyUutDefaults({
+          measurementAreaId: contextUuts[0].measurementAreaId || areaId,
+          associatedUutIds: [contextUuts[0].id],
+        }, [contextUuts[0].id], null);
+        setSelectedTestPointContextUutId(contextUuts[0].id);
+      } else {
+        setAppNotification({
+          title: "Select a UUT",
+          message: "Choose a UUT or UUT range before adding measurement points.",
+        });
+        return;
+      }
     }
 
     setEditingTestPoint(initialData);
@@ -1636,22 +1654,6 @@ function App() {
         setAppNotification(null);
       },
     });
-  };
-
-  const handleSessionChange = async (updatedSession, newImageFiles = []) => {
-    updateSession(updatedSession, newImageFiles);
-    if (newImageFiles.length > 0) {
-      setSessionImageCache((prevCache) => {
-        const newCache = new Map(prevCache);
-        const sessionCache = new Map(newCache.get(updatedSession.id) || []);
-        newImageFiles.forEach((img) =>
-          sessionCache.set(img.id, img.fileObject),
-        );
-        newCache.set(updatedSession.id, sessionCache);
-        return newCache;
-      });
-    }
-    setEditingSession(null);
   };
 
   const handleUpdateNotes = (newNotes) => {
@@ -1865,46 +1867,28 @@ function App() {
     setIsInstrumentBuilderOpen(false);
   };
 
-  const handleOpenSessionEditor = async (initialTab = "details") => {
-    setInitialSessionTab(initialTab);
-
+  const handleOpenSessionEditor = async () => {
     if (currentSessionData) {
-      setEditingSession(currentSessionData);
-      const cachedMap = sessionImageCache.get(currentSessionData.id);
-      if (!cachedMap || cachedMap.size === 0) {
-        try {
-          const imagesFromDb = await loadSessionImages(currentSessionData.id);
-          if (imagesFromDb && imagesFromDb.length > 0) {
-            setSessionImageCache((prev) => {
-              const newCache = new Map(prev);
-              const sessionMap = new Map();
-              imagesFromDb.forEach((img) => sessionMap.set(img.id, img.data));
-              newCache.set(currentSessionData.id, sessionMap);
-              return newCache;
-            });
-          }
-        } catch (e) {
-          console.error("Failed to load images", e);
-        }
-      }
+      handleSelectSession(currentSessionData.id);
     }
   };
 
   const handleSaveTestPoint = (formData) => {
-    if (
-      !formData.id &&
-      formData.associatedUutIds &&
-      formData.associatedUutIds.length > 1
-    ) {
-      const batchPoints = formData.associatedUutIds.map((uutId) => ({
-        ...formData,
+    const resolvePointForUut = (point, uutId) => {
+      const uut = currentSessionData?.uuts?.find((u) => u.id === uutId);
+      const value = point.testPointInfo?.parameter?.value;
+      const unit = point.testPointInfo?.parameter?.unit;
+      return {
+        ...point,
         associatedUutIds: [uutId],
-        uutTolerance: null,
-      }));
-      saveTestPoint(batchPoints, null);
-      setSelectedTestPointContextUutId(formData.associatedUutIds[0]);
-    } else {
-      const finalData = { ...formData };
+        measurementAreaId:
+          point.measurementAreaId || uut?.measurementAreaId || selectedAreaId,
+        uutTolerance: point.uutTolerance || (uut ? findMatchingRange(uut, value, unit) : null),
+      };
+    };
+
+    const normalizePoint = (point) => {
+      const finalData = { ...point };
       if (!finalData.measurementAreaId && selectedAreaId)
         finalData.measurementAreaId = selectedAreaId;
 
@@ -1916,11 +1900,32 @@ function App() {
         finalData.associatedUutIds = currentUutSelection;
       }
 
-      saveTestPoint(finalData, null);
-
-      if (finalData.associatedUutIds && finalData.associatedUutIds.length > 0) {
-        setSelectedTestPointContextUutId(finalData.associatedUutIds[0]);
+      if (
+        !finalData.id &&
+        finalData.associatedUutIds &&
+        finalData.associatedUutIds.length > 1
+      ) {
+        return finalData.associatedUutIds.map((uutId) =>
+          resolvePointForUut(finalData, uutId),
+        );
       }
+
+      if (!finalData.id && finalData.associatedUutIds?.length === 1) {
+        return resolvePointForUut(finalData, finalData.associatedUutIds[0]);
+      }
+
+      return finalData;
+    };
+
+    const normalized = Array.isArray(formData)
+      ? formData.flatMap(normalizePoint)
+      : normalizePoint(formData);
+
+    saveTestPoint(normalized, null);
+
+    const firstPoint = Array.isArray(normalized) ? normalized[0] : normalized;
+    if (firstPoint?.associatedUutIds && firstPoint.associatedUutIds.length > 0) {
+      setSelectedTestPointContextUutId(firstPoint.associatedUutIds[0]);
     }
     setIsAddModalOpen(false);
     setEditingTestPoint(null);
@@ -1930,69 +1935,6 @@ function App() {
   // ---  Inline update handler for sidebar edits ---
   const handleInlinePointUpdate = (updatedPoint) => {
     saveTestPoint(updatedPoint, null);
-  };
-
-  // --- Quick Add handler for sidebar toolbar ---
-  const handleQuickAddPoint = () => {
-    if (!quickAddValue || !quickAddUnit) return;
-
-    // Determine which UUTs to add the point to
-    // Priority: 1) selectedUutId (UUT view) 2) currentUutSelection (Session/Area view)
-    const targetUutIds = selectedUutId
-      ? [selectedUutId]
-      : currentUutSelection.length > 0
-        ? currentUutSelection
-        : [];
-
-    if (targetUutIds.length === 0) return;
-
-    // Get measurement area from first UUT or selected area
-    const firstUut = currentSessionData?.uuts?.find(
-      (u) => u.id === targetUutIds[0],
-    );
-    const areaId = firstUut?.measurementAreaId || selectedAreaId;
-
-    // Helper to create point with resolved tolerance
-    const createPointForUut = (uutId) => {
-      const uut = currentSessionData?.uuts?.find((u) => u.id === uutId);
-      // Resolve tolerance from UUT instrument definition
-      const resolvedTolerance = uut
-        ? findMatchingRange(uut, quickAddValue, quickAddUnit)
-        : null;
-
-      return {
-        section: quickAddSection,
-        measurementType: "direct",
-        testPointInfo: {
-          parameter: {
-            name: "Measurement",
-            value: quickAddValue,
-            unit: quickAddUnit,
-          },
-        },
-        associatedUutIds: [uutId],
-        measurementAreaId: uut?.measurementAreaId || areaId,
-        uutTolerance: resolvedTolerance,
-      };
-    };
-
-    if (targetUutIds.length === 1) {
-      // Single UUT - create one point
-      saveTestPoint(createPointForUut(targetUutIds[0]), null);
-    } else {
-      // Multiple UUTs - create a point for each with resolved tolerance
-      const batchPoints = targetUutIds.map(createPointForUut);
-      saveTestPoint(batchPoints, null);
-    }
-
-    setQuickAddSection("");
-    setQuickAddValue("");
-    setQuickAddUnit("");
-    setIsQuickAddSuccess(true);
-    setTimeout(() => setIsQuickAddSuccess(false), 2000);
-    showToast(
-      `Point${targetUutIds.length > 1 ? "s" : ""} added to ${targetUutIds.length} UUT${targetUutIds.length > 1 ? "s" : ""}`,
-    );
   };
 
   const handleAnalysisDataSave = (updates) => {
@@ -2447,27 +2389,12 @@ function App() {
             (selectedAreaId ? { measurementAreaId: selectedAreaId } : null)
           }
           hasExistingPoints={currentTestPoints.length > 0}
+          sessionData={currentSessionData}
           previousTestPointData={
             currentTestPoints.length > 0
               ? currentTestPoints[currentTestPoints.length - 1]
               : null
           }
-        />
-        <EditSessionModal
-          isOpen={!!editingSession}
-          onClose={() => {
-            setEditingSession(null);
-            setInitialSessionTab("details");
-          }}
-          sessionData={editingSession}
-          onSave={handleSessionChange}
-          onSaveToFile={handleSaveToFile}
-          handleLoadFromFile={handleLoadFromFile}
-          initialSection={initialSessionTab}
-          sessionImageCache={sessionImageCache}
-          onImageCacheChange={setSessionImageCache}
-          onRemoveImageFile={deleteSessionImage}
-          instruments={instruments}
         />
         {displayData && displayData.id && displayData.viewMode === "point" && (
           <ToleranceToolModal
@@ -2683,11 +2610,11 @@ function App() {
                     <FontAwesomeIcon icon={faPlus} />
                   </button>
                   <button
-                    onClick={() => handleOpenSessionEditor("details")}
-                    title="Edit Session"
+                    onClick={() => handleSelectSession(selectedSessionId)}
+                    title="Session overview"
                     className="sidebar-action-button"
                   >
-                    <FontAwesomeIcon icon={faEdit} />
+                    <FontAwesomeIcon icon={faClipboardList} />
                   </button>
                   <button
                     onClick={() => handleDeleteSession(selectedSessionId)}
@@ -2713,163 +2640,6 @@ function App() {
                   }
                   onSelect={() => handleSelectSession(selectedSessionId)}
                 />
-
-                {/* Sidebar Toolbar: Quick Add ONLY (Cleaned) */}
-                <div className="sidebar-quick-add-container">
-                  <span className="sidebar-section-title">Quick Add Point</span>
-
-                  <div
-                    className="sidebar-quick-add"
-                    style={{ marginTop: "4px" }}
-                  >
-                    {/* Section Input */}
-                    <input
-                      type="text"
-                      placeholder="Section"
-                      value={quickAddSection}
-                      onChange={(e) => setQuickAddSection(e.target.value)}
-                      onKeyDown={(e) =>
-                        e.key === "Enter" && handleQuickAddPoint()
-                      }
-                      className="quick-add-input section"
-                    />
-
-                    {/* Value Input */}
-                    <input
-                      type="text"
-                      placeholder="Value"
-                      value={quickAddValue}
-                      onChange={(e) => setQuickAddValue(e.target.value)}
-                      onKeyDown={(e) =>
-                        e.key === "Enter" && handleQuickAddPoint()
-                      }
-                      className="quick-add-input"
-                    />
-
-                    {/* Unit Selector */}
-                    <div
-                      style={{ width: "90px", zIndex: 1001 }}
-                      className="quick-add-unit-wrapper"
-                    >
-                      <Select
-                        options={groupedUnitOptions}
-                        value={
-                          quickAddUnit
-                            ? { value: quickAddUnit, label: quickAddUnit }
-                            : null
-                        }
-                        onChange={(opt) =>
-                          setQuickAddUnit(opt ? opt.value : "")
-                        }
-                        onKeyDown={(e) => {
-                          if (e.key === "Enter") {
-                            handleQuickAddPoint();
-                          }
-                        }}
-                        placeholder="Unit"
-                        isClearable
-                        menuPortalTarget={document.body}
-                        styles={{
-                          control: (base, state) => ({
-                            ...base,
-                            backgroundColor: "rgba(255, 255, 255, 0.04)",
-                            borderColor: state.isFocused
-                              ? "var(--primary-color)"
-                              : "transparent",
-                            color: "var(--text-color)",
-                            minHeight: "28px",
-                            height: "28px",
-                            fontSize: "0.85rem",
-                            borderRadius: "4px",
-                            boxShadow: "none",
-                            transition: "all 0.2s ease",
-                            "&:hover": {
-                              borderColor: state.isFocused
-                                ? "var(--primary-color)"
-                                : "var(--border-color)",
-                            },
-                          }),
-                          valueContainer: (base) => ({
-                            ...base,
-                            padding: "0 4px",
-                            height: "28px",
-                          }),
-                          input: (base) => ({
-                            ...base,
-                            margin: 0,
-                            padding: 0,
-                            color: "var(--text-color)",
-                          }),
-                          singleValue: (base) => ({
-                            ...base,
-                            color: "var(--text-color)",
-                          }),
-                          placeholder: (base) => ({
-                            ...base,
-                            color: "var(--text-color-muted)",
-                          }),
-                          dropdownIndicator: (base) => ({
-                            ...base,
-                            padding: "0 2px",
-                            color: "var(--text-color-muted)",
-                          }),
-                          indicatorsContainer: (base) => ({
-                            ...base,
-                            height: "28px",
-                          }),
-                          groupHeading: (base) => ({
-                            ...base,
-                            color: "var(--text-color-muted)",
-                            fontSize: "0.7rem",
-                            fontWeight: "bold",
-                            textTransform: "uppercase",
-                            padding: "4px 8px",
-                          }),
-                          menu: (base) => ({
-                            ...base,
-                            backgroundColor: "var(--component-bg)",
-                            zIndex: 9999,
-                            border: "1px solid var(--border-color)",
-                            boxShadow: "0 4px 12px rgba(0,0,0,0.5)",
-                          }),
-                          menuPortal: (base) => ({ ...base, zIndex: 9999 }),
-                          option: (base, state) => ({
-                            ...base,
-                            backgroundColor: state.isFocused
-                              ? "var(--primary-color-light)"
-                              : "var(--component-bg)",
-                            color: "var(--text-color)",
-                            cursor: "pointer",
-                            fontSize: "0.8rem",
-                            padding: "4px 8px",
-                          }),
-                          menuList: (base) => ({
-                            ...base,
-                            overflowX: "hidden",
-                          }),
-                        }}
-                      />
-                    </div>
-
-                    {/* Submit Button */}
-                    <button
-                      onClick={handleQuickAddPoint}
-                      disabled={
-                        !quickAddValue ||
-                        !quickAddUnit ||
-                        (!selectedUutId && currentUutSelection.length === 0)
-                      }
-                      className={`quick-add-submit ${isQuickAddSuccess ? "success" : ""}`}
-                      title={
-                        !selectedUutId && currentUutSelection.length === 0
-                          ? "Select UUT(s) from panel first"
-                          : `Add point to ${selectedUutId ? "1" : currentUutSelection.length} UUT${!selectedUutId && currentUutSelection.length > 1 ? "s" : ""} (Enter)`
-                      }
-                    >
-                      <FontAwesomeIcon icon={faCheck} />
-                    </button>
-                  </div>
-                </div>
 
                 {/* 2. GLOBAL ACTIONS ROW (Refined & Organic) */}
                 <div className="sidebar-global-actions">
@@ -3259,7 +3029,7 @@ function App() {
                                                       display: "grid",
                                                       gridTemplateColumns:
                                                         getSidebarGridTemplate(
-                                                          sidebarColumns,
+                                                          visibleSidebarColumns,
                                                         ),
                                                       gap: "4px",
                                                       padding:
@@ -3274,22 +3044,22 @@ function App() {
                                                       minWidth: "min-content",
                                                     }}
                                                   >
-                                                    {sidebarColumns.section && (
+                                                    {visibleSidebarColumns.section && (
                                                       <span>Sect.</span>
                                                     )}
-                                                    {sidebarColumns.value && (
+                                                    {visibleSidebarColumns.value && (
                                                       <span>Value</span>
                                                     )}
-                                                    {sidebarColumns.tolerance && (
+                                                    {visibleSidebarColumns.tolerance && (
                                                       <span>Tolerance</span>
                                                     )}
-                                                    {sidebarColumns.lowLimit && (
+                                                    {visibleSidebarColumns.lowLimit && (
                                                       <span>Low</span>
                                                     )}
-                                                    {sidebarColumns.highLimit && (
+                                                    {visibleSidebarColumns.highLimit && (
                                                       <span>High</span>
                                                     )}
-                                                    {sidebarColumns.pfa && (
+                                                    {visibleSidebarColumns.pfa && (
                                                       <span
                                                         style={{
                                                           textAlign: "center",
@@ -3298,7 +3068,7 @@ function App() {
                                                         PFA
                                                       </span>
                                                     )}
-                                                    {sidebarColumns.pfr && (
+                                                    {visibleSidebarColumns.pfr && (
                                                       <span
                                                         style={{
                                                           textAlign: "center",
@@ -3307,7 +3077,7 @@ function App() {
                                                         PFR
                                                       </span>
                                                     )}
-                                                    {sidebarColumns.tur && (
+                                                    {visibleSidebarColumns.tur && (
                                                       <span
                                                         style={{
                                                           textAlign: "center",
@@ -3316,7 +3086,7 @@ function App() {
                                                         TUR
                                                       </span>
                                                     )}
-                                                    {sidebarColumns.tar && (
+                                                    {visibleSidebarColumns.tar && (
                                                       <span
                                                         style={{
                                                           textAlign: "center",
@@ -3341,7 +3111,7 @@ function App() {
                                                           tp.id,
                                                         )}
                                                         visibleColumns={
-                                                          sidebarColumns
+                                                          visibleSidebarColumns
                                                         }
                                                         onSelect={(e) =>
                                                           handleSelectTestPoint(
@@ -3429,6 +3199,9 @@ function App() {
                                               <SidebarPointItem
                                                 key={tp.id}
                                                 point={tp}
+                                                visibleColumns={
+                                                  visibleSidebarColumns
+                                                }
                                                 isSelected={selectedSidebarPointIds.includes(
                                                   tp.id,
                                                 )}
@@ -3505,6 +3278,7 @@ function App() {
                                 <SidebarPointItem
                                   key={tp.id}
                                   point={tp}
+                                  visibleColumns={visibleSidebarColumns}
                                   isSelected={selectedSidebarPointIds.includes(
                                     tp.id,
                                   )}

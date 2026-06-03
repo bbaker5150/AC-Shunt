@@ -8624,6 +8624,40 @@ body.theme-cyberpunk .theme-selector-minimal {
   color: var(--text-color);
 }
 
+.session-requirements-block {
+  margin-top: 12px;
+  padding-top: 10px;
+  border-top: 1px solid var(--border-color);
+}
+
+.session-requirements-toggle {
+  width: 100%;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  padding: 0;
+  border: 0;
+  background: transparent;
+  color: var(--text-color-muted);
+  cursor: pointer;
+  font-size: 0.68rem;
+  font-weight: 800;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+}
+
+.session-requirements-toggle:hover {
+  color: var(--primary-color);
+}
+
+.session-requirements-grid {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 8px 10px;
+  margin-top: 10px;
+}
+
 /* --- ORGANIC QUICK ADD --- */
 .sidebar-quick-add-container {
   background-color: transparent;

@@ -91,6 +91,15 @@
     grid-column: 1 / -1; 
 }
 
+.color-picker-label {
+    color: var(--text-color-muted);
+    font-size: 0.72rem;
+    font-weight: 700;
+    text-transform: uppercase;
+    letter-spacing: 0.04em;
+    white-space: nowrap;
+}
+
 /* Color Picker Styling */
 .color-picker-input {
     width: 48px;
@@ -520,4 +529,12 @@
     transform: none;
     box-shadow: none;
     opacity: 0.7;
+}
+
+.instrument-builder-wrapper .editor-actions .btn-large-icon {
+    width: 42px;
+    height: 42px;
+    border-radius: 8px;
+    font-size: 1rem;
+    box-shadow: none;
 }
