@@ -2514,15 +2514,6 @@ function App() {
                 >
                   <button
                     type="button"
-                    className="app-chrome-meta-icon"
-                    onClick={() => handleSelectSession(selectedSessionId)}
-                    title="Session overview"
-                    aria-label="Session overview"
-                  >
-                    <FontAwesomeIcon icon={faEye} />
-                  </button>
-                  <button
-                    type="button"
                     className={`app-chrome-meta-icon${isInstrumentBuilderOpen ? " is-active" : ""}`}
                     onClick={() => handleOpenLibrary()}
                     title="Instrument builder"

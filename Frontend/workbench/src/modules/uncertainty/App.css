@@ -8897,3 +8897,93 @@ body.uncertainty-active .image-viewer-overlay {
   background-color: var(--primary-color-soft, var(--primary-color-light));
   border-color: color-mix(in srgb, var(--primary-color) 35%, transparent);
 }
+
+/* --- AC-Shunt-aligned session selector row polish ------------------- */
+.uncertainty-module .sidebar-header {
+  align-items: flex-end;
+  gap: 8px;
+  padding: 10px 14px;
+}
+
+.uncertainty-module .session-controls {
+  gap: 5px;
+}
+
+.uncertainty-module .session-controls label {
+  line-height: 1;
+}
+
+.uncertainty-module .session-selector {
+  height: 32px;
+  padding: 0 30px 0 10px;
+  border-radius: 8px;
+  border-color: var(--border-color);
+  background-color: var(--input-background);
+  color: var(--text-color);
+  font-size: 0.85rem;
+  line-height: 30px;
+  box-shadow: none;
+}
+
+.uncertainty-module .sidebar-view-controls {
+  gap: 2px;
+  height: 32px;
+  align-items: center;
+  flex-shrink: 0;
+}
+
+.uncertainty-module .sidebar-view-controls .sidebar-action-button {
+  width: 32px;
+  height: 32px;
+  padding: 0;
+  border-radius: 8px;
+  border: 1px solid transparent;
+  background: transparent;
+  color: var(--text-color-muted);
+  font-size: 0.95rem;
+  box-shadow: none;
+  transform: none;
+  transition: background-color 0.15s ease, color 0.15s ease,
+    border-color 0.15s ease, transform 0.15s ease;
+}
+
+.uncertainty-module .sidebar-view-controls .sidebar-action-button:hover,
+.uncertainty-module .sidebar-view-controls .sidebar-action-button.active {
+  background-color: var(--primary-color-soft, var(--primary-color-light));
+  color: var(--primary-color);
+  border-color: transparent;
+  box-shadow: none;
+  transform: none;
+}
+
+.uncertainty-module .sidebar-view-controls .sidebar-action-button:active {
+  transform: translateY(1px);
+}
+
+.uncertainty-module .sidebar-view-controls .sidebar-action-button.delete {
+  color: var(--text-color-muted);
+  border-color: transparent;
+}
+
+.uncertainty-module .sidebar-view-controls .sidebar-action-button.delete:hover {
+  background-color: var(--status-bad-bg);
+  color: var(--status-bad);
+  border-color: transparent;
+}
+
+body:not(.dark-mode) .uncertainty-module .point-grid-item:hover {
+  background-color: rgba(15, 23, 42, 0.035);
+  color: var(--text-color);
+}
+
+body:not(.dark-mode) .uncertainty-module .point-grid-item.active {
+  background-color: transparent;
+  color: var(--primary-color);
+  border-left-color: var(--primary-color);
+}
+
+body:not(.dark-mode)
+  .uncertainty-module
+  .point-grid-item.table-highlight:not(.active) {
+  background-color: rgba(var(--primary-rgb), 0.045);
+}
