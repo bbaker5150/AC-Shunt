@@ -85,6 +85,7 @@ const useSessionManager = () => {
   const [selectedTestPointId, setSelectedTestPointId] = useState(null);
   const persistTimersRef = useRef(new Map());
   const pendingPersistRef = useRef(new Map());
+  const persistQueuesRef = useRef(new Map());
 
   // --- 1. Load Data (Sessions) ---
   const loadData = useCallback(async () => {
@@ -134,28 +135,46 @@ const useSessionManager = () => {
 
   // --- 2. Persistence Logic (Sessions) ---
   // PUT upserts the whole nested session; the backend rebuilds child rows.
-  const persistSession = useCallback(async (sessionToSave, newImages = []) => {
+  const persistSession = useCallback((sessionToSave, newImages = []) => {
     if (!sessionToSave || sessionToSave.id == null) return;
-    try {
-      await axios.put(
-        `${UNCERTAINTY_API}/sessions/${sessionToSave.id}/`,
-        sessionToSave
-      );
-      for (const img of newImages) {
-        if (img.fileObject) {
-          await axios.post(
-            `${UNCERTAINTY_API}/sessions/${sessionToSave.id}/images/`,
-            {
-              imageId: img.id,
-              dataBase64: img.fileObject,
-              fileName: img.fileName,
-            }
+
+    const key = sessionToSave.id;
+    const previousSave = persistQueuesRef.current.get(key) || Promise.resolve();
+
+    const queuedSave = previousSave
+      .catch(() => {})
+      .then(async () => {
+        try {
+          await axios.put(
+            `${UNCERTAINTY_API}/sessions/${sessionToSave.id}/`,
+            sessionToSave
           );
+
+          for (const img of newImages) {
+            if (img.fileObject) {
+              await axios.post(
+                `${UNCERTAINTY_API}/sessions/${sessionToSave.id}/images/`,
+                {
+                  imageId: img.id,
+                  dataBase64: img.fileObject,
+                  fileName: img.fileName,
+                }
+              );
+            }
+          }
+        } catch (err) {
+          console.error("Failed to save session to backend", err);
         }
+      });
+
+    persistQueuesRef.current.set(key, queuedSave);
+    queuedSave.finally(() => {
+      if (persistQueuesRef.current.get(key) === queuedSave) {
+        persistQueuesRef.current.delete(key);
       }
-    } catch (err) {
-      console.error("Failed to save session to backend", err);
-    }
+    });
+
+    return queuedSave;
   }, []);
 
   const persistSessionDebounced = useCallback(
@@ -187,6 +206,7 @@ const useSessionManager = () => {
       persistTimersRef.current.forEach((timer) => clearTimeout(timer));
       persistTimersRef.current.clear();
       pendingPersistRef.current.clear();
+      persistQueuesRef.current.clear();
     };
   }, []);
 

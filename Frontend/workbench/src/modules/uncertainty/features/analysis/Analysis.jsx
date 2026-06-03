@@ -10,7 +10,7 @@
  * 4. Handles instrument (UUT/TMDE) selection and editing logic.
  */
 
-import { useState, useMemo } from "react";
+import { useState, useMemo, useCallback } from "react";
 import { v4 as uuidv4 } from "uuid";
 
 // --- Custom Hooks ---
@@ -171,12 +171,12 @@ function Analysis({
   );
 
   // Hook 2: Risk Calculation
-  const handleRiskDataSave = (data) => {
-    if (data.riskMetrics !== undefined && parentSetRiskResults) {
-      parentSetRiskResults(data.riskMetrics);
-    }
-    onDataSave(data);
-  };
+  const handleRiskResultsChange = useCallback(
+    (nextRiskResults) => {
+      parentSetRiskResults?.(nextRiskResults);
+    },
+    [parentSetRiskResults],
+  );
 
   const {
     riskResults,
@@ -190,7 +190,7 @@ function Analysis({
     uutNominal,
     calcResults,
     analysisMode,
-    handleRiskDataSave,
+    handleRiskResultsChange,
   );
 
   // Sync risk notifications to local UI state

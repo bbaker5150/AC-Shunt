@@ -37,7 +37,7 @@ export const useRiskCalculation = (
   uutNominal,
   calcResults, // Must come from useUncertaintyCalculation hook
   analysisMode,
-  onDataSave
+  onRiskResultsChange
 ) => {
   const [riskInputs, setRiskInputs] = useState({
     LLow: "",
@@ -492,7 +492,7 @@ export const useRiskCalculation = (
     if (prevJSON !== newJSON) {
         prevRiskMetricsRef.current = newRiskMetrics;
         setRiskResults(newRiskMetrics);
-        onDataSave({ riskMetrics: newRiskMetrics });
+        onRiskResultsChange?.(newRiskMetrics);
     }
     
   }, [
@@ -509,7 +509,7 @@ export const useRiskCalculation = (
     uutToleranceData,
     tmdeTolerancesData,
     testPointData?.uutTolerance?.measuringResolution, // FIXED Dependency
-    onDataSave,
+    onRiskResultsChange,
   ]);
 
   // --- 3. Trigger Calculation ---
@@ -526,7 +526,7 @@ export const useRiskCalculation = (
     if (!shouldCalculate) {
       setRiskResults((prevResults) => {
         if (prevResults !== null) {
-          onDataSave({ riskMetrics: null });
+          onRiskResultsChange?.(null);
           return null;
         }
         return prevResults;
@@ -544,7 +544,7 @@ export const useRiskCalculation = (
     riskInputs.LLow,
     riskInputs.LUp,
     calculateRiskMetrics,
-    onDataSave,
+    onRiskResultsChange,
   ]);
 
   return { 

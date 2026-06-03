@@ -131,6 +131,7 @@ const SidebarPointItem = ({
   isSelected,
   isTableSelected,
   liveRiskMetrics = null,
+  isLiveRiskTarget = false,
   onSelect,
   onModalOpen,
   onSave,
@@ -196,7 +197,7 @@ const SidebarPointItem = ({
 
   // Safe Accessors
   const displayValue = point.testPointInfo?.parameter?.value;
-  const risk = liveRiskMetrics || point.riskMetrics || {};
+  const risk = isLiveRiskTarget ? liveRiskMetrics || {} : point.riskMetrics || {};
 
   // --- COLOR LOGIC (Matches UncertaintyPanel) ---
   const getPfaColor = (val) => {
@@ -501,10 +502,6 @@ const SidebarSessionHeader = ({
     onUpdate({
       ...sessionData,
       uncReq: { ...(sessionData.uncReq || {}), [reqKey]: value },
-      testPoints: (sessionData.testPoints || []).map((point) => ({
-        ...point,
-        riskMetrics: null,
-      })),
     });
   };
 
@@ -1368,6 +1365,7 @@ function App() {
 
   // --- SELECTION HANDLERS ---
   const handleSelectSession = (newId) => {
+    setRiskResults(null);
     setSelectedSessionId(newId);
     setSelectedTestPointId(null);
     setSelectedAreaId(null);
@@ -1413,6 +1411,7 @@ function App() {
 
   const handleSelectArea = (areaId) => {
     // Set selection for the main panel
+    setRiskResults(null);
     setSelectedAreaId(areaId);
     setSelectedUutId(null);
     setSelectedRangeContext(null);
@@ -1426,6 +1425,7 @@ function App() {
 
   const handleSelectUut = (uutId, areaId) => {
     // Set selection for the main panel
+    setRiskResults(null);
     setSelectedUutId(uutId);
     setSelectedAreaId(areaId);
     setSelectedRangeContext(null);
@@ -1440,6 +1440,7 @@ function App() {
   // ---  Handle Range Selection ---
   const handleSelectRange = (uutId, range, areaId) => {
     // Set selection for the main panel
+    setRiskResults(null);
     setSelectedRangeContext({ uutId, range });
     setSelectedUutId(null);
     setSelectedTestPointId(null);
@@ -1455,6 +1456,7 @@ function App() {
   };
 
   const handleSelectTestPoint = (e, tpId, contextUutId = null) => {
+    setRiskResults(null);
     // Multi-Select Logic
     let newSelection = [];
     if (e && (e.ctrlKey || e.metaKey)) {
@@ -1957,7 +1959,7 @@ function App() {
     saveTestPoint(updatedPoint, null);
   };
 
-  const handleAnalysisDataSave = (updates) => {
+  const handleAnalysisDataSave = useCallback((updates) => {
     if (selectedTestPointId) {
       updateTestPointData(updates);
     } else {
@@ -1966,7 +1968,7 @@ function App() {
         return { ...prev, ...updates };
       });
     }
-  };
+  }, [selectedTestPointId, updateTestPointData]);
 
   const handleDeleteTmdeDefinition = (idOrIds) => {
     const ids = Array.isArray(idOrIds) ? idOrIds : [idOrIds];
@@ -3147,6 +3149,9 @@ function App() {
                                                             ? riskResults
                                                             : null
                                                         }
+                                                        isLiveRiskTarget={
+                                                          selectedTestPointId === tp.id
+                                                        }
                                                         visibleColumns={
                                                           visibleSidebarColumns
                                                         }
@@ -3250,6 +3255,9 @@ function App() {
                                                     ? riskResults
                                                     : null
                                                 }
+                                                isLiveRiskTarget={
+                                                  selectedTestPointId === tp.id
+                                                }
                                                 onSelect={(e) =>
                                                   handleSelectTestPoint(
                                                     e,
@@ -3331,6 +3339,9 @@ function App() {
                                     selectedTestPointId === tp.id
                                       ? riskResults
                                       : null
+                                  }
+                                  isLiveRiskTarget={
+                                    selectedTestPointId === tp.id
                                   }
                                   onSelect={(e) =>
                                     handleSelectTestPoint(e, tp.id, null)
