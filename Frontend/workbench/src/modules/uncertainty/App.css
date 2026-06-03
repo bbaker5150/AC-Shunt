@@ -1046,6 +1046,11 @@ body {
     font-family 0.3s ease;
 }
 
+body.uncertainty-active {
+  height: 100vh;
+  overflow: hidden;
+}
+
 h1,
 h2,
 h3,
@@ -1157,9 +1162,12 @@ body.theme-cyberpunk .button {
   text-align: left;
   margin: 0;
   padding: 0;
-  min-height: calc(100vh - var(--workbench-topbar-h, 40px));
+  height: calc(100vh - var(--workbench-topbar-h, 40px));
+  min-height: 0;
   width: 100%;
-  display: block;
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
   box-sizing: border-box;
 }
 
@@ -1171,7 +1179,9 @@ body.theme-cyberpunk .button {
      never collides with AC-Shunt's own global .content-area panel rule. */
   width: 100%;
   max-width: none;
-  min-height: calc(100vh - var(--workbench-topbar-h, 40px));
+  flex: 1;
+  min-height: 0;
+  overflow: hidden;
 
   text-align: left;
   padding: 0;
@@ -1201,6 +1211,7 @@ body.theme-cyberpunk .button {
 .results-workflow-container {
   display: flex;
   gap: 0; /* Sidebar border-right handles separation */
+  min-height: 0;
 }
 
 .results-sidebar {
@@ -1209,6 +1220,8 @@ body.theme-cyberpunk .button {
   max-width: 500px;
   display: flex;
   flex-direction: column;
+  min-height: 0;
+  overflow: hidden;
 
   /* Themed Background */
   background-color: var(--sidebar-background);
@@ -1777,6 +1790,10 @@ body.theme-cyberpunk .button {
 .results-content {
   flex: 1;
   min-width: 0;
+  min-height: 0;
+  overflow-x: hidden;
+  overflow-y: auto;
+  overscroll-behavior: contain;
 }
 
 .placeholder-content {
@@ -7466,12 +7483,15 @@ body.theme-cyberpunk .range-header-container:hover {
 
 /* Container Reset */
 .measurement-point-list {
+  flex: 1 1 auto;
+  min-height: 0;
   display: flex;
   flex-direction: column;
   gap: 0;
   padding: 0 0 40px 0;
   overflow-y: auto;
   overflow-x: hidden;
+  overscroll-behavior: contain;
 }
 
 /* --- Level 0: Session Overview (Dashboard Home) --- */
@@ -8650,6 +8670,7 @@ body.dark-mode .uncertainty-module .app-chrome {
 .uncertainty-module .results-workflow-container {
   flex: 1;
   min-height: 0;
+  overflow: hidden;
   padding: 1.5rem;
 }
 
