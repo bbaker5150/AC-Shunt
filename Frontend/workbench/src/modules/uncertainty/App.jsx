@@ -707,6 +707,12 @@ function App() {
 
   const [sidebarWidth, setSidebarWidth] = useState(550);
   const isResizingRef = useRef(false);
+  // The flex row that holds the sidebar + main pane. The resize math measures
+  // the pointer against this element's box (not the viewport) so the divider
+  // tracks the cursor exactly regardless of the container's padding or the
+  // vertical scrollbar width — which differs between a browser (classic
+  // scrollbars reserve width) and Electron (overlay scrollbars reserve none).
+  const resultsContainerRef = useRef(null);
 
   // --- SIDEBAR PREFERENCES ---
   const [sidebarColumns, setSidebarColumns] = useState({
@@ -727,21 +733,40 @@ function App() {
     const handleMouseMove = (e) => {
       if (!isResizingRef.current) return;
 
+      const container = resultsContainerRef.current;
+      if (!container) return;
+
       // --- CONFIGURATION ---
       const MIN_SIDEBAR_WIDTH = 300;
       const MAX_SIDEBAR_WIDTH = 750; // 1. Hard Cap: Never wider than this
       const MIN_CONTENT_WIDTH = 600; // 2. Safety Margin: Reserve this much space for the main panel
 
-      // Calculate the available width for the sidebar based on window size
-      const dynamicMaxWidth = window.innerWidth - MIN_CONTENT_WIDTH;
+      // Measure against the container's own box, not the viewport. The sidebar
+      // is laid out inside this padded element, so the desired width is the
+      // pointer's distance from the sidebar's left (content) edge:
+      //   sidebarWidth = clientX - rect.left - paddingLeft
+      // Clamping against the container's inner width (rect.width minus its
+      // horizontal padding) — instead of window.innerWidth — keeps the divider
+      // under the cursor and immune to scrollbar width + padding, so it behaves
+      // identically in a browser and in Electron. Padding is read live so it
+      // stays correct if the CSS padding changes.
+      const rect = container.getBoundingClientRect();
+      const cs = window.getComputedStyle(container);
+      const paddingLeft = parseFloat(cs.paddingLeft) || 0;
+      const paddingRight = parseFloat(cs.paddingRight) || 0;
+      const innerWidth = rect.width - paddingLeft - paddingRight;
 
-      // The effective limit is the smaller of the hard cap or the dynamic limit
+      const pointer = e.clientX - rect.left - paddingLeft;
+
+      // The available width for the sidebar reserves MIN_CONTENT_WIDTH for the
+      // main panel, capped by the hard maximum.
+      const dynamicMaxWidth = innerWidth - MIN_CONTENT_WIDTH;
       const effectiveLimit = Math.min(MAX_SIDEBAR_WIDTH, dynamicMaxWidth);
 
       // Apply constraints
       const newWidth = Math.max(
         MIN_SIDEBAR_WIDTH,
-        Math.min(e.clientX, effectiveLimit),
+        Math.min(pointer, effectiveLimit),
       );
 
       setSidebarWidth(newWidth);
@@ -2619,7 +2644,7 @@ function App() {
             </div>
           </header>
 
-          <div className="results-workflow-container">
+          <div className="results-workflow-container" ref={resultsContainerRef}>
             <aside
               className="results-sidebar"
               style={{
