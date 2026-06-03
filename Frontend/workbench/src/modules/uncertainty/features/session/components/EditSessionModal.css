@@ -1,0 +1,201 @@
+/* --- EditSessionModal.css --- */
+
+/* Tab Navigation Polish */
+.edit-session-tabs {
+    display: flex;
+    padding: 0 30px;
+    border-bottom: 1px solid var(--border-color);
+    background-color: var(--background-color-secondary);
+}
+
+.edit-session-tab {
+    padding: 15px 20px;
+    background: transparent;
+    border: none;
+    border-bottom: 3px solid transparent;
+    color: var(--text-color-muted);
+    font-weight: 600;
+    cursor: pointer;
+    transition: all 0.2s;
+    font-size: 0.95rem;
+}
+
+.edit-session-tab:hover {
+    color: var(--primary-color);
+}
+
+.edit-session-tab.active {
+    color: var(--primary-color);
+    border-bottom-color: var(--primary-color);
+}
+
+/* Section Containers */
+.session-panel-container {
+    background-color: var(--background-color-secondary);
+    border-radius: 8px;
+    border: 1px solid var(--border-color);
+    box-shadow: 0 2px 4px rgba(0,0,0,0.03);
+    margin-bottom: 25px;
+    overflow: hidden;
+}
+
+.session-panel-header {
+    padding: 15px 20px;
+    background-color: var(--background-color-secondary);
+    border-bottom: 1px solid var(--border-color);
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+}
+
+.session-panel-title {
+    margin: 0;
+    font-size: 1rem;
+    font-weight: 700;
+    color: var(--text-color);
+    display: flex;
+    align-items: center;
+    gap: 10px;
+}
+
+.session-panel-body {
+    padding: 20px;
+}
+
+/* Measurement Area Tags */
+.area-input-group {
+    display: flex;
+    gap: 10px;
+    margin-bottom: 20px;
+    padding-bottom: 20px;
+    border-bottom: 1px dashed var(--border-color);
+}
+
+.area-tags-container {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 10px;
+}
+
+.area-tag {
+    display: inline-flex;
+    align-items: center;
+    padding: 6px 14px;
+    border-radius: 20px;
+    font-size: 0.9rem;
+    font-weight: 500;
+    background-color: var(--background-color-secondary);
+    border: 1px solid var(--border-color);
+    transition: transform 0.1s;
+}
+
+.area-tag:hover {
+    transform: translateY(-1px);
+    box-shadow: 0 2px 5px rgba(0,0,0,0.1);
+}
+
+.area-color-dot {
+    width: 12px;
+    height: 12px;
+    border-radius: 50%;
+    margin-right: 8px;
+    box-shadow: 0 0 0 1px rgba(0,0,0,0.1);
+}
+
+.area-tag-close {
+    margin-left: 8px;
+    background: none;
+    border: none;
+    color: inherit;
+    opacity: 0.5;
+    cursor: pointer;
+    font-size: 0.9rem;
+    padding: 0;
+    display: flex;
+    align-items: center;
+}
+
+.area-tag-close:hover {
+    opacity: 1;
+}
+
+/* Polished List Items (Replacing Tables) */
+.resource-list {
+    display: flex;
+    flex-direction: column;
+    gap: 10px;
+}
+
+.resource-item {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    padding: 12px 15px;
+    background-color: var(--background-color);
+    border: 1px solid var(--border-color);
+    border-radius: 6px;
+    transition: all 0.2s;
+}
+
+.resource-item:hover {
+    border-color: var(--primary-color);
+    box-shadow: 0 2px 8px rgba(0,0,0,0.05);
+}
+
+.resource-info {
+    display: flex;
+    flex-direction: column;
+    gap: 4px;
+}
+
+.resource-main-text {
+    font-weight: 600;
+    color: var(--text-color);
+    font-size: 0.95rem;
+}
+
+.resource-sub-text {
+    font-size: 0.85rem;
+    color: var(--text-color-muted);
+}
+
+.resource-actions {
+    display: flex;
+    gap: 8px;
+}
+
+.action-icon-btn {
+    width: 32px;
+    height: 32px;
+    border-radius: 4px;
+    border: 1px solid transparent;
+    background: transparent;
+    color: var(--text-color-muted);
+    cursor: pointer;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    transition: all 0.2s;
+}
+
+.action-icon-btn:hover {
+    background-color: var(--background-color-secondary);
+    color: var(--primary-color);
+    border-color: var(--border-color);
+}
+
+.action-icon-btn.danger:hover {
+    color: #e74c3c;
+    background-color: rgba(231, 76, 60, 0.1);
+    border-color: rgba(231, 76, 60, 0.2);
+}
+
+.empty-list-placeholder {
+    padding: 30px;
+    text-align: center;
+    background-color: var(--background-color-secondary);
+    border-radius: 6px;
+    border: 1px dashed var(--border-color);
+    color: var(--text-color-muted);
+    font-style: italic;
+}

@@ -1,0 +1,611 @@
+import { useState, useEffect, useMemo, useCallback } from "react";
+import axios from "axios";
+import { UNCERTAINTY_API } from "../constants/constants";
+
+// ---------------------------------------------------------------------------
+// useSessionManager — backend-backed session store for the Uncertainty module.
+//
+// Sessions, the instrument library, and bug reports are persisted to the Django
+// ``uncertainty`` backend (SQLite/MSSQL via the dedicated alias) under
+// ``/api/uncertainty``. The UI still treats a session as one whole document it
+// loads and saves at a time, so each ``persistSession`` PUTs the full nested
+// session; the backend rebuilds the relational child rows transactionally.
+//
+// This replaces the original localStorage + Electron-IPC ("poor man's
+// database") implementation; the in-memory CRUD helpers below are unchanged —
+// they mutate ``sessions`` state and delegate to ``persistSession``.
+// ---------------------------------------------------------------------------
+const useSessionManager = () => {
+  // --- Constants ---
+  const defaultTestPoint = useMemo(
+    () => ({
+      section: "",
+      tmdeDescription: "",
+      tmdeTolerances: [],
+      //  Allow specific UUT tolerance per point
+      uutTolerance: null,
+      //  Hierarchical Linkage
+      measurementAreaId: "",
+      associatedUutIds: [], // Array of UUT IDs this point links to
+      specifications: {
+        mfg: { uncertainty: "", k: 2 },
+        navy: { uncertainty: "", k: 2 },
+      },
+      components: [],
+      is_detailed_uncertainty_calculated: false,
+      measurementType: "direct",
+      equationString: "",
+      variableMappings: {},
+      testPointInfo: {
+        parameter: { name: "", value: "", unit: "" },
+        qualifier: null,
+      },
+    }),
+    []
+  );
+
+  const createNewSession = useCallback(
+    () => ({
+      id: Date.now(),
+      name: "New Session",
+      analyst: "",
+      organization: "",
+      document: "",
+      documentDate: "",
+      notes: "",
+      noteImages: [],
+      //  Master lists for the "Instruments Tab" workflow
+      measurementAreas: [], // { id, name, color }
+      uuts: [],             // { id, name, measurementAreaId, ...specs }
+      tmdes: [],            // { id, name, measurementAreaId, ...specs }
+
+      // Legacy/Fallback fields (kept for backward compatibility or simple sessions)
+      uutDescription: "",
+      uutTolerance: {},
+      testPoints: [],
+
+      uncReq: {
+        uncertaintyConfidence: 95,
+        reliability: 85,
+        calInt: 12,
+        measRelCalcAssumed: 85,
+        neededTUR: 4,
+        reqPFA: 2,
+        guardBandMultiplier: 1,
+      },
+    }),
+    []
+  );
+
+  // --- State ---
+  const [sessions, setSessions] = useState([]);
+  const [instruments, setInstruments] = useState([]);
+  const [bugReports, setBugReports] = useState([]);
+  const [selectedSessionId, setSelectedSessionId] = useState(null);
+  const [selectedTestPointId, setSelectedTestPointId] = useState(null);
+
+  // --- 1. Load Data (Sessions) ---
+  const loadData = useCallback(async () => {
+    try {
+      const res = await axios.get(`${UNCERTAINTY_API}/sessions/`);
+      const loaded = Array.isArray(res.data) ? res.data : [];
+      setSessions(loaded);
+      if (loaded.length > 0) {
+        setSelectedSessionId((prev) =>
+          prev && loaded.find((s) => s.id === prev) ? prev : loaded[0].id
+        );
+        // Default to Session Overview (null), not the first point.
+        setSelectedTestPointId(null);
+      }
+    } catch (err) {
+      console.error("Failed to load sessions from backend", err);
+    }
+  }, []);
+
+  useEffect(() => {
+    loadData();
+  }, [loadData]);
+
+  // --- 1.1 Load Shared Data (Instruments & Bugs) ---
+  const loadSharedData = useCallback(async () => {
+    try {
+      const instRes = await axios.get(`${UNCERTAINTY_API}/instruments/`);
+      setInstruments(Array.isArray(instRes.data) ? instRes.data : []);
+    } catch (e) {
+      console.error("Failed to load instruments from backend", e);
+    }
+
+    try {
+      const bugRes = await axios.get(`${UNCERTAINTY_API}/bug_reports/`);
+      const bugs = Array.isArray(bugRes.data) ? bugRes.data : [];
+      setBugReports(
+        bugs.sort((a, b) => new Date(b.timestamp) - new Date(a.timestamp))
+      );
+    } catch (e) {
+      console.error("Failed to load bug reports from backend", e);
+    }
+  }, []);
+
+  useEffect(() => {
+    loadSharedData();
+  }, [loadSharedData]);
+
+  // --- 2. Persistence Logic (Sessions) ---
+  // PUT upserts the whole nested session; the backend rebuilds child rows.
+  const persistSession = useCallback(async (sessionToSave, newImages = []) => {
+    if (!sessionToSave || sessionToSave.id == null) return;
+    try {
+      await axios.put(
+        `${UNCERTAINTY_API}/sessions/${sessionToSave.id}/`,
+        sessionToSave
+      );
+      for (const img of newImages) {
+        if (img.fileObject) {
+          await axios.post(
+            `${UNCERTAINTY_API}/sessions/${sessionToSave.id}/images/`,
+            {
+              imageId: img.id,
+              dataBase64: img.fileObject,
+              fileName: img.fileName,
+            }
+          );
+        }
+      }
+    } catch (err) {
+      console.error("Failed to save session to backend", err);
+    }
+  }, []);
+
+  // --- 2.1 Persist Instrument ---
+  const saveInstrument = useCallback(async (instrument) => {
+    setInstruments((prev) => {
+      const existingIdx = prev.findIndex((i) => i.id === instrument.id);
+      if (existingIdx > -1) {
+        const next = [...prev];
+        next[existingIdx] = instrument;
+        return next;
+      }
+      return [...prev, instrument];
+    });
+
+    try {
+      await axios.post(`${UNCERTAINTY_API}/instruments/`, instrument);
+    } catch (e) {
+      console.error("Failed to save instrument to backend", e);
+    }
+  }, []);
+
+  // --- 2.2 Delete Instrument ---
+  const deleteInstrument = useCallback(async (instrumentId) => {
+    setInstruments((prev) => prev.filter((i) => i.id !== instrumentId));
+    try {
+      await axios.delete(`${UNCERTAINTY_API}/instruments/${instrumentId}/`);
+    } catch (e) {
+      console.error("Failed to delete instrument from backend", e);
+    }
+  }, []);
+
+  // --- 2.3 Save/Update Bug Report ---
+  const saveBugReport = useCallback(async (report) => {
+    setBugReports((prev) => {
+      const idx = prev.findIndex((r) => r.id === report.id);
+      if (idx > -1) {
+        const updated = [...prev];
+        updated[idx] = report;
+        return updated.sort((a, b) => new Date(b.timestamp) - new Date(a.timestamp));
+      }
+      return [report, ...prev].sort(
+        (a, b) => new Date(b.timestamp) - new Date(a.timestamp)
+      );
+    });
+
+    try {
+      await axios.post(`${UNCERTAINTY_API}/bug_reports/`, report);
+    } catch (e) {
+      console.error("Failed to save bug report to backend", e);
+    }
+  }, []);
+
+  const deleteBugReport = useCallback(async (reportId) => {
+    setBugReports((prev) => prev.filter((r) => r.id !== reportId));
+    try {
+      await axios.delete(`${UNCERTAINTY_API}/bug_reports/${reportId}/`);
+    } catch (e) {
+      console.error("Failed to delete bug report from backend", e);
+    }
+  }, []);
+
+  // --- 3. Image Actions ---
+  const loadSessionImages = useCallback(async (sessionId) => {
+    try {
+      const res = await axios.get(
+        `${UNCERTAINTY_API}/sessions/${sessionId}/images/`
+      );
+      return Array.isArray(res.data) ? res.data : [];
+    } catch (e) {
+      console.error("Failed to load session images", e);
+      return [];
+    }
+  }, []);
+
+  const saveSessionImage = useCallback(async (sessionId, imageId, dataBase64) => {
+    try {
+      await axios.post(`${UNCERTAINTY_API}/sessions/${sessionId}/images/`, {
+        imageId,
+        dataBase64,
+      });
+    } catch (e) {
+      console.error("Failed to save session image", e);
+    }
+  }, []);
+
+  const deleteSessionImage = useCallback(async (sessionId, imageId) => {
+    try {
+      await axios.delete(
+        `${UNCERTAINTY_API}/sessions/${sessionId}/images/${imageId}/`
+      );
+    } catch (e) {
+      console.error("Failed to delete session image", e);
+    }
+
+    setSessions((prev) => {
+      const session = prev.find((s) => s.id === sessionId);
+      if (!session) return prev;
+      const updatedImages = (session.noteImages || []).filter(
+        (img) => img.id !== imageId
+      );
+      const updatedSession = { ...session, noteImages: updatedImages };
+      return prev.map((s) => (s.id === sessionId ? updatedSession : s));
+    });
+  }, []);
+
+  const deleteSessionFromDisk = useCallback(async (sessionId) => {
+    try {
+      await axios.delete(`${UNCERTAINTY_API}/sessions/${sessionId}/`);
+    } catch (e) {
+      console.error("Failed to delete session from backend", e);
+    }
+  }, []);
+
+  // --- 5. CRUD Operations ---
+  const updateSession = useCallback(
+    (updatedSession, newImages = []) => {
+      setSessions((prevSessions) =>
+        prevSessions.map((s) => (s.id === updatedSession.id ? updatedSession : s))
+      );
+      persistSession(updatedSession, newImages);
+    },
+    [persistSession]
+  );
+
+  const addSession = useCallback(() => {
+    const newSession = createNewSession();
+    setSessions((prev) => [newSession, ...prev]);
+    setSelectedSessionId(newSession.id);
+    setSelectedTestPointId(null);
+    persistSession(newSession);
+    return newSession;
+  }, [createNewSession, persistSession]);
+
+  const deleteSession = useCallback(
+    (sessionId) => {
+      deleteSessionFromDisk(sessionId);
+      setSessions((prev) => {
+        const newSessions = prev.filter((s) => s.id !== sessionId);
+        if (selectedSessionId === sessionId) {
+          if (newSessions.length === 0) {
+            setSelectedSessionId(null);
+          } else {
+            setSelectedSessionId(newSessions[0].id);
+          }
+          setSelectedTestPointId(null);
+        }
+        return newSessions;
+      });
+    },
+    [deleteSessionFromDisk, selectedSessionId]
+  );
+
+  const importSession = useCallback(
+    (loadedSession) => {
+      setSessions((prev) => {
+        const exists = prev.some((s) => s.id === loadedSession.id);
+        if (exists) {
+          return prev.map((s) => (s.id === loadedSession.id ? loadedSession : s));
+        }
+        return [loadedSession, ...prev];
+      });
+      setSelectedSessionId(loadedSession.id);
+      setSelectedTestPointId(loadedSession.testPoints?.[0]?.id || null);
+
+      const imagesToSave = (loadedSession.noteImages || [])
+        .filter((img) => img.fileObject)
+        .map((img) => ({ id: img.id, fileObject: img.fileObject, fileName: img.fileName }));
+
+      persistSession(loadedSession, imagesToSave);
+    },
+    [persistSession]
+  );
+
+  // --- 6. Workflow Redesign CRUD (Area, UUT, TMDE) ---
+
+  // Measurement Areas
+  const addMeasurementArea = (sessionId, area) => {
+    const session = sessions.find((s) => s.id === sessionId);
+    if (!session) return;
+    const currentAreas = session.measurementAreas || [];
+    updateSession({ ...session, measurementAreas: [...currentAreas, area] });
+  };
+
+  const updateMeasurementArea = (sessionId, updatedArea) => {
+    const session = sessions.find((s) => s.id === sessionId);
+    if (!session) return;
+    const updatedAreas = (session.measurementAreas || []).map((a) =>
+      a.id === updatedArea.id ? updatedArea : a
+    );
+    updateSession({ ...session, measurementAreas: updatedAreas });
+  };
+
+  const removeMeasurementArea = (sessionId, areaId) => {
+    const session = sessions.find((s) => s.id === sessionId);
+    if (!session) return;
+    const updatedAreas = (session.measurementAreas || []).filter(
+      (a) => a.id !== areaId
+    );
+    updateSession({ ...session, measurementAreas: updatedAreas });
+  };
+
+  // UUTs (Session Level)
+  const addSessionUut = (sessionId, uut) => {
+    const session = sessions.find((s) => s.id === sessionId);
+    if (!session) return;
+    const currentUuts = session.uuts || [];
+    updateSession({ ...session, uuts: [...currentUuts, uut] });
+  };
+
+  const updateSessionUut = (sessionId, updatedUut) => {
+    const session = sessions.find((s) => s.id === sessionId);
+    if (!session) return;
+    const updatedUuts = (session.uuts || []).map((u) =>
+      u.id === updatedUut.id ? updatedUut : u
+    );
+    updateSession({ ...session, uuts: updatedUuts });
+  };
+
+  const removeSessionUut = (sessionId, uutId) => {
+    const session = sessions.find((s) => s.id === sessionId);
+    if (!session) return;
+    const updatedUuts = (session.uuts || []).filter((u) => u.id !== uutId);
+    updateSession({ ...session, uuts: updatedUuts });
+  };
+
+  // TMDEs (Session Level)
+  const addSessionTmde = (sessionId, tmde) => {
+    const session = sessions.find((s) => s.id === sessionId);
+    if (!session) return;
+    const currentTmdes = session.tmdes || [];
+    updateSession({ ...session, tmdes: [...currentTmdes, tmde] });
+  };
+
+  const updateSessionTmde = (sessionId, updatedTmde) => {
+    const session = sessions.find((s) => s.id === sessionId);
+    if (!session) return;
+    const updatedTmdes = (session.tmdes || []).map((t) =>
+      t.id === updatedTmde.id ? updatedTmde : t
+    );
+    updateSession({ ...session, tmdes: updatedTmdes });
+  };
+
+  const removeSessionTmde = (sessionId, tmdeId) => {
+    const session = sessions.find((s) => s.id === sessionId);
+    if (!session) return;
+    const updatedTmdes = (session.tmdes || []).filter((t) => t.id !== tmdeId);
+    updateSession({ ...session, tmdes: updatedTmdes });
+  };
+
+  // --- 7. Test Point Actions (Batch saving) ---
+  const saveTestPoint = (formDataOrArray, sessionUpdates = null) => {
+    const session = sessions.find((s) => s.id === selectedSessionId);
+    if (!session) return;
+
+    let updatedSession = { ...session, ...sessionUpdates };
+
+    const dataItems = Array.isArray(formDataOrArray)
+      ? formDataOrArray
+      : [formDataOrArray];
+
+    let currentTestPoints = [...session.testPoints];
+    let lastNewId = null;
+
+    dataItems.forEach((formData, index) => {
+      if (formData.id) {
+        // --- UPDATE EXISTING POINT ---
+        currentTestPoints = currentTestPoints.map((tp) => {
+          if (tp.id === formData.id) {
+            return {
+              ...tp,
+              section: formData.section,
+              testPointInfo: { ...formData.testPointInfo },
+              measurementType: formData.measurementType,
+              equationString: formData.equationString,
+              variableMappings: formData.variableMappings,
+              tmdeTolerances: formData.tmdeTolerances || tp.tmdeTolerances,
+              uutTolerance:
+                formData.uutTolerance !== undefined
+                  ? formData.uutTolerance
+                  : tp.uutTolerance,
+              measurementAreaId:
+                formData.measurementAreaId || tp.measurementAreaId || "",
+              associatedUutIds:
+                formData.associatedUutIds || tp.associatedUutIds || [],
+            };
+          }
+          return tp;
+        });
+      } else {
+        // --- CREATE NEW POINT ---
+        const lastTestPoint = session.testPoints.find(
+          (tp) => tp.id === selectedTestPointId
+        );
+        let finalTmdes = formData.tmdeTolerances || [];
+
+        if (finalTmdes.length === 0 && formData.copyTmdes && lastTestPoint) {
+          finalTmdes = JSON.parse(
+            JSON.stringify(lastTestPoint.tmdeTolerances || [])
+          );
+          const originalTestPointParameter =
+            lastTestPoint.testPointInfo.parameter;
+          const newTestPointParameter = formData.testPointInfo.parameter;
+          finalTmdes.forEach((tmde) => {
+            const wasUsingUutRef =
+              tmde.measurementPoint?.value ===
+                originalTestPointParameter.value &&
+              tmde.measurementPoint?.unit === originalTestPointParameter.unit;
+            if (wasUsingUutRef) {
+              tmde.measurementPoint = { ...newTestPointParameter };
+            }
+          });
+        }
+
+        const newId = Date.now() + Math.floor(Math.random() * 10000) + index;
+
+        const newTestPoint = {
+          id: newId,
+          ...defaultTestPoint,
+          ...formData,
+          section: formData.section,
+          testPointInfo: formData.testPointInfo,
+          tmdeTolerances: finalTmdes,
+          uutTolerance: formData.uutTolerance || null,
+          measurementType: formData.measurementType,
+          equationString: formData.equationString,
+          variableMappings: formData.variableMappings,
+          measurementAreaId: formData.measurementAreaId || "",
+          associatedUutIds: formData.associatedUutIds || [],
+        };
+
+        currentTestPoints.push(newTestPoint);
+        lastNewId = newId;
+      }
+    });
+
+    updatedSession.testPoints = currentTestPoints;
+
+    if (lastNewId) {
+      setSelectedTestPointId(lastNewId);
+    }
+
+    updateSession(updatedSession);
+  };
+
+  const deleteTestPoint = (idToDelete) => {
+    const session = sessions.find((s) => s.id === selectedSessionId);
+    if (!session) return;
+    let nextSelectedTestPointId = selectedTestPointId;
+    const filteredTestPoints = session.testPoints.filter(
+      (tp) => tp.id !== idToDelete
+    );
+    if (selectedTestPointId === idToDelete) {
+      nextSelectedTestPointId = filteredTestPoints[0]?.id || null;
+    }
+    const updatedSession = { ...session, testPoints: filteredTestPoints };
+    setSelectedTestPointId(nextSelectedTestPointId);
+    updateSession(updatedSession);
+  };
+
+  const updateTestPointData = useCallback(
+    (updatedData) => {
+      setSessions((prevSessions) => {
+        const session = prevSessions.find((s) => s.id === selectedSessionId);
+        if (!session) return prevSessions;
+        const updatedTestPoints = session.testPoints.map((tp) =>
+          tp.id === selectedTestPointId ? { ...tp, ...updatedData } : tp
+        );
+        const updatedSession = { ...session, testPoints: updatedTestPoints };
+        persistSession(updatedSession);
+        return prevSessions.map((s) =>
+          s.id === selectedSessionId ? updatedSession : s
+        );
+      });
+    },
+    [selectedSessionId, selectedTestPointId, persistSession]
+  );
+
+  const deleteTmdeDefinition = (tmdeId) => {
+    const session = sessions.find((s) => s.id === selectedSessionId);
+    if (!session) return;
+    const updatedTestPoints = session.testPoints.map((tp) => {
+      if (tp.id !== selectedTestPointId) return tp;
+      const newTolerances = tp.tmdeTolerances.filter((t) => t.id !== tmdeId);
+      return { ...tp, tmdeTolerances: newTolerances };
+    });
+    updateSession({ ...session, testPoints: updatedTestPoints });
+  };
+
+  const decrementTmdeQuantity = (tmdeId) => {
+    const session = sessions.find((s) => s.id === selectedSessionId);
+    if (!session) return;
+    const updatedTestPoints = session.testPoints.map((tp) => {
+      if (tp.id !== selectedTestPointId) return tp;
+      const newTolerances = tp.tmdeTolerances
+        .map((t) => {
+          if (t.id === tmdeId) {
+            const newQuantity = (t.quantity || 1) - 1;
+            return { ...t, quantity: newQuantity };
+          }
+          return t;
+        })
+        .filter((t) => t.quantity > 0);
+      return { ...tp, tmdeTolerances: newTolerances };
+    });
+    updateSession({ ...session, testPoints: updatedTestPoints });
+  };
+
+  // --- HELPERS ---
+  const currentSessionData = sessions.find((s) => s.id === selectedSessionId);
+  const currentTestPoints = currentSessionData?.testPoints || [];
+
+  return {
+    sessions,
+    instruments,
+    bugReports,
+    saveInstrument,
+    saveBugReport,
+    deleteBugReport,
+    deleteInstrument,
+    loadInstruments: loadSharedData,
+    selectedSessionId,
+    setSelectedSessionId,
+    selectedTestPointId,
+    setSelectedTestPointId,
+    currentSessionData,
+    currentTestPoints,
+    defaultTestPoint,
+    createNewSession,
+    saveSessionImage,
+    loadSessionImages,
+    deleteSessionImage,
+    addSession,
+    deleteSession,
+    updateSession,
+    importSession,
+    saveTestPoint,
+    deleteTestPoint,
+    updateTestPointData,
+    deleteTmdeDefinition,
+    decrementTmdeQuantity,
+    setSessions,
+
+    addMeasurementArea,
+    updateMeasurementArea,
+    removeMeasurementArea,
+    addSessionUut,
+    updateSessionUut,
+    removeSessionUut,
+    addSessionTmde,
+    updateSessionTmde,
+    removeSessionTmde,
+  };
+};
+
+export default useSessionManager;

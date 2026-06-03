@@ -1,0 +1,389 @@
+[
+  {
+    "id": "inst_fluke_87v",
+    "manufacturer": "Fluke",
+    "model": "87V",
+    "description": "TRUE RMS MULTIMETER",
+    "functions": [
+      {
+        "id": "func_87v_dcv",
+        "name": "DC Voltage",
+        "unit": "V",
+        "ranges": [
+          {
+            "id": "rng_87v_dcv_600mv",
+            "range": "600 mV",
+            "min": 0,
+            "max": 0.6,
+            "resolution": 0.0001,
+            "tolerances": {
+              "reading": {
+                "high": 0.05,
+                "low": -0.05,
+                "unit": "%",
+                "distribution": "Normal",
+                "confidence": 1.96,
+                "symmetric": true
+              },
+              "range": {
+                "high": 0.02,
+                "low": -0.02,
+                "unit": "%",
+                "distribution": "Normal",
+                "confidence": 1.96,
+                "symmetric": true
+              }
+            }
+          },
+          {
+            "id": "rng_87v_dcv_6v",
+            "range": "6 V",
+            "min": 0.600000001,
+            "max": 6,
+            "resolution": 0.001,
+            "tolerances": {
+              "reading": {
+                "high": 0.05,
+                "low": -0.05,
+                "unit": "%",
+                "distribution": "Normal",
+                "confidence": 1.96,
+                "symmetric": true
+              },
+              "range": {
+                "high": 0.02,
+                "low": -0.02,
+                "unit": "%",
+                "distribution": "Normal",
+                "confidence": 1.96,
+                "symmetric": true
+              }
+            }
+          },
+          {
+            "id": "rng_87v_dcv_60v",
+            "range": "60 V",
+            "min": 6.000000001,
+            "max": 60,
+            "resolution": 0.01,
+            "tolerances": {
+              "reading": {
+                "high": 0.05,
+                "low": -0.05,
+                "unit": "%",
+                "distribution": "Normal",
+                "confidence": 1.96,
+                "symmetric": true
+              },
+              "range": {
+                "high": 0.02,
+                "low": -0.02,
+                "unit": "%",
+                "distribution": "Normal",
+                "confidence": 1.96,
+                "symmetric": true
+              }
+            }
+          },
+          {
+            "id": "rng_87v_dcv_600v",
+            "range": "600 V",
+            "min": 60.000000001,
+            "max": 600,
+            "resolution": 0.1,
+            "tolerances": {
+              "reading": {
+                "high": 0.05,
+                "low": -0.05,
+                "unit": "%",
+                "distribution": "Normal",
+                "confidence": 1.96,
+                "symmetric": true
+              },
+              "range": {
+                "high": 0.02,
+                "low": -0.02,
+                "unit": "%",
+                "distribution": "Normal",
+                "confidence": 1.96,
+                "symmetric": true
+              }
+            }
+          },
+          {
+            "id": "rng_87v_dcv_1000v",
+            "range": "1000 V",
+            "min": 600.000000001,
+            "max": 1000,
+            "resolution": 1,
+            "tolerances": {
+              "reading": {
+                "high": 0.05,
+                "low": -0.05,
+                "unit": "%",
+                "distribution": "Normal",
+                "confidence": 1.96,
+                "symmetric": true
+              },
+              "range": {
+                "high": 0.02,
+                "low": -0.02,
+                "unit": "%",
+                "distribution": "Normal",
+                "confidence": 1.96,
+                "symmetric": true
+              }
+            }
+          }
+        ]
+      },
+      {
+        "id": "func_87v_res",
+        "name": "Resistance",
+        "unit": "Ohm",
+        "ranges": [
+          {
+            "id": "rng_87v_res_600",
+            "range": "600 Ohm",
+            "min": 0,
+            "max": 600,
+            "resolution": 0.1,
+            "tolerances": {
+              "reading": {
+                "high": 0.2,
+                "low": -0.2,
+                "unit": "%",
+                "distribution": "Normal",
+                "confidence": 1.96,
+                "symmetric": true
+              },
+              "range": {
+                "high": 0.03,
+                "low": -0.03,
+                "unit": "%",
+                "distribution": "Normal",
+                "confidence": 1.96,
+                "symmetric": true
+              }
+            }
+          },
+          {
+            "id": "rng_87v_res_6k",
+            "range": "6 kOhm",
+            "min": 600.000000001,
+            "max": 6000,
+            "resolution": 0.001,
+            "tolerances": {
+              "reading": {
+                "high": 0.2,
+                "low": -0.2,
+                "unit": "%",
+                "distribution": "Normal",
+                "confidence": 1.96,
+                "symmetric": true
+              },
+              "range": {
+                "high": 0.02,
+                "low": -0.02,
+                "unit": "%",
+                "distribution": "Normal",
+                "confidence": 1.96,
+                "symmetric": true
+              }
+            }
+          },
+          {
+            "id": "rng_87v_res_60k",
+            "range": "60 kOhm",
+            "min": 6000.000000001,
+            "max": 60000,
+            "resolution": 0.01,
+            "tolerances": {
+              "reading": {
+                "high": 0.2,
+                "low": -0.2,
+                "unit": "%",
+                "distribution": "Normal",
+                "confidence": 1.96,
+                "symmetric": true
+              },
+              "range": {
+                "high": 0.02,
+                "low": -0.02,
+                "unit": "%",
+                "distribution": "Normal",
+                "confidence": 1.96,
+                "symmetric": true
+              }
+            }
+          },
+          {
+            "id": "rng_87v_res_600k",
+            "range": "600 kOhm",
+            "min": 60000.000000001,
+            "max": 600000,
+            "resolution": 0.1,
+            "tolerances": {
+              "reading": {
+                "high": 0.6,
+                "low": -0.6,
+                "unit": "%",
+                "distribution": "Normal",
+                "confidence": 1.96,
+                "symmetric": true
+              },
+              "range": {
+                "high": 0.02,
+                "low": -0.02,
+                "unit": "%",
+                "distribution": "Normal",
+                "confidence": 1.96,
+                "symmetric": true
+              }
+            }
+          }
+        ]
+      }
+    ]
+  },
+  {
+    "id": "inst_hp_34401a",
+    "manufacturer": "Agilent",
+    "model": "34401A",
+    "description": "6.5 Digit Multimeter",
+    "functions": [
+      {
+        "id": "func_34401a_dcv",
+        "name": "DC Voltage",
+        "unit": "V",
+        "ranges": [
+          {
+            "id": "rng_34401a_dcv_100mV",
+            "range": "100 mV",
+            "min": 0,
+            "max": 0.1,
+            "resolution": 0.0000001,
+            "tolerances": {
+              "reading": {
+                "high": 0.0035,
+                "low": -0.0035,
+                "unit": "%",
+                "distribution": "Normal",
+                "confidence": 1.96,
+                "symmetric": true
+              },
+              "range": {
+                "high": 0.0005,
+                "low": -0.0005,
+                "unit": "%",
+                "distribution": "Normal",
+                "confidence": 1.96,
+                "symmetric": true
+              }
+            }
+          },
+          {
+            "id": "rng_34401a_dcv_1V",
+            "range": "1 V",
+            "min": 0.100000001,
+            "max": 1,
+            "resolution": 0.000001,
+            "tolerances": {
+              "reading": {
+                "high": 0.003,
+                "low": -0.003,
+                "unit": "%",
+                "distribution": "Normal",
+                "confidence": 1.96,
+                "symmetric": true
+              },
+              "range": {
+                "high": 0.0005,
+                "low": -0.0005,
+                "unit": "%",
+                "distribution": "Normal",
+                "confidence": 1.96,
+                "symmetric": true
+              }
+            }
+          },
+          {
+            "id": "rng_34401a_dcv_10V",
+            "range": "10 V",
+            "min": 1.000000001,
+            "max": 10,
+            "resolution": 0.00001,
+            "tolerances": {
+              "reading": {
+                "high": 0.003,
+                "low": -0.003,
+                "unit": "%",
+                "distribution": "Normal",
+                "confidence": 1.96,
+                "symmetric": true
+              },
+              "range": {
+                "high": 0.0005,
+                "low": -0.0005,
+                "unit": "%",
+                "distribution": "Normal",
+                "confidence": 1.96,
+                "symmetric": true
+              }
+            }
+          },
+          {
+            "id": "rng_34401a_dcv_100V",
+            "range": "100 V",
+            "min": 10.000000001,
+            "max": 100,
+            "resolution": 0.0001,
+            "tolerances": {
+              "reading": {
+                "high": 0.0045,
+                "low": -0.0045,
+                "unit": "%",
+                "distribution": "Normal",
+                "confidence": 1.96,
+                "symmetric": true
+              },
+              "range": {
+                "high": 0.0005,
+                "low": -0.0005,
+                "unit": "%",
+                "distribution": "Normal",
+                "confidence": 1.96,
+                "symmetric": true
+              }
+            }
+          },
+          {
+            "id": "rng_34401a_dcv_1000V",
+            "range": "1000 V",
+            "min": 100.000000001,
+            "max": 1000,
+            "resolution": 0.001,
+            "tolerances": {
+              "reading": {
+                "high": 0.0045,
+                "low": -0.0045,
+                "unit": "%",
+                "distribution": "Normal",
+                "confidence": 1.96,
+                "symmetric": true
+              },
+              "range": {
+                "high": 0.001,
+                "low": -0.001,
+                "unit": "%",
+                "distribution": "Normal",
+                "confidence": 1.96,
+                "symmetric": true
+              }
+            }
+          }
+        ]
+      }
+    ]
+  }
+]

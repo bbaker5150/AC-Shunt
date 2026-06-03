@@ -41,6 +41,7 @@ class Command(BaseCommand):
         self.stdout.write(self.style.MIGRATE_HEADING("--- ac_shunt bootstrap ---"))
 
         self._migrate_default_db()
+        self._migrate_module_dbs()
         self._sync_corrections()
         self._bootstrap_outbox()
         self._bootstrap_local_workstation()
@@ -72,6 +73,37 @@ class Command(BaseCommand):
                 f"Default DB migrate skipped ({exc!r}). "
                 "Outbox will buffer writes until the server is reachable."
             ))
+
+    def _migrate_module_dbs(self):
+        """Apply each per-module app's migrations onto its dedicated alias.
+
+        ``migrate`` (default) only touches the ``default`` alias, and
+        WorkbenchRouter keeps module apps (uncertainty, reports, ...) off
+        ``default``. So each module DB must be migrated explicitly here, or a
+        fresh lab PC would boot with the module tables missing. Idempotent and
+        defensive: a single module's failure is logged and never aborts boot.
+        """
+        try:
+            from api.db_routers import APP_DB_MAP
+        except Exception as exc:  # pragma: no cover - defensive
+            self.stdout.write(self.style.WARNING(
+                f"Module DB migrate skipped ({exc!r})."
+            ))
+            return
+
+        for app_label, alias in APP_DB_MAP.items():
+            try:
+                self.stdout.write(
+                    f"Applying {app_label} migrations on '{alias}' alias..."
+                )
+                call_command(
+                    "migrate", app_label, database=alias,
+                    interactive=False, verbosity=1,
+                )
+            except Exception as exc:
+                self.stdout.write(self.style.WARNING(
+                    f"Module DB migrate for '{app_label}' skipped ({exc!r})."
+                ))
 
     def _sync_corrections(self):
         """Mirror entry_point.main's corrections-sync step.
