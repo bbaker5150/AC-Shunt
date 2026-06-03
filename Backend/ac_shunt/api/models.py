@@ -1192,6 +1192,17 @@ class Workstation(models.Model):
             "pre-filter instrument choices when configuring a session."
         ),
     )
+    visa_host = models.CharField(
+        max_length=200,
+        blank=True,
+        default='',
+        help_text=(
+            "NI-VISA remote server host for this bench (configured in NI MAX "
+            "-> Remote Systems), e.g. '10.0.0.42'. When set, the central VM "
+            "opens this bench's instruments remotely as visa://<host>/<address>. "
+            "Blank means the instruments are local to the server process."
+        ),
+    )
     notes = models.TextField(blank=True, default='')
     created_at = models.DateTimeField(auto_now_add=True)
     updated_at = models.DateTimeField(auto_now=True)
@@ -1201,6 +1212,24 @@ class Workstation(models.Model):
 
     def __str__(self):
         return self.name
+
+    def resolve_resource(self, address):
+        """Return a VISA resource string for ``address`` qualified to this bench.
+
+        When ``visa_host`` is set (the bench's NI-VISA remote server), a raw
+        VISA address like ``GPIB0::22::INSTR`` is rewritten to
+        ``visa://<host>/GPIB0::22::INSTR`` so the central VM opens the
+        instrument on that bench. Addresses that are already fully qualified
+        (``visa://...``) or a blank ``visa_host`` (the local bench) are
+        returned unchanged, so single-machine/Electron installs keep working.
+        """
+        addr = (address or "").strip()
+        host = (self.visa_host or "").strip()
+        if not host or not addr:
+            return addr
+        if addr.lower().startswith("visa://"):
+            return addr
+        return f"visa://{host}/{addr}"
 
     @classmethod
     def get_default(cls):

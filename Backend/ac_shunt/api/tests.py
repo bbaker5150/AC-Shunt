@@ -400,6 +400,33 @@ class WorkstationDefaultTests(TestCase):
         self.assertEqual(Workstation.objects.filter(is_default=True).count(), 1)
 
 
+class WorkstationResolveResourceTests(TestCase):
+    """``Workstation.resolve_resource`` builds bench-qualified VISA strings."""
+
+    databases = {'default'}
+
+    def test_blank_visa_host_returns_address_unchanged(self):
+        ws = Workstation(name='Local', identifier='local', visa_host='')
+        self.assertEqual(ws.resolve_resource('GPIB0::22::INSTR'), 'GPIB0::22::INSTR')
+
+    def test_remote_host_prefixes_raw_address(self):
+        ws = Workstation(name='Bench A', identifier='bench-a', visa_host='10.0.0.42')
+        self.assertEqual(
+            ws.resolve_resource('GPIB0::22::INSTR'),
+            'visa://10.0.0.42/GPIB0::22::INSTR',
+        )
+
+    def test_already_qualified_address_is_left_alone(self):
+        ws = Workstation(name='Bench A', identifier='bench-a', visa_host='10.0.0.42')
+        already = 'visa://10.0.0.99/GPIB0::5::INSTR'
+        self.assertEqual(ws.resolve_resource(already), already)
+
+    def test_blank_or_none_address_is_safe(self):
+        ws = Workstation(name='Bench A', identifier='bench-a', visa_host='10.0.0.42')
+        self.assertEqual(ws.resolve_resource(''), '')
+        self.assertEqual(ws.resolve_resource(None), '')
+
+
 class CalibrationSessionWorkstationTests(TestCase):
     """Backward-compat guarantees for the new nullable FK."""
 
