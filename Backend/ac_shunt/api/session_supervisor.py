@@ -56,6 +56,7 @@ import logging
 import traceback
 from typing import Awaitable, Callable, Optional
 
+from channels.db import database_sync_to_async
 from channels.layers import get_channel_layer
 from django.conf import settings
 
@@ -290,6 +291,17 @@ class SessionSupervisor:
             if self._grace_task and not self._grace_task.done():
                 self._grace_task.cancel()
                 self._grace_task = None
+            # Release this bench's run lock. This single point covers every way
+            # a run ends — normal completion, an explicit stop (task cancelled),
+            # and grace-window auto-stop — because the finally always runs. The
+            # lock is keyed by session_id, which the supervisor owns.
+            try:
+                from api import session_state
+                await database_sync_to_async(session_state.release_run_lock)(self.session_id)
+            except Exception:  # pragma: no cover - defensive
+                logger.exception(
+                    "[supervisor:%s] run-lock release failed", self.session_id
+                )
 
     async def stop_task(self) -> None:
         """Explicit cancel path (user clicked "Stop Collection")."""

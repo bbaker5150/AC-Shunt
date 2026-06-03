@@ -483,6 +483,16 @@ class CalibrationConsumer(AsyncWebsocketConsumer):
             try:
                 await asyncio.sleep(25)
                 await self.send(text_data=json.dumps({'type': 'ping'}))
+                # Keep this bench's run lock alive while the host is driving an
+                # active run, so a long calibration isn't reaped as stale and
+                # another session can't steal the bench mid-run. Only the host
+                # of a BUSY session refreshes it.
+                if (
+                    getattr(self, 'client_role', 'host') == 'host'
+                    and self.supervisor is not None
+                    and self.supervisor.state == SessionSupervisor.STATE_BUSY
+                ):
+                    await database_sync_to_async(session_state.touch_run_lock)(self.session_id)
             except asyncio.CancelledError:
                 break
             except Exception as e:
@@ -571,9 +581,29 @@ class CalibrationConsumer(AsyncWebsocketConsumer):
             if self.supervisor is None:  # pragma: no cover — connect() always sets it
                 await self.send(text_data=json.dumps({'type': 'error', 'message': 'Session supervisor missing; reconnect and try again.'}))
                 return
+            # Per-bench single-flight: refuse to drive a bench another live
+            # session is already calibrating. DB-backed so the guarantee holds
+            # across ASGI workers; the lock is released when the run ends (see
+            # SessionSupervisor._run_wrapped) and reaped via heartbeat TTL if a
+            # worker dies mid-run.
+            acquired, holder = await database_sync_to_async(session_state.acquire_run_lock)(
+                self.session_id, self.channel_name
+            )
+            if not acquired:
+                await self.send(text_data=json.dumps({
+                    'type': 'error',
+                    'message': (
+                        'This bench is already running a calibration'
+                        + (f' (session {holder})' if holder else '')
+                        + '. Wait for it to finish or stop it first.'
+                    ),
+                }))
+                return
             kind, factory = task_dispatch[command]
             started = await self.supervisor.start_task(kind, factory(data))
             if not started:
+                # Already running for this session — our lock re-acquire above
+                # was idempotent, so leave it; the active run will release it.
                 await self.send(text_data=json.dumps({'type': 'error', 'message': 'A collection is already in progress.'}))
         elif command == 'set_amplifier_range':
             await self.set_amplifier_range(data)

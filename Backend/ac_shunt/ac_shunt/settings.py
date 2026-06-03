@@ -336,6 +336,14 @@ else:
 # reconnect semantics.
 CALIBRATION_GRACE_WINDOW_SECONDS = 30
 
+# Per-bench calibration run lock (api.models.CalibrationRunLock). A live run
+# refreshes its lock on the host heartbeat (~25s); a lock whose heartbeat is
+# older than this many seconds is treated as abandoned (crashed worker) and may
+# be taken over by a new run on the same bench. Keep this comfortably larger
+# than both the heartbeat interval and CALIBRATION_GRACE_WINDOW_SECONDS so a
+# brief host disconnect mid-run never lets another session steal the bench.
+CALIBRATION_RUNLOCK_STALE_SECONDS = 90
+
 # ---------------------------------------------------------
 # 5. LOGGING CONFIGURATION
 # ---------------------------------------------------------

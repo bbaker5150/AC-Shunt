@@ -1304,6 +1304,47 @@ class WorkstationClaim(models.Model):
         return f"Claim on {self.workstation.name} by {self.owner_channel[:40]}"
 
 
+class CalibrationRunLock(models.Model):
+    """Per-bench single-flight lock for an in-progress calibration RUN.
+
+    Distinct from :class:`WorkstationClaim` (a UI/host-level bench reservation
+    owned by the *HostSync* socket): a ``CalibrationRunLock`` row exists only
+    while a calibration is actively driving a bench's instruments, and is owned
+    by the ``CalibrationConsumer`` that started the run. The ``OneToOne`` on
+    :class:`Workstation` guarantees at most one active run per bench, and because
+    it is a DB row that guarantee holds across multiple ASGI workers — two
+    sessions bound to the same bench cannot both start a run.
+
+    ``last_heartbeat_at`` is refreshed while the run is live (the host socket's
+    heartbeat). A lock whose heartbeat is older than
+    ``settings.CALIBRATION_RUNLOCK_STALE_SECONDS`` is treated as abandoned (a
+    crashed worker) and may be taken over by a new run on the same bench.
+    """
+
+    workstation = models.OneToOneField(
+        Workstation,
+        on_delete=models.CASCADE,
+        related_name='run_lock',
+    )
+    session = models.ForeignKey(
+        CalibrationSession,
+        on_delete=models.CASCADE,
+        related_name='run_locks',
+    )
+    owner_channel = models.CharField(max_length=200, db_index=True)
+    acquired_at = models.DateTimeField(auto_now_add=True)
+    last_heartbeat_at = models.DateTimeField(auto_now=True)
+
+    class Meta:
+        indexes = [
+            models.Index(fields=['session']),
+            models.Index(fields=['last_heartbeat_at']),
+        ]
+
+    def __str__(self):
+        return f"RunLock on {self.workstation.name} by session {self.session_id}"
+
+
 class PendingReadingWrite(models.Model):
     """
     Durable local write-outbox for calibration stage saves.

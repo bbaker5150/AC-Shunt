@@ -41,6 +41,10 @@ from __future__ import annotations
 import re
 from typing import Any, Optional
 
+from django.conf import settings
+from django.db import IntegrityError, transaction
+from django.utils import timezone
+
 
 # ---------------------------------------------------------------------------
 # Host active sessions
@@ -485,10 +489,110 @@ def reset_for_tests() -> None:
     _CLAIMED_WORKSTATIONS.clear()
 
     try:
-        from api.models import WorkstationClaim
+        from api.models import CalibrationRunLock, WorkstationClaim
         WorkstationClaim.objects.all().delete()
+        CalibrationRunLock.objects.all().delete()
     except Exception:
         # Some unit tests that poke this module directly (e.g. module-
         # level accessor tests) don't spin up the Django test DB at all;
         # an exception here just means we have nothing to clear.
         pass
+
+
+# ---------------------------------------------------------------------------
+# Per-bench calibration run lock
+# ---------------------------------------------------------------------------
+# DB-backed single-flight lock so two sessions bound to the same bench cannot
+# both drive its instruments at once. Unlike the WorkstationClaim helpers above
+# (a UI/host reservation owned by the HostSync socket), this lock is owned by
+# the calibration RUN and lives only for the duration of that run. The
+# ``CalibrationRunLock`` OneToOne on Workstation makes it correct across ASGI
+# workers; staleness (a crashed worker) is detected via the heartbeat TTL.
+
+
+def _runlock_stale_seconds() -> int:
+    return int(getattr(settings, 'CALIBRATION_RUNLOCK_STALE_SECONDS', 90))
+
+
+def acquire_run_lock(session_id, owner_channel) -> tuple[bool, Optional[int]]:
+    """Atomically acquire the run lock for ``session_id``'s bench.
+
+    Returns ``(acquired, holder_session_id)``. ``acquired`` is True when this
+    session now holds the lock — freshly, by re-acquiring its own lock, or by
+    taking over a stale (crashed) one. It is False when a *live* run on another
+    session already holds the bench, with ``holder_session_id`` naming it.
+    """
+    from api.models import CalibrationRunLock, CalibrationSession, Workstation
+
+    session_id = int(session_id)
+    try:
+        session = CalibrationSession.objects.get(pk=session_id)
+    except CalibrationSession.DoesNotExist:
+        return False, None
+
+    ws = session.workstation or Workstation.get_default()
+    stale = _runlock_stale_seconds()
+    now = timezone.now()
+
+    try:
+        with transaction.atomic():
+            existing = (
+                CalibrationRunLock.objects.select_for_update()
+                .filter(workstation=ws)
+                .first()
+            )
+            if existing is not None:
+                if existing.session_id == session_id:
+                    # Re-acquire / refresh our own lock (idempotent).
+                    existing.owner_channel = owner_channel
+                    existing.last_heartbeat_at = now
+                    existing.save(update_fields=['owner_channel', 'last_heartbeat_at'])
+                    return True, session_id
+
+                age = (now - existing.last_heartbeat_at).total_seconds()
+                if age <= stale:
+                    return False, existing.session_id
+
+                # Stale lock from a dead run/worker — take it over.
+                existing.session_id = session_id
+                existing.owner_channel = owner_channel
+                existing.last_heartbeat_at = now
+                existing.save(
+                    update_fields=['session', 'owner_channel', 'last_heartbeat_at']
+                )
+                return True, session_id
+
+            CalibrationRunLock.objects.create(
+                workstation=ws,
+                session_id=session_id,
+                owner_channel=owner_channel,
+            )
+            return True, session_id
+    except IntegrityError:
+        # Lost a create race against a concurrent acquire — report the winner.
+        other = CalibrationRunLock.objects.filter(workstation=ws).first()
+        if other and other.session_id == session_id:
+            return True, session_id
+        return (False, other.session_id) if other else (False, None)
+
+
+def release_run_lock(session_id) -> None:
+    """Release the run lock held by ``session_id`` (idempotent)."""
+    from api.models import CalibrationRunLock
+
+    try:
+        CalibrationRunLock.objects.filter(session_id=int(session_id)).delete()
+    except Exception as exc:  # pragma: no cover — defensive only
+        print(f"session_state: run-lock release failed ({exc!r}).")
+
+
+def touch_run_lock(session_id) -> None:
+    """Refresh the heartbeat on ``session_id``'s run lock so it isn't reaped."""
+    from api.models import CalibrationRunLock
+
+    try:
+        CalibrationRunLock.objects.filter(session_id=int(session_id)).update(
+            last_heartbeat_at=timezone.now()
+        )
+    except Exception as exc:  # pragma: no cover — defensive only
+        print(f"session_state: run-lock heartbeat failed ({exc!r}).")

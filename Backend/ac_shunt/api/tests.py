@@ -17,15 +17,19 @@ simulated by patching ``probe_default_reachable`` and
 """
 
 import asyncio
+from datetime import timedelta
 from decimal import Decimal
 from unittest import mock
 
 from django.test import TestCase
+from django.utils import timezone
 from rest_framework.test import APIClient
 
 from api import outbox as outbox_module
+from api import session_state
 from api.models import (
     CalibrationReadings,
+    CalibrationRunLock,
     CalibrationSession,
     PendingReadingWrite,
     TestPoint,
@@ -467,6 +471,88 @@ class GetSessionDetailsAddressResolutionTests(TestCase):
         )
         details = self._details_for(session)
         self.assertEqual(details['ac_source_address'], 'GPIB0::5::INSTR')
+
+
+class CalibrationRunLockTests(TestCase):
+    """Per-bench single-flight run lock (session_state run-lock helpers)."""
+
+    databases = {'default'}
+
+    def _bench(self, slug):
+        return Workstation.objects.create(name=slug, identifier=slug)
+
+    def _session(self, name, ws):
+        return CalibrationSession.objects.create(session_name=name, workstation=ws)
+
+    def test_first_session_acquires_then_second_is_refused(self):
+        ws = self._bench('bench-a')
+        a = self._session('A', ws)
+        b = self._session('B', ws)
+
+        ok_a, holder_a = session_state.acquire_run_lock(a.pk, 'chan-a')
+        self.assertTrue(ok_a)
+        self.assertEqual(holder_a, a.pk)
+
+        ok_b, holder_b = session_state.acquire_run_lock(b.pk, 'chan-b')
+        self.assertFalse(ok_b)
+        self.assertEqual(holder_b, a.pk)  # B is told who holds the bench
+
+    def test_release_frees_the_bench_for_another_session(self):
+        ws = self._bench('bench-a')
+        a = self._session('A', ws)
+        b = self._session('B', ws)
+
+        session_state.acquire_run_lock(a.pk, 'chan-a')
+        session_state.release_run_lock(a.pk)
+        self.assertFalse(CalibrationRunLock.objects.filter(session=a).exists())
+
+        ok_b, holder_b = session_state.acquire_run_lock(b.pk, 'chan-b')
+        self.assertTrue(ok_b)
+        self.assertEqual(holder_b, b.pk)
+
+    def test_same_session_reacquire_is_idempotent(self):
+        ws = self._bench('bench-a')
+        a = self._session('A', ws)
+        self.assertEqual(session_state.acquire_run_lock(a.pk, 'chan-a'), (True, a.pk))
+        self.assertEqual(session_state.acquire_run_lock(a.pk, 'chan-a2'), (True, a.pk))
+        self.assertEqual(CalibrationRunLock.objects.filter(workstation=ws).count(), 1)
+
+    def test_different_benches_run_in_parallel(self):
+        ws_a, ws_b = self._bench('bench-a'), self._bench('bench-b')
+        a = self._session('A', ws_a)
+        b = self._session('B', ws_b)
+        self.assertEqual(session_state.acquire_run_lock(a.pk, 'chan-a'), (True, a.pk))
+        self.assertEqual(session_state.acquire_run_lock(b.pk, 'chan-b'), (True, b.pk))
+
+    def test_stale_lock_is_taken_over(self):
+        ws = self._bench('bench-a')
+        a = self._session('A', ws)
+        b = self._session('B', ws)
+        session_state.acquire_run_lock(a.pk, 'chan-a')
+        # Backdate A's heartbeat well past the stale window.
+        stale = session_state._runlock_stale_seconds()
+        CalibrationRunLock.objects.filter(session=a).update(
+            last_heartbeat_at=timezone.now() - timedelta(seconds=stale + 60)
+        )
+        ok_b, holder_b = session_state.acquire_run_lock(b.pk, 'chan-b')
+        self.assertTrue(ok_b)
+        self.assertEqual(holder_b, b.pk)
+        self.assertEqual(CalibrationRunLock.objects.filter(workstation=ws).count(), 1)
+
+    def test_heartbeat_keeps_a_live_lock_from_being_stolen(self):
+        ws = self._bench('bench-a')
+        a = self._session('A', ws)
+        b = self._session('B', ws)
+        session_state.acquire_run_lock(a.pk, 'chan-a')
+        # Backdate, then touch to simulate a live run refreshing its lock.
+        stale = session_state._runlock_stale_seconds()
+        CalibrationRunLock.objects.filter(session=a).update(
+            last_heartbeat_at=timezone.now() - timedelta(seconds=stale + 60)
+        )
+        session_state.touch_run_lock(a.pk)
+        ok_b, holder_b = session_state.acquire_run_lock(b.pk, 'chan-b')
+        self.assertFalse(ok_b)
+        self.assertEqual(holder_b, a.pk)
 
 
 class CalibrationSessionWorkstationTests(TestCase):
