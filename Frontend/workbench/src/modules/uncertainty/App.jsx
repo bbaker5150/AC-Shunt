@@ -130,6 +130,7 @@ const SidebarPointItem = ({
   point,
   isSelected,
   isTableSelected,
+  liveRiskMetrics = null,
   onSelect,
   onModalOpen,
   onSave,
@@ -195,7 +196,7 @@ const SidebarPointItem = ({
 
   // Safe Accessors
   const displayValue = point.testPointInfo?.parameter?.value;
-  const risk = point.riskMetrics || {};
+  const risk = liveRiskMetrics || point.riskMetrics || {};
 
   // --- COLOR LOGIC (Matches UncertaintyPanel) ---
   const getPfaColor = (val) => {
@@ -3141,6 +3142,11 @@ function App() {
                                                         isTableSelected={selectedTablePointIds.includes(
                                                           tp.id,
                                                         )}
+                                                        liveRiskMetrics={
+                                                          selectedTestPointId === tp.id
+                                                            ? riskResults
+                                                            : null
+                                                        }
                                                         visibleColumns={
                                                           visibleSidebarColumns
                                                         }
@@ -3239,6 +3245,11 @@ function App() {
                                                 isTableSelected={selectedTablePointIds.includes(
                                                   tp.id,
                                                 )}
+                                                liveRiskMetrics={
+                                                  selectedTestPointId === tp.id
+                                                    ? riskResults
+                                                    : null
+                                                }
                                                 onSelect={(e) =>
                                                   handleSelectTestPoint(
                                                     e,
@@ -3316,6 +3327,11 @@ function App() {
                                   isTableSelected={selectedTablePointIds.includes(
                                     tp.id,
                                   )}
+                                  liveRiskMetrics={
+                                    selectedTestPointId === tp.id
+                                      ? riskResults
+                                      : null
+                                  }
                                   onSelect={(e) =>
                                     handleSelectTestPoint(e, tp.id, null)
                                   }

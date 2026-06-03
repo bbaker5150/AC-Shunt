@@ -1,4 +1,4 @@
-import { useState, useEffect, useMemo, useCallback } from "react";
+import { useState, useEffect, useMemo, useCallback, useRef } from "react";
 import axios from "axios";
 import { UNCERTAINTY_API } from "../constants/constants";
 
@@ -83,6 +83,8 @@ const useSessionManager = () => {
   const [bugReports, setBugReports] = useState([]);
   const [selectedSessionId, setSelectedSessionId] = useState(null);
   const [selectedTestPointId, setSelectedTestPointId] = useState(null);
+  const persistTimersRef = useRef(new Map());
+  const pendingPersistRef = useRef(new Map());
 
   // --- 1. Load Data (Sessions) ---
   const loadData = useCallback(async () => {
@@ -154,6 +156,38 @@ const useSessionManager = () => {
     } catch (err) {
       console.error("Failed to save session to backend", err);
     }
+  }, []);
+
+  const persistSessionDebounced = useCallback(
+    (sessionToSave, delayMs = 600) => {
+      if (!sessionToSave || sessionToSave.id == null) return;
+
+      const key = sessionToSave.id;
+      pendingPersistRef.current.set(key, sessionToSave);
+
+      const existingTimer = persistTimersRef.current.get(key);
+      if (existingTimer) {
+        clearTimeout(existingTimer);
+      }
+
+      const timer = setTimeout(() => {
+        const latestSession = pendingPersistRef.current.get(key);
+        pendingPersistRef.current.delete(key);
+        persistTimersRef.current.delete(key);
+        persistSession(latestSession);
+      }, delayMs);
+
+      persistTimersRef.current.set(key, timer);
+    },
+    [persistSession]
+  );
+
+  useEffect(() => {
+    return () => {
+      persistTimersRef.current.forEach((timer) => clearTimeout(timer));
+      persistTimersRef.current.clear();
+      pendingPersistRef.current.clear();
+    };
   }, []);
 
   // --- 2.1 Persist Instrument ---
@@ -273,9 +307,13 @@ const useSessionManager = () => {
       setSessions((prevSessions) =>
         prevSessions.map((s) => (s.id === updatedSession.id ? updatedSession : s))
       );
-      persistSession(updatedSession, newImages);
+      if (newImages.length > 0) {
+        persistSession(updatedSession, newImages);
+      } else {
+        persistSessionDebounced(updatedSession);
+      }
     },
-    [persistSession]
+    [persistSession, persistSessionDebounced]
   );
 
   const addSession = useCallback(() => {
@@ -522,13 +560,13 @@ const useSessionManager = () => {
           tp.id === selectedTestPointId ? { ...tp, ...updatedData } : tp
         );
         const updatedSession = { ...session, testPoints: updatedTestPoints };
-        persistSession(updatedSession);
+        persistSessionDebounced(updatedSession, 700);
         return prevSessions.map((s) =>
           s.id === selectedSessionId ? updatedSession : s
         );
       });
     },
-    [selectedSessionId, selectedTestPointId, persistSession]
+    [selectedSessionId, selectedTestPointId, persistSessionDebounced]
   );
 
   const deleteTmdeDefinition = (tmdeId) => {
