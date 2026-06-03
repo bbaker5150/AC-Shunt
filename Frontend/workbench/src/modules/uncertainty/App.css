@@ -5478,6 +5478,109 @@ body.dark-mode .moon-toggle {
   border-radius: 3px;
 }
 
+.floating-images-panel {
+  min-width: 320px;
+}
+
+.floating-images-body {
+  height: calc(100% - 44px);
+  overflow-y: auto;
+  padding: 12px;
+  background: var(--content-background);
+}
+
+.floating-images-grid {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 10px;
+}
+
+.floating-image-thumb,
+.floating-image-add {
+  position: relative;
+  aspect-ratio: 1 / 0.82;
+  min-width: 0;
+  border: 1px solid var(--border-color);
+  border-radius: 8px;
+  background: var(--background-color-secondary);
+  color: var(--text-color);
+  cursor: pointer;
+  overflow: hidden;
+}
+
+.floating-image-thumb {
+  padding: 0;
+  text-align: left;
+}
+
+.floating-image-thumb img {
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+  display: block;
+}
+
+.floating-image-thumb > span:not(.floating-image-name):not(.floating-image-delete) {
+  height: 100%;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  color: var(--text-color-muted);
+  font-size: 0.78rem;
+}
+
+.floating-image-name {
+  position: absolute;
+  left: 0;
+  right: 0;
+  bottom: 0;
+  padding: 6px 8px;
+  background: rgba(0, 0, 0, 0.62);
+  color: #fff;
+  font-size: 0.72rem;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.floating-image-delete {
+  position: absolute;
+  top: 6px;
+  right: 6px;
+  width: 26px;
+  height: 26px;
+  border-radius: 5px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  background: rgba(0, 0, 0, 0.6);
+  color: #fff;
+}
+
+.floating-image-delete:hover {
+  background: var(--status-bad);
+}
+
+.floating-image-add {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 8px;
+  color: var(--primary-color);
+  border-style: dashed;
+  font-weight: 700;
+}
+
+.floating-image-add:hover,
+.floating-image-thumb:hover {
+  border-color: var(--primary-color);
+}
+
+.floating-image-add input {
+  display: none;
+}
+
 /* --- Minimized State --- */
 .notepad-minimized {
   position: fixed;

@@ -30,6 +30,7 @@ import HeaderEmblem from "./components/HeaderEmblem";
 
 // --- Floating Tools ---
 import FloatingNotepad from "./components/tools/FloatingNotepad";
+import FloatingImagesPanel from "./components/tools/FloatingImagesPanel";
 import UnitConverter from "./components/tools/UnitConverter";
 import ReverseTraceabilityTool from "./components/tools/ReverseTraceabilityTool";
 
@@ -58,11 +59,11 @@ import {
   faEyeSlash,
   faRadio,
   faHistory,
+  faImages,
   faStickyNote,
   faRightLeft,
   faSave,
   faFolderOpen,
-  faClipboardList,
   faCopy,
   faPaste,
   faCheckCircle,
@@ -472,13 +473,7 @@ const SidebarSessionHeader = ({
 
   const commitEdit = () => {
     if (editingField) {
-      if (editingField.startsWith("uncReq.")) {
-        const reqKey = editingField.slice("uncReq.".length);
-        onUpdate({
-          ...sessionData,
-          uncReq: { ...(sessionData.uncReq || {}), [reqKey]: tempValue },
-        });
-      } else {
+      if (!editingField.startsWith("uncReq.")) {
         onUpdate({ ...sessionData, [editingField]: tempValue });
       }
       setEditingField(null);
@@ -500,31 +495,52 @@ const SidebarSessionHeader = ({
     return `${m}/${d}/${y}`;
   };
 
-  const renderEditableField = (field, value, label, inputType = "text") => (
-    <div className="session-header-field">
-      <span className="session-header-label">{label}</span>
-      {editingField === field ? (
-        <input
-          type={inputType}
-          autoFocus
-          value={tempValue}
-          onChange={(e) => setTempValue(e.target.value)}
-          onBlur={commitEdit}
-          onKeyDown={handleKeyDown}
-          onClick={(e) => e.stopPropagation()}
-          className="session-header-input"
-        />
-      ) : (
-        <div
-          onClick={(e) => startEdit(e, field, value)}
-          className="session-header-value"
-          title={`Edit ${label}`}
-        >
-          {inputType === "date" ? formatDate(value) : value || "-"}
-        </div>
-      )}
-    </div>
-  );
+  const updateRequirement = (field, value) => {
+    const reqKey = field.slice("uncReq.".length);
+    onUpdate({
+      ...sessionData,
+      uncReq: { ...(sessionData.uncReq || {}), [reqKey]: value },
+      testPoints: (sessionData.testPoints || []).map((point) => ({
+        ...point,
+        riskMetrics: null,
+      })),
+    });
+  };
+
+  const renderEditableField = (field, value, label, inputType = "text") => {
+    const isRequirement = field.startsWith("uncReq.");
+    return (
+      <div className="session-header-field">
+        <span className="session-header-label">{label}</span>
+        {editingField === field ? (
+          <input
+            type={inputType}
+            autoFocus
+            value={isRequirement ? value ?? "" : tempValue}
+            onChange={(e) => {
+              if (isRequirement) {
+                updateRequirement(field, e.target.value);
+              } else {
+                setTempValue(e.target.value);
+              }
+            }}
+            onBlur={commitEdit}
+            onKeyDown={handleKeyDown}
+            onClick={(e) => e.stopPropagation()}
+            className="session-header-input"
+          />
+        ) : (
+          <div
+            onClick={(e) => startEdit(e, field, value)}
+            className="session-header-value"
+            title={`Edit ${label}`}
+          >
+            {inputType === "date" ? formatDate(value) : value || "-"}
+          </div>
+        )}
+      </div>
+    );
+  };
 
   const requirements = sessionData.uncReq || {};
 
@@ -628,6 +644,8 @@ function App() {
     updateTestPointData,
     deleteTmdeDefinition,
     decrementTmdeQuantity,
+    loadSessionImages,
+    deleteSessionImage,
   } = useSessionManager();
 
   // Theme + toasts are provided by the workbench shell (global light/dark
@@ -649,6 +667,7 @@ function App() {
     useState(null);
 
   const [isNotepadOpen, setIsNotepadOpen] = useState(false);
+  const [isImagesOpen, setIsImagesOpen] = useState(false);
   const [isConverterOpen, setIsConverterOpen] = useState(false);
   const [isTraceabilityOpen, setIsTraceabilityOpen] = useState(false);
 
@@ -2315,6 +2334,16 @@ function App() {
               notes={currentSessionData.notes || ""}
               onSave={handleUpdateNotes}
             />{" "}
+            <FloatingImagesPanel
+              isOpen={isImagesOpen}
+              onClose={() => setIsImagesOpen(false)}
+              sessionData={currentSessionData}
+              sessionImageCache={sessionImageCache}
+              onSessionSave={updateSession}
+              onImageCacheChange={setSessionImageCache}
+              onLoadImages={loadSessionImages}
+              onDeleteImage={deleteSessionImage}
+            />{" "}
             <UnitConverter
               isOpen={isConverterOpen}
               onClose={() => setIsConverterOpen(false)}
@@ -2493,6 +2522,15 @@ function App() {
                   </button>
                   <button
                     type="button"
+                    className={`app-chrome-meta-icon${isImagesOpen ? " is-active" : ""}`}
+                    onClick={() => setIsImagesOpen((o) => !o)}
+                    title="Session images"
+                    aria-label="Session images"
+                  >
+                    <FontAwesomeIcon icon={faImages} />
+                  </button>
+                  <button
+                    type="button"
                     className={`app-chrome-meta-icon${isConverterOpen ? " is-active" : ""}`}
                     onClick={() => setIsConverterOpen((o) => !o)}
                     title="Unit converter"
@@ -2608,13 +2646,6 @@ function App() {
                     className="sidebar-action-button"
                   >
                     <FontAwesomeIcon icon={faPlus} />
-                  </button>
-                  <button
-                    onClick={() => handleSelectSession(selectedSessionId)}
-                    title="Session overview"
-                    className="sidebar-action-button"
-                  >
-                    <FontAwesomeIcon icon={faClipboardList} />
                   </button>
                   <button
                     onClick={() => handleDeleteSession(selectedSessionId)}

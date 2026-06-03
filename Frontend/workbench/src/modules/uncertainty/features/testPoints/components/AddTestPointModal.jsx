@@ -510,11 +510,7 @@ const AddTestPointModal = ({
             <FontAwesomeIcon icon={faGripHorizontal} className="add-point-drag-icon" />
             <div>
               <h3>{isEditing ? "Edit Measurement Point" : "Add Measurement Points"}</h3>
-              <span>
-                {contextUuts.length > 0
-                  ? contextUuts.map((u) => u.description || u.name).join(", ")
-                  : "Select a UUT before adding points"}
-              </span>
+              <span>{isEditing ? "Update point details" : "Batch entry tied to selected UUT context"}</span>
             </div>
           </div>
           <button onClick={onClose} className="modal-close-button" style={{ position: "static" }}>

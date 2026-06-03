@@ -101,9 +101,8 @@
 .add-point-context-card strong,
 .add-point-context-card small {
   display: block;
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
+  overflow-wrap: anywhere;
+  white-space: normal;
 }
 
 .add-point-context-card strong {
