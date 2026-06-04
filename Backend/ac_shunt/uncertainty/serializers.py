@@ -87,6 +87,7 @@ def test_point_to_dict(tp):
         "expanded_uncertainty_absolute_base": tp.expanded_uncertainty_absolute_base,
         "calculatedNominalValue": tp.calculated_nominal_value,
         "calculatedBudgetComponents": tp.calculated_budget_components or [],
+        "calculatedBudgetGroups": tp.calculated_budget_groups or [],
         "riskMetrics": tp.risk_metrics,
     }
 
@@ -301,6 +302,7 @@ def save_session(data):
             ),
             calculated_nominal_value=_num(tp.get("calculatedNominalValue")),
             calculated_budget_components=tp.get("calculatedBudgetComponents") or [],
+            calculated_budget_groups=tp.get("calculatedBudgetGroups") or [],
             risk_metrics=tp.get("riskMetrics"),
         )
         for c in tp.get("components", []) or []:

@@ -149,6 +149,7 @@ class TestPoint(models.Model):
     expanded_uncertainty_absolute_base = models.FloatField(null=True, blank=True)
     calculated_nominal_value = models.FloatField(null=True, blank=True)
     calculated_budget_components = models.JSONField(default=list, blank=True, null=True)
+    calculated_budget_groups = models.JSONField(default=list, blank=True, null=True)
 
     # Risk snapshot (large irregular DTO -> JSON).
     risk_metrics = models.JSONField(default=dict, blank=True, null=True)

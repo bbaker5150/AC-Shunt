@@ -8,6 +8,55 @@ import {
 } from "../../../utils/uncertaintyMath";
 import { getBudgetComponentsFromTolerance, getUutResolutionComponent } from "../utils/budgetUtils";
 
+const normalizeDof = (dof) => {
+  const parsed = parseFloat(dof);
+  return dof === Infinity || dof == null || isNaN(parsed) ? Infinity : parsed;
+};
+
+const calculateBudgetResults = (
+  components,
+  confidencePercent,
+  valueSelector = (component) => component.value
+) => {
+  const validComponents = (components || [])
+    .map((component) => ({
+      ...component,
+      _stdUncertainty: Number(valueSelector(component)),
+      _quantity: Number(component.quantity || 1),
+    }))
+    .filter(
+      (component) =>
+        Number.isFinite(component._stdUncertainty) &&
+        component._stdUncertainty !== 0
+    );
+
+  const variance = validComponents.reduce(
+    (sum, component) =>
+      sum + component._stdUncertainty ** 2 * component._quantity,
+    0
+  );
+  const combined = Math.sqrt(Math.max(0, variance));
+  const denominator = validComponents.reduce((sum, component) => {
+    const dof = normalizeDof(component.dof);
+    return dof === Infinity || dof <= 0
+      ? sum
+      : sum + Math.pow(component._stdUncertainty, 4) / dof;
+  }, 0);
+  const effectiveDof = denominator > 0 ? Math.pow(combined, 4) / denominator : Infinity;
+  const probability = 1 - (1 - confidencePercent / 100) / 2;
+  const kValue =
+    effectiveDof === Infinity || isNaN(effectiveDof)
+      ? normalQuantile(probability)
+      : getKValueFromTDistribution(effectiveDof);
+
+  return {
+    combined,
+    effective_dof: effectiveDof,
+    k_value: kValue,
+    expanded: combined * kValue,
+  };
+};
+
 export const useUncertaintyCalculation = (
   testPointData,
   sessionData,
@@ -28,6 +77,7 @@ export const useUncertaintyCalculation = (
     let calculatedNominalResult = NaN;
     let derivedUcInputs_Native = 0;
     let derivedUcInputs_Base = 0;
+    let calculatedBudgetGroups = [];
 
     try {
       setCalculationError(null);
@@ -49,6 +99,7 @@ export const useUncertaintyCalculation = (
             expanded_uncertainty: null,
             is_detailed_uncertainty_calculated: false,
             calculatedBudgetComponents: [],
+            calculatedBudgetGroups: [],
             calculatedNominalValue: null,
           });
         }
@@ -77,6 +128,7 @@ export const useUncertaintyCalculation = (
             expanded_uncertainty: null,
             is_detailed_uncertainty_calculated: false,
             calculatedBudgetComponents: [],
+            calculatedBudgetGroups: [],
             calculatedNominalValue: null,
           });
         }
@@ -120,6 +172,7 @@ export const useUncertaintyCalculation = (
                     expanded_uncertainty: null,
                     is_detailed_uncertainty_calculated: false,
                     calculatedBudgetComponents: [],
+                    calculatedBudgetGroups: [],
                     calculatedNominalValue: null,
                 });
              }
@@ -147,6 +200,7 @@ export const useUncertaintyCalculation = (
               expanded_uncertainty: null,
               is_detailed_uncertainty_calculated: false,
               calculatedBudgetComponents: [],
+              calculatedBudgetGroups: [],
               calculatedNominalValue: null,
             });
           }
@@ -178,6 +232,8 @@ export const useUncertaintyCalculation = (
         // optional correlation matrix; an empty map yields the prior RSS.
         const inputCorrelations = testPointData.inputCorrelations || {};
         const signedContribsBase = [];
+
+        const inputBudgetGroups = [];
 
         derivedBreakdown.forEach((item, index) => {
             signedContribsBase.push({
@@ -212,6 +268,39 @@ export const useUncertaintyCalculation = (
             const allContributingTmdes = tmdeTolerancesData.filter(
                 (tmde) => tmde.variableType === item.type
             );
+            const inputBudgetComponents = allContributingTmdes.flatMap(
+                (tmde, tmdeIndex) =>
+                    getBudgetComponentsFromTolerance(
+                        tmde,
+                        tmde.measurementPoint
+                    ).map((component, compIndex) => ({
+                        ...component,
+                        id: `${component.id}_${item.variable}_${tmdeIndex}_${compIndex}`,
+                        sourceTmdeId: tmde.id,
+                        sourcePointLabel: `${tmde.measurementPoint?.value ?? ""} ${tmde.measurementPoint?.unit ?? ""}`.trim(),
+                        quantity: tmde.quantity || 1,
+                    }))
+            );
+            const inputBudgetResults = calculateBudgetResults(
+                inputBudgetComponents,
+                parseFloat(sessionData.uncReq.uncertaintyConfidence) || 95,
+                (component) =>
+                    component.value_native !== undefined
+                        ? component.value_native
+                        : component.value
+            );
+            inputBudgetGroups.push({
+                id: `input_${item.variable}_${index}`,
+                kind: "input",
+                label: `${item.type} (${item.variable})`,
+                variable: item.variable,
+                variableType: item.type,
+                unit: item.unit,
+                nominalValue: item.nominal,
+                components: inputBudgetComponents,
+                results: inputBudgetResults,
+            });
+
             const totalQuantity = allContributingTmdes.length > 0 
                 ? allContributingTmdes.reduce((sum, tmde) => sum + (tmde.quantity || 1), 0)
                 : 1;
@@ -299,6 +388,22 @@ export const useUncertaintyCalculation = (
           inputCorrelations
         );
 
+        const equationRows = componentsForBudgetTable
+          .filter((component) => component.name.startsWith("Input:"))
+          .map((component) => ({
+            id: component.id,
+            name: component.name.replace(/^Input:\s*/, ""),
+            nominalValue: component.sourcePointLabel,
+            dof: component.dof,
+            standardUncertainty: component.value,
+            unit: component.unit,
+            sensitivityCoefficient: component.sensitivityCoefficient,
+            contribution: component.contribution,
+            contributionSignedBase: signedContribsBase.find(
+              (signed) => signed.id === component.componentId
+            )?.contribution,
+          }));
+
         if (
           !isNaN(derivedNominalValue) &&
           derivedNominalUnit &&
@@ -317,6 +422,64 @@ export const useUncertaintyCalculation = (
         }
 
         effectiveDof = Infinity;
+        const finalBudgetComponents = [
+          {
+            id: "measurement_equation_uncertainty",
+            name: `${uutNominal.name || "Derived"} Measurement Equation Uncertainty`,
+            type: "B",
+            value: derivedUcInputs_Native,
+            value_native: derivedUcInputs_Native,
+            unit_native: derivedNominalUnit,
+            dof: Infinity,
+            isCore: true,
+            distribution: "Other (Std. Unc.)",
+            sourcePointLabel: "Measurement Equation",
+          },
+          ...componentsForBudgetTable.filter(
+            (component) => !component.name.startsWith("Input:")
+          ),
+        ];
+        calculatedBudgetGroups = [
+          ...inputBudgetGroups,
+          {
+            id: "measurement_equation",
+            kind: "equation",
+            label: "Measurement Equation Uncertainty",
+            unit: derivedNominalUnit,
+            rows: equationRows,
+            results: {
+              combined: derivedUcInputs_Native,
+              effective_dof: Infinity,
+              k_value:
+                normalQuantile(
+                  1 -
+                    (1 -
+                      (parseFloat(sessionData.uncReq.uncertaintyConfidence) ||
+                        95) /
+                        100) /
+                      2
+                ),
+              expanded:
+                derivedUcInputs_Native *
+                normalQuantile(
+                  1 -
+                    (1 -
+                      (parseFloat(sessionData.uncReq.uncertaintyConfidence) ||
+                        95) /
+                        100) /
+                      2
+                ),
+            },
+          },
+          {
+            id: "final_budget",
+            kind: "final",
+            label: `${uutNominal.name || "Final"} Uncertainty Budget`,
+            unit: derivedNominalUnit,
+            components: finalBudgetComponents,
+            results: null,
+          },
+        ];
       } else {
         // --- DIRECT MEASUREMENT LOGIC ---
         
@@ -404,6 +567,16 @@ export const useUncertaintyCalculation = (
             });
           }
         }
+        calculatedBudgetGroups = [
+          {
+            id: "final_budget",
+            kind: "final",
+            label: `${uutNominal.name || "Final"} Uncertainty Budget`,
+            unit: derivedNominalUnit,
+            components: componentsForBudgetTable,
+            results: null,
+          },
+        ];
       }
 
       if (
@@ -420,6 +593,7 @@ export const useUncertaintyCalculation = (
             expanded_uncertainty: null,
             is_detailed_uncertainty_calculated: false,
             calculatedBudgetComponents: [],
+            calculatedBudgetGroups: [],
           });
         }
         return;
@@ -453,6 +627,23 @@ export const useUncertaintyCalculation = (
         expanded_uncertainty_absolute_base: expandedUncertaintyAbsoluteBase,
         is_detailed_uncertainty_calculated: true,
         calculatedBudgetComponents: componentsForBudgetTable,
+        calculatedBudgetGroups: calculatedBudgetGroups.map((group) =>
+          group.id === "final_budget"
+            ? {
+                ...group,
+                results: {
+                  combined: !isNaN(combinedUncertaintyAbsoluteBase)
+                    ? combinedUncertaintyAbsoluteBase / targetUnitInfo.to_si
+                    : combinedUncertaintyPPM,
+                  effective_dof: effectiveDof,
+                  k_value: kValue,
+                  expanded: !isNaN(expandedUncertaintyAbsoluteBase)
+                    ? expandedUncertaintyAbsoluteBase / targetUnitInfo.to_si
+                    : expandedUncertaintyPPM,
+                },
+              }
+            : group
+        ),
         calculatedNominalValue: calculatedNominalResult,
       };
 
@@ -469,7 +660,9 @@ export const useUncertaintyCalculation = (
             (newResults.expanded_uncertainty_absolute_base || 0)
         ) > 1e-9 ||
         JSON.stringify(testPointData.calculatedBudgetComponents) !==
-          JSON.stringify(newResults.calculatedBudgetComponents);
+          JSON.stringify(newResults.calculatedBudgetComponents) ||
+        JSON.stringify(testPointData.calculatedBudgetGroups) !==
+          JSON.stringify(newResults.calculatedBudgetGroups);
 
       if (resultsHaveChanged) {
         onDataSave({
@@ -488,6 +681,7 @@ export const useUncertaintyCalculation = (
           is_detailed_uncertainty_calculated:
             newResults.is_detailed_uncertainty_calculated,
           calculatedBudgetComponents: newResults.calculatedBudgetComponents,
+          calculatedBudgetGroups: newResults.calculatedBudgetGroups,
           calculatedNominalValue: newResults.calculatedNominalValue,
         });
       }
@@ -503,6 +697,7 @@ export const useUncertaintyCalculation = (
           expanded_uncertainty: null,
           is_detailed_uncertainty_calculated: false,
           calculatedBudgetComponents: [],
+          calculatedBudgetGroups: [],
           calculatedNominalValue: null,
         });
       }
@@ -522,6 +717,7 @@ export const useUncertaintyCalculation = (
     testPointData.is_detailed_uncertainty_calculated,
     testPointData.expanded_uncertainty,
     testPointData.calculatedBudgetComponents,
+    testPointData.calculatedBudgetGroups,
     testPointData.expanded_uncertainty_absolute_base
   ]);
 
