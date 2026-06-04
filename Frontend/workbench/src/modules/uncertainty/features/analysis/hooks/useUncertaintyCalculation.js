@@ -183,11 +183,17 @@ export const useUncertaintyCalculation = (
                 : null;
 
             let distributionLabel = "N/A";
+            let distributionDivisor;
             if (contributingTmde) {
-                distributionLabel = getBudgetComponentsFromTolerance(
+                // Capture both the display label AND the canonical divisor so the
+                // budget-table distribution dropdown can round-trip and write the
+                // change back to this TMDE (mirrors the direct path).
+                const tmdeBudgetComp = getBudgetComponentsFromTolerance(
                     contributingTmde,
                     contributingTmde.measurementPoint
-                )[0]?.distribution || "N/A";
+                )[0];
+                distributionLabel = tmdeBudgetComp?.distribution || "N/A";
+                distributionDivisor = tmdeBudgetComp?.distributionDivisor;
             } else if (contributingManual) {
                 distributionLabel = contributingManual.distribution || "Normal (k=2)";
             }
@@ -212,6 +218,10 @@ export const useUncertaintyCalculation = (
                 dof: Infinity,
                 isCore: true,
                 distribution: distributionLabel,
+                distributionDivisor: distributionDivisor,
+                // Link back to the contributing TMDE so a distribution change in
+                // the budget table recalculates this derived input row too (#6).
+                sourceTmdeId: contributingTmde?.id,
                 sourcePointLabel: `${item.nominal} ${item.unit || ""}`,
                 quantity: totalQuantity,
             });
