@@ -1509,14 +1509,16 @@ body.theme-cyberpunk .button {
 .sidebar-points-scroll-wrapper {
   overflow-x: auto;
   overflow-y: visible;
-  margin: 0; 
+  margin: 0;
   width: 100%;
   box-sizing: border-box;
   scrollbar-width: thin;
+  /* Firefox / Electron: thumb + track colors (themed via the vars below). */
+  scrollbar-color: var(--scrollbar-thumb, rgba(0, 0, 0, 0.25)) transparent;
 }
 
 .sidebar-points-scroll-wrapper::-webkit-scrollbar {
-  height: 4px;
+  height: 8px;
 }
 
 .sidebar-points-scroll-wrapper::-webkit-scrollbar-track {
@@ -1524,8 +1526,27 @@ body.theme-cyberpunk .button {
 }
 
 .sidebar-points-scroll-wrapper::-webkit-scrollbar-thumb {
-  background: var(--scrollbar-thumb);
-  border-radius: 2px;
+  background: var(--scrollbar-thumb, rgba(0, 0, 0, 0.25));
+  border-radius: 4px;
+}
+
+.sidebar-points-scroll-wrapper::-webkit-scrollbar-thumb:hover {
+  background: var(--scrollbar-thumb-hover, rgba(0, 0, 0, 0.4));
+}
+
+/* Dark mode: the generic --scrollbar-thumb vars are defined under
+   body.dark-mode, but spell out the wrapper explicitly so the horizontal
+   measurement-point scrollbar is clearly visible against the dark sidebar. */
+body.dark-mode .sidebar-points-scroll-wrapper {
+  scrollbar-color: rgba(255, 255, 255, 0.25) transparent;
+}
+
+body.dark-mode .sidebar-points-scroll-wrapper::-webkit-scrollbar-thumb {
+  background: rgba(255, 255, 255, 0.25);
+}
+
+body.dark-mode .sidebar-points-scroll-wrapper::-webkit-scrollbar-thumb:hover {
+  background: rgba(255, 255, 255, 0.4);
 }
 
 /* Ensure point grid items don't shrink */
