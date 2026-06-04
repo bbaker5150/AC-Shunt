@@ -261,7 +261,21 @@ export const getBudgetComponentsFromTolerance = (
     const resUnit = toleranceObject.measuringResolutionUnit || nominalUnit;
     const resBase = unitSystem.toBaseUnit(resVal, resUnit);
     if (!isNaN(resBase) && resBase > 0) {
-      const u_i_base = resBase / (2 * Math.sqrt(3));
+      // Resolution rounding spans one LSD (half-width = LSD/2). The divisor is
+      // user-selectable in the budget table (default Rectangular = 1.732, which
+      // gives the conventional LSD/(2*sqrt(3))). distributionDivisor + the
+      // isResolution flag let handleComponentUpdate route a change to the
+      // resolution itself rather than the accuracy sub-components.
+      const resDistEntry = errorDistributions.find(
+        (d) =>
+          parseFloat(d.value) ===
+          parseFloat(toleranceObject.measuringResolutionDistribution),
+      );
+      const resDistRaw = resDistEntry ? resDistEntry.value : "1.732";
+      const resDivisor = parseFloat(resDistRaw) || 1.732;
+      const resDistLabel = resDistEntry?.label || "Rectangular";
+
+      const u_i_base = resBase / 2 / resDivisor;
       const u_i_native = unitSystem.fromBaseUnit(u_i_base, nominalUnit);
       const nominalBase = unitSystem.toBaseUnit(nominalValue, nominalUnit);
 
@@ -284,7 +298,9 @@ export const getBudgetComponentsFromTolerance = (
         unit_native: nominalUnit,
         dof: Infinity,
         isCore: true,
-        distribution: "Rectangular",
+        distribution: resDistLabel,
+        distributionDivisor: resDistRaw,
+        isResolution: true,
       });
     }
   }

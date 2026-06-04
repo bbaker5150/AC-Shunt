@@ -1853,11 +1853,15 @@ function DetailedView({
     if (updates.distribution !== undefined && component?.sourceTmdeId) {
       const divisor = updates.distribution;
       const targetId = component.sourceTmdeId;
-      const updatedTmdes = tmdeTolerancesData.map((t) =>
-        t.id === targetId || t.sourceId === targetId
-          ? applyDistributionToTmde(t, divisor)
-          : t,
-      );
+      const updatedTmdes = tmdeTolerancesData.map((t) => {
+        if (t.id !== targetId && t.sourceId !== targetId) return t;
+        // A Resolution row targets the resolution's own divisor, not the
+        // accuracy sub-components (otherwise it would corrupt the accuracy
+        // distribution with this value).
+        return component.isResolution
+          ? { ...t, measuringResolutionDistribution: divisor }
+          : applyDistributionToTmde(t, divisor);
+      });
       onUpdateTestPoint({ tmdeTolerances: updatedTmdes });
       return;
     }
