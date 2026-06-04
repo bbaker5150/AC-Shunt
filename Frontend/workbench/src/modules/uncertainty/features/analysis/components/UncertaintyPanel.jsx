@@ -94,6 +94,20 @@ import {
   unitCategories,
 } from "../../../utils/uncertaintyMath";
 
+// Small inline button used by the equation "f(x)" symbol popout. This was
+// previously referenced but never defined, which threw once the popout
+// rendered. `symbol` here is a plain string (see symbolCategories above).
+const SymbolButton = ({ symbol, title, onSymbolClick }) => (
+  <button
+    type="button"
+    className="symbol-button"
+    title={title || `Insert ${symbol}`}
+    onClick={() => onSymbolClick(symbol)}
+  >
+    {symbol}
+  </button>
+);
+
 const handleRowSelection = (e, id, currentSelected, setSelected) => {
   if (e.ctrlKey || e.metaKey) {
     // Toggle selection if modifier key is held
@@ -1820,13 +1834,17 @@ function DetailedView({
     const varName = testPointData.variableMappings?.[symbol] || "";
     if (!varName) return;
 
+    // The "Assigned Source" dropdown is a picker: it chooses which TMDE backs a
+    // variable. It must NOT spawn a new table instance on every selection.
+    // We always start from a copy where any prior holder of this variable is
+    // cleared, then either re-tag an existing instance or add the target once.
+    let nextTolerances = tmdeTolerancesData.map((t) =>
+      t.variableType === varName ? { ...t, variableType: "" } : t,
+    );
+
+    // Clearing the source ("-- No Source --").
     if (!tmdeIdStr) {
-      const currentAssigned = tmdeTolerancesData.find(
-        (t) => t.variableType === varName,
-      );
-      if (currentAssigned && onInlineTmdeUpdate) {
-        onInlineTmdeUpdate(currentAssigned.id, "variableType", "");
-      }
+      onUpdateTestPoint({ tmdeTolerances: nextTolerances });
       return;
     }
 
@@ -1834,49 +1852,34 @@ function DetailedView({
       sessionData.tmdes?.find((t) => t.id == tmdeIdStr) ||
       tmdeTolerancesData.find((t) => t.id == tmdeIdStr);
     if (!targetTmde) return;
-
     const realTmdeId = targetTmde.id;
-    const previousHolder = tmdeTolerancesData.find(
-      (t) => t.variableType === varName,
+
+    // Is this TMDE already present in the budget (by id or sourceId)? If so,
+    // just tag it with the variable rather than appending a duplicate.
+    const existing = nextTolerances.find(
+      (t) => t.id === realTmdeId || t.sourceId === realTmdeId,
     );
 
-    if (previousHolder && previousHolder.id === realTmdeId) return;
-
-    if (previousHolder && onInlineTmdeUpdate) {
-      onInlineTmdeUpdate(previousHolder.id, "variableType", "");
-    }
-
-    const isActive = tmdeTolerancesData.some((t) => t.id === realTmdeId);
-
-    if (!isActive) {
-      const newTolerance = {
-        ...targetTmde,
-        variableType: varName,
-        quantity: 1,
-        measurementPoint: targetTmde.measurementPoint || {
-          value: "",
-          unit: "",
-        },
-      };
-      const newTolerances = [...tmdeTolerancesData, newTolerance];
-      onUpdateTestPoint({ tmdeTolerances: newTolerances });
+    if (existing) {
+      nextTolerances = nextTolerances.map((t) =>
+        t.id === existing.id ? { ...t, variableType: varName } : t,
+      );
     } else {
-      const uniqueInstanceId = `${realTmdeId}_${Date.now()}_${Math.floor(Math.random() * 1000)}`;
-
-      const newTolerance = {
-        ...targetTmde,
-        id: uniqueInstanceId,
-        sourceId: realTmdeId,
-        variableType: varName,
-        quantity: 1,
-        measurementPoint: targetTmde.measurementPoint || {
-          value: "",
-          unit: "",
+      nextTolerances = [
+        ...nextTolerances,
+        {
+          ...targetTmde,
+          variableType: varName,
+          quantity: 1,
+          measurementPoint: targetTmde.measurementPoint || {
+            value: "",
+            unit: "",
+          },
         },
-      };
-      const newTolerances = [...tmdeTolerancesData, newTolerance];
-      onUpdateTestPoint({ tmdeTolerances: newTolerances });
+      ];
     }
+
+    onUpdateTestPoint({ tmdeTolerances: nextTolerances });
   };
 
   const handleToggleTmdeUsage = (tmdeId, isChecked) => {
@@ -1971,13 +1974,12 @@ function DetailedView({
       uutNominal.value !== undefined &&
       uutNominal.value !== "" &&
       uutNominal.value !== null);
+  // This detailed table shows a single active point, so the Section column is
+  // driven purely by whether THIS point has a section. If it was left blank
+  // when the point was added, no Section column is shown (#4).
   const showSectionColumn = useMemo(
-    () =>
-      Boolean(testPointData.section) ||
-      (sessionData.testPoints || []).some((point) =>
-        Boolean(String(point.section || "").trim()),
-      ),
-    [sessionData.testPoints, testPointData.section],
+    () => Boolean(String(testPointData.section || "").trim()),
+    [testPointData.section],
   );
   const hasUnassignedVariables =
     isDerived && equationDisplayData?.variables.some((v) => !v.isAssigned);
@@ -2318,10 +2320,12 @@ function DetailedView({
                   )}
 
                   <td style={{ overflow: "hidden", textOverflow: "ellipsis" }}>
+                    {/* Match the Section cell's weight/size so the two inline
+                        inputs read as one cohesive set; the point keeps the
+                        primary color to signal it's the nominal value. */}
                     <div
                       style={{
-                        fontWeight: 700,
-                        fontSize: "1.05rem",
+                        fontWeight: 600,
                         color: "var(--primary-color)",
                       }}
                     >
@@ -2497,23 +2501,22 @@ function DetailedView({
                         <FontAwesomeIcon icon={faTimes} />
                       </span>
                     </div>
-                    {Object.entries(symbolCategories).map(
-                      ([category, symbols]) => (
-                        <div key={category} className="symbol-category">
-                          <h5 className="symbol-category-title">{category}</h5>
-                          <div className="symbol-category-grid">
-                            {symbols.map((s) => (
-                              <SymbolButton
-                                key={s.symbol}
-                                symbol={s.symbol}
-                                title={s.title}
-                                onSymbolClick={handleSymbolClick}
-                              />
-                            ))}
-                          </div>
+                    {symbolCategories.map((category) => (
+                      <div key={category.name} className="symbol-category">
+                        <h5 className="symbol-category-title">
+                          {category.name}
+                        </h5>
+                        <div className="symbol-category-grid">
+                          {category.symbols.map((sym) => (
+                            <SymbolButton
+                              key={sym}
+                              symbol={sym}
+                              onSymbolClick={handleSymbolClick}
+                            />
+                          ))}
                         </div>
-                      ),
-                    )}
+                      </div>
+                    ))}
                   </div>
                 )}
               </div>
