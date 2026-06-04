@@ -1,204 +1,1486 @@
 {
-  "id": 1767153435303,
-  "name": "Derived",
-  "uutDescription": "Torque Tester",
-  "analyst": "Barry",
-  "organization": "Baker",
-  "document": "Test",
-  "documentDate": "2025-12-30",
-  "notes": "sdfgsdgsd",
+  "id": 1749465600000,
+  "name": "MUA BRG3100 21972 Bearing Torque Test Machine",
+  "uutDescription": "BRG-3100 (21972) Bearing Torque Test Machine",
+  "analyst": "Venz Burgos",
+  "organization": "FRCSW Metrology Engineering, San Diego",
+  "document": "LCP-SDB-MU-070",
+  "documentDate": "2024-06-18",
+  "notes": "Seeded from MUA BRG3100 21972 BEARING TORQUE TEST MACHINE.xlsm. Document sheet requirements: PFA required 2%, measurement reliability target 85%, assumed measurement reliability 85%, TUR needed 4, calibration interval 12 months. The workbook Document sheet row 16 lists Length = 1.418 in while the Calc sheet lists 1.1418 in for the 50% point; this fixture preserves the Document sheet setup and records the calculated value from column U.",
   "noteImages": [],
   "uutTolerance": {
+    "id": "rng_brg3100_torque_0_05_in_oz",
+    "min": 0,
+    "max": 0.05,
+    "unit": "in-oz",
+    "functionName": "Torque",
     "range": {
-      "value": "3",
-      "high": "0.0001",
-      "low": "-0.0001",
+      "value": "0.05",
+      "high": "0.5",
+      "low": "-0.5",
       "unit": "%",
       "distribution": "1.960",
       "symmetric": true
     },
-    "measuringResolution": "0.0000012",
-    "measuringResolutionUnit": "in-ozf"
+    "measuringResolution": "0.00001",
+    "measuringResolutionUnit": "in-oz",
+    "includeResolutionInBudget": false
   },
+  "measurementAreas": [
+    {
+      "id": "area_brg3100_bearing_torque",
+      "name": "Bearing Torque",
+      "color": "#2563eb"
+    }
+  ],
+  "uuts": [
+    {
+      "id": "uut_brg3100_21972",
+      "name": "BRG-3100 (21972)",
+      "description": "Bearing Torque Test Machine",
+      "measurementArea": "Bearing Torque",
+      "measurementAreaId": "area_brg3100_bearing_torque",
+      "measurementAreaColor": "#2563eb",
+      "instrument": {
+        "id": "inst_brg3100_21972",
+        "manufacturer": "MUA",
+        "model": "BRG-3100",
+        "description": "BRG-3100 (21972) Bearing Torque Test Machine",
+        "measurementArea": "Bearing Torque",
+        "measurementAreaColor": "#2563eb",
+        "type": "UUT",
+        "functions": [
+          {
+            "id": "func_brg3100_torque",
+            "name": "Torque",
+            "unit": "in-oz",
+            "ranges": [
+              {
+                "id": "rng_brg3100_torque_0_05_in_oz",
+                "range": "0 to 0.05 in-oz",
+                "min": 0,
+                "max": 0.05,
+                "resolution": 1e-05,
+                "tolerances": {
+                  "range": {
+                    "value": "0.05",
+                    "high": "0.5",
+                    "low": "-0.5",
+                    "unit": "%",
+                    "distribution": "1.960",
+                    "symmetric": true
+                  }
+                }
+              }
+            ]
+          }
+        ]
+      }
+    }
+  ],
+  "tmdes": [
+    {
+      "id": "tmde_calibration_beam_2938117",
+      "name": "Calibration Beam",
+      "quantity": 1,
+      "assetId": "#2938117",
+      "isInstrumentBased": true,
+      "instrument": {
+        "id": "inst_calibration_beam_2938117",
+        "manufacturer": "NPSL",
+        "model": "#2938117",
+        "description": "Calibration Beam",
+        "measurementArea": "Bearing Torque",
+        "measurementAreaColor": "#2563eb",
+        "type": "TMDE",
+        "functions": [
+          {
+            "id": "func_calibration_beam_length",
+            "name": "Length",
+            "unit": "in",
+            "ranges": [
+              {
+                "id": "rng_calibration_beam_length_normal",
+                "range": "+/-0.002 in, normal 95%",
+                "min": 0,
+                "max": 3,
+                "resolution": 1e-05,
+                "tolerances": {
+                  "reading": {
+                    "high": "0.002",
+                    "low": "-0.002",
+                    "unit": "in",
+                    "distribution": "1.960",
+                    "symmetric": true
+                  }
+                }
+              },
+              {
+                "id": "rng_calibration_beam_length_rectangular",
+                "range": "+/-0.002 in, rectangular",
+                "min": 0,
+                "max": 3,
+                "resolution": 1e-05,
+                "tolerances": {
+                  "reading": {
+                    "high": "0.002",
+                    "low": "-0.002",
+                    "unit": "in",
+                    "distribution": "1.732",
+                    "symmetric": true
+                  }
+                }
+              }
+            ]
+          }
+        ]
+      }
+    },
+    {
+      "id": "tmde_f_class_weight_500mg",
+      "name": "F Class Weight",
+      "quantity": 1,
+      "assetId": "500 mg hanger weight",
+      "isInstrumentBased": true,
+      "instrument": {
+        "id": "inst_f_class_weight_500mg",
+        "manufacturer": "F Class",
+        "model": "500 mg",
+        "description": "F Class Weight / Hanger Weight",
+        "measurementArea": "Bearing Torque",
+        "measurementAreaColor": "#2563eb",
+        "type": "TMDE",
+        "functions": [
+          {
+            "id": "func_f_class_weight_force",
+            "name": "Weight",
+            "unit": "ozf",
+            "ranges": [
+              {
+                "id": "rng_f_class_weight_500mg_normal",
+                "range": "+/-0.72 mg converted to ozf, normal 95%",
+                "min": 0,
+                "max": 0.017637,
+                "resolution": 1e-09,
+                "tolerances": {
+                  "reading": {
+                    "high": "2.53968254e-05",
+                    "low": "-2.53968254e-05",
+                    "unit": "ozf",
+                    "distribution": "1.960",
+                    "symmetric": true
+                  }
+                }
+              },
+              {
+                "id": "rng_f_class_weight_500mg_rectangular",
+                "range": "+/-0.72 mg converted to ozf, rectangular",
+                "min": 0,
+                "max": 0.017637,
+                "resolution": 1e-09,
+                "tolerances": {
+                  "reading": {
+                    "high": "2.53968254e-05",
+                    "low": "-2.53968254e-05",
+                    "unit": "ozf",
+                    "distribution": "1.732",
+                    "symmetric": true
+                  }
+                }
+              }
+            ]
+          }
+        ]
+      }
+    },
+    {
+      "id": "tmde_ti_resolution_00001_in_oz",
+      "name": "TI Resolution",
+      "quantity": 1,
+      "assetId": "0.00001 in-oz LSD",
+      "isInstrumentBased": true,
+      "instrument": {
+        "id": "inst_ti_resolution_00001_in_oz",
+        "manufacturer": "MUA",
+        "model": "TI Resolution",
+        "description": "Torque Indication Resolution",
+        "measurementArea": "Bearing Torque",
+        "measurementAreaColor": "#2563eb",
+        "type": "TMDE",
+        "functions": [
+          {
+            "id": "func_ti_resolution_torque",
+            "name": "Torque Resolution",
+            "unit": "in-oz",
+            "ranges": [
+              {
+                "id": "rng_ti_resolution_00001_in_oz",
+                "range": "0.00001 in-oz least significant digit",
+                "min": 0,
+                "max": 1e-05,
+                "resolution": 1e-05,
+                "tolerances": {
+                  "reading": {
+                    "high": "5e-06",
+                    "low": "-5e-06",
+                    "unit": "in-oz",
+                    "distribution": "1.732",
+                    "symmetric": true
+                  }
+                }
+              }
+            ]
+          }
+        ]
+      }
+    }
+  ],
   "testPoints": [
     {
-      "id": 1767153497000,
-      "section": "1.1",
-      "tmdeDescription": "",
+      "id": 1749465600009,
+      "section": "4.1.6",
+      "tmdeDescription": "Calibration Beam #2938117; F Class Weight (500 mg hanger); TI Resolution",
+      "measurementAreaId": "area_brg3100_bearing_torque",
+      "associatedUutIds": [
+        "uut_brg3100_21972"
+      ],
       "tmdeTolerances": [
         {
-          "id": 1767153537170,
-          "name": "Weight",
+          "id": 1749465600061,
+          "name": "Calibration Beam #2938117",
+          "assetId": "#2938117",
           "measurementPoint": {
-            "value": "3",
-            "unit": "oz"
-          },
-          "variableType": "Weight",
-          "quantity": 1,
-          "reading": {
-            "high": "0.00000001",
-            "low": "-1e-8",
-            "unit": "%",
-            "distribution": "1.960",
-            "symmetric": true
-          }
-        },
-        {
-          "id": 1767205772377,
-          "name": "Beam",
-          "measurementPoint": {
-            "value": "1",
+            "name": "Length",
+            "value": "2.836",
             "unit": "in"
           },
           "variableType": "Length",
           "quantity": 1,
           "reading": {
-            "high": "0.000001",
-            "low": "-0.000001",
-            "unit": "%",
+            "high": "0.00199999999999978",
+            "low": "-0.00199999999999978",
+            "unit": "in",
             "distribution": "1.960",
             "symmetric": true
+          },
+          "sourceInstrument": {
+            "id": "inst_calibration_beam_2938117",
+            "manufacturer": "NPSL",
+            "model": "#2938117",
+            "description": "Calibration Beam",
+            "measurementArea": "Bearing Torque",
+            "measurementAreaColor": "#2563eb",
+            "type": "TMDE",
+            "functions": [
+              {
+                "id": "func_calibration_beam_length",
+                "name": "Length",
+                "unit": "in",
+                "ranges": [
+                  {
+                    "id": "rng_calibration_beam_length_normal",
+                    "range": "+/-0.002 in, normal 95%",
+                    "min": 0,
+                    "max": 3,
+                    "resolution": 1e-05,
+                    "tolerances": {
+                      "reading": {
+                        "high": "0.002",
+                        "low": "-0.002",
+                        "unit": "in",
+                        "distribution": "1.960",
+                        "symmetric": true
+                      }
+                    }
+                  },
+                  {
+                    "id": "rng_calibration_beam_length_rectangular",
+                    "range": "+/-0.002 in, rectangular",
+                    "min": 0,
+                    "max": 3,
+                    "resolution": 1e-05,
+                    "tolerances": {
+                      "reading": {
+                        "high": "0.002",
+                        "low": "-0.002",
+                        "unit": "in",
+                        "distribution": "1.732",
+                        "symmetric": true
+                      }
+                    }
+                  }
+                ]
+              }
+            ]
+          },
+          "originalInput": {
+            "excelSheet": "Document",
+            "excelRow": 6,
+            "excelTmde": "Calibration Beam",
+            "excelUnit": "inch",
+            "expandedUncertainty": 0.0019999999999997797
+          }
+        },
+        {
+          "id": 1749465600072,
+          "name": "F Class Weight (500 mg hanger)",
+          "assetId": "500 mg",
+          "measurementPoint": {
+            "name": "Weight",
+            "value": "0.017637",
+            "unit": "ozf"
+          },
+          "variableType": "Weight",
+          "quantity": 1,
+          "reading": {
+            "high": "2.53968253999988e-05",
+            "low": "-2.53968253999988e-05",
+            "unit": "ozf",
+            "distribution": "1.960",
+            "symmetric": true
+          },
+          "sourceInstrument": {
+            "id": "inst_f_class_weight_500mg",
+            "manufacturer": "F Class",
+            "model": "500 mg",
+            "description": "F Class Weight / Hanger Weight",
+            "measurementArea": "Bearing Torque",
+            "measurementAreaColor": "#2563eb",
+            "type": "TMDE",
+            "functions": [
+              {
+                "id": "func_f_class_weight_force",
+                "name": "Weight",
+                "unit": "ozf",
+                "ranges": [
+                  {
+                    "id": "rng_f_class_weight_500mg_normal",
+                    "range": "+/-0.72 mg converted to ozf, normal 95%",
+                    "min": 0,
+                    "max": 0.017637,
+                    "resolution": 1e-09,
+                    "tolerances": {
+                      "reading": {
+                        "high": "2.53968254e-05",
+                        "low": "-2.53968254e-05",
+                        "unit": "ozf",
+                        "distribution": "1.960",
+                        "symmetric": true
+                      }
+                    }
+                  },
+                  {
+                    "id": "rng_f_class_weight_500mg_rectangular",
+                    "range": "+/-0.72 mg converted to ozf, rectangular",
+                    "min": 0,
+                    "max": 0.017637,
+                    "resolution": 1e-09,
+                    "tolerances": {
+                      "reading": {
+                        "high": "2.53968254e-05",
+                        "low": "-2.53968254e-05",
+                        "unit": "ozf",
+                        "distribution": "1.732",
+                        "symmetric": true
+                      }
+                    }
+                  }
+                ]
+              }
+            ]
+          },
+          "originalInput": {
+            "excelSheet": "Document",
+            "excelRow": 7,
+            "excelTmde": "F Class Weight",
+            "excelUnit": "oz",
+            "expandedUncertainty": 2.5396825399998796e-05
           }
         }
       ],
       "uutTolerance": {
+        "id": "rng_brg3100_torque_0_05_in_oz",
+        "min": 0,
+        "max": 0.05,
+        "unit": "in-oz",
+        "functionName": "Torque",
         "range": {
-          "value": "3",
-          "high": "0.0001",
-          "low": "-0.0001",
+          "value": "0.05",
+          "high": "0.5",
+          "low": "-0.5",
           "unit": "%",
           "distribution": "1.960",
           "symmetric": true
         },
-        "measuringResolution": "0.0000012",
-        "measuringResolutionUnit": "in-ozf"
+        "measuringResolution": "0.00001",
+        "measuringResolutionUnit": "in-oz",
+        "includeResolutionInBudget": false
       },
       "specifications": {
         "mfg": {
-          "uncertainty": "",
+          "uncertainty": "+/-0.5% FS at 0.05 in-oz; 0.00001 in-oz resolution",
           "k": 2
         },
         "navy": {
-          "uncertainty": "",
+          "uncertainty": "Document LCP-SDB-MU-070, dated 2024-06-18",
           "k": 2
         }
       },
-      "components": [],
-      "is_detailed_uncertainty_calculated": false,
+      "components": [
+        {
+          "id": "comp_brg3100_row9_ti_resolution",
+          "name": "TI Resolution",
+          "type": "B",
+          "value": 57.71309594250444,
+          "value_native": 2.8867513459481293e-06,
+          "unit_native": "in-oz",
+          "dof": null,
+          "distribution": "Rectangular",
+          "isCore": true,
+          "sourcePointLabel": "0.00001 in-oz LSD",
+          "variableType": "",
+          "originalInput": {
+            "excelSheet": "Document",
+            "excelRow": 8,
+            "errorLimit": "0.00001",
+            "distribution": "Rectangular (Resolution)"
+          },
+          "savedInputs": {
+            "errorLimit": "0.00001",
+            "unit": "in-oz",
+            "distribution": "Rectangular (Resolution)"
+          }
+        }
+      ],
+      "is_detailed_uncertainty_calculated": true,
       "measurementType": "derived",
-      "equationString": "T=W*L",
+      "equationString": "T = W * L",
       "variableMappings": {
-        "L": "Length",
-        "W": "Weight"
+        "W": "Weight",
+        "L": "Length"
       },
       "testPointInfo": {
         "parameter": {
           "name": "Torque",
-          "value": "3",
-          "unit": "in-ozf"
+          "value": "0.050019",
+          "unit": "in-oz"
         },
-        "qualifier": null
+        "qualifier": {
+          "name": "Load",
+          "value": "100",
+          "unit": "%"
+        }
       },
-      "uutDescription": "Torque Tester",
-      "combined_uncertainty": null,
-      "combined_uncertainty_absolute_base": 2.448651303547774e-9,
-      "combined_uncertainty_inputs_native": 1.5306887735970344e-8,
-      "combined_uncertainty_inputs_base": 1.0809035309194139e-10,
+      "uutDescription": "BRG-3100 (21972) Bearing Torque Test Machine",
+      "combined_uncertainty": 820.0966909171052,
+      "combined_uncertainty_absolute_base": 2.896677213092514e-07,
+      "combined_uncertainty_inputs_native": 4.102041638298268e-05,
+      "combined_uncertainty_inputs_base": 2.896677213092514e-07,
       "effective_dof": null,
-      "k_value": null,
-      "expanded_uncertainty": null,
-      "expanded_uncertainty_absolute_base": 4.792407115203734e-9,
-      "calculatedBudgetComponents": [],
-      "calculatedNominalValue": null,
-      "riskMetrics": {
-        "LLow": 2.999997,
-        "LUp": 3.000003,
-        "tur": 4.420461261026357,
-        "tar": 80.7019375281966,
-        "pfa": 1.578777638916204,
-        "pfr": 2.1481111332107448,
-        "pfa_term1": 0.789388819458102,
-        "pfa_term2": 0.789388819458102,
-        "pfr_term1": 1.0740555666053724,
-        "pfr_term2": 1.0740555666053724,
-        "uCal": 3.467583325966359e-7,
-        "uUUT": 0.0000020484763113560165,
-        "uDev": 0.000002077617996507527,
-        "correlation": 0.9859735113959843,
-        "ALow": 2.999997,
-        "AUp": 3.000003,
-        "expandedUncertainty": 6.786622080426725e-7,
-        "tmdeToleranceSpan": 7.434765754543977e-8,
-        "tmdeToleranceHigh": 3.717382857304938e-8,
-        "tmdeToleranceLow": -3.7173828972390386e-8,
-        "uutBreakdownForTar": [
-          {
-            "name": "Torque Tester - Range",
-            "span": 0.000005999999999950489
-          }
-        ],
-        "tmdeBreakdownForTar": [
-          {
-            "name": "Weight - Reading",
-            "span": 2.4087773091444353e-9
+      "k_value": 1.9599639845400536,
+      "expanded_uncertainty": 1607.3599780380023,
+      "expanded_uncertainty_absolute_base": 5.677383012499181e-07,
+      "calculatedBudgetComponents": [
+        {
+          "id": "derived_L_9",
+          "name": "Length (L) - Calibration Beam #2938117",
+          "type": "B",
+          "variable": "L",
+          "variableType": "Length",
+          "nominal": 2.836,
+          "unit": "in",
+          "value": 359.81202886078836,
+          "value_native": 0.0010204269138491958,
+          "unit_native": "in",
+          "dof": null,
+          "distribution": "Normal (95%)",
+          "sensitivityCoefficient": 0.017637,
+          "contribution": 1.7997269479558267e-05,
+          "sourcePointLabel": "2.836 in"
+        },
+        {
+          "id": "derived_W_9",
+          "name": "Weight (W) - F Class Weight",
+          "type": "B",
+          "variable": "W",
+          "variableType": "Weight",
+          "nominal": 0.017637,
+          "unit": "ozf",
+          "value": 734.6942270366415,
+          "value_native": 1.2957802082245246e-05,
+          "unit_native": "ozf",
+          "dof": null,
+          "distribution": "Normal (95%)",
+          "sensitivityCoefficient": 2.836,
+          "contribution": 3.674832670524752e-05,
+          "sourcePointLabel": "0.017637 ozf"
+        },
+        {
+          "id": "derived_R_9",
+          "name": "Resolution (R) - TI Resolution",
+          "type": "B",
+          "variable": "R",
+          "variableType": "Resolution",
+          "nominal": 0,
+          "unit": "in-oz",
+          "value": 57.71309594250444,
+          "value_native": 2.8867513459481293e-06,
+          "unit_native": "in-oz",
+          "dof": null,
+          "distribution": "Rectangular",
+          "sensitivityCoefficient": 1,
+          "contribution": 2.8867513459481293e-06,
+          "sourcePointLabel": "0 in-oz"
+        }
+      ],
+      "calculatedNominalValue": 0.050018532,
+      "riskMetrics": null,
+      "sourceWorkbook": {
+        "sheet": "Document",
+        "row": 9,
+        "standardUncertainty": 4.102041638298268e-05,
+        "expandedUncertainty": 8.039853874148283e-05,
+        "uutLowerLimit": 0.04977000000000001,
+        "uutUpperLimit": 0.050260000000000006
+      }
+    },
+    {
+      "id": 1749465600014,
+      "section": "4.1.9",
+      "tmdeDescription": "Calibration Beam #2938117; F Class Weight (500 mg hanger); TI Resolution",
+      "measurementAreaId": "area_brg3100_bearing_torque",
+      "associatedUutIds": [
+        "uut_brg3100_21972"
+      ],
+      "tmdeTolerances": [
+        {
+          "id": 1749465600111,
+          "name": "Calibration Beam #2938117",
+          "assetId": "#2938117",
+          "measurementPoint": {
+            "name": "Length",
+            "value": "2.127",
+            "unit": "in"
           },
-          {
-            "name": "Beam - Reading",
-            "span": 7.193888023629532e-8
+          "variableType": "Length",
+          "quantity": 1,
+          "reading": {
+            "high": "0.00199999999999978",
+            "low": "-0.00199999999999978",
+            "unit": "in",
+            "distribution": "1.960",
+            "symmetric": true
+          },
+          "sourceInstrument": {
+            "id": "inst_calibration_beam_2938117",
+            "manufacturer": "NPSL",
+            "model": "#2938117",
+            "description": "Calibration Beam",
+            "measurementArea": "Bearing Torque",
+            "measurementAreaColor": "#2563eb",
+            "type": "TMDE",
+            "functions": [
+              {
+                "id": "func_calibration_beam_length",
+                "name": "Length",
+                "unit": "in",
+                "ranges": [
+                  {
+                    "id": "rng_calibration_beam_length_normal",
+                    "range": "+/-0.002 in, normal 95%",
+                    "min": 0,
+                    "max": 3,
+                    "resolution": 1e-05,
+                    "tolerances": {
+                      "reading": {
+                        "high": "0.002",
+                        "low": "-0.002",
+                        "unit": "in",
+                        "distribution": "1.960",
+                        "symmetric": true
+                      }
+                    }
+                  },
+                  {
+                    "id": "rng_calibration_beam_length_rectangular",
+                    "range": "+/-0.002 in, rectangular",
+                    "min": 0,
+                    "max": 3,
+                    "resolution": 1e-05,
+                    "tolerances": {
+                      "reading": {
+                        "high": "0.002",
+                        "low": "-0.002",
+                        "unit": "in",
+                        "distribution": "1.732",
+                        "symmetric": true
+                      }
+                    }
+                  }
+                ]
+              }
+            ]
+          },
+          "originalInput": {
+            "excelSheet": "Document",
+            "excelRow": 11,
+            "excelTmde": "Calibration Beam",
+            "excelUnit": "inch",
+            "expandedUncertainty": 0.0019999999999997797
           }
-        ],
-        "nativeUnit": "in-ozf",
-        "gbInputs": {
-          "nominal": 3,
-          "uutLower": 2.999997,
-          "uutUpper": 3.000003,
-          "tmdeLower": 2.999999962826171,
-          "tmdeUpper": 3.0000000371738285,
-          "combUnc": 3.467583325966359e-7,
-          "turVal": 4.420461261026357,
-          "measRelTarget": 0.85,
-          "calibrationInt": 12,
-          "measrelCalcAssumed": 0.85,
-          "reqTUR": 4,
-          "reqPFA": 0.02,
-          "nominalUnit": "in-ozf",
-          "safeRes": 0.0000012
         },
-        "gbResults": {
-          "GBLOW": 2.9999975999999995,
-          "GBLOWMULT": 1,
-          "GBUP": 3.0000024,
-          "GBUPMULT": 1,
-          "GBMULT": 80.00000000296059,
-          "GBPFA": 0.04614119931629704,
-          "GBPFAT1": 0.023070599693948007,
-          "GBPFAT2": 0.02307059962234903,
-          "GBPFAUUUT": 0.0000016307498019307721,
-          "GBPFAUDEV": 0.000001667209122372611,
-          "GBPFACOR": 0.9781315253422117,
-          "GBPFR": 8.4640974004789,
-          "GBPFRT1": 4.232048698389966,
-          "GBPFRT2": 4.232048702088935,
-          "GBCALINT": 5.563992909771948,
-          "GBCALINTOBS": 0.8512501406054831,
-          "GBCALINTPRED": 0.9280468368728092,
-          "NOGBCALINT": 12.109507353565848,
-          "NOGBCALINTOBS": 0.8512501406054831,
-          "NOGBCALINTPRED": 0.85,
-          "NOGBMEASREL": 85,
-          "NOGBMEASRELOBS": 85.12501406054831
+        {
+          "id": 1749465600122,
+          "name": "F Class Weight (500 mg hanger)",
+          "assetId": "500 mg",
+          "measurementPoint": {
+            "name": "Weight",
+            "value": "0.017637",
+            "unit": "ozf"
+          },
+          "variableType": "Weight",
+          "quantity": 1,
+          "reading": {
+            "high": "2.53968253999988e-05",
+            "low": "-2.53968253999988e-05",
+            "unit": "ozf",
+            "distribution": "1.960",
+            "symmetric": true
+          },
+          "sourceInstrument": {
+            "id": "inst_f_class_weight_500mg",
+            "manufacturer": "F Class",
+            "model": "500 mg",
+            "description": "F Class Weight / Hanger Weight",
+            "measurementArea": "Bearing Torque",
+            "measurementAreaColor": "#2563eb",
+            "type": "TMDE",
+            "functions": [
+              {
+                "id": "func_f_class_weight_force",
+                "name": "Weight",
+                "unit": "ozf",
+                "ranges": [
+                  {
+                    "id": "rng_f_class_weight_500mg_normal",
+                    "range": "+/-0.72 mg converted to ozf, normal 95%",
+                    "min": 0,
+                    "max": 0.017637,
+                    "resolution": 1e-09,
+                    "tolerances": {
+                      "reading": {
+                        "high": "2.53968254e-05",
+                        "low": "-2.53968254e-05",
+                        "unit": "ozf",
+                        "distribution": "1.960",
+                        "symmetric": true
+                      }
+                    }
+                  },
+                  {
+                    "id": "rng_f_class_weight_500mg_rectangular",
+                    "range": "+/-0.72 mg converted to ozf, rectangular",
+                    "min": 0,
+                    "max": 0.017637,
+                    "resolution": 1e-09,
+                    "tolerances": {
+                      "reading": {
+                        "high": "2.53968254e-05",
+                        "low": "-2.53968254e-05",
+                        "unit": "ozf",
+                        "distribution": "1.732",
+                        "symmetric": true
+                      }
+                    }
+                  }
+                ]
+              }
+            ]
+          },
+          "originalInput": {
+            "excelSheet": "Document",
+            "excelRow": 12,
+            "excelTmde": "F Class Weight",
+            "excelUnit": "oz",
+            "expandedUncertainty": 2.5396825399998796e-05
+          }
+        }
+      ],
+      "uutTolerance": {
+        "id": "rng_brg3100_torque_0_05_in_oz",
+        "min": 0,
+        "max": 0.05,
+        "unit": "in-oz",
+        "functionName": "Torque",
+        "range": {
+          "value": "0.05",
+          "high": "0.5",
+          "low": "-0.5",
+          "unit": "%",
+          "distribution": "1.960",
+          "symmetric": true
         },
-        "uutResolution": 9
+        "measuringResolution": "0.00001",
+        "measuringResolutionUnit": "in-oz",
+        "includeResolutionInBudget": false
+      },
+      "specifications": {
+        "mfg": {
+          "uncertainty": "+/-0.5% FS at 0.05 in-oz; 0.00001 in-oz resolution",
+          "k": 2
+        },
+        "navy": {
+          "uncertainty": "Document LCP-SDB-MU-070, dated 2024-06-18",
+          "k": 2
+        }
+      },
+      "components": [
+        {
+          "id": "comp_brg3100_row14_ti_resolution",
+          "name": "TI Resolution",
+          "type": "B",
+          "value": 76.95130740385267,
+          "value_native": 2.8867513459481293e-06,
+          "unit_native": "in-oz",
+          "dof": null,
+          "distribution": "Rectangular",
+          "isCore": true,
+          "sourcePointLabel": "0.00001 in-oz LSD",
+          "variableType": "",
+          "originalInput": {
+            "excelSheet": "Document",
+            "excelRow": 13,
+            "errorLimit": "0.00001",
+            "distribution": "Rectangular (Resolution)"
+          },
+          "savedInputs": {
+            "errorLimit": "0.00001",
+            "unit": "in-oz",
+            "distribution": "Rectangular (Resolution)"
+          }
+        }
+      ],
+      "is_detailed_uncertainty_calculated": true,
+      "measurementType": "derived",
+      "equationString": "T = W * L",
+      "variableMappings": {
+        "W": "Weight",
+        "L": "Length"
+      },
+      "testPointInfo": {
+        "parameter": {
+          "name": "Torque",
+          "value": "0.037514",
+          "unit": "in-oz"
+        },
+        "qualifier": {
+          "name": "Load",
+          "value": "75",
+          "unit": "%"
+        }
+      },
+      "uutDescription": "BRG-3100 (21972) Bearing Torque Test Machine",
+      "combined_uncertainty": 1262.4808437293664,
+      "combined_uncertainty_absolute_base": 3.3443999607882e-07,
+      "combined_uncertainty_inputs_native": 4.7360706371663446e-05,
+      "combined_uncertainty_inputs_base": 3.3443999607882e-07,
+      "effective_dof": null,
+      "k_value": 1.9599639845400534,
+      "expanded_uncertainty": 2474.416984881297,
+      "expanded_uncertainty_absolute_base": 6.554903473042039e-07,
+      "calculatedBudgetComponents": [
+        {
+          "id": "derived_L_14",
+          "name": "Length (L) - Calibration Beam #2938117",
+          "type": "B",
+          "variable": "L",
+          "variableType": "Length",
+          "nominal": 2.127,
+          "unit": "in",
+          "value": 479.7493718143845,
+          "value_native": 0.0010204269138491958,
+          "unit_native": "in",
+          "dof": null,
+          "distribution": "Normal (95%)",
+          "sensitivityCoefficient": 0.017637,
+          "contribution": 1.7997269479558267e-05,
+          "sourcePointLabel": "2.127 in"
+        },
+        {
+          "id": "derived_W_14",
+          "name": "Weight (W) - F Class Weight",
+          "type": "B",
+          "variable": "W",
+          "variableType": "Weight",
+          "nominal": 0.017637,
+          "unit": "ozf",
+          "value": 734.6942270366415,
+          "value_native": 1.2957802082245246e-05,
+          "unit_native": "ozf",
+          "dof": null,
+          "distribution": "Normal (95%)",
+          "sensitivityCoefficient": 2.127,
+          "contribution": 2.7561245028935634e-05,
+          "sourcePointLabel": "0.017637 ozf"
+        },
+        {
+          "id": "derived_R_14",
+          "name": "Resolution (R) - TI Resolution",
+          "type": "B",
+          "variable": "R",
+          "variableType": "Resolution",
+          "nominal": 0,
+          "unit": "in-oz",
+          "value": 76.95130740385267,
+          "value_native": 2.8867513459481293e-06,
+          "unit_native": "in-oz",
+          "dof": null,
+          "distribution": "Rectangular",
+          "sensitivityCoefficient": 1,
+          "contribution": 2.8867513459481293e-06,
+          "sourcePointLabel": "0 in-oz"
+        }
+      ],
+      "calculatedNominalValue": 0.037513898999999996,
+      "riskMetrics": null,
+      "sourceWorkbook": {
+        "sheet": "Document",
+        "row": 14,
+        "standardUncertainty": 4.7360706371663446e-05,
+        "expandedUncertainty": 9.282527877083699e-05,
+        "uutLowerLimit": 0.037270000000000005,
+        "uutUpperLimit": 0.03776
+      }
+    },
+    {
+      "id": 1749465600019,
+      "section": "4.1.10",
+      "tmdeDescription": "Calibration Beam #2938117; F Class Weight (500 mg hanger); TI Resolution",
+      "measurementAreaId": "area_brg3100_bearing_torque",
+      "associatedUutIds": [
+        "uut_brg3100_21972"
+      ],
+      "tmdeTolerances": [
+        {
+          "id": 1749465600161,
+          "name": "Calibration Beam #2938117",
+          "assetId": "#2938117",
+          "measurementPoint": {
+            "name": "Length",
+            "value": "1.418",
+            "unit": "in"
+          },
+          "variableType": "Length",
+          "quantity": 1,
+          "reading": {
+            "high": "0.002",
+            "low": "-0.002",
+            "unit": "in",
+            "distribution": "1.960",
+            "symmetric": true
+          },
+          "sourceInstrument": {
+            "id": "inst_calibration_beam_2938117",
+            "manufacturer": "NPSL",
+            "model": "#2938117",
+            "description": "Calibration Beam",
+            "measurementArea": "Bearing Torque",
+            "measurementAreaColor": "#2563eb",
+            "type": "TMDE",
+            "functions": [
+              {
+                "id": "func_calibration_beam_length",
+                "name": "Length",
+                "unit": "in",
+                "ranges": [
+                  {
+                    "id": "rng_calibration_beam_length_normal",
+                    "range": "+/-0.002 in, normal 95%",
+                    "min": 0,
+                    "max": 3,
+                    "resolution": 1e-05,
+                    "tolerances": {
+                      "reading": {
+                        "high": "0.002",
+                        "low": "-0.002",
+                        "unit": "in",
+                        "distribution": "1.960",
+                        "symmetric": true
+                      }
+                    }
+                  },
+                  {
+                    "id": "rng_calibration_beam_length_rectangular",
+                    "range": "+/-0.002 in, rectangular",
+                    "min": 0,
+                    "max": 3,
+                    "resolution": 1e-05,
+                    "tolerances": {
+                      "reading": {
+                        "high": "0.002",
+                        "low": "-0.002",
+                        "unit": "in",
+                        "distribution": "1.732",
+                        "symmetric": true
+                      }
+                    }
+                  }
+                ]
+              }
+            ]
+          },
+          "originalInput": {
+            "excelSheet": "Document",
+            "excelRow": 16,
+            "excelTmde": "Calibration Beam",
+            "excelUnit": "inch",
+            "expandedUncertainty": 0.0020000000000000018
+          }
+        },
+        {
+          "id": 1749465600172,
+          "name": "F Class Weight (500 mg hanger)",
+          "assetId": "500 mg",
+          "measurementPoint": {
+            "name": "Weight",
+            "value": "0.017637",
+            "unit": "ozf"
+          },
+          "variableType": "Weight",
+          "quantity": 1,
+          "reading": {
+            "high": "2.53968253999988e-05",
+            "low": "-2.53968253999988e-05",
+            "unit": "ozf",
+            "distribution": "1.960",
+            "symmetric": true
+          },
+          "sourceInstrument": {
+            "id": "inst_f_class_weight_500mg",
+            "manufacturer": "F Class",
+            "model": "500 mg",
+            "description": "F Class Weight / Hanger Weight",
+            "measurementArea": "Bearing Torque",
+            "measurementAreaColor": "#2563eb",
+            "type": "TMDE",
+            "functions": [
+              {
+                "id": "func_f_class_weight_force",
+                "name": "Weight",
+                "unit": "ozf",
+                "ranges": [
+                  {
+                    "id": "rng_f_class_weight_500mg_normal",
+                    "range": "+/-0.72 mg converted to ozf, normal 95%",
+                    "min": 0,
+                    "max": 0.017637,
+                    "resolution": 1e-09,
+                    "tolerances": {
+                      "reading": {
+                        "high": "2.53968254e-05",
+                        "low": "-2.53968254e-05",
+                        "unit": "ozf",
+                        "distribution": "1.960",
+                        "symmetric": true
+                      }
+                    }
+                  },
+                  {
+                    "id": "rng_f_class_weight_500mg_rectangular",
+                    "range": "+/-0.72 mg converted to ozf, rectangular",
+                    "min": 0,
+                    "max": 0.017637,
+                    "resolution": 1e-09,
+                    "tolerances": {
+                      "reading": {
+                        "high": "2.53968254e-05",
+                        "low": "-2.53968254e-05",
+                        "unit": "ozf",
+                        "distribution": "1.732",
+                        "symmetric": true
+                      }
+                    }
+                  }
+                ]
+              }
+            ]
+          },
+          "originalInput": {
+            "excelSheet": "Document",
+            "excelRow": 17,
+            "excelTmde": "F Class Weight",
+            "excelUnit": "oz",
+            "expandedUncertainty": 2.5396825399998796e-05
+          }
+        }
+      ],
+      "uutTolerance": {
+        "id": "rng_brg3100_torque_0_05_in_oz",
+        "min": 0,
+        "max": 0.05,
+        "unit": "in-oz",
+        "functionName": "Torque",
+        "range": {
+          "value": "0.05",
+          "high": "0.5",
+          "low": "-0.5",
+          "unit": "%",
+          "distribution": "1.960",
+          "symmetric": true
+        },
+        "measuringResolution": "0.00001",
+        "measuringResolutionUnit": "in-oz",
+        "includeResolutionInBudget": false
+      },
+      "specifications": {
+        "mfg": {
+          "uncertainty": "+/-0.5% FS at 0.05 in-oz; 0.00001 in-oz resolution",
+          "k": 2
+        },
+        "navy": {
+          "uncertainty": "Document LCP-SDB-MU-070, dated 2024-06-18",
+          "k": 2
+        }
+      },
+      "components": [
+        {
+          "id": "comp_brg3100_row19_ti_resolution",
+          "name": "TI Resolution",
+          "type": "B",
+          "value": 143.3484629033732,
+          "value_native": 2.8867513459481293e-06,
+          "unit_native": "in-oz",
+          "dof": null,
+          "distribution": "Rectangular",
+          "isCore": true,
+          "sourcePointLabel": "0.00001 in-oz LSD",
+          "variableType": "",
+          "originalInput": {
+            "excelSheet": "Document",
+            "excelRow": 18,
+            "errorLimit": "0.00001",
+            "distribution": "Rectangular (Resolution)"
+          },
+          "savedInputs": {
+            "errorLimit": "0.00001",
+            "unit": "in-oz",
+            "distribution": "Rectangular (Resolution)"
+          }
+        }
+      ],
+      "is_detailed_uncertainty_calculated": true,
+      "measurementType": "derived",
+      "equationString": "T = W * L",
+      "variableMappings": {
+        "W": "Weight",
+        "L": "Length"
+      },
+      "testPointInfo": {
+        "parameter": {
+          "name": "Torque",
+          "value": "0.020138",
+          "unit": "in-oz"
+        },
+        "qualifier": {
+          "name": "Load",
+          "value": "50",
+          "unit": "%"
+        }
+      },
+      "uutDescription": "BRG-3100 (21972) Bearing Torque Test Machine",
+      "combined_uncertainty": 1285.2002410708585,
+      "combined_uncertainty_absolute_base": 1.827625350418805e-07,
+      "combined_uncertainty_inputs_native": 2.588136245468495e-05,
+      "combined_uncertainty_inputs_base": 1.827625350418805e-07,
+      "effective_dof": null,
+      "k_value": 1.9599639845400536,
+      "expanded_uncertainty": 2518.9461854210776,
+      "expanded_uncertainty_absolute_base": 3.582079864053253e-07,
+      "calculatedBudgetComponents": [
+        {
+          "id": "derived_L_19",
+          "name": "Length (L) - Calibration Beam #2938117",
+          "type": "B",
+          "variable": "L",
+          "variableType": "Length",
+          "nominal": 1.418,
+          "unit": "in",
+          "value": 719.6240577216566,
+          "value_native": 0.001020426913849309,
+          "unit_native": "in",
+          "dof": null,
+          "distribution": "Normal (95%)",
+          "sensitivityCoefficient": 0.017637,
+          "contribution": 1.7997269479560263e-05,
+          "sourcePointLabel": "1.418 in"
+        },
+        {
+          "id": "derived_W_19",
+          "name": "Weight (W) - F Class Weight",
+          "type": "B",
+          "variable": "W",
+          "variableType": "Weight",
+          "nominal": 0.017637,
+          "unit": "ozf",
+          "value": 734.6942270366415,
+          "value_native": 1.2957802082245246e-05,
+          "unit_native": "ozf",
+          "dof": null,
+          "distribution": "Normal (95%)",
+          "sensitivityCoefficient": 1.418,
+          "contribution": 1.837416335262376e-05,
+          "sourcePointLabel": "0.017637 ozf"
+        },
+        {
+          "id": "derived_R_19",
+          "name": "Resolution (R) - TI Resolution",
+          "type": "B",
+          "variable": "R",
+          "variableType": "Resolution",
+          "nominal": 0,
+          "unit": "in-oz",
+          "value": 143.3484629033732,
+          "value_native": 2.8867513459481293e-06,
+          "unit_native": "in-oz",
+          "dof": null,
+          "distribution": "Rectangular",
+          "sensitivityCoefficient": 1,
+          "contribution": 2.8867513459481293e-06,
+          "sourcePointLabel": "0 in-oz"
+        }
+      ],
+      "calculatedNominalValue": 0.025009266,
+      "riskMetrics": null,
+      "sourceWorkbook": {
+        "sheet": "Document",
+        "row": 19,
+        "standardUncertainty": 2.588136245468495e-05,
+        "expandedUncertainty": 5.072653828200966e-05,
+        "uutLowerLimit": 0.01989,
+        "uutUpperLimit": 0.020380000000000002
+      }
+    },
+    {
+      "id": 1749465600024,
+      "section": "4.1.10",
+      "tmdeDescription": "Calibration Beam #2938117; F Class Weight (500 mg hanger); TI Resolution",
+      "measurementAreaId": "area_brg3100_bearing_torque",
+      "associatedUutIds": [
+        "uut_brg3100_21972"
+      ],
+      "tmdeTolerances": [
+        {
+          "id": 1749465600211,
+          "name": "Calibration Beam #2938117",
+          "assetId": "#2938117",
+          "measurementPoint": {
+            "name": "Length",
+            "value": "0.709",
+            "unit": "in"
+          },
+          "variableType": "Length",
+          "quantity": 1,
+          "reading": {
+            "high": "0.002",
+            "low": "-0.002",
+            "unit": "in",
+            "distribution": "1.732",
+            "symmetric": true
+          },
+          "sourceInstrument": {
+            "id": "inst_calibration_beam_2938117",
+            "manufacturer": "NPSL",
+            "model": "#2938117",
+            "description": "Calibration Beam",
+            "measurementArea": "Bearing Torque",
+            "measurementAreaColor": "#2563eb",
+            "type": "TMDE",
+            "functions": [
+              {
+                "id": "func_calibration_beam_length",
+                "name": "Length",
+                "unit": "in",
+                "ranges": [
+                  {
+                    "id": "rng_calibration_beam_length_normal",
+                    "range": "+/-0.002 in, normal 95%",
+                    "min": 0,
+                    "max": 3,
+                    "resolution": 1e-05,
+                    "tolerances": {
+                      "reading": {
+                        "high": "0.002",
+                        "low": "-0.002",
+                        "unit": "in",
+                        "distribution": "1.960",
+                        "symmetric": true
+                      }
+                    }
+                  },
+                  {
+                    "id": "rng_calibration_beam_length_rectangular",
+                    "range": "+/-0.002 in, rectangular",
+                    "min": 0,
+                    "max": 3,
+                    "resolution": 1e-05,
+                    "tolerances": {
+                      "reading": {
+                        "high": "0.002",
+                        "low": "-0.002",
+                        "unit": "in",
+                        "distribution": "1.732",
+                        "symmetric": true
+                      }
+                    }
+                  }
+                ]
+              }
+            ]
+          },
+          "originalInput": {
+            "excelSheet": "Document",
+            "excelRow": 21,
+            "excelTmde": "Calibration Beam",
+            "excelUnit": "inch",
+            "expandedUncertainty": 0.002263171468152345
+          }
+        },
+        {
+          "id": 1749465600222,
+          "name": "F Class Weight (500 mg hanger)",
+          "assetId": "500 mg",
+          "measurementPoint": {
+            "name": "Weight",
+            "value": "0.017637",
+            "unit": "ozf"
+          },
+          "variableType": "Weight",
+          "quantity": 1,
+          "reading": {
+            "high": "2.53968253999988e-05",
+            "low": "-2.53968253999988e-05",
+            "unit": "ozf",
+            "distribution": "1.732",
+            "symmetric": true
+          },
+          "sourceInstrument": {
+            "id": "inst_f_class_weight_500mg",
+            "manufacturer": "F Class",
+            "model": "500 mg",
+            "description": "F Class Weight / Hanger Weight",
+            "measurementArea": "Bearing Torque",
+            "measurementAreaColor": "#2563eb",
+            "type": "TMDE",
+            "functions": [
+              {
+                "id": "func_f_class_weight_force",
+                "name": "Weight",
+                "unit": "ozf",
+                "ranges": [
+                  {
+                    "id": "rng_f_class_weight_500mg_normal",
+                    "range": "+/-0.72 mg converted to ozf, normal 95%",
+                    "min": 0,
+                    "max": 0.017637,
+                    "resolution": 1e-09,
+                    "tolerances": {
+                      "reading": {
+                        "high": "2.53968254e-05",
+                        "low": "-2.53968254e-05",
+                        "unit": "ozf",
+                        "distribution": "1.960",
+                        "symmetric": true
+                      }
+                    }
+                  },
+                  {
+                    "id": "rng_f_class_weight_500mg_rectangular",
+                    "range": "+/-0.72 mg converted to ozf, rectangular",
+                    "min": 0,
+                    "max": 0.017637,
+                    "resolution": 1e-09,
+                    "tolerances": {
+                      "reading": {
+                        "high": "2.53968254e-05",
+                        "low": "-2.53968254e-05",
+                        "unit": "ozf",
+                        "distribution": "1.732",
+                        "symmetric": true
+                      }
+                    }
+                  }
+                ]
+              }
+            ]
+          },
+          "originalInput": {
+            "excelSheet": "Document",
+            "excelRow": 22,
+            "excelTmde": "F Class Weight",
+            "excelUnit": "oz",
+            "expandedUncertainty": 2.8738685313461997e-05
+          }
+        }
+      ],
+      "uutTolerance": {
+        "id": "rng_brg3100_torque_0_05_in_oz",
+        "min": 0,
+        "max": 0.05,
+        "unit": "in-oz",
+        "functionName": "Torque",
+        "range": {
+          "value": "0.05",
+          "high": "0.5",
+          "low": "-0.5",
+          "unit": "%",
+          "distribution": "1.960",
+          "symmetric": true
+        },
+        "measuringResolution": "0.00001",
+        "measuringResolutionUnit": "in-oz",
+        "includeResolutionInBudget": false
+      },
+      "specifications": {
+        "mfg": {
+          "uncertainty": "+/-0.5% FS at 0.05 in-oz; 0.00001 in-oz resolution",
+          "k": 2
+        },
+        "navy": {
+          "uncertainty": "Document LCP-SDB-MU-070, dated 2024-06-18",
+          "k": 2
+        }
+      },
+      "components": [
+        {
+          "id": "comp_brg3100_row24_ti_resolution",
+          "name": "TI Resolution",
+          "type": "B",
+          "value": 230.84776856842296,
+          "value_native": 2.8867513459481293e-06,
+          "unit_native": "in-oz",
+          "dof": null,
+          "distribution": "Rectangular",
+          "isCore": true,
+          "sourcePointLabel": "0.00001 in-oz LSD",
+          "variableType": "",
+          "originalInput": {
+            "excelSheet": "Document",
+            "excelRow": 23,
+            "errorLimit": "0.00001",
+            "distribution": "Rectangular (Resolution)"
+          },
+          "savedInputs": {
+            "errorLimit": "0.00001",
+            "unit": "in-oz",
+            "distribution": "Rectangular (Resolution)"
+          }
+        }
+      ],
+      "is_detailed_uncertainty_calculated": true,
+      "measurementType": "derived",
+      "equationString": "T = W * L",
+      "variableMappings": {
+        "W": "Weight",
+        "L": "Length"
+      },
+      "testPointInfo": {
+        "parameter": {
+          "name": "Torque",
+          "value": "0.012505",
+          "unit": "in-oz"
+        },
+        "qualifier": {
+          "name": "Load",
+          "value": "25",
+          "unit": "%"
+        }
+      },
+      "uutDescription": "BRG-3100 (21972) Bearing Torque Test Machine",
+      "combined_uncertainty": 1843.0176242675948,
+      "combined_uncertainty_absolute_base": 1.6274708661360868e-07,
+      "combined_uncertainty_inputs_native": 2.3046935391466275e-05,
+      "combined_uncertainty_inputs_base": 1.6274708661360868e-07,
+      "effective_dof": null,
+      "k_value": 1.9599639845400538,
+      "expanded_uncertainty": 3612.248166437059,
+      "expanded_uncertainty_absolute_base": 3.189784283514937e-07,
+      "calculatedBudgetComponents": [
+        {
+          "id": "derived_L_24",
+          "name": "Length (L) - Calibration Beam #2938117",
+          "type": "B",
+          "variable": "L",
+          "variableType": "Length",
+          "nominal": 0.709,
+          "unit": "in",
+          "value": 1628.632635231668,
+          "value_native": 0.0011547005383792527,
+          "unit_native": "in",
+          "dof": null,
+          "distribution": "Rectangular",
+          "sensitivityCoefficient": 0.017637,
+          "contribution": 2.036545339539488e-05,
+          "sourcePointLabel": "0.709 in"
+        },
+        {
+          "id": "derived_W_24",
+          "name": "Weight (W) - F Class Weight",
+          "type": "B",
+          "variable": "W",
+          "variableType": "Weight",
+          "nominal": 0.017637,
+          "unit": "ozf",
+          "value": 831.3695062227835,
+          "value_native": 1.466286398125123e-05,
+          "unit_native": "ozf",
+          "dof": null,
+          "distribution": "Rectangular",
+          "sensitivityCoefficient": 0.709,
+          "contribution": 1.0395970562707122e-05,
+          "sourcePointLabel": "0.017637 ozf"
+        },
+        {
+          "id": "derived_R_24",
+          "name": "Resolution (R) - TI Resolution",
+          "type": "B",
+          "variable": "R",
+          "variableType": "Resolution",
+          "nominal": 0,
+          "unit": "in-oz",
+          "value": 230.84776856842296,
+          "value_native": 2.8867513459481293e-06,
+          "unit_native": "in-oz",
+          "dof": null,
+          "distribution": "Rectangular",
+          "sensitivityCoefficient": 1,
+          "contribution": 2.8867513459481293e-06,
+          "sourcePointLabel": "0 in-oz"
+        }
+      ],
+      "calculatedNominalValue": 0.012504633,
+      "riskMetrics": null,
+      "sourceWorkbook": {
+        "sheet": "Document",
+        "row": 24,
+        "standardUncertainty": 2.3046935391466275e-05,
+        "expandedUncertainty": 4.5171163321295424e-05,
+        "uutLowerLimit": 0.01226,
+        "uutUpperLimit": 0.012750000000000001
       }
     }
   ],
   "uncReq": {
     "uncertaintyConfidence": 95,
-    "reliability": 85,
-    "calInt": 12,
-    "measRelCalcAssumed": 85,
-    "neededTUR": 4,
-    "reqPFA": 2,
+    "reliability": 85.0,
+    "calInt": 12.0,
+    "measRelCalcAssumed": 85.0,
+    "neededTUR": 4.0,
+    "reqPFA": 2.0,
     "guardBandMultiplier": 1
+  },
+  "sourceWorkbook": {
+    "fileName": "MUA BRG3100 21972 BEARING TORQUE TEST MACHINE.xlsm",
+    "analysisDate": "2025-06-09",
+    "documentSheet": "Document"
   }
 }

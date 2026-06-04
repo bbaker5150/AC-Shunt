@@ -1,8 +1,11 @@
 """
 Seed the Uncertainty Budget module with realistic mock data for local testing.
 
-Loads the JSON fixtures captured from the original Uncertalytics local store
-(``uncertainty/fixtures/mock/``) into the dedicated ``uncertainty`` database:
+Loads the JSON fixtures in ``uncertainty/fixtures/mock/`` into the dedicated
+``uncertainty`` database. The primary derived-session fixture mirrors the
+``MUA BRG3100 21972 BEARING TORQUE TEST MACHINE.xlsm`` workbook setup, including
+the BRG-3100 UUT, calibration beam, F-class weight, torque indication
+resolution, document metadata, uncertainty requirements, and torque points:
 
   * ``instruments.json`` -> the global Instrument library
   * every other ``*.json`` -> a full analysis session (areas, UUTs, TMDEs,

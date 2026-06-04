@@ -51,6 +51,12 @@ body.uncertainty-active {
   --main-font:
     "Inter", system-ui, -apple-system, "Segoe UI", Roboto, Helvetica, Arial,
     sans-serif;
+  /* Instrument readout face — used for risk metrics + numeric readouts so the
+     budget footer reads like a bench instrument (echoes AC-Shunt's Roboto Mono
+     numerics). Tabular figures keep digits column-aligned. */
+  --readout-font:
+    "Roboto Mono", "JetBrains Mono", "SF Mono", "Consolas", ui-monospace,
+    monospace;
   --heading-font-weight: 700;
   --letter-spacing: normal;
 
@@ -3717,16 +3723,23 @@ body.dark-mode .symbol-popout .symbol-button:hover {
 }
 
 .uncertainty-budget-table .category-header td {
-  font-weight: bold;
-  background-color: var(--background-color); /* Changed to match footer bg */
+  font-weight: 700;
+  background-color: color-mix(
+    in srgb,
+    var(--primary-color) 6%,
+    var(--background-color)
+  );
   color: var(--primary-color);
-  font-size: 0.95rem;
-  padding-top: 15px;
-  padding-bottom: 8px;
+  font-size: 0.72rem;
+  text-transform: uppercase;
+  letter-spacing: 0.09em;
+  padding-top: 11px;
+  padding-bottom: 9px;
+  box-shadow: inset 3px 0 0 var(--primary-color);
 }
 
 .uncertainty-budget-table tbody tr:hover {
-  background-color: var(--background-color);
+  background-color: var(--table-hover-row-bg, var(--background-color));
 }
 
 .uncertainty-budget-table tfoot tr {
@@ -3756,16 +3769,32 @@ body.dark-mode .symbol-popout .symbol-button:hover {
   box-shadow: var(--box-shadow-glow, 0 2px 10px rgba(0, 0, 0, 0.06));
   font-size: 0.9rem;
   background-color: var(--content-background);
+  /* Keep numeric columns (uᵢ, cᵢ, contribution) column-aligned like a bench
+     readout, without forcing a monospace face on the descriptive columns. */
+  font-variant-numeric: tabular-nums;
 }
 
 .uncertainty-budget-table thead th {
   text-transform: uppercase;
-  letter-spacing: 0.4px;
-  font-size: 0.78rem;
+  letter-spacing: 0.06em;
+  font-size: 0.72rem;
+  font-weight: 700;
+  background-image: linear-gradient(
+    180deg,
+    color-mix(in srgb, var(--table-header-bg) 60%, var(--content-background)),
+    var(--table-header-bg)
+  );
 }
 
 .uncertainty-budget-table tbody tr {
   transition: background-color 0.15s ease;
+}
+
+/* The combined / expanded readout values pick up the instrument face so the
+   final numbers read consistently with the metric gauges above. */
+.uncertainty-budget-table tfoot td:not([colspan]) {
+  font-family: var(--readout-font);
+  font-variant-numeric: tabular-nums;
 }
 
 /* Distribution mini-select inherits the table cell look until hovered/active. */
@@ -3925,36 +3954,75 @@ body.dark-mode .symbol-popout .symbol-button:hover {
 }
 
 .final-result-display {
+  position: relative;
   text-align: center;
-  padding: 2rem 1.5rem;
-  background-color: var(--background-color);
+  padding: 2.25rem 1.5rem 1.75rem;
   display: flex;
   flex-direction: column;
   align-items: center;
   gap: 0.5rem;
-  border-top: 1px solid var(--border-color); /* Added this line */
+  border-top: 1px solid var(--border-color);
+  isolation: isolate;
+  /* Instrument "readout panel": a soft primary bloom rising from the seam plus
+     a gentle surface gradient — the same volumetric language as the header
+     medallion's emissive aura, kept calm and matte for an industry-grade feel. */
+  background:
+    radial-gradient(
+      135% 120% at 50% 0%,
+      color-mix(in srgb, var(--primary-color) 7%, transparent),
+      transparent 58%
+    ),
+    linear-gradient(
+      180deg,
+      color-mix(in srgb, var(--background-color) 55%, var(--content-background)),
+      var(--background-color)
+    );
+}
+
+/* Hairline of primary at the seam reads like an instrument's status rail. */
+.final-result-display::before {
+  content: "";
+  position: absolute;
+  inset: 0 0 auto 0;
+  height: 2px;
+  background: linear-gradient(
+    90deg,
+    transparent,
+    color-mix(in srgb, var(--primary-color) 70%, transparent),
+    transparent
+  );
 }
 
 .final-result-label {
-  font-size: 1rem;
-  font-weight: 600;
+  font-size: 0.78rem;
+  font-weight: 700;
   color: var(--text-color-muted);
+  text-transform: uppercase;
+  letter-spacing: 0.14em;
 }
 
 .final-result-value {
-  font-size: 2.5rem;
+  font-family: var(--readout-font);
+  font-variant-numeric: tabular-nums;
+  font-size: 2.7rem;
   font-weight: 700;
+  letter-spacing: -0.01em;
   color: var(--primary-color);
-  line-height: 1.2;
+  line-height: 1.15;
   display: flex;
   align-items: baseline;
+  justify-content: center;
   gap: 0.5rem;
+  margin-top: 0.15rem;
+  text-shadow: 0 1px 18px color-mix(in srgb, var(--primary-color) 22%, transparent);
 }
 
 .final-result-unit {
-  font-size: 1.5rem;
-  font-weight: 500;
+  font-family: var(--main-font);
+  font-size: 1.35rem;
+  font-weight: 600;
   color: var(--text-color-muted);
+  letter-spacing: 0;
 }
 
 .final-result-confidence-note {
@@ -4003,10 +4071,10 @@ body.dark-mode .symbol-popout .symbol-button:hover {
 .budget-risk-metrics {
   display: flex;
   flex-direction: column;
-  gap: 15px;
+  gap: 16px;
   width: 100%;
-  max-width: 100%; /* Removed the 500px limit to allow full width */
-  margin-top: 25px;
+  max-width: 100%;
+  margin-top: 28px;
 }
 
 /* New class for grouping pods into lines */
@@ -4014,27 +4082,81 @@ body.dark-mode .symbol-popout .symbol-button:hover {
   display: flex;
   flex-wrap: wrap;
   justify-content: center;
-  gap: 12px;
+  gap: 14px;
 }
 
+/* ------------------------------------------------------------------- */
+/* Risk metric "gauges" — instrument-bench readout cards.              */
+/* Each pod is a small bench gauge: a matte slate face with a tinted    */
+/* status rail along the top, a soft-breathing status LED, a tracked    */
+/* label, and a monospace tabular readout. The accent color is driven   */
+/* by a single custom property (--pod-accent) set per status class, so  */
+/* the rail, LED, hover ring and value all stay in sync.                */
+/* ------------------------------------------------------------------- */
 .metric-pod {
-  /* Flexible width: grows/shrinks but tries to be ~130px */
-  flex: 1 1 130px;
-  max-width: 200px; /* Prevents them from getting too wide on large screens */
-  background-color: var(--content-background);
-  border: 1px solid var(--border-color); /* Thinner border (1px) looks cleaner */
-  border-radius: 12px;
-  padding: 10px 12px;
-  text-align: center;
-  transition: all 0.2s ease-in-out;
+  --pod-accent: var(--text-color-muted);
+  position: relative;
+  isolation: isolate;
+  overflow: hidden;
+  flex: 1 1 140px;
+  min-width: 122px;
+  max-width: 210px;
+  padding: 13px 16px 12px;
+  border-radius: 14px;
+  text-align: left;
   display: flex;
   flex-direction: column;
-  justify-content: center;
-  box-shadow: 0 2px 4px rgba(0, 0, 0, 0.02);
+  gap: 7px;
+  border: 1px solid var(--border-color);
+  background:
+    linear-gradient(
+      180deg,
+      color-mix(in srgb, var(--content-background) 88%, #ffffff 12%),
+      var(--content-background)
+    );
+  box-shadow:
+    inset 0 1px 0 rgba(255, 255, 255, 0.55),
+    0 1px 2px rgba(15, 23, 42, 0.04),
+    0 8px 18px -12px rgba(15, 23, 42, 0.3);
+  transition:
+    transform 0.18s ease,
+    box-shadow 0.18s ease,
+    border-color 0.18s ease;
 
   /* GLASSMORPHISM SUPPORT */
   backdrop-filter: var(--backdrop-filter);
   -webkit-backdrop-filter: var(--backdrop-filter);
+}
+
+/* Tinted status rail across the top edge. */
+.metric-pod::before {
+  content: "";
+  position: absolute;
+  inset: 0 0 auto 0;
+  height: 3px;
+  background: linear-gradient(
+    90deg,
+    transparent,
+    color-mix(in srgb, var(--pod-accent) 85%, transparent),
+    transparent
+  );
+  opacity: 0.95;
+}
+
+/* Soft-breathing status LED in the top-right corner. */
+.metric-pod::after {
+  content: "";
+  position: absolute;
+  top: 13px;
+  right: 14px;
+  width: 7px;
+  height: 7px;
+  border-radius: 50%;
+  background: var(--pod-accent);
+  box-shadow:
+    0 0 0 2px color-mix(in srgb, var(--pod-accent) 16%, transparent),
+    0 0 9px 1px color-mix(in srgb, var(--pod-accent) 55%, transparent);
+  animation: pod-led-breath 4.5s ease-in-out infinite;
 }
 
 .metric-pod.clickable {
@@ -4043,27 +4165,35 @@ body.dark-mode .symbol-popout .symbol-button:hover {
 
 .metric-pod.clickable:hover {
   transform: translateY(-3px);
-  box-shadow: 0 4px 8px rgba(0, 0, 0, 0.08);
+  border-color: color-mix(in srgb, var(--pod-accent) 50%, var(--border-color));
+  box-shadow:
+    inset 0 1px 0 rgba(255, 255, 255, 0.55),
+    0 10px 24px -12px color-mix(in srgb, var(--pod-accent) 65%, transparent),
+    0 4px 10px rgba(15, 23, 42, 0.08);
 }
 
 .metric-pod-label {
-  font-size: 0.75rem;
+  font-size: 0.7rem;
   font-weight: 700;
   color: var(--text-color-muted);
   display: block;
-  margin-bottom: 4px;
   text-transform: uppercase;
-  letter-spacing: 0.5px;
-  white-space: nowrap; /* Prevent label wrapping */
+  letter-spacing: 0.08em;
+  padding-right: 14px; /* clear the LED */
+  white-space: nowrap;
   overflow: hidden;
   text-overflow: ellipsis;
 }
 
 .metric-pod-value {
-  font-size: 1rem; /* Slightly smaller to fit better */
+  font-family: var(--readout-font);
+  font-variant-numeric: tabular-nums;
+  font-size: 1.3rem;
   font-weight: 700;
-  line-height: 1.2;
-  white-space: nowrap; /* CRITICAL: Prevents value wrapping */
+  letter-spacing: -0.01em;
+  line-height: 1.1;
+  color: var(--pod-accent);
+  white-space: nowrap;
   overflow: hidden;
   text-overflow: ellipsis;
 }
@@ -4074,64 +4204,45 @@ body.dark-mode .symbol-popout .symbol-button:hover {
   text-align: center;
   border-bottom: 1px solid var(--border-color);
   line-height: 0.1em;
-  margin: 15px 0 10px 0;
-  opacity: 0.6;
+  margin: 18px 0 12px 0;
+  opacity: 0.7;
 }
 
 .metrics-separator span {
   background: var(--background-color); /* Matches footer/modal bg */
-  padding: 0 10px;
+  padding: 0 12px;
   color: var(--text-color-muted);
-  font-size: 0.7rem;
+  font-size: 0.68rem;
   font-weight: 700;
   text-transform: uppercase;
-  letter-spacing: 1px;
+  letter-spacing: 0.12em;
 }
 
-/* --- Color Logic (Preserved) --- */
+/* --- Status accent mapping --- */
+/* A single --pod-accent per class colors the rail, LED, hover ring and the
+   readout value together. Status semantics are unchanged from before. */
 .metric-pod.status-good {
-  border-color: var(--status-good);
-  animation: glow-good 3s infinite alternate;
-}
-.metric-pod.status-good .metric-pod-value {
-  color: var(--status-good);
+  --pod-accent: var(--status-good);
 }
 
 .metric-pod.status-warning {
-  border-color: var(--status-warning);
-  animation: glow-warning 3s infinite alternate;
-}
-.metric-pod.status-warning .metric-pod-value {
-  color: var(--status-warning);
+  --pod-accent: var(--status-warning);
 }
 
 .metric-pod.status-bad {
-  border-color: var(--status-bad);
-  animation: glow-bad 3s infinite alternate;
-}
-.metric-pod.status-bad .metric-pod-value {
-  color: var(--status-bad);
+  --pod-accent: var(--status-bad);
 }
 
 .metric-pod.tur,
 .metric-pod.tar {
-  border-color: var(--primary-color);
-  animation: glow-primary 3s infinite alternate;
-}
-.metric-pod.tur .metric-pod-value,
-.metric-pod.tar .metric-pod-value {
-  color: var(--primary-color);
+  --pod-accent: var(--primary-color);
 }
 
 .metric-pod.pfr {
-  border-color: var(--text-color-muted);
-  animation: glow-muted 3s infinite alternate;
-}
-.metric-pod.pfr .metric-pod-value {
-  color: var(--text-color-muted);
+  --pod-accent: var(--text-color-muted);
 }
 
-/* Guardband Colors */
+/* Guardband group */
 .metric-pod.gbmult,
 .metric-pod.gblow,
 .metric-pod.gbhigh,
@@ -4140,84 +4251,64 @@ body.dark-mode .symbol-popout .symbol-button:hover {
 .metric-pod.gbcalint,
 .metric-pod.calint,
 .metric-pod.measrel {
-  border-color: var(--risk-value-color);
-  color: var(--risk-value-color);
-  animation: glow-theme 3s infinite alternate;
+  --pod-accent: var(--risk-value-color);
 }
 
-/* --- Metric Pod Glow Animations --- */
-@keyframes glow-good {
-  from {
-    box-shadow: 0 0 3px 0px var(--status-good);
+/* --- Status LED breath --- */
+/* Calm, organic pulse confined to the indicator LED rather than flashing the
+   whole card — mirrors the header medallion's slow emissive breathing. */
+@keyframes pod-led-breath {
+  0%,
+  100% {
+    opacity: 0.6;
+    box-shadow:
+      0 0 0 2px color-mix(in srgb, var(--pod-accent) 14%, transparent),
+      0 0 6px 0px color-mix(in srgb, var(--pod-accent) 45%, transparent);
   }
-  to {
-    box-shadow: 0 0 8px 2px var(--status-good);
-  }
-}
-@keyframes glow-warning {
-  from {
-    box-shadow: 0 0 3px 0px var(--status-warning);
-  }
-  to {
-    box-shadow: 0 0 8px 2px var(--status-warning);
-  }
-}
-@keyframes glow-bad {
-  from {
-    box-shadow: 0 0 3px 0px var(--status-bad);
-  }
-  to {
-    box-shadow: 0 0 8px 2px var(--status-bad);
+  50% {
+    opacity: 1;
+    box-shadow:
+      0 0 0 2px color-mix(in srgb, var(--pod-accent) 20%, transparent),
+      0 0 11px 2px color-mix(in srgb, var(--pod-accent) 60%, transparent);
   }
 }
-@keyframes glow-primary {
-  from {
-    box-shadow: 0 0 3px 0px var(--primary-color);
-  }
-  to {
-    box-shadow: 0 0 8px 2px var(--primary-color);
-  }
-}
-@keyframes glow-muted {
-  from {
-    box-shadow: 0 0 3px 0px var(--text-color-muted);
-  }
-  to {
-    box-shadow: 0 0 8px 2px var(--text-color-muted);
-  }
-}
-@keyframes glow-theme {
-  from {
-    box-shadow: 0 0 3px 0px var(--risk-value-color);
-  }
-  to {
-    box-shadow: 0 0 8px 2px var(--risk-value-color);
+
+@media (prefers-reduced-motion: reduce) {
+  .metric-pod::after {
+    animation: none;
   }
 }
 
 /* --- Dark Mode Overrides --- */
+/* On the dark "control room" surface the matte sheen is dialed back and the
+   face sits a touch above the panel so the status rail/LED read clearly. */
 body.dark-mode .metric-pod {
-  background-color: var(--background-color);
+  background:
+    linear-gradient(
+      180deg,
+      color-mix(in srgb, var(--content-background) 82%, #ffffff 4%),
+      var(--content-background)
+    );
+  box-shadow:
+    inset 0 1px 0 rgba(255, 255, 255, 0.05),
+    0 1px 2px rgba(0, 0, 0, 0.35),
+    0 10px 22px -14px rgba(0, 0, 0, 0.7);
+}
+
+body.dark-mode .metric-pod.clickable:hover {
+  box-shadow:
+    inset 0 1px 0 rgba(255, 255, 255, 0.06),
+    0 12px 26px -12px color-mix(in srgb, var(--pod-accent) 60%, transparent),
+    0 4px 12px rgba(0, 0, 0, 0.45);
 }
 
 body.dark-mode .metrics-separator span {
-  background: #1a202c; /* Matches dark mode final result bg */
+  background: var(--background-color);
 }
 
 body.dark-mode .metric-pod.tur,
 body.dark-mode .metric-pod.tar {
-  border-color: var(--primary-color-dark);
-}
-body.dark-mode .metric-pod.tur .metric-pod-value,
-body.dark-mode .metric-pod.tar .metric-pod-value {
-  color: var(--primary-color-dark);
-}
-
-body.dark-mode .metric-pod.pfr {
-  border-color: var(--text-color-muted);
-}
-body.dark-mode .metric-pod.pfr .metric-pod-value {
-  color: var(--text-color-muted);
+  --pod-accent: var(--primary-color-dark);
 }
 
 /* --- Edit Session Modal - Overview Tab Risk Metrics --- */
@@ -4425,13 +4516,23 @@ body.dark-mode .uncertainty-budget-table {
 
 body.dark-mode .uncertainty-budget-table thead th {
   background-color: var(--component-header-bg);
+  background-image: linear-gradient(
+    180deg,
+    color-mix(in srgb, var(--component-header-bg) 55%, var(--content-background)),
+    var(--component-header-bg)
+  );
   color: var(--text-color);
   border-color: var(--border-color);
 }
 
 body.dark-mode .uncertainty-budget-table .category-header td {
-  background-color: var(--background-color);
+  background-color: color-mix(
+    in srgb,
+    var(--primary-color) 12%,
+    var(--background-color)
+  );
   color: var(--primary-color-dark);
+  box-shadow: inset 3px 0 0 var(--primary-color-dark);
 }
 
 body.dark-mode .uncertainty-budget-table tbody tr:hover {
@@ -4455,7 +4556,6 @@ body.dark-mode .uncertainty-budget-table tfoot td:not([colspan]) {
 
 /* --- Results & Components --- */
 body.dark-mode .final-result-display {
-  background-color: var(--background-color);
   border-top: 1px solid var(--border-color);
 }
 
@@ -4551,9 +4651,8 @@ body.dark-mode .analyzed-components-title {
   border-bottom-color: #4a5568;
 }
 
-body.dark-mode .final-result-display {
-  background-color: #1a202c; /* A dark background */
-}
+/* The readout gradient already resolves to dark tokens, so dark mode keeps the
+   same volumetric treatment; nothing to flatten here. */
 
 /* =================================================================== */
 /* 10. MEDIA QUERIES                                                   */

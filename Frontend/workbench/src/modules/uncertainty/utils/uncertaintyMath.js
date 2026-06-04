@@ -70,6 +70,7 @@ export const unitSystem = {
     um: { to_si: 1e-6, quantity: "Length" },
     nm: { to_si: 1e-9, quantity: "Length" },
     in: { to_si: 0.0254, quantity: "Length" },
+    inch: { to_si: 0.0254, quantity: "Length" },
     ft: { to_si: 0.3048, quantity: "Length" },
     yd: { to_si: 0.9144, quantity: "Length" },
     mi: { to_si: 1609.34, quantity: "Length" },
@@ -138,6 +139,8 @@ export const unitSystem = {
     "lb-in": { to_si: 0.112985, quantity: "Torque" },
     "lb-ft": { to_si: 1.35582, quantity: "Torque" },
     "ozf-in": { to_si: 0.00706155, quantity: "Torque" },
+    "in-oz": { to_si: 0.00706155, quantity: "Torque" },
+    "in-ozf": { to_si: 0.00706155, quantity: "Torque" },
     "kgf-m": { to_si: 9.80665, quantity: "Torque" },
     "kgf-cm": { to_si: 0.0980665, quantity: "Torque" },
 
@@ -214,7 +217,7 @@ export const unitCategories = {
   Time: ["s", "ms", "us", "ns", "ps", "min", "hr", "day"],
   Temperature: ["Cel", "degF", "degC", "K"],
   Pressure: ["Pa", "kPa", "MPa", "psi", "bar", "mbar", "torr", "inHg", "inH2O", "atm", "hPa"],
-  Length: ["m", "cm", "mm", "um", "nm", "km", "in", "ft", "yd", "mi"],
+  Length: ["m", "cm", "mm", "um", "nm", "km", "in", "inch", "ft", "yd", "mi"],
   Mass: ["kg", "g", "mg", "ug", "lb", "oz", "t"],
   Power: ["W", "mW", "kW", "MW", "dBm"],
   Humidity: ["%RH", "degC dp", "degF dp", "g/m^3", "g/kg", "ppmv", "%v"],
@@ -222,7 +225,7 @@ export const unitCategories = {
   Volume: ["m^3", "L", "mL", "gal", "fl-oz"],
   Velocity: ["m/s", "km/h", "mph", "ft/s", "kn"],
   Force: ["N", "kN", "lbf", "ozf", "kgf"],
-  Torque: ["N-m", "N-cm", "lb-in", "lb-ft", "ozf-in", "kgf-m", "kgf-cm"],
+  Torque: ["N-m", "N-cm", "lb-in", "lb-ft", "ozf-in", "in-oz", "in-ozf", "kgf-m", "kgf-cm"],
   Flow: ["m^3/s", "L/min", "cfm", "gpm"],
   Energy: ["J", "kJ", "Wh", "kWh", "BTU", "cal"],
   Illuminance: ["lx", "fc"],
@@ -1699,6 +1702,14 @@ function PFAIter(sRiskType, dMeasRel, dAvg, dTolLow, dTolUp, dMeasUnc) {
 // EXPORTED FUNCTIONS
 // ---------------------------------------------------------
 
+// NOTE: resDwn/resUp intentionally mirror the spreadsheet's VBA ResDwn/ResUp
+// bit-for-bit, INCLUDING a known floating-point quirk: a limit that is exactly
+// on the resolution grid (e.g. 0.012750 = 1275 counts) divides to 1274.9999999…
+// under IEEE-754, so the trunc/floor drops a whole count (-> 0.012740). That can
+// surface a "guard band" (e.g. GB Mult 95.92%) where the solver actually returned
+// no guard band. We preserve this on purpose so results match the spreadsheet of
+// record exactly. Do NOT add grid-snapping here — see the GB Mult discrepancy
+// investigation (it would make us diverge from Excel by ~1 resolution count).
 export function resDwn(dVal, dRes) {
   // Pass non-finite values straight through so a failed guard-band solve shows
   // as N/A rather than being silently floored to a misleading number.
