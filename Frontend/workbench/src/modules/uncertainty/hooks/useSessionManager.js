@@ -49,9 +49,15 @@ const useSessionManager = () => {
       id: Date.now(),
       name: "New Session",
       analyst: "",
-      organization: "",
+      organization: "NPSL",
       document: "",
-      documentDate: "",
+      // Default the document date to today (local) in YYYY-MM-DD form so the
+      // <input type="date"> and the formatted sidebar display both populate.
+      documentDate: (() => {
+        const now = new Date();
+        const offsetMs = now.getTimezoneOffset() * 60000;
+        return new Date(now.getTime() - offsetMs).toISOString().split("T")[0];
+      })(),
       notes: "",
       noteImages: [],
       //  Master lists for the "Instruments Tab" workflow

@@ -640,7 +640,6 @@ function App() {
     importSession,
     saveTestPoint,
     updateTestPointData,
-    deleteTmdeDefinition,
     decrementTmdeQuantity,
     loadSessionImages,
     deleteSessionImage,
@@ -1981,11 +1980,34 @@ function App() {
       confirmText: "Delete",
       isIconConfirm: true,
       onConfirm: () => {
-        // Assume deleteTmdeDefinition can handle array or we loop here?
-        // deleteTmdeDefinition comes from useSessionManager. Let's assume we need to update session manually if the hook doesn't support batch.
-        // Actually, checking useSessionManager usage (line 286), it is destructured. Let's see what it does.
-        // If deleteTmdeDefinition only takes one ID, we might need to loop INSIDE the confirm.
-        ids.forEach((id) => deleteTmdeDefinition(id));
+        // The TMDE tables (summary + detailed) list the session-level master
+        // TMDEs (currentSessionData.tmdes). Deleting must remove the master
+        // definition AND scrub any per-point tmdeTolerance instances that were
+        // derived from it (matched by id or sourceId). The old behavior only
+        // pruned the active point's tolerances, so the master row never left
+        // the table — that's the "delete doesn't work" bug.
+        if (currentSessionData) {
+          const idsSet = new Set(ids);
+          const updatedTmdes = (currentSessionData.tmdes || []).filter(
+            (t) => !idsSet.has(t.id),
+          );
+          const updatedTestPoints = (currentSessionData.testPoints || []).map(
+            (tp) => {
+              const tols = tp.tmdeTolerances || [];
+              const nextTols = tols.filter(
+                (t) => !idsSet.has(t.id) && !idsSet.has(t.sourceId),
+              );
+              return nextTols.length === tols.length
+                ? tp
+                : { ...tp, tmdeTolerances: nextTols };
+            },
+          );
+          updateSession({
+            ...currentSessionData,
+            tmdes: updatedTmdes,
+            testPoints: updatedTestPoints,
+          });
+        }
         setAppNotification(null);
       },
     });
@@ -2019,6 +2041,52 @@ function App() {
                 }
               : {}),
           });
+        }
+        setAppNotification(null);
+      },
+    });
+  };
+
+  const handleDeleteArea = (areaId) => {
+    if (!currentSessionData) return;
+    const area = (currentSessionData.measurementAreas || []).find(
+      (a) => a.id === areaId,
+    );
+    // Guard: only allow deleting an area once it has been emptied of UUTs.
+    const hasUuts = (currentSessionData.uuts || []).some(
+      (u) =>
+        u.measurementAreaId === areaId ||
+        (area && u.measurementArea && u.measurementArea === area.name),
+    );
+    if (hasUuts) {
+      setAppNotification({
+        title: "Area Not Empty",
+        message:
+          "Remove all UUTs from this measurement area before deleting it.",
+      });
+      return;
+    }
+
+    setAppNotification({
+      title: "Delete Measurement Area",
+      message: `Delete measurement area "${area?.name || "this area"}"? Any leftover measurement points assigned to it will also be removed.`,
+      confirmText: "Delete",
+      isIconConfirm: true,
+      onConfirm: () => {
+        const updatedAreas = (currentSessionData.measurementAreas || []).filter(
+          (a) => a.id !== areaId,
+        );
+        const updatedTestPoints = (currentSessionData.testPoints || []).filter(
+          (tp) => tp.measurementAreaId !== areaId,
+        );
+        updateSession({
+          ...currentSessionData,
+          measurementAreas: updatedAreas,
+          testPoints: updatedTestPoints,
+        });
+        if (selectedAreaId === areaId) {
+          setSelectedAreaId(null);
+          handleSelectSession(currentSessionData.id);
         }
         setAppNotification(null);
       },
@@ -2774,6 +2842,15 @@ function App() {
                                 action: () => handlePasteUut(areaData.id),
                                 icon: faPaste,
                                 className: !clipboardUut ? "disabled" : "",
+                              },
+                              {
+                                label: "Delete Measurement Area",
+                                action: () => handleDeleteArea(areaData.id),
+                                icon: faTrashAlt,
+                                className:
+                                  areaData.uutGroups.length > 0
+                                    ? "disabled"
+                                    : "destructive",
                               },
                             ],
                           });
