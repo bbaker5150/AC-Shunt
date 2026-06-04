@@ -1700,24 +1700,34 @@ function PFAIter(sRiskType, dMeasRel, dAvg, dTolLow, dTolUp, dMeasUnc) {
 // ---------------------------------------------------------
 
 export function resDwn(dVal, dRes) {
-  if (dRes <= 0) return dVal;
+  // Pass non-finite values straight through so a failed guard-band solve shows
+  // as N/A rather than being silently floored to a misleading number.
+  if (!Number.isFinite(dVal)) return dVal;
+  if (!Number.isFinite(dRes) || dRes <= 0) return dVal;
   if (dVal === 0) return dVal;
   let x = Math.floor(dVal / dRes) * dRes;
   const dZero = 0.000001;
   if (Math.abs(Math.trunc(dVal / dRes) - dVal / dRes) > dZero) {
     if (dVal > 0) x = x + dRes;
   }
+  // Guard: a resolution coarser than the limit can round the value to exactly
+  // 0. Never collapse a non-zero guard-band limit to zero (that produced the
+  // GBLOW/GBUP "0" display bug); fall back to the unrounded value instead.
+  if (x === 0 && dVal !== 0) return dVal;
   return x;
 }
 
 export function resUp(dVal, dRes) {
-  if (dRes <= 0) return dVal;
+  if (!Number.isFinite(dVal)) return dVal;
+  if (!Number.isFinite(dRes) || dRes <= 0) return dVal;
   if (dVal === 0) return dVal;
   let x = Math.trunc(dVal / dRes) * dRes;
   const dZero = 0.000001;
   if (Math.abs(Math.trunc(dVal / dRes) - dVal / dRes) > dZero) {
     if (dVal < 0) x = x - dRes;
   }
+  // See resDwn: don't let a coarse resolution collapse a non-zero limit to 0.
+  if (x === 0 && dVal !== 0) return dVal;
   return x;
 }
 
@@ -1890,18 +1900,18 @@ export function gbLowMgr(rngReq, rngNominal, rngAvg, rngTolLow, rngTolUp, rngMea
 
   if (sRiskType === "NotThreshold") {
     dUUTUnc = uutUnc(dMeasRel, dMeasUnc, dTolLow, dTolUp);
-    if (dUUTUnc <= 0) return [];
+    if (dUUTUnc <= 0) return [NaN, NaN];
     GBMult = pfaGBMult(dReq, dUUTUnc, dMeasUnc, dTolLow, dTolUp);
     return [dNominal + dTolLow * GBMult, GBMult];
   } else if (sRiskType === "LowThreshold") {
     dUUTUnc = uutUncLL(dMeasRel, dMeasUnc, dAvg, dTolLow);
-    if (dUUTUnc <= 0) return [];
+    if (dUUTUnc <= 0) return [NaN, NaN];
     GBMult = pfaLLGBMult(dReq, dUUTUnc, dMeasUnc, dAvg, dTolLow);
     return [dAvg - (dAvg - dTolLow) * GBMult, GBMult];
   } else if (sRiskType === "AltLowThreshold") {
-    return [dTolLow - PHIDInv(dReq) * dMeasUnc, GBMult];
+    return [dTolLow - PHIDInv(dReq) * dMeasUnc, NaN];
   }
-  return "";
+  return [NaN, NaN];
 }
 
 export function gbUpMgr(rngReq, rngNominal, rngAvg, rngTolLow, rngTolUp, rngMeasUnc, rngMeasRel) {
@@ -1974,18 +1984,18 @@ export function gbUpMgr(rngReq, rngNominal, rngAvg, rngTolLow, rngTolUp, rngMeas
 
   if (sRiskType === "NotThreshold") {
     dUUTUnc = uutUnc(dMeasRel, dMeasUnc, dTolLow, dTolUp);
-    if (dUUTUnc <= 0) return [];
+    if (dUUTUnc <= 0) return [NaN, NaN];
     GBMult = pfaGBMult(dReq, dUUTUnc, dMeasUnc, dTolLow, dTolUp);
     return [dTolUp * GBMult + dNominal, GBMult];
   } else if (sRiskType === "UpThreshold") {
     dUUTUnc = uutUncUL(dMeasRel, dMeasUnc, dAvg, dTolUp);
-    if (dUUTUnc <= 0) return [];
+    if (dUUTUnc <= 0) return [NaN, NaN];
     GBMult = PFAULGBMult(dReq, dUUTUnc, dMeasUnc, dAvg, dTolUp);
     return [(dTolUp - dAvg) * GBMult + dAvg, GBMult];
   } else if (sRiskType === "AltUpThreshold") {
-    return [dTolUp + PHIDInv(dReq) * dMeasUnc, GBMult];
+    return [dTolUp + PHIDInv(dReq) * dMeasUnc, NaN];
   }
-  return "";
+  return [NaN, NaN];
 }
 
 export function GBMultMgr(rngReq, rngNominal, rngAvg, rngTolLow, rngTolUp, rngGBLow, rngGBUp) {
