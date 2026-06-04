@@ -80,6 +80,7 @@ import {
   getToleranceErrorSummary,
   getAbsoluteLimits,
 } from "./utils/uncertaintyMath";
+import { computeRiskMetricsMap } from "./utils/riskCompute";
 
 const getSidebarGridTemplate = (visibleColumns) => {
   const parts = [];
@@ -197,7 +198,10 @@ const SidebarPointItem = ({
 
   // Safe Accessors
   const displayValue = point.testPointInfo?.parameter?.value;
-  const risk = isLiveRiskTarget ? liveRiskMetrics || {} : point.riskMetrics || {};
+  // Prefer the live, reactively-computed metrics (always current with the
+  // session inputs); fall back to the persisted backend snapshot only if the
+  // point can't currently be evaluated (#1).
+  const risk = liveRiskMetrics || point.riskMetrics || {};
 
   // --- COLOR LOGIC (Matches UncertaintyPanel) ---
   const getPfaColor = (val) => {
@@ -718,6 +722,19 @@ function App() {
     }),
     [hasAnySectionedPoint, sidebarColumns],
   );
+  // Reactive per-point risk metrics for the sidebar columns. Recomputed purely
+  // in memory (no DB hits) whenever the points or the session's requirements /
+  // shared tolerance change, so every row reflects the latest inputs without
+  // needing to be clicked (#1).
+  const pointRiskMap = useMemo(
+    () => computeRiskMetricsMap(currentTestPoints, currentSessionData),
+    [
+      currentTestPoints,
+      currentSessionData?.uncReq,
+      currentSessionData?.uutTolerance,
+    ],
+  );
+
   const [isGlobalExpanded, setIsGlobalExpanded] = useState(false);
 
   // Resize Effect
@@ -3298,13 +3315,9 @@ function App() {
                                                           tp.id,
                                                         )}
                                                         liveRiskMetrics={
-                                                          selectedTestPointId === tp.id
-                                                            ? riskResults
-                                                            : null
+                                                          pointRiskMap[tp.id]
                                                         }
-                                                        isLiveRiskTarget={
-                                                          selectedTestPointId === tp.id
-                                                        }
+                                                        isLiveRiskTarget={true}
                                                         visibleColumns={
                                                           visibleSidebarColumns
                                                         }
@@ -3404,13 +3417,9 @@ function App() {
                                                   tp.id,
                                                 )}
                                                 liveRiskMetrics={
-                                                  selectedTestPointId === tp.id
-                                                    ? riskResults
-                                                    : null
+                                                  pointRiskMap[tp.id]
                                                 }
-                                                isLiveRiskTarget={
-                                                  selectedTestPointId === tp.id
-                                                }
+                                                isLiveRiskTarget={true}
                                                 onSelect={(e) =>
                                                   handleSelectTestPoint(
                                                     e,
@@ -3488,14 +3497,8 @@ function App() {
                                   isTableSelected={selectedTablePointIds.includes(
                                     tp.id,
                                   )}
-                                  liveRiskMetrics={
-                                    selectedTestPointId === tp.id
-                                      ? riskResults
-                                      : null
-                                  }
-                                  isLiveRiskTarget={
-                                    selectedTestPointId === tp.id
-                                  }
+                                  liveRiskMetrics={pointRiskMap[tp.id]}
+                                  isLiveRiskTarget={true}
                                   onSelect={(e) =>
                                     handleSelectTestPoint(e, tp.id, null)
                                   }
