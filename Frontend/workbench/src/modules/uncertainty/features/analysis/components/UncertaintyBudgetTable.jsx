@@ -1,6 +1,7 @@
 import React, { useState, useMemo, useEffect, useRef } from "react";
 import Latex from "../../../components/common/Latex"; 
 import { unitSystem, errorDistributions } from "../../../utils/uncertaintyMath";
+import { oldErrorDistributions } from "../utils/budgetUtils";
 import { FontAwesomeIcon } from "@fortawesome/react-fontawesome";
 import { 
   faCalculator, 
@@ -227,12 +228,35 @@ const UncertaintyBudgetTable = ({
               )}
 
               <td>
-                  {/* TMDE-derived rows carry a canonical divisor string
-                      (distributionDivisor) and a sourceTmdeId, so the dropdown
-                      round-trips on the divisor and the change is written back
-                      to the TMDE tolerance (recalculating the budget + risk).
-                      Manual/derived rows keep the simple label list. */}
-                  {c.distributionDivisor !== undefined ? (
+                  {/* Three cases:
+                      - Manual Type B / Resolution rows (have originalInput): a
+                        divisor dropdown that recomputes the component's value
+                        from the new divisor. (Type A has no divisor -> label.)
+                      - TMDE/UUT-derived rows (distributionDivisor + sourceTmdeId):
+                        round-trip on the divisor and write back to the tolerance.
+                      - Anything else: simple label list. */}
+                  {c.originalInput !== undefined ? (
+                    c.type === "A" ? (
+                      <span style={{ color: "var(--text-color-muted)" }}>
+                        {c.distribution || "Normal"}
+                      </span>
+                    ) : (
+                      <select
+                        className="mini-select"
+                        value={c.originalInput.errorDistributionDivisor || "1.732"}
+                        onChange={(e) => onComponentUpdate && onComponentUpdate(c.id, { distribution: e.target.value }, c)}
+                        style={DIST_SELECT_STYLE}
+                        onFocus={(e) => e.target.style.borderColor = 'var(--primary-color)'}
+                        onBlur={(e) => e.target.style.borderColor = 'transparent'}
+                      >
+                        {oldErrorDistributions.map((d) => (
+                          <option key={d.value} value={d.value} style={{ backgroundColor: 'var(--component-bg)', color: 'var(--text-color)' }}>
+                            {d.label}
+                          </option>
+                        ))}
+                      </select>
+                    )
+                  ) : c.distributionDivisor !== undefined ? (
                     <select
                       className="mini-select"
                       value={c.distributionDivisor}

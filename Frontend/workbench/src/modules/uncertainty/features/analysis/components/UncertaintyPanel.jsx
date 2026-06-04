@@ -93,6 +93,7 @@ import {
   unitSystem,
   unitCategories,
 } from "../../../utils/uncertaintyMath";
+import { oldErrorDistributions } from "../utils/budgetUtils";
 
 // Small inline button used by the equation "f(x)" symbol popout. This was
 // previously referenced but never defined, which threw once the popout
@@ -1868,7 +1869,54 @@ function DetailedView({
 
     // 1. Try Manual Components
     const currentManualComponents = testPointData.components || [];
-    if (currentManualComponents.some((c) => c.id === id)) {
+    const manualComp = currentManualComponents.find((c) => c.id === id);
+
+    // 1a. Distribution change on a manual Type B / Resolution component. Its
+    // standard uncertainty was precomputed as (input / divisor), so changing
+    // the divisor must recompute the value — it scales as 1/divisor. (Type A
+    // has no divisor; its distribution is fixed Normal.)
+    if (
+      updates.distribution !== undefined &&
+      manualComp &&
+      manualComp.originalInput &&
+      manualComp.type !== "A"
+    ) {
+      const oldDiv =
+        parseFloat(manualComp.originalInput.errorDistributionDivisor) || 1;
+      const newDivStr = String(updates.distribution);
+      const newDiv = parseFloat(newDivStr);
+      if (!isNaN(newDiv) && newDiv > 0 && oldDiv > 0) {
+        const scale = oldDiv / newDiv;
+        const baseLabel =
+          oldErrorDistributions.find((d) => d.value === newDivStr)?.label ||
+          newDivStr;
+        const updated = {
+          ...manualComp,
+          value:
+            typeof manualComp.value === "number"
+              ? manualComp.value * scale
+              : manualComp.value,
+          value_native:
+            typeof manualComp.value_native === "number"
+              ? manualComp.value_native * scale
+              : manualComp.value_native,
+          distribution: manualComp.originalInput.isResolution
+            ? `${baseLabel} (Res)`
+            : baseLabel,
+          originalInput: {
+            ...manualComp.originalInput,
+            errorDistributionDivisor: newDivStr,
+          },
+        };
+        const updatedComponents = currentManualComponents.map((c) =>
+          c.id === id ? updated : c,
+        );
+        onUpdateTestPoint({ components: updatedComponents });
+      }
+      return;
+    }
+
+    if (manualComp) {
       const updatedComponents = currentManualComponents.map((c) =>
         c.id === id ? { ...c, ...updates } : c,
       );
