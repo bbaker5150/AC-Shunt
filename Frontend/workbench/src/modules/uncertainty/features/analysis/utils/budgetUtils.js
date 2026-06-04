@@ -248,5 +248,46 @@ export const getBudgetComponentsFromTolerance = (
      }
   }
 
+  // --- 4. OPTIONAL: RESOLUTION COMPONENT ---
+  // Only included when the instrument/UUT explicitly opted in (#10). Modeled as
+  // a rectangular distribution spanning one least-significant-digit, i.e.
+  // u = LSD / (2*sqrt(3)).
+  const resVal = parseFloat(toleranceObject.measuringResolution);
+  if (
+    toleranceObject.includeResolutionInBudget &&
+    !isNaN(resVal) &&
+    resVal > 0
+  ) {
+    const resUnit = toleranceObject.measuringResolutionUnit || nominalUnit;
+    const resBase = unitSystem.toBaseUnit(resVal, resUnit);
+    if (!isNaN(resBase) && resBase > 0) {
+      const u_i_base = resBase / (2 * Math.sqrt(3));
+      const u_i_native = unitSystem.fromBaseUnit(u_i_base, nominalUnit);
+      const nominalBase = unitSystem.toBaseUnit(nominalValue, nominalUnit);
+
+      let finalValuePPM = NaN;
+      let isBaseUnitValue = false;
+      if (nominalBase !== 0 && !isNaN(nominalBase)) {
+        finalValuePPM = (u_i_base / Math.abs(nominalBase)) * 1e6;
+      } else {
+        finalValuePPM = u_i_base;
+        isBaseUnitValue = true;
+      }
+
+      budgetComponents.push({
+        id: `${prefix}_resolution${toleranceObject.id ? `_${toleranceObject.id}` : ""}`,
+        name: `${prefix} - Resolution`,
+        type: "B",
+        value: finalValuePPM,
+        isBaseUnitValue,
+        value_native: u_i_native,
+        unit_native: nominalUnit,
+        dof: Infinity,
+        isCore: true,
+        distribution: "Rectangular",
+      });
+    }
+  }
+
   return budgetComponents;
 };

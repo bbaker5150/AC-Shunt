@@ -349,14 +349,14 @@ const InstrumentBuilderModal = ({ isOpen, onClose, onSave, onDelete, initialData
               </div>
               
               <div className="slide-over-body">
-                {/* NOTE: Resolution input visibility is controlled by ToleranceForm.
-                  Since we are in "Builder" mode (Library definition), we do not treat this 
-                  as a specific UUT instance for calculation purposes yet.
-                */}
-                <ToleranceForm 
-                    tolerance={editingRange.tolerances || {}} 
-                    setTolerance={handleToleranceUpdate} 
-                    referencePoint={{ unit: activeFunction.unit }} 
+                {/* An instrument defined here can later be used as a UUT or a
+                  TMDE, so it carries a resolution field. It is only added to the
+                  uncertainty budget if the user ticks the opt-in checkbox (#10). */}
+                <ToleranceForm
+                    tolerance={editingRange.tolerances || {}}
+                    setTolerance={handleToleranceUpdate}
+                    referencePoint={{ unit: activeFunction.unit }}
+                    showResolution={true}
                 />
               </div>
               

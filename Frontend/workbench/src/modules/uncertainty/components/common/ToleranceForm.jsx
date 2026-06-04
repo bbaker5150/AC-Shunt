@@ -131,6 +131,11 @@ const ToleranceForm = ({
   isUUT,
   referencePoint,
   hideDistribution = false,
+  // Show the measuring-resolution block even when this isn't a UUT instance
+  // (e.g. the instrument builder, where any instrument may later be used as a
+  // UUT or TMDE). Resolution is never forced into the budget — an explicit
+  // opt-in checkbox controls that (#10).
+  showResolution = false,
 }) => {
   const [isAddComponentVisible, setAddComponentVisible] = useState(false);
   const [dropdownPosition, setDropdownPosition] = useState({ top: 0, left: 0 });
@@ -595,7 +600,7 @@ const ToleranceForm = ({
         )}
       </div>
 
-      {isUUT && (
+      {(isUUT || showResolution) && (
         <div
           className="form-section"
           style={{
@@ -646,6 +651,33 @@ const ToleranceForm = ({
               styles={portalStyle}
             />
           </div>
+
+          {/* Opt-in: resolution is excluded from the uncertainty budget unless
+              the user explicitly enables it here (#10). */}
+          <label
+            style={{
+              display: "flex",
+              alignItems: "center",
+              gap: "8px",
+              marginTop: "12px",
+              fontSize: "0.85rem",
+              cursor: "pointer",
+            }}
+          >
+            <input
+              type="checkbox"
+              name="includeResolutionInBudget"
+              data-type="misc"
+              checked={!!tolerance.includeResolutionInBudget}
+              onChange={(e) =>
+                setTolerance((prev) => ({
+                  ...prev,
+                  includeResolutionInBudget: e.target.checked,
+                }))
+              }
+            />
+            <span>Include resolution in uncertainty budget</span>
+          </label>
         </div>
       )}
     </>
