@@ -1019,6 +1019,20 @@ export const calculateDerivedUncertainty = (
       manualComponents.forEach((comp) => {
         const varType = comp.variableType || comp.name;
         const nominalValue = parseFloat(comp.nominal);
+        const existingInput = uncertaintyInputs[varType];
+        const nativeUnit = comp.unit_native || comp.unit || existingInput?.unit || "";
+        const uNative =
+          comp.value_native !== undefined && comp.value_native !== null
+            ? parseFloat(comp.value_native)
+            : parseFloat(comp.value);
+
+        if (existingInput && !isNaN(uNative) && nativeUnit) {
+          const uBase = unitSystem.toBaseUnit(uNative, nativeUnit);
+          if (!isNaN(uBase)) {
+            existingInput.ui_squared_sum_base += uBase ** 2;
+          }
+          return;
+        }
 
         if (!isNaN(nominalValue)) {
           // Normalize manual input to Base Units

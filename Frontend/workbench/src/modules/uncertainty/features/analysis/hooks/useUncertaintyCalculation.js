@@ -16,7 +16,8 @@ const normalizeDof = (dof) => {
 const calculateBudgetResults = (
   components,
   confidencePercent,
-  valueSelector = (component) => component.value
+  valueSelector = (component) => component.value,
+  coverageFactorOverride = null
 ) => {
   const validComponents = (components || [])
     .map((component) => ({
@@ -44,8 +45,11 @@ const calculateBudgetResults = (
   }, 0);
   const effectiveDof = denominator > 0 ? Math.pow(combined, 4) / denominator : Infinity;
   const probability = 1 - (1 - confidencePercent / 100) / 2;
+  const override = Number(coverageFactorOverride);
   const kValue =
-    effectiveDof === Infinity || isNaN(effectiveDof)
+    Number.isFinite(override) && override > 0
+      ? override
+      : effectiveDof === Infinity || isNaN(effectiveDof)
       ? normalQuantile(probability)
       : getKValueFromTDistribution(effectiveDof);
 
@@ -55,6 +59,36 @@ const calculateBudgetResults = (
     k_value: kValue,
     expanded: combined * kValue,
   };
+};
+
+const componentStandardUncertaintyBase = (
+  component,
+  fallbackUnit,
+  nominalValue,
+  nominalUnit
+) => {
+  if (
+    component.value_native !== undefined &&
+    component.value_native !== null &&
+    component.unit_native
+  ) {
+    return unitSystem.toBaseUnit(component.value_native, component.unit_native);
+  }
+
+  if (component.isBaseUnitValue && Number.isFinite(Number(component.value))) {
+    return Number(component.value);
+  }
+
+  const value = Number(component.value);
+  if (!Number.isFinite(value)) return NaN;
+
+  const unit = component.unit || fallbackUnit;
+  if (unit && unitSystem.units[unit]?.to_si && unit !== "ppm") {
+    return unitSystem.toBaseUnit(value, unit);
+  }
+
+  const nominalBase = unitSystem.toBaseUnit(nominalValue, nominalUnit);
+  return Number.isFinite(nominalBase) ? (value / 1e6) * Math.abs(nominalBase) : NaN;
 };
 
 export const useUncertaintyCalculation = (
@@ -146,6 +180,16 @@ export const useUncertaintyCalculation = (
         );
       }
 
+      const confidencePercent =
+        parseFloat(sessionData.uncReq.uncertaintyConfidence) || 95;
+      const manualCoverageFactor =
+        testPointData.coverageFactorMode === "manual"
+          ? parseFloat(testPointData.coverageFactorOverride)
+          : null;
+      const normalCoverageFactor = normalQuantile(
+        1 - (1 - confidencePercent / 100) / 2
+      );
+
       if (testPointData.measurementType === "derived") {
         
         // --- FIX START: PRE-CALCULATION GUARD ---
@@ -231,6 +275,9 @@ export const useUncertaintyCalculation = (
         // + non-mapped manual components). combineWithCorrelation applies the
         // optional correlation matrix; an empty map yields the prior RSS.
         const inputCorrelations = testPointData.inputCorrelations || {};
+        const mappedVariableTypes = new Set(
+          Object.values(testPointData.variableMappings || {}).filter(Boolean)
+        );
         const signedContribsBase = [];
 
         const inputBudgetGroups = [];
@@ -281,23 +328,33 @@ export const useUncertaintyCalculation = (
                         quantity: tmde.quantity || 1,
                     }))
             );
+            const mappedManualComponents = (manualComponents || [])
+              .filter((comp) => (comp.variableType || "") === item.type)
+              .map((comp, compIndex) => ({
+                ...comp,
+                id: comp.id || `manual_${item.variable}_${compIndex}`,
+                sourcePointLabel: comp.sourcePointLabel || "Manual",
+                quantity: comp.quantity || 1,
+              }));
             const inputBudgetResults = calculateBudgetResults(
-                inputBudgetComponents,
-                parseFloat(sessionData.uncReq.uncertaintyConfidence) || 95,
+                [...inputBudgetComponents, ...mappedManualComponents],
+                confidencePercent,
                 (component) =>
                     component.value_native !== undefined
                         ? component.value_native
-                        : component.value
+                        : component.value,
+                manualCoverageFactor
             );
             inputBudgetGroups.push({
                 id: `input_${item.variable}_${index}`,
                 kind: "input",
-                label: `${item.type} (${item.variable})`,
+                label: `${item.type} (${item.variable}) Uncertainty Budget`,
                 variable: item.variable,
                 variableType: item.type,
                 unit: item.unit,
                 nominalValue: item.nominal,
-                components: inputBudgetComponents,
+                nominalPoint: { value: item.nominal, unit: item.unit },
+                components: [...inputBudgetComponents, ...mappedManualComponents],
                 results: inputBudgetResults,
             });
 
@@ -316,7 +373,7 @@ export const useUncertaintyCalculation = (
                 sensitivityCoefficient: item.ci,
                 derivativeString: item.derivativeString,
                 contribution: item.contribution_native,
-                dof: Infinity,
+                dof: inputBudgetResults.effective_dof,
                 isCore: true,
                 distribution: distributionLabel,
                 distributionDivisor: distributionDivisor,
@@ -331,7 +388,7 @@ export const useUncertaintyCalculation = (
         if (manualComponents && manualComponents.length > 0) {
             manualComponents.forEach((comp, idx) => {
                 const varType = comp.variableType || comp.name;
-                const isMappedVariable = Object.values(testPointData.variableMappings || {}).includes(varType);
+                const isMappedVariable = mappedVariableTypes.has(varType);
 
                 if (!isMappedVariable) {
                     const absUncNative = (comp.value / 1e6) * Math.abs(derivedNominalValue);
@@ -421,7 +478,25 @@ export const useUncertaintyCalculation = (
           }
         }
 
-        effectiveDof = Infinity;
+        const equationNumerator = Math.pow(combinedUncertaintyAbsoluteBase, 4);
+        const equationDenominator = equationRows.reduce((sum, row) => {
+          const dof = normalizeDof(row.dof);
+          const signedBase = Number(row.contributionSignedBase);
+          return dof === Infinity || dof <= 0 || !Number.isFinite(signedBase)
+            ? sum
+            : sum + Math.pow(Math.abs(signedBase), 4) / dof;
+        }, 0);
+        effectiveDof =
+          equationDenominator > 0
+            ? equationNumerator / equationDenominator
+            : Infinity;
+        const equationK =
+          Number.isFinite(manualCoverageFactor) && manualCoverageFactor > 0
+            ? manualCoverageFactor
+            : effectiveDof === Infinity || isNaN(effectiveDof)
+            ? normalCoverageFactor
+            : getKValueFromTDistribution(effectiveDof);
+
         const finalBudgetComponents = [
           {
             id: "measurement_equation_uncertainty",
@@ -430,15 +505,40 @@ export const useUncertaintyCalculation = (
             value: derivedUcInputs_Native,
             value_native: derivedUcInputs_Native,
             unit_native: derivedNominalUnit,
-            dof: Infinity,
+            dof: effectiveDof,
             isCore: true,
             distribution: "Other (Std. Unc.)",
             sourcePointLabel: "Measurement Equation",
           },
           ...componentsForBudgetTable.filter(
-            (component) => !component.name.startsWith("Input:")
+            (component) =>
+              !component.name.startsWith("Input:") &&
+              !mappedVariableTypes.has(component.variableType)
           ),
         ];
+        const finalDofDenominator = finalBudgetComponents.reduce((sum, comp) => {
+          const dof = normalizeDof(comp.dof);
+          const stdBase = componentStandardUncertaintyBase(
+            comp,
+            derivedNominalUnit,
+            derivedNominalValue,
+            derivedNominalUnit
+          );
+          return dof === Infinity || dof <= 0 || !Number.isFinite(stdBase)
+            ? sum
+            : sum + Math.pow(stdBase, 4) / dof;
+        }, 0);
+        const finalEffectiveDof =
+          finalDofDenominator > 0
+            ? Math.pow(combinedUncertaintyAbsoluteBase, 4) / finalDofDenominator
+            : Infinity;
+        const finalK =
+          Number.isFinite(manualCoverageFactor) && manualCoverageFactor > 0
+            ? manualCoverageFactor
+            : finalEffectiveDof === Infinity || isNaN(finalEffectiveDof)
+            ? normalCoverageFactor
+            : getKValueFromTDistribution(finalEffectiveDof);
+        effectiveDof = finalEffectiveDof;
         calculatedBudgetGroups = [
           ...inputBudgetGroups,
           {
@@ -449,26 +549,9 @@ export const useUncertaintyCalculation = (
             rows: equationRows,
             results: {
               combined: derivedUcInputs_Native,
-              effective_dof: Infinity,
-              k_value:
-                normalQuantile(
-                  1 -
-                    (1 -
-                      (parseFloat(sessionData.uncReq.uncertaintyConfidence) ||
-                        95) /
-                        100) /
-                      2
-                ),
-              expanded:
-                derivedUcInputs_Native *
-                normalQuantile(
-                  1 -
-                    (1 -
-                      (parseFloat(sessionData.uncReq.uncertaintyConfidence) ||
-                        95) /
-                        100) /
-                      2
-                ),
+              effective_dof: effectiveDof,
+              k_value: equationK,
+              expanded: derivedUcInputs_Native * equationK,
             },
           },
           {
@@ -477,7 +560,13 @@ export const useUncertaintyCalculation = (
             label: `${uutNominal.name || "Final"} Uncertainty Budget`,
             unit: derivedNominalUnit,
             components: finalBudgetComponents,
-            results: null,
+            results: {
+              combined: combinedUncertaintyAbsoluteBase / targetUnitInfo.to_si,
+              effective_dof: finalEffectiveDof,
+              k_value: finalK,
+              expanded:
+                (combinedUncertaintyAbsoluteBase / targetUnitInfo.to_si) * finalK,
+            },
           },
         ];
       } else {
@@ -599,11 +688,11 @@ export const useUncertaintyCalculation = (
         return;
       }
 
-      const confidencePercent =
-        parseFloat(sessionData.uncReq.uncertaintyConfidence) || 95;
       const probability = 1 - (1 - confidencePercent / 100) / 2;
       const kValue =
-        effectiveDof === Infinity || isNaN(effectiveDof)
+        Number.isFinite(manualCoverageFactor) && manualCoverageFactor > 0
+          ? manualCoverageFactor
+          : effectiveDof === Infinity || isNaN(effectiveDof)
           ? normalQuantile(probability)
           : getKValueFromTDistribution(effectiveDof);
 
@@ -626,6 +715,11 @@ export const useUncertaintyCalculation = (
         expanded_uncertainty: expandedUncertaintyPPM,
         expanded_uncertainty_absolute_base: expandedUncertaintyAbsoluteBase,
         is_detailed_uncertainty_calculated: true,
+        coverageFactorMode: testPointData.coverageFactorMode || "auto",
+        coverageFactorOverride:
+          testPointData.coverageFactorMode === "manual"
+            ? testPointData.coverageFactorOverride
+            : null,
         calculatedBudgetComponents: componentsForBudgetTable,
         calculatedBudgetGroups: calculatedBudgetGroups.map((group) =>
           group.id === "final_budget"
@@ -713,6 +807,8 @@ export const useUncertaintyCalculation = (
     uutNominal,
     manualComponents,
     sessionData.uncReq.uncertaintyConfidence,
+    testPointData.coverageFactorMode,
+    testPointData.coverageFactorOverride,
     onDataSave,
     testPointData.is_detailed_uncertainty_calculated,
     testPointData.expanded_uncertainty,

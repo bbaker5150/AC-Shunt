@@ -145,6 +145,8 @@ class TestPoint(models.Model):
     combined_uncertainty_inputs_base = models.FloatField(null=True, blank=True)
     effective_dof = models.FloatField(null=True, blank=True)
     k_value = models.FloatField(null=True, blank=True)
+    coverage_factor_mode = models.CharField(max_length=16, blank=True, default="auto")
+    coverage_factor_override = models.FloatField(null=True, blank=True)
     expanded_uncertainty = models.FloatField(null=True, blank=True)
     expanded_uncertainty_absolute_base = models.FloatField(null=True, blank=True)
     calculated_nominal_value = models.FloatField(null=True, blank=True)

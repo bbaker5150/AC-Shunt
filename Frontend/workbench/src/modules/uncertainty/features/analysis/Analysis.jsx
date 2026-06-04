@@ -105,6 +105,7 @@ function Analysis({
 
   // --- Modal Data State ---
   const [editingComponent, setEditingComponent] = useState(null);
+  const [manualComponentScope, setManualComponentScope] = useState(null);
   const [modalPosition, setModalPosition] = useState(null);
   const [derivedBreakdownData, setDerivedBreakdownData] = useState(null);
 
@@ -361,24 +362,36 @@ function Analysis({
   };
 
   const handleSaveManualComponent = (componentData) => {
+    const scopedComponentData =
+      manualComponentScope && !editingComponent
+        ? {
+            ...componentData,
+            variableType: manualComponentScope.variableType,
+            sourcePointLabel:
+              componentData.sourcePointLabel ||
+              `${manualComponentScope.label || manualComponentScope.variableType} Manual`,
+          }
+        : componentData;
     let updatedComponents;
     if (editingComponent) {
       updatedComponents = manualComponents.map((c) =>
-        c.id === editingComponent.id ? componentData : c,
+        c.id === editingComponent.id ? scopedComponentData : c,
       );
     } else {
       updatedComponents = [
         ...manualComponents,
-        { ...componentData, id: Date.now() },
+        { ...scopedComponentData, id: Date.now() },
       ];
     }
     onDataSave({ components: updatedComponents });
     setManualModalOpen(false);
     setEditingComponent(null);
+    setManualComponentScope(null);
   };
 
   const handleEditComponent = (event, component) => {
     setEditingComponent(component);
+    setManualComponentScope(null);
     if (
       component.id.toString().includes("repeatability") ||
       component.name === "Repeatability"
@@ -567,10 +580,12 @@ function Analysis({
         onClose={() => {
           setManualModalOpen(false);
           setEditingComponent(null);
+          setManualComponentScope(null);
         }}
         onSave={handleSaveManualComponent}
         existingComponent={editingComponent}
-        uutNominal={uutNominal}
+        uutNominal={manualComponentScope?.nominalPoint || uutNominal}
+        budgetScope={manualComponentScope}
       />
 
       <RepeatabilityModal
@@ -712,7 +727,8 @@ function Analysis({
                 showContribution={showContribution}
                 setShowContribution={setShowContribution}
                 // Handlers: Components
-                onAddManualComponent={() => {
+                onAddManualComponent={(scope = null) => {
+                  setManualComponentScope(scope);
                   setEditingComponent(null);
                   setManualModalOpen(true);
                 }}

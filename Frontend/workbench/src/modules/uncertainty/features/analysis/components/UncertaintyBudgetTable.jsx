@@ -117,6 +117,9 @@ const UncertaintyBudgetTable = ({
   setNotification,
   onComponentUpdate,
   onOpenCorrelation,
+  onBudgetSettingsChange,
+  coverageFactorMode = "auto",
+  coverageFactorOverride = "",
 }) => {
   const confidencePercent = parseFloat(uncertaintyConfidence) || 95;
   const derivedUnit = referencePoint?.unit || "Units";
@@ -144,6 +147,10 @@ const UncertaintyBudgetTable = ({
     const eqParts = equationString.split("=");
     return eqParts.length > 1 ? eqParts[0].trim() : null;
   }, [equationString, measurementType]);
+
+  const budgetTitle = derivedSymbol
+    ? `${derivedName} (${derivedSymbol}) Uncertainty Budget`
+    : `${derivedName} Uncertainty Budget`;
 
   const groups = useMemo(() => {
     if (calcResults?.calculatedBudgetGroups?.length) {
@@ -390,7 +397,7 @@ const UncertaintyBudgetTable = ({
           <FontAwesomeIcon icon={faProjectDiagram} />
         </button>
       )}
-      <button type="button" onClick={onAddManualComponent} title="Add Manual Component">
+      <button type="button" onClick={() => onAddManualComponent?.(null)} title="Add Manual Component">
         <FontAwesomeIcon icon={faPlus} />
       </button>
       <button type="button" onClick={(e) => onOpenRepeatability?.(e)} title="Repeatability Calculator">
@@ -437,6 +444,39 @@ const UncertaintyBudgetTable = ({
                 }
               />
             </label>
+            <label>
+              Coverage Factor
+              <select
+                value={coverageFactorMode || "auto"}
+                onChange={(e) =>
+                  onBudgetSettingsChange?.({
+                    coverageFactorMode: e.target.value,
+                    coverageFactorOverride:
+                      e.target.value === "manual" ? coverageFactorOverride : null,
+                  })
+                }
+              >
+                <option value="auto">Auto from DOF</option>
+                <option value="manual">Manual k</option>
+              </select>
+            </label>
+            {(coverageFactorMode || "auto") === "manual" && (
+              <label>
+                Manual k
+                <input
+                  type="number"
+                  min="0.0001"
+                  step="0.0001"
+                  value={coverageFactorOverride ?? ""}
+                  onChange={(e) =>
+                    onBudgetSettingsChange?.({
+                      coverageFactorMode: "manual",
+                      coverageFactorOverride: e.target.value,
+                    })
+                  }
+                />
+              </label>
+            )}
           </div>
         )}
       </div>
@@ -510,28 +550,53 @@ const UncertaintyBudgetTable = ({
       <div className="budget-stack-header">
         <div>
           <h3 className="panel-section-title">
-            {derivedSymbol
-              ? `${derivedName} (${derivedSymbol}) Budget Stack`
-              : `${derivedName} Budget Stack`}
+            {budgetTitle}
           </h3>
         </div>
-        {renderToolbar()}
       </div>
 
       {groups.map((group) => (
-        <section
-          className={`budget-stack-section ${group.kind === "final" ? "final" : ""}`}
-          key={group.id}
-        >
-          <div className="budget-section-title-row">
-            <h4>{group.label}</h4>
-            <span>{group.kind === "equation" ? "Propagation" : group.unit}</span>
-          </div>
-          <div className="budget-section-grid">
-            <div className="budget-section-table-wrap">
-              {group.kind === "equation"
-                ? renderEquationTable(group)
-                : renderComponentTable(group)}
+        <React.Fragment key={group.id}>
+          {group.kind === "final" && (
+            <div className="budget-final-toolbar-row">{renderToolbar()}</div>
+          )}
+          <section className="budget-section-row">
+            <div
+              className={`budget-stack-section ${group.kind === "final" ? "final" : ""}`}
+            >
+              <div className="budget-section-title-row">
+                <h4>{group.label}</h4>
+                <div className="budget-section-title-actions">
+                  {(group.kind === "input" || group.kind === "final") && (
+                    <button
+                      type="button"
+                      title={`Add component to ${group.label}`}
+                      onClick={() =>
+                        group.kind === "input"
+                          ? onAddManualComponent?.({
+                              variableType: group.variableType,
+                              label: group.label.replace(
+                                /\s+Uncertainty Budget$/i,
+                                "",
+                              ),
+                              nominalPoint: group.nominalPoint || {
+                                value: group.nominalValue,
+                                unit: group.unit,
+                              },
+                            })
+                          : onAddManualComponent?.(null)
+                      }
+                    >
+                      <FontAwesomeIcon icon={faPlus} />
+                    </button>
+                  )}
+                </div>
+              </div>
+              <div className="budget-section-table-wrap">
+                {group.kind === "equation"
+                  ? renderEquationTable(group)
+                  : renderComponentTable(group)}
+              </div>
             </div>
             <ResultsCard
               title={group.kind === "final" ? "Final Results" : "Results"}
@@ -540,8 +605,8 @@ const UncertaintyBudgetTable = ({
               sigFigs={group.kind === "final" ? expandedSigFigs : uiSigFigs}
               isFinal={group.kind === "final"}
             />
-          </div>
-        </section>
+          </section>
+        </React.Fragment>
       ))}
 
       {calcResults && (

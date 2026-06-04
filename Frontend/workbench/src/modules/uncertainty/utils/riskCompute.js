@@ -213,8 +213,14 @@ function computeUncertaintyForPoint(point, sessionData) {
     const confidencePercent =
       parseFloat(sessionData.uncReq?.uncertaintyConfidence) || 95;
     const probability = 1 - (1 - confidencePercent / 100) / 2;
+    const manualCoverageFactor =
+      point.coverageFactorMode === "manual"
+        ? parseFloat(point.coverageFactorOverride)
+        : null;
     const kValue =
-      effectiveDof === Infinity || isNaN(effectiveDof)
+      Number.isFinite(manualCoverageFactor) && manualCoverageFactor > 0
+        ? manualCoverageFactor
+        : effectiveDof === Infinity || isNaN(effectiveDof)
         ? normalQuantile(probability)
         : getKValueFromTDistribution(effectiveDof);
 

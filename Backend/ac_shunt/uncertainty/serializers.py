@@ -83,6 +83,8 @@ def test_point_to_dict(tp):
         "combined_uncertainty_inputs_base": tp.combined_uncertainty_inputs_base,
         "effective_dof": tp.effective_dof,
         "k_value": tp.k_value,
+        "coverageFactorMode": tp.coverage_factor_mode or "auto",
+        "coverageFactorOverride": tp.coverage_factor_override,
         "expanded_uncertainty": tp.expanded_uncertainty,
         "expanded_uncertainty_absolute_base": tp.expanded_uncertainty_absolute_base,
         "calculatedNominalValue": tp.calculated_nominal_value,
@@ -296,6 +298,8 @@ def save_session(data):
             ),
             effective_dof=_num(tp.get("effective_dof")),
             k_value=_num(tp.get("k_value")),
+            coverage_factor_mode=tp.get("coverageFactorMode", "auto") or "auto",
+            coverage_factor_override=_num(tp.get("coverageFactorOverride")),
             expanded_uncertainty=_num(tp.get("expanded_uncertainty")),
             expanded_uncertainty_absolute_base=_num(
                 tp.get("expanded_uncertainty_absolute_base")

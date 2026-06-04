@@ -2637,11 +2637,11 @@ function App() {
                 </div>
                 <div className="app-chrome-brand-text">
                   <span className="app-chrome-brand-name">
-                    Uncert<span className="app-chrome-brand-dot">·</span>alytics
+                    Uncertalytics
                   </span>
                   <div className="app-chrome-brand-eyebrow">
                     <span className="app-chrome-brand-sub">
-                      Uncertainty &amp; Risk
+                      Uncertainty &amp; Risk Analysis Tool
                     </span>
                     <span className="app-chrome-brand-version">v1.0</span>
                   </div>

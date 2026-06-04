@@ -3116,6 +3116,9 @@ function DetailedView({
               onOpenRepeatability={onOpenRepeatability}
               onOpenCorrelation={onOpenCorrelation}
               setNotification={setNotification}
+              onBudgetSettingsChange={onUpdateTestPoint}
+              coverageFactorMode={testPointData.coverageFactorMode || "auto"}
+              coverageFactorOverride={testPointData.coverageFactorOverride || ""}
             />
             {showContribution &&
               calcResults?.calculatedBudgetComponents?.length > 0 && (
