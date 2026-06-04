@@ -6,7 +6,7 @@ import {
   combineWithCorrelation,
   normalQuantile
 } from "../../../utils/uncertaintyMath";
-import { getBudgetComponentsFromTolerance } from "../utils/budgetUtils";
+import { getBudgetComponentsFromTolerance, getUutResolutionComponent } from "../utils/budgetUtils";
 
 export const useUncertaintyCalculation = (
   testPointData,
@@ -272,6 +272,28 @@ export const useUncertaintyCalculation = (
             });
         }
 
+        // The UUT's own measuring resolution, when opted in, joins the budget as
+        // a standalone component (replaces the old manual "TI Resolution").
+        const uutResComp = getUutResolutionComponent(uutToleranceData, uutNominal);
+        if (uutResComp) {
+            const absUncNative = (uutResComp.value / 1e6) * Math.abs(derivedNominalValue);
+            const absUncBase = absUncNative * targetUnitInfo.to_si;
+            if (!isNaN(absUncBase)) {
+                signedContribsBase.push({
+                    id: uutResComp.componentId,
+                    contribution: absUncBase,
+                });
+                componentsForBudgetTable.push({
+                    ...uutResComp,
+                    value: absUncBase,
+                    unit: derivedNominalUnit,
+                    isBaseUnitValue: true,
+                    sensitivityCoefficient: 1,
+                    contribution: absUncNative,
+                });
+            }
+        }
+
         combinedUncertaintyAbsoluteBase = combineWithCorrelation(
           signedContribsBase,
           inputCorrelations
@@ -335,6 +357,13 @@ export const useUncertaintyCalculation = (
           totalVariancePPM += comp.value ** 2;
           componentsForBudgetTable.push(comp);
         });
+
+        // The UUT's own measuring resolution, when opted in, joins the budget.
+        const uutResComp = getUutResolutionComponent(uutToleranceData, uutNominal);
+        if (uutResComp) {
+          totalVariancePPM += uutResComp.value ** 2;
+          componentsForBudgetTable.push({ ...uutResComp, quantity: 1 });
+        }
 
         combinedUncertaintyPPM = Math.sqrt(totalVariancePPM);
 

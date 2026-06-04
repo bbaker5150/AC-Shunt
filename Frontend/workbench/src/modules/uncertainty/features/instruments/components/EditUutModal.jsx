@@ -354,11 +354,12 @@ const EditUutModal = ({
                         </div>
                         
                         <div className="slide-over-body">
-                            <ToleranceForm 
-                                tolerance={editingRange.tolerances || {}} 
-                                setTolerance={handleToleranceUpdate} 
-                                isUUT={true} 
-                                referencePoint={{ unit: activeFunction?.unit }} 
+                            <ToleranceForm
+                                tolerance={editingRange.tolerances || {}}
+                                setTolerance={handleToleranceUpdate}
+                                isUUT={true}
+                                referencePoint={{ unit: activeFunction?.unit }}
+                                resolutionInTable={true}
                             />
                         </div>
                         

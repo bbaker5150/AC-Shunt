@@ -307,3 +307,90 @@ export const getBudgetComponentsFromTolerance = (
 
   return budgetComponents;
 };
+
+/**
+ * Build the single resolution budget component contributed by the *UUT itself*
+ * (its measuring resolution / least-significant digit), when the user has ticked
+ * "Include resolution in uncertainty budget". This is what replaces the old
+ * manually-added "TI Resolution" component.
+ *
+ * Tolerant of the several shapes a UUT tolerance can take: the flattened test-
+ * point object (measuringResolution at top level), a nested `.tolerances`, or an
+ * instrument range that carries the value in its `resolution` column.
+ *
+ * Returns one component (stable `componentId: "UUT Resolution"`, `isResolution`)
+ * or null when not opted in / no usable resolution. The math mirrors the
+ * resolution block of getBudgetComponentsFromTolerance: u = LSD / (2*divisor).
+ */
+export const getUutResolutionComponent = (
+  uutTolerance,
+  referenceMeasurementPoint
+) => {
+  let tol = uutTolerance;
+  if (Array.isArray(tol)) tol = tol[0];
+  if (!tol || typeof tol !== "object") return null;
+
+  const nested = tol.tolerances && typeof tol.tolerances === "object" ? tol.tolerances : {};
+
+  const optedIn = tol.includeResolutionInBudget ?? nested.includeResolutionInBudget;
+  if (!optedIn) return null;
+
+  const hasValidNominal =
+    referenceMeasurementPoint &&
+    referenceMeasurementPoint.value !== null &&
+    referenceMeasurementPoint.value !== undefined &&
+    referenceMeasurementPoint.value !== "" &&
+    referenceMeasurementPoint.unit;
+  if (!hasValidNominal) return null;
+
+  const resVal = parseFloat(
+    tol.measuringResolution ?? tol.resolution ?? nested.measuringResolution
+  );
+  if (isNaN(resVal) || resVal <= 0) return null;
+
+  const nominalValue = parseFloat(referenceMeasurementPoint.value);
+  const nominalUnit = referenceMeasurementPoint.unit;
+  const resUnit =
+    tol.measuringResolutionUnit || nested.measuringResolutionUnit || nominalUnit;
+  const resBase = unitSystem.toBaseUnit(resVal, resUnit);
+  if (isNaN(resBase) || resBase <= 0) return null;
+
+  const resDistRawSource =
+    tol.measuringResolutionDistribution ?? nested.measuringResolutionDistribution;
+  const resDistEntry = errorDistributions.find(
+    (d) => parseFloat(d.value) === parseFloat(resDistRawSource)
+  );
+  const resDistRaw = resDistEntry ? resDistEntry.value : "1.732";
+  const resDivisor = parseFloat(resDistRaw) || 1.732;
+  const resDistLabel = resDistEntry?.label || "Rectangular";
+
+  const u_i_base = resBase / 2 / resDivisor;
+  const u_i_native = unitSystem.fromBaseUnit(u_i_base, nominalUnit);
+  const nominalBase = unitSystem.toBaseUnit(nominalValue, nominalUnit);
+
+  let finalValuePPM = NaN;
+  let isBaseUnitValue = false;
+  if (nominalBase !== 0 && !isNaN(nominalBase)) {
+    finalValuePPM = (u_i_base / Math.abs(nominalBase)) * 1e6;
+  } else {
+    finalValuePPM = u_i_base;
+    isBaseUnitValue = true;
+  }
+
+  return {
+    id: "uut_resolution",
+    componentId: "UUT Resolution",
+    name: "UUT Resolution",
+    type: "B",
+    value: finalValuePPM,
+    isBaseUnitValue,
+    value_native: u_i_native,
+    unit_native: nominalUnit,
+    dof: Infinity,
+    isCore: true,
+    distribution: resDistLabel,
+    distributionDivisor: resDistRaw,
+    isResolution: true,
+    sourcePointLabel: `${resVal} ${resUnit} LSD`,
+  };
+};

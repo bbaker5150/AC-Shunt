@@ -722,7 +722,7 @@
         },
         "measuringResolution": "0.00001",
         "measuringResolutionUnit": "in-oz",
-        "includeResolutionInBudget": false
+        "includeResolutionInBudget": true
       },
       "specifications": {
         "mfg": {
@@ -734,32 +734,7 @@
           "k": 2
         }
       },
-      "components": [
-        {
-          "id": "comp_brg3100_row14_ti_resolution",
-          "name": "TI Resolution",
-          "type": "B",
-          "value": 76.95130740385267,
-          "value_native": 2.8867513459481293e-06,
-          "unit_native": "in-oz",
-          "dof": null,
-          "distribution": "Rectangular",
-          "isCore": true,
-          "sourcePointLabel": "0.00001 in-oz LSD",
-          "variableType": "",
-          "originalInput": {
-            "excelSheet": "Document",
-            "excelRow": 13,
-            "errorLimit": "0.00001",
-            "distribution": "Rectangular (Resolution)"
-          },
-          "savedInputs": {
-            "errorLimit": "0.00001",
-            "unit": "in-oz",
-            "distribution": "Rectangular (Resolution)"
-          }
-        }
-      ],
+      "components": [],
       "is_detailed_uncertainty_calculated": true,
       "measurementType": "derived",
       "equationString": "T = W * L",
@@ -769,7 +744,7 @@
       },
       "inputCorrelations": {
         "Length|Weight": 1,
-        "TI Resolution|Weight": 1
+        "UUT Resolution|Weight": 1
       },
       "testPointInfo": {
         "parameter": {

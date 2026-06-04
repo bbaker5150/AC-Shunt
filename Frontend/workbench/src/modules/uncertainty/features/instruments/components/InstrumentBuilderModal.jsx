@@ -230,7 +230,8 @@ const InstrumentBuilderModal = ({ isOpen, onClose, onSave, onDelete, initialData
 
   const handleAddRange = () => {
     if (!activeFunction) return;
-    // Resolution kept internally as 0 if needed for data structure, but not shown in UI
+    // Resolution is editable in the ranges table (Resolution column) and flows
+    // into a UUT's uncertainty budget when "include in budget" is ticked.
     const newRange = { id: Date.now(), min: 0, max: 0, resolution: 0, tolerances: {} };
     const updatedRanges = [...activeFunction.ranges, newRange].sort((a, b) => parseFloat(a.min) - parseFloat(b.min));
     setInstrument(prev => ({ ...prev, functions: prev.functions.map(f => f.id === activeFunctionId ? { ...f, ranges: updatedRanges } : f) }));
@@ -357,6 +358,7 @@ const InstrumentBuilderModal = ({ isOpen, onClose, onSave, onDelete, initialData
                     setTolerance={handleToleranceUpdate}
                     referencePoint={{ unit: activeFunction.unit }}
                     showResolution={true}
+                    resolutionInTable={true}
                 />
               </div>
               
@@ -606,9 +608,10 @@ const InstrumentBuilderModal = ({ isOpen, onClose, onSave, onDelete, initialData
                           <table className="ranges-table">
                             <thead>
                               <tr>
-                                <th style={{width: '25%'}}>Min</th>
-                                <th style={{width: '25%'}}>Max</th>
-                                <th style={{width: '40%'}}>Tolerance Spec</th>
+                                <th style={{width: '20%'}}>Min</th>
+                                <th style={{width: '20%'}}>Max</th>
+                                <th style={{width: '20%'}}>Resolution</th>
+                                <th style={{width: '30%'}}>Tolerance Spec</th>
                                 <th style={{width: '10%'}}>Actions</th>
                               </tr>
                             </thead>
@@ -620,6 +623,9 @@ const InstrumentBuilderModal = ({ isOpen, onClose, onSave, onDelete, initialData
                                   </td>
                                   <td>
                                     <input type="number" step="any" value={range.max} onChange={e => updateRangeBounds(range.id, 'max', e.target.value)} />
+                                  </td>
+                                  <td>
+                                    <input type="number" step="any" value={range.resolution ?? 0} onChange={e => updateRangeBounds(range.id, 'resolution', e.target.value)} />
                                   </td>
                                   <td>
                                     <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', cursor: 'pointer' }} onClick={() => setEditingRange({ ...range })}>
@@ -636,7 +642,7 @@ const InstrumentBuilderModal = ({ isOpen, onClose, onSave, onDelete, initialData
                               ))}
                               {activeFunction.ranges.length === 0 && (
                                 <tr>
-                                  <td colSpan="4" style={{ textAlign: 'center', padding: '30px', color: 'var(--text-color-muted)' }}>
+                                  <td colSpan="5" style={{ textAlign: 'center', padding: '30px', color: 'var(--text-color-muted)' }}>
                                     No ranges defined for this function.
                                   </td>
                                 </tr>

@@ -136,6 +136,10 @@ const ToleranceForm = ({
   // UUT or TMDE). Resolution is never forced into the budget — an explicit
   // opt-in checkbox controls that (#10).
   showResolution = false,
+  // When the resolution VALUE is edited in a ranges-table column (instrument
+  // builder / UUT editor), hide the redundant value input here and show only
+  // the opt-in checkbox.
+  resolutionInTable = false,
 }) => {
   const [isAddComponentVisible, setAddComponentVisible] = useState(false);
   const [dropdownPosition, setDropdownPosition] = useState({ top: 0, left: 0 });
@@ -609,48 +613,52 @@ const ToleranceForm = ({
             paddingTop: "20px",
           }}
         >
-          <label>Measuring Resolution (Least Significant Digit)</label>
-          <div
-            className="input-with-unit"
-            style={{
-              display: "grid",
-              gridTemplateColumns: "1fr 120px",
-              gap: "10px",
-            }}
-          >
-            <input
-              type="number"
-              step="any"
-              name="measuringResolution"
-              data-type="misc"
-              value={tolerance.measuringResolution || ""}
-              onChange={handleChange}
-              placeholder="e.g., 1"
-              style={{ width: "100%" }}
-            />
+          {!resolutionInTable && (
+            <>
+              <label>Measuring Resolution (Least Significant Digit)</label>
+              <div
+                className="input-with-unit"
+                style={{
+                  display: "grid",
+                  gridTemplateColumns: "1fr 120px",
+                  gap: "10px",
+                }}
+              >
+                <input
+                  type="number"
+                  step="any"
+                  name="measuringResolution"
+                  data-type="misc"
+                  value={tolerance.measuringResolution || ""}
+                  onChange={handleChange}
+                  placeholder="e.g., 1"
+                  style={{ width: "100%" }}
+                />
 
-            {/* Resolution Unit Selector */}
-            <Select
-              value={
-                physicalUnitOptions
-                  .flatMap((g) => (g.options ? g.options : g))
-                  .find(
-                    (opt) => opt.value === tolerance.measuringResolutionUnit
-                  ) || null
-              }
-              onChange={(opt) =>
-                handleSelectChange(opt, "measuringResolutionUnit", null, true)
-              }
-              options={physicalUnitOptions}
-              className="react-select-container"
-              classNamePrefix="react-select"
-              placeholder="Unit"
-              isSearchable={true}
-              menuPortalTarget={document.body}
-              menuPosition="fixed"
-              styles={portalStyle}
-            />
-          </div>
+                {/* Resolution Unit Selector */}
+                <Select
+                  value={
+                    physicalUnitOptions
+                      .flatMap((g) => (g.options ? g.options : g))
+                      .find(
+                        (opt) => opt.value === tolerance.measuringResolutionUnit
+                      ) || null
+                  }
+                  onChange={(opt) =>
+                    handleSelectChange(opt, "measuringResolutionUnit", null, true)
+                  }
+                  options={physicalUnitOptions}
+                  className="react-select-container"
+                  classNamePrefix="react-select"
+                  placeholder="Unit"
+                  isSearchable={true}
+                  menuPortalTarget={document.body}
+                  menuPosition="fixed"
+                  styles={portalStyle}
+                />
+              </div>
+            </>
+          )}
 
           {/* Opt-in: resolution is excluded from the uncertainty budget unless
               the user explicitly enables it here (#10). */}

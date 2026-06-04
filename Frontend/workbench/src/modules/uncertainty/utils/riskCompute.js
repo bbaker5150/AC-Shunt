@@ -29,7 +29,10 @@ import {
   PFAMgr,
   PFRMgr,
 } from "./uncertaintyMath";
-import { getBudgetComponentsFromTolerance } from "../features/analysis/utils/budgetUtils";
+import {
+  getBudgetComponentsFromTolerance,
+  getUutResolutionComponent,
+} from "../features/analysis/utils/budgetUtils";
 
 const isFilledNumber = (v) =>
   v !== "" && v !== null && v !== undefined && !isNaN(parseFloat(v));
@@ -123,6 +126,21 @@ function computeUncertaintyForPoint(point, sessionData) {
         }
       });
 
+      const uutResComp = getUutResolutionComponent(
+        point.uutTolerance || sessionData.uutTolerance,
+        uutNominal,
+      );
+      if (uutResComp) {
+        const absUncBase =
+          (uutResComp.value / 1e6) * Math.abs(derivedNominalValue) * targetUnitInfo.to_si;
+        if (!isNaN(absUncBase)) {
+          signedContribsBase.push({
+            id: uutResComp.componentId,
+            contribution: absUncBase,
+          });
+        }
+      }
+
       combinedUncertaintyAbsoluteBase = combineWithCorrelation(
         signedContribsBase,
         inputCorrelations,
@@ -147,6 +165,15 @@ function computeUncertaintyForPoint(point, sessionData) {
         totalVariancePPM += comp.value ** 2;
         componentsForBudgetTable.push(comp);
       });
+
+      const uutResComp = getUutResolutionComponent(
+        point.uutTolerance || sessionData.uutTolerance,
+        uutNominal,
+      );
+      if (uutResComp) {
+        totalVariancePPM += uutResComp.value ** 2;
+        componentsForBudgetTable.push({ ...uutResComp, quantity: 1 });
+      }
 
       if (componentsForBudgetTable.length === 0) return null;
 

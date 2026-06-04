@@ -18,7 +18,7 @@ const cR = 2.8867513459481293e-6 * 1; // ≈ 2.88675e-6
 const list = [
   { id: "Length", contribution: cL },
   { id: "Weight", contribution: cW },
-  { id: "TI Resolution", contribution: cR },
+  { id: "UUT Resolution", contribution: cR },
 ];
 
 describe("correlationKey / getCorrelation", () => {
@@ -43,7 +43,7 @@ describe("combineWithCorrelation", () => {
   test("reproduces Excel 4.1.9 with rho(W,L)=1 and rho(W,R)=1", () => {
     const u_c = combineWithCorrelation(list, {
       "Length|Weight": 1,
-      "TI Resolution|Weight": 1,
+      "UUT Resolution|Weight": 1,
     });
     // Workbook reports 4.7360706e-5.
     expect(u_c).toBeCloseTo(4.73607e-5, 9);
