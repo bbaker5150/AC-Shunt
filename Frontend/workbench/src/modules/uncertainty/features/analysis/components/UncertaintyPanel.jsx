@@ -1518,6 +1518,7 @@ function DetailedView({
   showContribution,
   setShowContribution,
   onOpenRepeatability,
+  onOpenCorrelation,
   onUpdateTestPoint,
   riskResults,
   setNotification,
@@ -3113,6 +3114,7 @@ function DetailedView({
               onAddManualComponent={onAddManualComponent}
               onEdit={onEditManualComponent}
               onOpenRepeatability={onOpenRepeatability}
+              onOpenCorrelation={onOpenCorrelation}
               setNotification={setNotification}
             />
             {showContribution &&

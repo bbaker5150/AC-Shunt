@@ -30,6 +30,7 @@ import ManualComponentModal from "./components/ManualComponentModal";
 import DerivedBreakdownModal from "./components/BreakdownModals/DerivedBreakdownModal";
 import RiskBreakdownModal from "./components/BreakdownModals/RiskBreakdownModals";
 import RepeatabilityModal from "./components/RepeatabilityModal";
+import CorrelationMatrixModal from "./components/CorrelationMatrixModal";
 import AddTestPointModal from "../testPoints/components/AddTestPointModal";
 
 // --- Utilities ---
@@ -98,6 +99,7 @@ function Analysis({
   const [modalOverrides, setModalOverrides] = useState(null);
   const [isManualModalOpen, setManualModalOpen] = useState(false);
   const [isRepeatabilityModalOpen, setRepeatabilityModalOpen] = useState(false);
+  const [isCorrelationModalOpen, setCorrelationModalOpen] = useState(false);
   const [isDerivedBreakdownOpen, setIsDerivedBreakdownOpen] = useState(false);
   const [activeRiskModals, setActiveRiskModals] = useState([]); // Array of active risk breakdown types
 
@@ -447,6 +449,23 @@ function Analysis({
     setRepeatabilityModalOpen(false);
   };
 
+  const handleSaveCorrelations = (nextCorrelations) => {
+    onDataSave({ inputCorrelations: nextCorrelations || {} });
+    setCorrelationModalOpen(false);
+  };
+
+  // Components offered in the correlation editor: the derived input rows + any
+  // non-mapped manual rows, identified by the same `componentId` used in the
+  // combine. signedContribution is for the informational sign note only.
+  const correlationComponents = (calcResults?.calculatedBudgetComponents || [])
+    .filter((c) => c.componentId)
+    .map((c) => ({
+      id: c.componentId,
+      label: c.name?.startsWith("Input: ") ? c.name.slice(7) : c.name,
+      signedContribution:
+        (c.contribution || 0) * (Number(c.sensitivityCoefficient) < 0 ? -1 : 1),
+    }));
+
   // --- Breakdown & Analysis Handlers ---
 
   const handleBudgetRowContextMenu = (event) => {
@@ -570,6 +589,14 @@ function Analysis({
         isOpen={isDerivedBreakdownOpen}
         onClose={() => setIsDerivedBreakdownOpen(false)}
         breakdownData={derivedBreakdownData}
+      />
+
+      <CorrelationMatrixModal
+        isOpen={isCorrelationModalOpen}
+        onClose={() => setCorrelationModalOpen(false)}
+        components={correlationComponents}
+        correlations={testPointData.inputCorrelations || {}}
+        onSave={handleSaveCorrelations}
       />
 
       {activeRiskModals.map((type) => (
@@ -703,6 +730,7 @@ function Analysis({
                 // Handlers: General
                 handleOpenSessionEditor={handleOpenSessionEditor}
                 onUpdateTestPoint={onDataSave}
+                onOpenCorrelation={() => setCorrelationModalOpen(true)}
                 onDefineTestPoint={handleDefineTestPoint}
                 onDeleteTestPoint={onDeleteTestPoint}
                 // Selections

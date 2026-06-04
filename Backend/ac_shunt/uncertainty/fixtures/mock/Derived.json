@@ -767,6 +767,10 @@
         "W": "Weight",
         "L": "Length"
       },
+      "inputCorrelations": {
+        "Length|Weight": 1,
+        "TI Resolution|Weight": 1
+      },
       "testPointInfo": {
         "parameter": {
           "name": "Torque",

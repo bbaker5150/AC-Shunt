@@ -15,11 +15,13 @@ import {
   calculateUncertaintyFromToleranceObject, 
   calcTAR, 
   calcTUR, 
-  PFAMgr, 
-  PFRMgr, 
-  resDwn, 
-  resUp, 
-  gbLowMgr, 
+  PFAMgr,
+  PFRMgr,
+  resDwn,
+  resUp,
+  snapLimitsToResolution,
+  resolveResolutionNative,
+  gbLowMgr,
   gbUpMgr, 
   GBMultMgr, 
   PFAwGBMgr, 
@@ -84,10 +86,18 @@ export const useRiskCalculation = (
     const finalHighLimit = nominalValue + totalHighDeviation;
     const finalLowLimit = nominalValue + totalLowDeviation;
 
+    // Mirror the workbook: snap the acceptance band inward to the UUT's
+    // measuring resolution so the limits (and resulting TUR/PFA) match Excel.
+    const { low: snappedLow, high: snappedHigh } = snapLimitsToResolution(
+      finalLowLimit,
+      finalHighLimit,
+      resolveResolutionNative(uutToleranceData, uutNominal.unit)
+    );
+
     setRiskInputs((prev) => ({
       ...prev,
-      LLow: finalLowLimit,
-      LUp: finalHighLimit,
+      LLow: snappedLow,
+      LUp: snappedHigh,
     }));
   }, [uutToleranceData, uutNominal]);
 

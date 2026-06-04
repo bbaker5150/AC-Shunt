@@ -373,6 +373,139 @@ export function getKValueFromTDistribution(dof) {
 }
 
 // ==========================================
+// 2b. Input Correlation (GUM cross-terms)
+// ==========================================
+//
+// Mirrors the MUA workbook's `TlrCorSq` routine, which combines input
+// uncertainties as  u_c^2 = Σ_i Σ_j u_i u_j c_i c_j ρ_ij  over a correlation
+// matrix. With an identity matrix (no off-diagonals) this reduces to plain RSS,
+// so the default {} preserves the app's existing independent-input behavior.
+//
+// Correlations are stored sparsely as a symmetric map keyed by the two
+// component identities sorted and joined with "|", e.g. { "Length|Weight": 1 }.
+
+export const correlationKey = (idA, idB) =>
+  [String(idA), String(idB)].sort().join("|");
+
+export const getCorrelation = (correlations, idA, idB) => {
+  if (idA === idB) return 1;
+  const v = correlations?.[correlationKey(idA, idB)];
+  const n = Number(v);
+  return Number.isFinite(n) ? n : 0;
+};
+
+/**
+ * Combine SIGNED contributions (cᵢ = sensitivity × uᵢ, in consistent units)
+ * into a combined standard uncertainty, honoring an optional correlation map.
+ *
+ *   u_c = sqrt( Σ cᵢ²  +  2 Σ_{i<j} ρ_ij·cᵢ·cⱼ )
+ *
+ * Sign matters: a positive correlation on an input with a negative sensitivity
+ * reduces u_c (e.g. a ratio V1/V2). An empty map yields pure RSS.
+ *
+ * @param {Array<{id: string, contribution: number}>} contributions
+ * @param {Object} [correlations] sparse symmetric map; {} = identity
+ * @returns {number} combined standard uncertainty (>= 0)
+ */
+export const combineWithCorrelation = (contributions, correlations = {}) => {
+  let sum = 0;
+  for (let i = 0; i < contributions.length; i++) {
+    const ci = contributions[i].contribution;
+    if (!Number.isFinite(ci)) continue;
+    sum += ci * ci; // diagonal term (ρ = 1)
+    for (let j = i + 1; j < contributions.length; j++) {
+      const cj = contributions[j].contribution;
+      if (!Number.isFinite(cj)) continue;
+      const rho = getCorrelation(
+        correlations,
+        contributions[i].id,
+        contributions[j].id
+      );
+      if (rho !== 0) sum += 2 * rho * ci * cj;
+    }
+  }
+  // Clamp: an over-correlated (non positive-semidefinite) matrix could drive the
+  // variance slightly negative; treat that as zero rather than returning NaN.
+  return Math.sqrt(Math.max(0, sum));
+};
+
+// ==========================================
+// 2c. Accurate inverse standard-normal CDF
+// ==========================================
+//
+// simple-statistics' `probit(0.975)` returns ~1.95716, which is ~0.14% short of
+// the true 95% two-sided coverage factor 1.959964 used by the MUA workbook
+// (its EqBudget reports k = 1.9599639845). That error propagates into every
+// expanded uncertainty and risk number. This is Acklam's rational approximation
+// refined with one Halley step against CumNorm, accurate to full double
+// precision — so normalQuantile(0.975) === 1.959963984540054.
+
+export function normalQuantile(p) {
+  if (!(p > 0)) return -Infinity;
+  if (!(p < 1)) return Infinity;
+
+  const a = [
+    -3.969683028665376e1, 2.209460984245205e2, -2.759285104469687e2,
+    1.38357751867269e2, -3.066479806614716e1, 2.506628277459239e0,
+  ];
+  const b = [
+    -5.447609879822406e1, 1.615858368580409e2, -1.556989798598866e2,
+    6.680131188771972e1, -1.328068155288572e1,
+  ];
+  const c = [
+    -7.784894002430293e-3, -3.223964580411365e-1, -2.400758277161838e0,
+    -2.549732539343734e0, 4.374664141464968e0, 2.938163982698783e0,
+  ];
+  const d = [
+    7.784695709041462e-3, 3.224671290700398e-1, 2.445134137142996e0,
+    3.754408661907416e0,
+  ];
+  const plow = 0.02425;
+  const phigh = 1 - plow;
+
+  let x;
+  if (p < plow) {
+    const q = Math.sqrt(-2 * Math.log(p));
+    x =
+      (((((c[0] * q + c[1]) * q + c[2]) * q + c[3]) * q + c[4]) * q + c[5]) /
+      ((((d[0] * q + d[1]) * q + d[2]) * q + d[3]) * q + 1);
+  } else if (p <= phigh) {
+    const q = p - 0.5;
+    const r = q * q;
+    x =
+      ((((((a[0] * r + a[1]) * r + a[2]) * r + a[3]) * r + a[4]) * r + a[5]) *
+        q) /
+      (((((b[0] * r + b[1]) * r + b[2]) * r + b[3]) * r + b[4]) * r + 1);
+  } else {
+    const q = Math.sqrt(-2 * Math.log(1 - p));
+    x =
+      -(((((c[0] * q + c[1]) * q + c[2]) * q + c[3]) * q + c[4]) * q + c[5]) /
+      ((((d[0] * q + d[1]) * q + d[2]) * q + d[3]) * q + 1);
+  }
+
+  // Halley refinement using the existing CumNorm (standard-normal CDF).
+  const e = CumNorm(x) - p;
+  const u = e * Math.sqrt(2 * Math.PI) * Math.exp((x * x) / 2);
+  x = x - u / (1 + (x * u) / 2);
+  return x;
+}
+
+// Round a [low, high] acceptance band INWARD to the UUT's measuring resolution
+// grid, mirroring the workbook: low rounds up (resDwn), high rounds down
+// (resUp). resolutionNative must already be in the limits' (nominal) unit.
+// A zero/invalid resolution, or a snap that would collapse/invert the band,
+// leaves the raw limits untouched.
+export function snapLimitsToResolution(low, high, resolutionNative) {
+  if (!Number.isFinite(resolutionNative) || resolutionNative <= 0) {
+    return { low, high };
+  }
+  const snappedLow = resDwn(low, resolutionNative); // inward = up for the low limit
+  const snappedHigh = resUp(high, resolutionNative); // inward = down for the high limit
+  if (!(snappedLow < snappedHigh)) return { low, high };
+  return { low: snappedLow, high: snappedHigh };
+}
+
+// ==========================================
 // 3. Uncertainty Logic & Formatters
 // ==========================================
 
@@ -722,11 +855,33 @@ export const getAbsoluteLimits = (toleranceObject, referencePoint) => {
   const finalHighLimit = nominalValue + totalHighDeviation;
   const finalLowLimit = nominalValue + totalLowDeviation;
 
+  // Mirror the workbook: snap the acceptance band inward to the UUT's measuring
+  // resolution (when one is defined) so the displayed limits match Excel.
+  const { low: snappedLow, high: snappedHigh } = snapLimitsToResolution(
+    finalLowLimit,
+    finalHighLimit,
+    resolveResolutionNative(toleranceObject, nominalUnit)
+  );
+
   return {
-    high: `${finalHighLimit.toPrecision(7)} ${nominalUnit}`,
-    low: `${finalLowLimit.toPrecision(7)} ${nominalUnit}`,
+    high: `${snappedHigh.toPrecision(7)} ${nominalUnit}`,
+    low: `${snappedLow.toPrecision(7)} ${nominalUnit}`,
   };
 };
+
+// Resolve a tolerance object's measuring resolution into the nominal unit's
+// grid spacing. Returns 0 when no usable resolution is present (snap is a no-op).
+export function resolveResolutionNative(toleranceObject, nominalUnit) {
+  const resRaw = parseFloat(toleranceObject?.measuringResolution);
+  if (isNaN(resRaw) || resRaw <= 0) return 0;
+  const resUnit = toleranceObject?.measuringResolutionUnit || nominalUnit;
+  const resUnitInfo = unitSystem.units[resUnit];
+  const nominalUnitInfo = unitSystem.units[nominalUnit];
+  if (resUnitInfo && nominalUnitInfo && !isNaN(nominalUnitInfo.to_si)) {
+    return (resRaw * resUnitInfo.to_si) / nominalUnitInfo.to_si;
+  }
+  return resRaw;
+}
 
 export const calculateDerivedUncertainty = (
   equationString,
@@ -970,6 +1125,12 @@ export const calculateDerivedUncertainty = (
         ci: ci_display, // Sensitivity scaled to units
         derivativeString: derivativeStr,
         contribution_native: contribution_target, // This matches the "Native" field expected by UI
+        // SIGNED contribution in base SI units. Used by combineWithCorrelation
+        // so cross-correlation terms carry the correct sign (a negative
+        // sensitivity + positive correlation reduces u_c).
+        contribution_base_signed: contribution_base,
+        // Stable identity for the correlation map (matches the budget row's type).
+        componentId: variableType,
         termSquared_native: termSquared_base, // Used for Pareto, strictly doesn't matter as long as proportional
       });
     });

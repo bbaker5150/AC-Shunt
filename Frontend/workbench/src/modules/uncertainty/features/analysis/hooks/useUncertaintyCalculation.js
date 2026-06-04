@@ -1,9 +1,10 @@
 import { useState, useEffect } from "react";
-import { probit } from "simple-statistics";
-import { 
-  unitSystem, 
-  getKValueFromTDistribution, 
-  calculateDerivedUncertainty 
+import {
+  unitSystem,
+  getKValueFromTDistribution,
+  calculateDerivedUncertainty,
+  combineWithCorrelation,
+  normalQuantile
 } from "../../../utils/uncertaintyMath";
 import { getBudgetComponentsFromTolerance } from "../utils/budgetUtils";
 
@@ -171,9 +172,19 @@ export const useUncertaintyCalculation = (
         derivedUcInputs_Base = derivedUcInputs_Native * targetUnitInfo.to_si;
 
         calculatedNominalResult = nominalResult;
-        let totalVariance_Native = derivedUcInputs_Native ** 2;
+
+        // Unified list of SIGNED contributions in base SI units (equation inputs
+        // + non-mapped manual components). combineWithCorrelation applies the
+        // optional correlation matrix; an empty map yields the prior RSS.
+        const inputCorrelations = testPointData.inputCorrelations || {};
+        const signedContribsBase = [];
 
         derivedBreakdown.forEach((item, index) => {
+            signedContribsBase.push({
+                id: item.componentId,
+                contribution: item.contribution_base_signed,
+            });
+
             const contributingTmde = tmdeTolerancesData.find(
                 (tmde) => tmde.variableType === item.type
             );
@@ -207,6 +218,7 @@ export const useUncertaintyCalculation = (
 
             componentsForBudgetTable.push({
                 id: `derived_${item.variable}_${index}`,
+                componentId: item.componentId, // correlation-map identity
                 name: `Input: ${item.type} (${item.variable})`,
                 type: "B",
                 value: item.ui_absolute_base,
@@ -237,11 +249,15 @@ export const useUncertaintyCalculation = (
                     const absUncBase = absUncNative * targetUnitInfo.to_si;
 
                     if (!isNaN(absUncNative)) {
-                        totalVariance_Native += absUncNative ** 2;
+                        signedContribsBase.push({
+                            id: varType,
+                            contribution: absUncBase,
+                        });
 
                         componentsForBudgetTable.push({
                             ...comp,
                             id: comp.id || `manual_derived_${idx}`,
+                            componentId: varType, // correlation-map identity
                             sourcePointLabel: "Manual",
                             value: absUncBase, 
                             unit: derivedNominalUnit,
@@ -256,9 +272,10 @@ export const useUncertaintyCalculation = (
             });
         }
 
-        const combinedUncertainty_Native = Math.sqrt(totalVariance_Native);
-        combinedUncertaintyAbsoluteBase =
-          combinedUncertainty_Native * targetUnitInfo.to_si;
+        combinedUncertaintyAbsoluteBase = combineWithCorrelation(
+          signedContribsBase,
+          inputCorrelations
+        );
 
         if (
           !isNaN(derivedNominalValue) &&
@@ -384,7 +401,7 @@ export const useUncertaintyCalculation = (
       const probability = 1 - (1 - confidencePercent / 100) / 2;
       const kValue =
         effectiveDof === Infinity || isNaN(effectiveDof)
-          ? probit(probability)
+          ? normalQuantile(probability)
           : getKValueFromTDistribution(effectiveDof);
 
       const expandedUncertaintyPPM = !isNaN(combinedUncertaintyPPM)
@@ -466,6 +483,7 @@ export const useUncertaintyCalculation = (
     testPointData.measurementType,
     testPointData.equationString,
     testPointData.variableMappings,
+    testPointData.inputCorrelations,
     tmdeTolerancesData,
     uutToleranceData,
     uutNominal,

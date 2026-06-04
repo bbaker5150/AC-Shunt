@@ -4,12 +4,13 @@ import { unitSystem, errorDistributions } from "../../../utils/uncertaintyMath";
 import { oldErrorDistributions } from "../utils/budgetUtils";
 import { FontAwesomeIcon } from "@fortawesome/react-fontawesome";
 import { 
-  faCalculator, 
-  faCog, 
-  faPlus, 
-  faPencilAlt, 
-  faRedo 
-} from "@fortawesome/free-solid-svg-icons"; 
+  faCalculator,
+  faCog,
+  faPlus,
+  faPencilAlt,
+  faRedo,
+  faProjectDiagram
+} from "@fortawesome/free-solid-svg-icons";
 
 const UncertaintyBudgetTable = ({
   components,
@@ -28,9 +29,10 @@ const UncertaintyBudgetTable = ({
   setShowContribution,
   hasTmde,
   onAddManualComponent,
-  onOpenRepeatability, 
+  onOpenRepeatability,
   setNotification,
-  onComponentUpdate
+  onComponentUpdate,
+  onOpenCorrelation
 }) => {
   const DIST_OPTIONS = ["Normal", "Rectangular", "Triangular", "U-Shaped", "Lognormal", "Rayleigh"];
   const DIST_SELECT_STYLE = {
@@ -342,7 +344,32 @@ const UncertaintyBudgetTable = ({
           {/* --- Settings Header Column with Actions --- */}
           <th style={{ width: "120px", position: "relative" }}>
              <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', gap: '12px' }}>
-                
+
+                {/* 0. Input Correlation Matrix (derived only) */}
+                {!isDirect && onOpenCorrelation && components && components.length >= 2 && (
+                  <span
+                    onClick={onOpenCorrelation}
+                    className="action-icon"
+                    title="Input Correlation Matrix"
+                    style={{
+                      cursor: "pointer",
+                      color: "var(--text-color-muted)",
+                      display: "flex",
+                      justifyContent: "center",
+                      transition: "color 0.2s ease",
+                      fontSize: '0.9rem'
+                    }}
+                    onMouseEnter={(e) =>
+                      (e.currentTarget.style.color = "var(--primary-color)")
+                    }
+                    onMouseLeave={(e) =>
+                      (e.currentTarget.style.color = "var(--text-color-muted)")
+                    }
+                  >
+                    <FontAwesomeIcon icon={faProjectDiagram} />
+                  </span>
+                )}
+
                 {/* 1. Add Manual Component */}
                 <span
                   onClick={onAddManualComponent}

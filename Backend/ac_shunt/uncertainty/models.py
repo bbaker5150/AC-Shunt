@@ -128,6 +128,10 @@ class TestPoint(models.Model):
     measurement_type = models.CharField(max_length=32, default="direct")
     equation_string = models.TextField(blank=True, default="")
     variable_mappings = models.JSONField(default=dict, blank=True)
+    # Optional correlation matrix between derived-equation inputs. Sparse,
+    # symmetric, keyed by sorted "<idA>|<idB>" pairs (e.g. {"Length|Weight": 1}).
+    # Empty {} = independent inputs (RSS).
+    input_correlations = models.JSONField(default=dict, blank=True)
 
     # Tolerances (irregular flat objects -> JSON).
     uut_tolerance = models.JSONField(default=dict, blank=True, null=True)

@@ -73,6 +73,7 @@ def test_point_to_dict(tp):
         "measurementType": tp.measurement_type,
         "equationString": tp.equation_string,
         "variableMappings": tp.variable_mappings or {},
+        "inputCorrelations": tp.input_correlations or {},
         "testPointInfo": tp.test_point_info or {},
         "uutTolerance": tp.uut_tolerance,
         "tmdeTolerances": tp.tmde_tolerances or [],
@@ -276,6 +277,7 @@ def save_session(data):
             measurement_type=tp.get("measurementType", "direct") or "direct",
             equation_string=tp.get("equationString", "") or "",
             variable_mappings=tp.get("variableMappings") or {},
+            input_correlations=tp.get("inputCorrelations") or {},
             uut_tolerance=tp.get("uutTolerance"),
             tmde_tolerances=tp.get("tmdeTolerances") or [],
             is_detailed_uncertainty_calculated=bool(

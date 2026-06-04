@@ -15,12 +15,15 @@
 // NOT persist anything and makes no network calls — it is purely derived state
 // recomputed in memory, so there are no extra database hits.
 
-import { probit } from "simple-statistics";
 import {
   unitSystem,
   getKValueFromTDistribution,
   calculateDerivedUncertainty,
   calculateUncertaintyFromToleranceObject,
+  combineWithCorrelation,
+  normalQuantile,
+  snapLimitsToResolution,
+  resolveResolutionNative,
   calcTAR,
   calcTUR,
   PFAMgr,
@@ -94,24 +97,36 @@ function computeUncertaintyForPoint(point, sessionData) {
         derivedCalculationResult;
       if (isNaN(combinedUncertaintyNative)) return null;
 
-      let totalVariance_Native = combinedUncertaintyNative ** 2;
+      // Unified SIGNED contributions in base SI (equation inputs + non-mapped
+      // manual components), combined with the optional correlation matrix. Must
+      // stay identical to useUncertaintyCalculation so sidebar metrics match the
+      // open point.
+      const inputCorrelations = point.inputCorrelations || {};
+      const signedContribsBase = [];
+      derivedBreakdown.forEach((item) => {
+        signedContribsBase.push({
+          id: item.componentId,
+          contribution: item.contribution_base_signed,
+        });
+      });
       (manualComponents || []).forEach((comp) => {
         const varType = comp.variableType || comp.name;
         const isMappedVariable = Object.values(
           point.variableMappings || {},
         ).includes(varType);
         if (!isMappedVariable) {
-          const absUncNative = (comp.value / 1e6) * Math.abs(derivedNominalValue);
-          if (!isNaN(absUncNative)) totalVariance_Native += absUncNative ** 2;
+          const absUncBase =
+            (comp.value / 1e6) * Math.abs(derivedNominalValue) * targetUnitInfo.to_si;
+          if (!isNaN(absUncBase)) {
+            signedContribsBase.push({ id: varType, contribution: absUncBase });
+          }
         }
       });
-      // Reference derivedBreakdown so lint stays quiet; it isn't needed beyond
-      // the combined value for sidebar metrics.
-      void derivedBreakdown;
 
-      const combinedUncertainty_Native = Math.sqrt(totalVariance_Native);
-      combinedUncertaintyAbsoluteBase =
-        combinedUncertainty_Native * targetUnitInfo.to_si;
+      combinedUncertaintyAbsoluteBase = combineWithCorrelation(
+        signedContribsBase,
+        inputCorrelations,
+      );
       effectiveDof = Infinity;
     } else {
       // Direct measurement.
@@ -173,7 +188,7 @@ function computeUncertaintyForPoint(point, sessionData) {
     const probability = 1 - (1 - confidencePercent / 100) / 2;
     const kValue =
       effectiveDof === Infinity || isNaN(effectiveDof)
-        ? probit(probability)
+        ? normalQuantile(probability)
         : getKValueFromTDistribution(effectiveDof);
 
     return {
@@ -224,6 +239,13 @@ export function computePointRiskMetrics(point, sessionData) {
     );
     LUp = nominalValue + totalHighDeviation;
     LLow = nominalValue + totalLowDeviation;
+    // Mirror the workbook: snap the acceptance band inward to the UUT's
+    // measuring resolution before computing risk.
+    ({ low: LLow, high: LUp } = snapLimitsToResolution(
+      LLow,
+      LUp,
+      resolveResolutionNative(uutToleranceData, uutNominal.unit),
+    ));
   } catch {
     return null;
   }
