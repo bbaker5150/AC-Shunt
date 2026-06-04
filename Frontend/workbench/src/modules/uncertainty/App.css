@@ -3747,6 +3747,60 @@ body.dark-mode .symbol-popout .symbol-button:hover {
   font-size: 1rem;
 }
 
+/* =================================================================== */
+/* #8 — Budget table + equation polish to match the ac-shunt aesthetic */
+/* Visual-only: aligns surfaces, header treatment and spacing with the  */
+/* module's .panel-card look without changing layout or behavior.       */
+/* =================================================================== */
+.uncertainty-budget-table {
+  box-shadow: var(--box-shadow-glow, 0 2px 10px rgba(0, 0, 0, 0.06));
+  font-size: 0.9rem;
+  background-color: var(--content-background);
+}
+
+.uncertainty-budget-table thead th {
+  text-transform: uppercase;
+  letter-spacing: 0.4px;
+  font-size: 0.78rem;
+}
+
+.uncertainty-budget-table tbody tr {
+  transition: background-color 0.15s ease;
+}
+
+/* Distribution mini-select inherits the table cell look until hovered/active. */
+.uncertainty-budget-table .mini-select:hover {
+  border-color: var(--primary-color) !important;
+}
+
+/* Measurement equation section header — match panel section titles. */
+.panel-section-title {
+  text-transform: uppercase;
+  letter-spacing: 0.5px;
+  font-size: 0.85rem;
+  font-weight: 700;
+  color: var(--text-color-muted);
+  margin-bottom: 12px;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+/* Variable mapping cards — softer, card-like surfaces consistent with the
+   rest of the module. Additive; falls back gracefully if unset. */
+.var-card-modern {
+  border-radius: 10px;
+  transition: border-color 0.15s ease, box-shadow 0.15s ease;
+}
+
+.var-card-modern.assigned {
+  box-shadow: inset 3px 0 0 var(--primary-color);
+}
+
+.var-card-modern.unassigned {
+  box-shadow: inset 3px 0 0 var(--status-warning);
+}
+
 .add-tmde-card {
   width: 325px;
   min-height: 325px;
