@@ -1,6 +1,6 @@
 import React, { useState, useMemo, useEffect, useRef } from "react";
 import Latex from "../../../components/common/Latex"; 
-import { unitSystem } from "../../../utils/uncertaintyMath";
+import { unitSystem, errorDistributions } from "../../../utils/uncertaintyMath";
 import { FontAwesomeIcon } from "@fortawesome/react-fontawesome";
 import { 
   faCalculator, 
@@ -32,6 +32,17 @@ const UncertaintyBudgetTable = ({
   onComponentUpdate
 }) => {
   const DIST_OPTIONS = ["Normal", "Rectangular", "Triangular", "U-Shaped", "Lognormal", "Rayleigh"];
+  const DIST_SELECT_STYLE = {
+    width: '100%',
+    padding: '2px 4px',
+    backgroundColor: 'transparent',
+    color: 'inherit',
+    border: '1px solid transparent',
+    borderRadius: '4px',
+    fontSize: 'inherit',
+    cursor: 'pointer',
+    textAlign: 'left',
+  };
   const confidencePercent = parseFloat(uncertaintyConfidence) || 95;
   const derivedUnit = referencePoint?.unit || "Units";
   const derivedName = referencePoint?.name || "Derived";
@@ -216,30 +227,44 @@ const UncertaintyBudgetTable = ({
               )}
 
               <td>
-                  <select
-                    className="mini-select"
-                    value={c.distribution || "Normal"}
-                    onChange={(e) => onComponentUpdate && onComponentUpdate(c.id, { distribution: e.target.value })}
-                    style={{
-                        width: '100%',
-                        padding: '2px 4px',
-                        backgroundColor: 'transparent',
-                        color: 'inherit',
-                        border: '1px solid transparent',
-                        borderRadius: '4px',
-                        fontSize: 'inherit',
-                        cursor: 'pointer',
-                        textAlign: 'left'
-                    }}
-                    onFocus={(e) => e.target.style.borderColor = 'var(--primary-color)'}
-                    onBlur={(e) => e.target.style.borderColor = 'transparent'}
-                  >
-                    {DIST_OPTIONS.map(d => (
-                        <option key={d} value={d} style={{ backgroundColor: 'var(--component-bg)', color: 'var(--text-color)' }}>
-                            {d}
-                        </option>
-                    ))}
-                  </select>
+                  {/* TMDE-derived rows carry a canonical divisor string
+                      (distributionDivisor) and a sourceTmdeId, so the dropdown
+                      round-trips on the divisor and the change is written back
+                      to the TMDE tolerance (recalculating the budget + risk).
+                      Manual/derived rows keep the simple label list. */}
+                  {c.distributionDivisor !== undefined ? (
+                    <select
+                      className="mini-select"
+                      value={c.distributionDivisor}
+                      onChange={(e) => onComponentUpdate && onComponentUpdate(c.id, { distribution: e.target.value }, c)}
+                      style={DIST_SELECT_STYLE}
+                      onFocus={(e) => e.target.style.borderColor = 'var(--primary-color)'}
+                      onBlur={(e) => e.target.style.borderColor = 'transparent'}
+                    >
+                      {errorDistributions
+                        .filter((d) => d.label !== "Std. Uncertainty")
+                        .map((d) => (
+                          <option key={d.value} value={d.value} style={{ backgroundColor: 'var(--component-bg)', color: 'var(--text-color)' }}>
+                            {d.label}
+                          </option>
+                        ))}
+                    </select>
+                  ) : (
+                    <select
+                      className="mini-select"
+                      value={c.distribution || "Normal"}
+                      onChange={(e) => onComponentUpdate && onComponentUpdate(c.id, { distribution: e.target.value }, c)}
+                      style={DIST_SELECT_STYLE}
+                      onFocus={(e) => e.target.style.borderColor = 'var(--primary-color)'}
+                      onBlur={(e) => e.target.style.borderColor = 'transparent'}
+                    >
+                      {DIST_OPTIONS.map(d => (
+                          <option key={d} value={d} style={{ backgroundColor: 'var(--component-bg)', color: 'var(--text-color)' }}>
+                              {d}
+                          </option>
+                      ))}
+                    </select>
+                  )}
               </td>
 
               <td className="action-cell">

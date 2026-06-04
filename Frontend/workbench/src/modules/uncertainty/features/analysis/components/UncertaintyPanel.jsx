@@ -1811,7 +1811,57 @@ function DetailedView({
     }
   };
 
-  const handleComponentUpdate = (id, updates) => {
+  // Write a distribution divisor (e.g. "1.960") onto every tolerance
+  // sub-component of a TMDE instance. getBudgetComponentsFromTolerance reads
+  // `.distribution` off these sub-components, so this re-derives the budget and
+  // (via the tmdeTolerances dependency) the risk metrics.
+  const applyDistributionToTmde = (tmdeInstance, divisor) => {
+    const compKeys = ["reading", "readings_iv", "range", "floor", "db"];
+    const writeOn = (obj) => {
+      const next = { ...obj };
+      compKeys.forEach((k) => {
+        if (next[k] && typeof next[k] === "object") {
+          next[k] = { ...next[k], distribution: divisor };
+        }
+      });
+      return next;
+    };
+
+    const next = { ...tmdeInstance };
+    if (next.tolerance && typeof next.tolerance === "object") {
+      next.tolerance = writeOn(next.tolerance);
+    } else if (
+      next.tolerances &&
+      typeof next.tolerances === "object" &&
+      !Array.isArray(next.tolerances)
+    ) {
+      next.tolerances = writeOn(next.tolerances);
+    } else {
+      // Flattened instance: sub-components live directly on the instance.
+      compKeys.forEach((k) => {
+        if (next[k] && typeof next[k] === "object") {
+          next[k] = { ...next[k], distribution: divisor };
+        }
+      });
+    }
+    return next;
+  };
+
+  const handleComponentUpdate = (id, updates, component) => {
+    // Distribution change on a TMDE-derived accuracy row: route the divisor
+    // back to the originating TMDE instance so the budget + risk recompute (#6).
+    if (updates.distribution !== undefined && component?.sourceTmdeId) {
+      const divisor = updates.distribution;
+      const targetId = component.sourceTmdeId;
+      const updatedTmdes = tmdeTolerancesData.map((t) =>
+        t.id === targetId || t.sourceId === targetId
+          ? applyDistributionToTmde(t, divisor)
+          : t,
+      );
+      onUpdateTestPoint({ tmdeTolerances: updatedTmdes });
+      return;
+    }
+
     // 1. Try Manual Components
     const currentManualComponents = testPointData.components || [];
     if (currentManualComponents.some((c) => c.id === id)) {

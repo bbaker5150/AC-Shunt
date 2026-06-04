@@ -284,6 +284,10 @@ export const useUncertaintyCalculation = (
             ).map((c, compIndex) => ({
               ...c,
               id: `${c.id}_${tmdeIndex}_${compIndex}`,
+              // Keep a link back to the originating TMDE instance so the budget
+              // table's distribution dropdown can write the divisor back to the
+              // tolerance and trigger a recalculation (#6).
+              sourceTmdeId: tmde.id,
               sourcePointLabel: `${uutNominal.value} ${uutNominal.unit}`,
               quantity: quantity,
             }));

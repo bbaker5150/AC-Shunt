@@ -69,6 +69,9 @@ export const getBudgetComponentsFromTolerance = (
   let totalAccuracyHalfSpan_Base = 0;
   let activeDistributionDivisor = 1.732; // Default to Rectangular
   let activeDistributionLabel = "Rectangular";
+  // Canonical divisor string (matches an errorDistributions value, e.g.
+  // "1.960"). The budget-table dropdown round-trips on this exact string.
+  let activeDistributionRaw = "1.732";
   let hasAccuracyComponents = false;
 
   const calculateComponentSpan = (
@@ -80,12 +83,20 @@ export const getBudgetComponentsFromTolerance = (
     if (!tolComp) return 0;
     if (typeof tolComp !== 'object') return 0;
 
-    // Capture distribution from the first valid component we find
+    // Capture distribution from the first valid component we find. Normalize
+    // to a canonical errorDistributions entry so the divisor, label, and the
+    // round-trip string the dropdown uses all agree.
     if (!hasAccuracyComponents) {
-        activeDistributionDivisor = parseFloat(tolComp.distribution) || 1.732;
-        activeDistributionLabel = errorDistributions.find(
-          (d) => d.value === String(tolComp.distribution)
-        )?.label || "Rectangular";
+        const distEntry = errorDistributions.find(
+          (d) => parseFloat(d.value) === parseFloat(tolComp.distribution)
+        );
+        activeDistributionRaw = distEntry
+          ? distEntry.value
+          : tolComp.distribution != null
+          ? String(tolComp.distribution)
+          : "1.732";
+        activeDistributionDivisor = parseFloat(activeDistributionRaw) || 1.732;
+        activeDistributionLabel = distEntry?.label || "Rectangular";
     }
 
     const high = parseFloat(tolComp?.high || 0);
@@ -186,6 +197,7 @@ export const getBudgetComponentsFromTolerance = (
         dof: Infinity,
         isCore: true,
         distribution: activeDistributionLabel,
+        distributionDivisor: activeDistributionRaw,
       });
   }
 
@@ -206,20 +218,31 @@ export const getBudgetComponentsFromTolerance = (
         const absoluteDeviation = Math.abs(upperValue - nominalAtCenterTol);
   
         const ppm = convertToPPM(absoluteDeviation, nominalUnit, nominalValue, nominalUnit);
-        
+
+        // Use the dB component's own distribution (falling back to the
+        // accumulated accuracy distribution). The prior code referenced
+        // undefined `distributionDivisor`/`distributionLabel` and threw.
+        const dbDistEntry = errorDistributions.find(
+          (d) => parseFloat(d.value) === parseFloat(toleranceObject.db.distribution)
+        );
+        const dbDistRaw = dbDistEntry ? dbDistEntry.value : activeDistributionRaw;
+        const dbDivisor = parseFloat(dbDistRaw) || activeDistributionDivisor;
+        const dbLabel = dbDistEntry?.label || activeDistributionLabel;
+
         if (!isNaN(ppm)) {
-          const u_i = Math.abs(ppm / distributionDivisor);
-          
+          const u_i = Math.abs(ppm / dbDivisor);
+
           budgetComponents.push({
             id: `${prefix}_db_${toleranceObject.id || "manual"}`,
             name: `${prefix} - dB`,
             type: "B",
             value: u_i,
-            value_native: absoluteDeviation / distributionDivisor,
+            value_native: absoluteDeviation / dbDivisor,
             unit_native: nominalUnit,
             dof: Infinity,
             isCore: true,
-            distribution: distributionLabel,
+            distribution: dbLabel,
+            distributionDivisor: dbDistRaw,
           });
         }
      }

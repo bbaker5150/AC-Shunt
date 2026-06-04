@@ -1729,6 +1729,72 @@ function App() {
     setIsInstrumentBuilderOpen(true);
   };
 
+  // When a master TMDE is edited (tolerances, distribution, range, etc.), the
+  // per-point tmdeTolerance instances are independent snapshots and would
+  // otherwise keep stale specs — so the budget/risk "UI calc" wouldn't update
+  // (#6). Re-flatten every referencing instance from the saved master, mirroring
+  // the inline handleSaveTmde logic, while preserving per-point data
+  // (measurementPoint, variableType, quantity, selected range index).
+  const refreshTmdeInstances = (testPoints, savedTmde) => {
+    return (testPoints || []).map((tp) => {
+      const tols = tp.tmdeTolerances || [];
+      let changed = false;
+      const next = tols.map((t) => {
+        if (t.id !== savedTmde.id && t.sourceId !== savedTmde.id) return t;
+        changed = true;
+
+        const newInstDef = savedTmde.instrument || savedTmde;
+        let funcName = t.functionName || "";
+        let func = null;
+        if (newInstDef.functions?.length > 0) {
+          if (funcName)
+            func = newInstDef.functions.find((f) => f.name === funcName);
+          if (!func) func = newInstDef.functions[0];
+          funcName = func ? func.name : "";
+        }
+        const newRanges = func ? func.ranges || [] : newInstDef.ranges || [];
+        const activeIndex =
+          t._index !== undefined && newRanges[t._index] ? t._index : 0;
+        const newActiveRange = newRanges[activeIndex] || {};
+        const flattenedSpecs = {
+          ...newActiveRange,
+          ...(newActiveRange.tolerances || newActiveRange.tolerance || {}),
+        };
+
+        /* eslint-disable no-unused-vars */
+        const {
+          reading,
+          readings_iv,
+          range,
+          floor,
+          db,
+          tolerance,
+          tolerances,
+          min,
+          max,
+          unit,
+          resolution,
+          ...safeInstanceMeta
+        } = t;
+        /* eslint-enable no-unused-vars */
+
+        return {
+          ...safeInstanceMeta,
+          ...savedTmde,
+          ...flattenedSpecs,
+          id: t.id,
+          sourceId: savedTmde.id,
+          functionName: funcName,
+          _index: activeIndex,
+          measurementPoint: t.measurementPoint,
+          variableType: t.variableType,
+          quantity: t.quantity,
+        };
+      });
+      return changed ? { ...tp, tmdeTolerances: next } : tp;
+    });
+  };
+
   const handleUniversalModalSave = (data) => {
     // LOGGING TO VERIFY EXECUTION
     console.log("[App.jsx] handleUniversalModalSave CALLED with:", data);
@@ -1840,7 +1906,17 @@ function App() {
       } else {
         updatedTmdes.push(newTmde);
       }
-      updateSession({ ...currentSessionData, tmdes: updatedTmdes });
+      // Editing an existing TMDE: propagate the new specs to its per-point
+      // instances so budgets/risk recompute. (No-op for brand new TMDEs.)
+      const refreshedTestPoints =
+        existingTmdeIndex >= 0
+          ? refreshTmdeInstances(currentSessionData.testPoints, newTmde)
+          : currentSessionData.testPoints;
+      updateSession({
+        ...currentSessionData,
+        tmdes: updatedTmdes,
+        testPoints: refreshedTestPoints,
+      });
     }
 
     // CASE 3: Library Item used as UUT
