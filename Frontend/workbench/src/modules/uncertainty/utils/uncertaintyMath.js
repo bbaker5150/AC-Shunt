@@ -1978,7 +1978,7 @@ function PFAIter(sRiskType, dMeasRel, dAvg, dTolLow, dTolUp, dMeasUnc) {
 // NOTE: resDwn/resUp intentionally mirror the spreadsheet's VBA ResDwn/ResUp
 // bit-for-bit, INCLUDING a known floating-point quirk: a limit that is exactly
 // on the resolution grid (e.g. 0.012750 = 1275 counts) divides to 1274.9999999…
-// under IEEE-754, so the trunc/floor drops a whole count (-> 0.012740). That can
+// under IEEE-754, so the trunc drops a whole count (-> 0.012740). That can
 // surface a "guard band" (e.g. GB Mult 95.92%) where the solver actually returned
 // no guard band. We preserve this on purpose so results match the spreadsheet of
 // record exactly. Do NOT add grid-snapping here — see the GB Mult discrepancy
@@ -1989,7 +1989,7 @@ export function resDwn(dVal, dRes) {
   if (!Number.isFinite(dVal)) return dVal;
   if (!Number.isFinite(dRes) || dRes <= 0) return dVal;
   if (dVal === 0) return dVal;
-  let x = Math.floor(dVal / dRes) * dRes;
+  let x = Math.trunc(dVal / dRes) * dRes;
   const dZero = 0.000001;
   if (Math.abs(Math.trunc(dVal / dRes) - dVal / dRes) > dZero) {
     if (dVal > 0) x = x + dRes;
