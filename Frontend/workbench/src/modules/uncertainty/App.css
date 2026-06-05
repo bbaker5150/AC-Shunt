@@ -1411,11 +1411,6 @@ body.theme-cyberpunk .button {
   justify-content: center;
 }
 
-.sidebar-sort-indicator {
-  font-size: 0.68rem;
-  line-height: 1;
-}
-
 /* Sidebar Column Toggle Button Enhancement */
 /* --- Sidebar Toolbar (Filter + Quick Add) --- */
 .sidebar-toolbar {

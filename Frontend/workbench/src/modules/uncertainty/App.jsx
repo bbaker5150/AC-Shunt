@@ -970,11 +970,6 @@ function App() {
           style={{ textAlign: align }}
         >
           <span>{label}</span>
-          {isActive && (
-            <span className="sidebar-sort-indicator" aria-hidden="true">
-              {sidebarSort.direction === "asc" ? "ASC" : "DESC"}
-            </span>
-          )}
         </button>
       );
     },
