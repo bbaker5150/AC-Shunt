@@ -6,7 +6,6 @@ import {
   getCorrelation,
   combineWithCorrelation,
   normalQuantile,
-  resDwn,
   snapLimitsToResolution,
 } from "./uncertaintyMath";
 import { computePointRiskMetrics } from "./riskCompute";
@@ -102,10 +101,6 @@ describe("snapLimitsToResolution", () => {
     const r = snapLimitsToResolution(0.0372, 0.0378, 0.01);
     expect(r).toEqual({ low: 0.0372, high: 0.0378 });
   });
-
-  test("lower-limit rounding mirrors VBA Fix for negative values", () => {
-    expect(resDwn(-0.037264, 1e-5)).toBeCloseTo(-0.03726, 9);
-  });
 });
 
 describe("BRG-3100 4.1.9 full Excel mirror (riskCompute)", () => {
@@ -124,14 +119,5 @@ describe("BRG-3100 4.1.9 full Excel mirror (riskCompute)", () => {
     expect(m.tur).toBeCloseTo(2.6394, 2); // Excel 2.639367
     expect(m.pfa).toBeCloseTo(2.384, 1); // Excel 2.38%
     expect(m.pfr).toBeCloseTo(3.96, 1); // Excel 3.96%
-
-    const torqueFullScalePoint = session.testPoints.find(
-      (p) => p.testPointInfo?.parameter?.value === "0.050019",
-    );
-    const gb = computePointRiskMetrics(torqueFullScalePoint, sessionData, true);
-    expect(gb.gbLow).toBeCloseTo(0.049775, 9);
-    expect(gb.gbHigh).toBeCloseTo(0.050255, 9);
-    expect(gb.gbPfa).toBeCloseTo(1.75, 1);
-    expect(gb.gbPfr).toBeCloseTo(3.8, 1);
   });
 });

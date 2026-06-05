@@ -413,8 +413,7 @@ export function computePointRiskMetrics(point, sessionData, includeGuardband = f
     const pfaRequired = parseFloat(sessionData.uncReq?.reqPFA) / 100;
     if (!isNaN(pfaRequired) && pfaRequired > 0) {
       // Measurement resolution converted into the nominal unit's grid (the unit
-      // the limits live in). Guardband limits mirror the workbook's half-count
-      // snapping, while UUT tolerance limits use the full resolution.
+      // the limits live in) so the guard-band rounding matches the workbook.
       const resRaw = parseFloat(uutToleranceData?.measuringResolution);
       let safeRes = 0;
       if (!isNaN(resRaw)) {
@@ -423,8 +422,8 @@ export function computePointRiskMetrics(point, sessionData, includeGuardband = f
         const resUnitInfo = unitSystem.units[resUnit];
         safeRes =
           resUnitInfo && !isNaN(resUnitInfo.to_si) && targetUnitInfo.to_si
-            ? (resRaw * resUnitInfo.to_si) / targetUnitInfo.to_si / 2
-            : resRaw / 2;
+            ? (resRaw * resUnitInfo.to_si) / targetUnitInfo.to_si
+            : resRaw;
       }
 
       try {
