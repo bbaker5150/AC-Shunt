@@ -388,6 +388,7 @@ const UncertaintyBudgetTable = ({
   );
 
   const renderEquationTable = (group) => (
+    <>
     <table className="uncertainty-budget-table">
       <thead>
         <tr>
@@ -416,6 +417,14 @@ const UncertaintyBudgetTable = ({
         ))}
       </tbody>
     </table>
+    {group.correlationApplied && (
+      <p className="budget-correlation-note">
+        Combined uncertainty includes input correlations (ρ); without
+        correlation (RSS) it would be{" "}
+        {formatNumber(group.uncorrelatedCombined, uiSigFigs)} {group.unit}.
+      </p>
+    )}
+    </>
   );
 
   // Direct-measurement toolbar: the single budget table's Add Manual +

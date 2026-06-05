@@ -4016,6 +4016,17 @@ body.dark-mode .symbol-popout .symbol-button:hover {
   box-shadow: none;
 }
 
+/* Footnote under the measurement-equation table when its combined uncertainty
+   includes input correlations — explains why the value differs from the RSS of
+   the per-input contributions shown above. */
+.budget-correlation-note {
+  margin: 8px 2px 0;
+  font-size: 0.78rem;
+  line-height: 1.4;
+  color: var(--text-color-muted);
+  font-style: italic;
+}
+
 .budget-results-card {
   display: grid;
   grid-template-columns: minmax(0, 1fr);

@@ -288,11 +288,19 @@ export const useUncertaintyCalculation = (
           Object.values(testPointData.variableMappings || {}).filter(Boolean)
         );
         const signedContribsBase = [];
+        // Just the measurement-equation inputs (no manual / UUT-resolution
+        // components), so the equation budget's combined uncertainty can be
+        // combined with the SAME correlation matrix the final budget uses.
+        const equationSignedContribsBase = [];
 
         const inputBudgetGroups = [];
 
         derivedBreakdown.forEach((item, index) => {
             signedContribsBase.push({
+                id: item.componentId,
+                contribution: item.contribution_base_signed,
+            });
+            equationSignedContribsBase.push({
                 id: item.componentId,
                 contribution: item.contribution_base_signed,
             });
@@ -455,6 +463,29 @@ export const useUncertaintyCalculation = (
           inputCorrelations
         );
 
+        // The measurement-equation uncertainty IS the correlated combination of
+        // its input contributions. Previously it reported the plain RSS while
+        // the final budget (and therefore the risk metrics) used the correlated
+        // value — so adding a correlation moved the risk numbers without any
+        // visible change in the equation table. Recompute it here with the same
+        // matrix (an empty map reduces to the prior RSS, so uncorrelated budgets
+        // are unaffected) and keep the RSS around to surface the delta.
+        const uncorrelatedEquationInputsBase = derivedUcInputs_Base;
+        const correlatedEquationInputsBase = combineWithCorrelation(
+          equationSignedContribsBase,
+          inputCorrelations
+        );
+        derivedUcInputs_Base = correlatedEquationInputsBase;
+        derivedUcInputs_Native = correlatedEquationInputsBase / targetUnitInfo.to_si;
+        const correlationAffectsEquation =
+          Number.isFinite(uncorrelatedEquationInputsBase) &&
+          uncorrelatedEquationInputsBase > 0 &&
+          Math.abs(
+            correlatedEquationInputsBase - uncorrelatedEquationInputsBase
+          ) /
+            uncorrelatedEquationInputsBase >
+            1e-9;
+
         const equationRows = componentsForBudgetTable
           .filter((component) => component.name.startsWith("Input:"))
           .map((component) => ({
@@ -557,6 +588,11 @@ export const useUncertaintyCalculation = (
             label: "Measurement Equation Uncertainty",
             unit: derivedNominalUnit,
             rows: equationRows,
+            // Surface the correlation effect: whether the combined value below
+            // includes off-diagonal terms, and the plain RSS for comparison.
+            correlationApplied: correlationAffectsEquation,
+            uncorrelatedCombined:
+              uncorrelatedEquationInputsBase / targetUnitInfo.to_si,
             results: {
               combined: derivedUcInputs_Native,
               effective_dof: effectiveDof,
