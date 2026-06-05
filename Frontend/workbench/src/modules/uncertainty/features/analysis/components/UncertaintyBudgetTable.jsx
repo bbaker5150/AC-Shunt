@@ -1,5 +1,4 @@
 import React, { useState, useMemo, useEffect, useRef } from "react";
-import Latex from "../../../components/common/Latex";
 import { unitSystem, errorDistributions } from "../../../utils/uncertaintyMath";
 import { oldErrorDistributions } from "../utils/budgetUtils";
 import { FontAwesomeIcon } from "@fortawesome/react-fontawesome";
@@ -397,9 +396,7 @@ const UncertaintyBudgetTable = ({
           <th>DOF</th>
           <th>Standard Uncertainty</th>
           <th>Sensitivity Coefficient</th>
-          <th>
-            <Latex>{"Contribution ($|c_i \\times u_i|$)"}</Latex>
-          </th>
+          <th>Contribution</th>
         </tr>
       </thead>
       <tbody className="component-group-tbody">
