@@ -547,6 +547,23 @@ const UncertaintyBudgetTable = ({
       </button>
       {showSettings && (
         <div className="budget-settings-menu">
+          <h5>Display</h5>
+          <label className="budget-settings-check">
+            <input
+              type="checkbox"
+              checked={showContribution}
+              onChange={(e) => setShowContribution(e.target.checked)}
+            />
+            Show contribution
+          </label>
+          <label className="budget-settings-check">
+            <input
+              type="checkbox"
+              checked={showGuardband}
+              onChange={(e) => handleGuardbandToggle(e.target.checked)}
+            />
+            Show guardband
+          </label>
           <h5>Display Precision</h5>
           <label>
             Expanded Unc (U) Sig Figs
@@ -579,6 +596,11 @@ const UncertaintyBudgetTable = ({
 
   const finalGroup = groups.find((group) => group.kind === "final");
   const finalExpanded = finalGroup?.results?.expanded;
+  // Coverage factor for the footnote — read from the SAME computed result the
+  // expanded uncertainty above uses, never hardcoded. It already tracks the
+  // configured confidence and any Type A repeatability that lowers the
+  // effective DOF (which raises k via the Student-t quantile).
+  const displayK = finalGroup?.results?.k_value ?? calcResults?.k_value;
 
   return (
     <div className="budget-stack">
@@ -706,39 +728,15 @@ const UncertaintyBudgetTable = ({
 
       {calcResults && (
         <div className="final-result-display budget-stack-final-display">
-          <div className="budget-final-toggles">
-            <label>
-              <span>Show Contribution</span>
-              <span className="dark-mode-toggle">
-                <input
-                  type="checkbox"
-                  checked={showContribution}
-                  onChange={(e) => setShowContribution(e.target.checked)}
-                />
-                <span className="slider"></span>
-              </span>
-            </label>
-            <label>
-              <span>Show Guardband</span>
-              <span className="dark-mode-toggle">
-                <input
-                  type="checkbox"
-                  checked={showGuardband}
-                  onChange={(e) => handleGuardbandToggle(e.target.checked)}
-                />
-                <span className="slider"></span>
-              </span>
-            </label>
-            {renderResultSettings()}
-          </div>
+          <div className="budget-final-toggles">{renderResultSettings()}</div>
           <span className="final-result-label">Expanded Uncertainty (U)</span>
           <div className="final-result-value">
             +/- {formatNumber(finalExpanded, expandedSigFigs)}
             <span className="final-result-unit">{derivedUnit}</span>
           </div>
           <span className="final-result-confidence-note">
-            The reported expanded uncertainty uses k=
-            {formatNumber(finalGroup?.results?.k_value, 4)} at {confidencePercent}%.
+            The reported expanded uncertainty uses k={formatNumber(displayK, 4)}{" "}
+            at {confidencePercent}%.
           </span>
           {renderRiskMetrics()}
         </div>
