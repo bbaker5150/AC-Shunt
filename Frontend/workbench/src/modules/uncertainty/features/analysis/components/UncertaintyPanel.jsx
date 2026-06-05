@@ -8,13 +8,13 @@ import React, {
   useRef,
   useCallback,
 } from "react";
+import ReactDOM from "react-dom";
 import Select from "react-select";
 import * as math from "mathjs";
 import { FontAwesomeIcon } from "@fortawesome/react-fontawesome";
 import {
   faPlus,
   faTrashAlt,
-  faTimes,
   faExclamationTriangle,
   faCheckCircle,
   faTimesCircle,
@@ -68,16 +68,39 @@ const customUnitSelectStyles = {
   }),
 };
 
-const symbolCategories = [
-  {
-    name: "Operators",
-    symbols: ["+", "-", "*", "/", "(", ")", "^", "sqrt"],
-  },
-  {
-    name: "Greek",
-    symbols: ["alpha", "beta", "delta", "theta", "sigma", "pi"],
-  },
-];
+const symbolCategories = {
+  Operators: [
+    { symbol: "+", title: "Add" },
+    { symbol: "-", title: "Subtract" },
+    { symbol: "*", title: "Multiply" },
+    { symbol: "/", title: "Divide" },
+    { symbol: "^", title: "Power" },
+    { symbol: "()", title: "Parentheses" },
+    { symbol: "%", title: "Percent" },
+  ],
+  Functions: [
+    { symbol: "sqrt()", title: "Square Root" },
+    { symbol: "abs()", title: "Absolute Value" },
+    { symbol: "log()", title: "Log base 10" },
+    { symbol: "ln()", title: "Natural Log" },
+    { symbol: "exp()", title: "Exponential" },
+    { symbol: "mod()", title: "Modulus" },
+  ],
+  Trigonometry: [
+    { symbol: "sin()", title: "Sine" },
+    { symbol: "cos()", title: "Cosine" },
+    { symbol: "tan()", title: "Tangent" },
+    { symbol: "asin()", title: "Arcsine" },
+    { symbol: "acos()", title: "Arccosine" },
+    { symbol: "atan()", title: "Arctangent" },
+  ],
+  Constants: [
+    { symbol: "pi", title: "Pi" },
+    { symbol: "e", title: "Euler constant" },
+    { symbol: "i", title: "Imaginary unit" },
+    { symbol: "Infinity", title: "Infinity" },
+  ],
+};
 
 // Sub-components
 import UncertaintyBudgetTable from "./UncertaintyBudgetTable";
@@ -95,17 +118,14 @@ import {
 } from "../../../utils/uncertaintyMath";
 import { oldErrorDistributions } from "../utils/budgetUtils";
 
-// Small inline button used by the equation "f(x)" symbol popout. This was
-// previously referenced but never defined, which threw once the popout
-// rendered. `symbol` here is a plain string (see symbolCategories above).
 const SymbolButton = ({ symbol, title, onSymbolClick }) => (
   <button
     type="button"
-    className="symbol-button"
+    className="add-point-symbol-button"
     title={title || `Insert ${symbol}`}
     onClick={() => onSymbolClick(symbol)}
   >
-    {symbol}
+    {symbol.replace("()", "( )")}
   </button>
 );
 
@@ -1536,6 +1556,10 @@ function DetailedView({
   onDeleteTmdeDefinition,
 }) {
   const [isSymbolMenuOpen, setIsSymbolMenuOpen] = useState(false);
+  const [symbolMenuPosition, setSymbolMenuPosition] = useState({
+    top: 0,
+    left: 0,
+  });
   const [tmdeRangeIndices, setTmdeRangeIndices] = useState({});
 
   // --- NEW: Local Selection State ---
@@ -1763,10 +1787,22 @@ function DetailedView({
     }
   };
 
+  const handleSymbolMenuToggle = () => {
+    const rect = symbolButtonRef.current?.getBoundingClientRect();
+    if (rect) {
+      setSymbolMenuPosition({
+        top: rect.bottom + 6,
+        left: Math.max(12, rect.right - 360),
+      });
+    }
+    setIsSymbolMenuOpen((open) => !open);
+  };
+
   const handleSymbolClick = (symbol) => {
     const input = equationInputRef.current;
     if (!input) return;
 
+    input.focus();
     const start = input.selectionStart;
     const end = input.selectionEnd;
     const currentValue = input.value;
@@ -1784,8 +1820,9 @@ function DetailedView({
         currentValue.substring(0, start) +
         textToInsert +
         currentValue.substring(end);
-      newCursorPos =
-        start + (selectedText ? textToInsert.length + 1 : funcName.length + 1);
+      newCursorPos = selectedText
+        ? start + textToInsert.length
+        : start + funcName.length + 1;
     } else {
       newValue =
         currentValue.substring(0, start) + symbol + currentValue.substring(end);
@@ -1801,6 +1838,33 @@ function DetailedView({
       }
     }, 0);
   };
+
+  const symbolMenu = isSymbolMenuOpen
+    ? ReactDOM.createPortal(
+        <div
+          className="add-point-symbol-popover"
+          ref={symbolMenuRef}
+          style={{ top: symbolMenuPosition.top, left: symbolMenuPosition.left }}
+        >
+          {Object.entries(symbolCategories).map(([category, symbols]) => (
+            <div key={category} className="add-point-symbol-category">
+              <h5>{category}</h5>
+              <div className="add-point-symbol-grid">
+                {symbols.map((item) => (
+                  <SymbolButton
+                    key={item.symbol}
+                    symbol={item.symbol}
+                    title={item.title}
+                    onSymbolClick={handleSymbolClick}
+                  />
+                ))}
+              </div>
+            </div>
+          ))}
+        </div>,
+        document.body,
+      )
+    : null;
 
   const handleVariableMappingChange = (symbol, newName) => {
     const cleanedName = newName ? newName.trim() : "";
@@ -2529,7 +2593,7 @@ function DetailedView({
           <div className="measurement-equation-block">
             <h3 className="panel-section-title">Measurement Equation</h3>
             <div className="measurement-equation-card">
-              <div className="input-with-symbol-button">
+              <div className="add-point-equation-input measurement-equation-input-row">
                 <input
                   ref={equationInputRef}
                   type="text"
@@ -2540,58 +2604,15 @@ function DetailedView({
                 />
                 <button
                   type="button"
-                  className="symbol-toggle-button"
-                  title="Show Symbols"
+                  className="add-point-fx-button"
+                  title="Insert function or symbol"
                   ref={symbolButtonRef}
-                  onClick={() => setIsSymbolMenuOpen(!isSymbolMenuOpen)}
+                  onClick={handleSymbolMenuToggle}
                 >
                   f(x)
                 </button>
-
-                {isSymbolMenuOpen && (
-                  <div
-                    className="symbol-popout"
-                    ref={symbolMenuRef}
-                    style={{ maxHeight: "300px", overflowY: "auto" }}
-                  >
-                    <div
-                      style={{
-                        display: "flex",
-                        justifyContent: "space-between",
-                        marginBottom: "10px",
-                        paddingBottom: "5px",
-                        borderBottom: "1px solid var(--border-color)",
-                      }}
-                    >
-                      <span style={{ fontWeight: 700, fontSize: "0.85rem" }}>
-                        Math Symbols
-                      </span>
-                      <span
-                        onClick={() => setIsSymbolMenuOpen(false)}
-                        style={{ cursor: "pointer" }}
-                      >
-                        <FontAwesomeIcon icon={faTimes} />
-                      </span>
-                    </div>
-                    {symbolCategories.map((category) => (
-                      <div key={category.name} className="symbol-category">
-                        <h5 className="symbol-category-title">
-                          {category.name}
-                        </h5>
-                        <div className="symbol-category-grid">
-                          {category.symbols.map((sym) => (
-                            <SymbolButton
-                              key={sym}
-                              symbol={sym}
-                              onSymbolClick={handleSymbolClick}
-                            />
-                          ))}
-                        </div>
-                      </div>
-                    ))}
-                  </div>
-                )}
               </div>
+              {symbolMenu}
 
               {calcStatus !== "neutral" && (
                 <div

@@ -7508,26 +7508,89 @@ body.theme-cyberpunk .notification-window .window-header {
   gap: 12px;
 }
 
-.measurement-equation-card .input-with-symbol-button {
+.measurement-equation-input-row {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) 52px;
   align-items: stretch;
 }
 
 .measurement-equation-input {
   min-width: 0;
-  height: 38px;
-  padding: 8px 12px;
-  font-family: "Consolas", "Menlo", monospace;
-  font-size: 0.95rem;
+  height: 40px;
+  padding: 0 10px;
+  border-top-right-radius: 0;
+  border-bottom-right-radius: 0;
+  font-family: ui-monospace, SFMono-Regular, Consolas, "Liberation Mono",
+    monospace;
+  font-size: 0.9rem;
   font-weight: 650;
   letter-spacing: 0;
   background-color: var(--input-background);
 }
 
-.measurement-equation-card .symbol-toggle-button {
-  height: 38px;
-  padding: 0 10px;
-  font-size: 0.9rem;
+.measurement-equation-card .add-point-fx-button {
+  width: 52px;
+  height: 40px;
+  border: 1px solid var(--border-color);
+  border-left: 0;
   border-radius: 0 6px 6px 0;
+  background: var(--background-color-secondary);
+  color: var(--primary-color);
+  font-weight: 700;
+  cursor: pointer;
+}
+
+.measurement-equation-card .add-point-fx-button:hover {
+  background: rgba(var(--primary-rgb), 0.08);
+}
+
+.add-point-symbol-popover {
+  position: fixed;
+  width: 360px;
+  max-width: calc(100vw - 24px);
+  max-height: 380px;
+  overflow-y: auto;
+  padding: 12px;
+  border: 1px solid var(--border-color);
+  border-radius: 8px;
+  background: var(--content-background);
+  box-shadow: 0 14px 40px rgba(0, 0, 0, 0.28);
+  z-index: 99999;
+}
+
+.add-point-symbol-category + .add-point-symbol-category {
+  margin-top: 12px;
+}
+
+.add-point-symbol-category h5 {
+  margin: 0 0 6px;
+  color: var(--text-color-muted);
+  font-size: 0.72rem;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+}
+
+.add-point-symbol-grid {
+  display: grid;
+  grid-template-columns: repeat(4, 1fr);
+  gap: 6px;
+}
+
+.add-point-symbol-button {
+  height: 30px;
+  border: 1px solid var(--border-color);
+  border-radius: 6px;
+  background: var(--background-color-secondary);
+  color: var(--text-color);
+  cursor: pointer;
+  font-family: ui-monospace, SFMono-Regular, Consolas, "Liberation Mono",
+    monospace;
+  font-size: 0.8rem;
+}
+
+.add-point-symbol-button:hover {
+  border-color: var(--primary-color);
+  color: var(--primary-color);
 }
 
 .measurement-equation-status {
