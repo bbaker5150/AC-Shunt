@@ -1265,6 +1265,29 @@ body.theme-cyberpunk .button {
   pointer-events: none; /* Clarifies it's just a label */
 }
 
+.sidebar-section-toggle {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  min-width: 0;
+  padding: 0;
+  border: 0;
+  background: transparent;
+  color: var(--text-color-muted);
+  cursor: pointer;
+}
+
+.sidebar-section-toggle svg {
+  width: 10px;
+  font-size: 0.72rem;
+  opacity: 0.7;
+}
+
+.sidebar-section-toggle:hover,
+.sidebar-section-toggle:hover .sidebar-section-title {
+  color: var(--primary-color);
+}
+
 .sidebar-actions-group {
   display: flex;
   align-items: center;
@@ -9824,12 +9847,23 @@ body.theme-cyberpunk .theme-selector-minimal {
   color: var(--text-color);
 }
 
-.session-requirements-block {
-  margin-top: 12px;
+.session-collapsible-block {
+  margin-top: 10px;
   padding-top: 10px;
   border-top: 1px solid var(--border-color);
 }
 
+.session-info-block {
+  margin-top: 0;
+  padding-top: 0;
+  border-top: 0;
+}
+
+.session-info-content {
+  margin-top: 8px;
+}
+
+.session-section-toggle,
 .session-requirements-toggle {
   width: 100%;
   display: flex;
@@ -9847,6 +9881,7 @@ body.theme-cyberpunk .theme-selector-minimal {
   letter-spacing: 0.04em;
 }
 
+.session-section-toggle:hover,
 .session-requirements-toggle:hover {
   color: var(--primary-color);
 }

@@ -541,6 +541,7 @@ const SidebarSessionHeader = ({
 }) => {
   const [editingField, setEditingField] = useState(null);
   const [tempValue, setTempValue] = useState("");
+  const [isSessionInfoOpen, setIsSessionInfoOpen] = useState(true);
   const [isRequirementsOpen, setIsRequirementsOpen] = useState(true);
 
   if (!sessionData) return null;
@@ -626,42 +627,61 @@ const SidebarSessionHeader = ({
       title="Click to select Session Overview"
       onClick={onSelect}
     >
-      {/* TITLE / NAME */}
-      <div style={{ marginBottom: "4px" }}>
-        {editingField === "name" ? (
-          <input
-            autoFocus
-            value={tempValue}
-            onChange={(e) => setTempValue(e.target.value)}
-            onBlur={commitEdit}
-            onKeyDown={handleKeyDown}
-            onClick={(e) => e.stopPropagation()}
-            className="session-header-input session-header-name-input"
-            placeholder="Session Name"
-          />
-        ) : (
-          <div
-            onClick={(e) => startEdit(e, "name", sessionData.name)}
-            className="session-header-value session-header-name"
-            title="Edit Session Name"
-          >
-            {sessionData.name || "Untitled Session"}
+      <div className="session-collapsible-block session-info-block">
+        <button
+          type="button"
+          className="session-section-toggle"
+          onClick={(e) => {
+            e.stopPropagation();
+            setIsSessionInfoOpen((open) => !open);
+          }}
+          aria-expanded={isSessionInfoOpen}
+        >
+          <span>Session Info</span>
+          <FontAwesomeIcon icon={isSessionInfoOpen ? faChevronDown : faChevronRight} />
+        </button>
+
+        {isSessionInfoOpen && (
+          <div className="session-info-content">
+            {/* TITLE / NAME */}
+            <div style={{ marginBottom: "4px" }}>
+              {editingField === "name" ? (
+                <input
+                  autoFocus
+                  value={tempValue}
+                  onChange={(e) => setTempValue(e.target.value)}
+                  onBlur={commitEdit}
+                  onKeyDown={handleKeyDown}
+                  onClick={(e) => e.stopPropagation()}
+                  className="session-header-input session-header-name-input"
+                  placeholder="Session Name"
+                />
+              ) : (
+                <div
+                  onClick={(e) => startEdit(e, "name", sessionData.name)}
+                  className="session-header-value session-header-name"
+                  title="Edit Session Name"
+                >
+                  {sessionData.name || "Untitled Session"}
+                </div>
+              )}
+            </div>
+
+            {/* 2x2 GRID FOR ORG, ANALYST, DOC, DATE */}
+            <div className="session-header-grid">
+              {renderEditableField("organization", sessionData.organization, "Organization")}
+              {renderEditableField("analyst", sessionData.analyst, "Analyst")}
+              {renderEditableField("document", sessionData.document, "Doc ID")}
+              {renderEditableField("documentDate", sessionData.documentDate, "Date", "date")}
+            </div>
           </div>
         )}
       </div>
 
-      {/* 2x2 GRID FOR ORG, ANALYST, DOC, DATE */}
-      <div className="session-header-grid">
-        {renderEditableField("organization", sessionData.organization, "Organization")}
-        {renderEditableField("analyst", sessionData.analyst, "Analyst")}
-        {renderEditableField("document", sessionData.document, "Doc ID")}
-        {renderEditableField("documentDate", sessionData.documentDate, "Date", "date")}
-      </div>
-
-      <div className="session-requirements-block">
+      <div className="session-collapsible-block session-requirements-block">
         <button
           type="button"
-          className="session-requirements-toggle"
+          className="session-section-toggle"
           onClick={(e) => {
             e.stopPropagation();
             setIsRequirementsOpen((open) => !open);
@@ -835,6 +855,7 @@ function App() {
   );
 
   const [isGlobalExpanded, setIsGlobalExpanded] = useState(false);
+  const [isMeasurementPointsOpen, setIsMeasurementPointsOpen] = useState(true);
 
   // Resize Effect
   useEffect(() => {
@@ -2937,9 +2958,25 @@ function App() {
 
                 {/* 2. GLOBAL ACTIONS ROW (Refined & Organic) */}
                 <div className="sidebar-global-actions">
-                  <span className="sidebar-section-title">
+                  <button
+                    type="button"
+                    className="sidebar-section-toggle"
+                    onClick={() =>
+                      setIsMeasurementPointsOpen((open) => !open)
+                    }
+                    aria-expanded={isMeasurementPointsOpen}
+                  >
+                    <FontAwesomeIcon
+                      icon={
+                        isMeasurementPointsOpen
+                          ? faChevronDown
+                          : faChevronRight
+                      }
+                    />
+                    <span className="sidebar-section-title">
                     Measurement Points
-                  </span>
+                    </span>
+                  </button>
 
                   <div className="sidebar-actions-group">
                     {/* Eyeball Button Removed - Moved to HeaderToolbox */}
@@ -3038,7 +3075,7 @@ function App() {
                   </div>
                 </div>
 
-                {sidebarData.map((areaData) => {
+                {isMeasurementPointsOpen && sidebarData.map((areaData) => {
                   const isAreaActive =
                     selectedAreaId === areaData.id &&
                     !selectedUutId &&
