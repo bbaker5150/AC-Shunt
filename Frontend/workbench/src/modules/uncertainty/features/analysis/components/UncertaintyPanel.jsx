@@ -2178,18 +2178,11 @@ function DetailedView({
     return result.display;
   }, [activeResolvedTolerance, uutNominal]);
 
-  const calculatedLimits = useMemo(() => {
-    const result = calculateToleranceMetrics(
-      activeResolvedTolerance,
-      uutNominal,
-    );
-    return result.limits;
-  }, [activeResolvedTolerance, uutNominal]);
-
   return (
     <div className="configuration-panel">
-      {/* 1. UUT INFORMATION (Now stacked at the top) */}
-      <div className="panel-card">
+      <div className="uut-measurement-grid">
+        {/* 1. UUT INFORMATION */}
+        <div className="panel-card uut-detail-card">
         <div className="panel-card-header">
           <div className="panel-card-title">
             <FontAwesomeIcon icon={faMicroscope} />
@@ -2374,10 +2367,10 @@ function DetailedView({
             </tbody>
           </table>
         </div>
-      </div>
+        </div>
 
-      {/* 2. MEASUREMENT POINT TABLE (Now stacked below UUT) */}
-      <div className="panel-card">
+        {/* 2. MEASUREMENT POINT TABLE */}
+        <div className="panel-card measurement-point-card">
         <div className="panel-card-header">
           <div className="panel-card-title">
             <FontAwesomeIcon icon={faRulerCombined} />
@@ -2401,13 +2394,11 @@ function DetailedView({
             style={{ width: "100%", tableLayout: "fixed" }}
           >
             <colgroup>
-              {showSectionColumn && <col style={{ width: "15%" }} />}
-              <col style={{ width: showSectionColumn ? "15%" : "18%" }} />
-              <col style={{ width: "10%" }} />
-              <col style={{ width: showSectionColumn ? "20%" : "24%" }} />
-              <col style={{ width: "15%" }} />
-              <col style={{ width: "15%" }} />
-              <col style={{ width: "10%" }} />
+              {showSectionColumn && <col style={{ width: "22%" }} />}
+              <col style={{ width: showSectionColumn ? "22%" : "28%" }} />
+              <col style={{ width: showSectionColumn ? "14%" : "16%" }} />
+              <col style={{ width: showSectionColumn ? "30%" : "44%" }} />
+              <col style={{ width: "12%" }} />
             </colgroup>
             <thead>
               <tr>
@@ -2415,8 +2406,6 @@ function DetailedView({
                 <th>Point</th>
                 <th>Unit</th>
                 <th>Tolerance</th>
-                <th>Low Limit</th>
-                <th>High Limit</th>
                 <th style={{ textAlign: "center", paddingRight: "20px" }}></th>
               </tr>
             </thead>
@@ -2503,34 +2492,6 @@ function DetailedView({
                     </div>
                   </td>
 
-                  <td>
-                    <span
-                      style={{
-                        fontWeight: 600,
-                        whiteSpace: "nowrap",
-                        overflow: "hidden",
-                        textOverflow: "ellipsis",
-                        color: "var(--text-color)",
-                      }}
-                    >
-                      {calculatedLimits.low}
-                    </span>
-                  </td>
-
-                  <td>
-                    <span
-                      style={{
-                        fontWeight: 600,
-                        whiteSpace: "nowrap",
-                        overflow: "hidden",
-                        textOverflow: "ellipsis",
-                        color: "var(--text-color)",
-                      }}
-                    >
-                      {calculatedLimits.high}
-                    </span>
-                  </td>
-
                   <td className="action-cell" style={{ paddingRight: "20px" }}>
                     <div style={{ display: "flex", justifyContent: "center" }}>
                       <span
@@ -2550,7 +2511,7 @@ function DetailedView({
                 </tr>
               ) : (
                 <tr className="panel-empty-row">
-                  <td colSpan={showSectionColumn ? 7 : 6}>
+                  <td colSpan={showSectionColumn ? 5 : 4}>
                     No active point. Select a UUT range on the left and define a
                     point.
                   </td>
@@ -2558,6 +2519,7 @@ function DetailedView({
               )}
             </tbody>
           </table>
+        </div>
         </div>
       </div>
 

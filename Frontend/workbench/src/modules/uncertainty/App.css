@@ -7454,6 +7454,41 @@ body.theme-cyberpunk .notification-window .window-header {
   padding: 0;
 }
 
+.uut-measurement-grid {
+  display: grid;
+  grid-template-columns: minmax(0, 1.15fr) minmax(280px, 0.85fr);
+  align-items: stretch;
+  gap: 18px;
+  min-width: 0;
+}
+
+.uut-measurement-grid .panel-card {
+  min-width: 0;
+  height: 100%;
+}
+
+.uut-measurement-grid .panel-table-container {
+  max-height: 300px;
+}
+
+.measurement-point-card .instrument-summary-table th,
+.measurement-point-card .instrument-summary-table td {
+  padding-left: 10px;
+  padding-right: 10px;
+}
+
+.measurement-point-card .editable-cell-display {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+@media (max-width: 1180px) {
+  .uut-measurement-grid {
+    grid-template-columns: minmax(0, 1fr);
+  }
+}
+
 /* Individual card wrapper */
 .panel-card {
   background-color: var(--content-background);
