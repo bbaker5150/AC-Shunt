@@ -49,8 +49,8 @@ const formatDof = (dof) => {
 
 // A component is "entered as a standard uncertainty" (Type A results, or a
 // Type B typed in directly as uᵢ) when there is no underlying tolerance/error
-// limit to show. For these the Tolerance Limit column is N/A — the value lives
-// in the Standard Uncertainty column instead.
+// limit to show. For these the Tolerance Limit column is left blank — the value
+// lives in the Standard Uncertainty column instead.
 const isStandardUncertaintyEntry = (component) => {
   if (component.type === "A") return true;
   if (component.originalInput?.inputMode === "standard") return true;
@@ -371,7 +371,7 @@ const UncertaintyBudgetTable = ({
               <td>{component.sourcePointLabel || "N/A"}</td>
               <td>
                 {isStandardUncertaintyEntry(component)
-                  ? "—"
+                  ? ""
                   : `${formatNumber(tolLimit.value, uiSigFigs)} ${tolLimit.unit}`}
               </td>
               <td>{renderDistributionCell(component)}</td>
