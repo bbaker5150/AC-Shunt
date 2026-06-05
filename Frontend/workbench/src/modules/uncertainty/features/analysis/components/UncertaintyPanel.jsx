@@ -2523,31 +2523,20 @@ function DetailedView({
         </div>
       </div>
 
-      {/* --- MIDDLE ROW: EQUATION (Kept as is) --- */}
-      <div style={{ marginBottom: "30px" }}>
+      {/* --- MIDDLE ROW: EQUATION --- */}
+      <div className="measurement-equation-section">
         {isDerived && equationDisplayData && (
-          <div>
+          <div className="measurement-equation-block">
             <h3 className="panel-section-title">Measurement Equation</h3>
-            <div
-              style={{
-                backgroundColor: "var(--content-background)",
-                border: "1px solid var(--border-color)",
-                borderRadius: "8px",
-                boxShadow: "0 4px 6px rgba(0,0,0,0.02)",
-                padding: "20px",
-                display: "flex",
-                flexDirection: "column",
-                gap: "15px",
-              }}
-            >
+            <div className="measurement-equation-card">
               <div className="input-with-symbol-button">
                 <input
                   ref={equationInputRef}
                   type="text"
+                  className="measurement-equation-input"
                   value={equationDisplayData.equation}
                   onChange={(e) => handleEquationChange(e.target.value)}
                   placeholder="e.g. V / R or W * L"
-                  style={{ fontFamily: "monospace" }}
                 />
                 <button
                   type="button"
@@ -2606,26 +2595,14 @@ function DetailedView({
 
               {calcStatus !== "neutral" && (
                 <div
+                  className="measurement-equation-status"
                   style={{
-                    display: "flex",
-                    alignItems: "center",
-                    justifyContent: "space-between",
-                    padding: "10px 14px",
-                    borderRadius: "6px",
                     border: `1px solid ${calcStatusStyle.borderColor}`,
                     backgroundColor: calcStatusStyle.backgroundColor,
-                    fontSize: "0.9rem",
-                    fontWeight: 500,
                     color: calcStatusStyle.color,
                   }}
                 >
-                  <div
-                    style={{
-                      display: "flex",
-                      alignItems: "center",
-                      gap: "8px",
-                    }}
-                  >
+                  <div className="measurement-equation-status-main">
                     <FontAwesomeIcon icon={calcStatusStyle.icon} />
                     <span>
                       Calculated:{" "}
@@ -2634,18 +2611,13 @@ function DetailedView({
                       </strong>
                     </span>
                   </div>
-                  <div
-                    style={{
-                      color: "var(--text-color-muted)",
-                      fontSize: "0.85rem",
-                    }}
-                  >
+                  <div className="measurement-equation-status-target">
                     (Target: {targetNominal?.toPrecision(6)} {uutNominal?.unit})
                   </div>
                 </div>
               )}
 
-              <div className="var-map-grid" style={{ flex: 1 }}>
+              <div className="var-map-grid measurement-equation-var-grid">
                 {equationDisplayData.variables.map((v) => (
                   <div
                     key={v.symbol}

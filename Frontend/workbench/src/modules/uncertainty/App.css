@@ -7489,6 +7489,132 @@ body.theme-cyberpunk .notification-window .window-header {
   }
 }
 
+.measurement-equation-section {
+  margin-bottom: 24px;
+}
+
+.measurement-equation-block {
+  min-width: 0;
+}
+
+.measurement-equation-card {
+  background-color: var(--content-background);
+  border: 1px solid var(--border-color);
+  border-radius: 8px;
+  box-shadow: 0 3px 10px rgba(0, 0, 0, 0.025);
+  padding: 14px;
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+}
+
+.measurement-equation-card .input-with-symbol-button {
+  align-items: stretch;
+}
+
+.measurement-equation-input {
+  min-width: 0;
+  height: 38px;
+  padding: 8px 12px;
+  font-family: "Consolas", "Menlo", monospace;
+  font-size: 0.95rem;
+  font-weight: 650;
+  letter-spacing: 0;
+  background-color: var(--input-background);
+}
+
+.measurement-equation-card .symbol-toggle-button {
+  height: 38px;
+  padding: 0 10px;
+  font-size: 0.9rem;
+  border-radius: 0 6px 6px 0;
+}
+
+.measurement-equation-status {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  padding: 8px 10px;
+  border-radius: 6px;
+  font-size: 0.82rem;
+  font-weight: 600;
+}
+
+.measurement-equation-status-main {
+  display: flex;
+  align-items: center;
+  gap: 7px;
+  min-width: 0;
+}
+
+.measurement-equation-status-target {
+  color: var(--text-color-muted);
+  font-size: 0.78rem;
+  white-space: nowrap;
+}
+
+.var-map-grid.measurement-equation-var-grid {
+  grid-template-columns: repeat(auto-fit, minmax(230px, 1fr));
+  gap: 12px;
+}
+
+.measurement-equation-var-grid .var-card-modern {
+  border-radius: 8px;
+  box-shadow: none;
+}
+
+.measurement-equation-var-grid .var-card-modern:hover {
+  transform: none;
+  box-shadow: 0 5px 14px rgba(0, 0, 0, 0.04);
+}
+
+.measurement-equation-var-grid .var-card-header {
+  padding: 9px 10px;
+  gap: 9px;
+}
+
+.measurement-equation-var-grid .var-symbol-badge {
+  width: 30px;
+  height: 30px;
+  font-size: 1rem;
+  border-radius: 5px;
+}
+
+.measurement-equation-var-grid .var-name-input {
+  font-size: 0.84rem;
+}
+
+.measurement-equation-var-grid .var-card-body {
+  padding: 10px;
+  gap: 10px;
+}
+
+.measurement-equation-var-grid .var-source-select {
+  padding: 7px 8px;
+  font-size: 0.8rem;
+}
+
+.measurement-equation-var-grid .var-value-display {
+  padding: 7px 9px;
+}
+
+.measurement-equation-var-grid .var-val {
+  font-size: 0.95rem;
+}
+
+@media (max-width: 760px) {
+  .measurement-equation-status {
+    align-items: flex-start;
+    flex-direction: column;
+    gap: 4px;
+  }
+
+  .measurement-equation-status-target {
+    white-space: normal;
+  }
+}
+
 /* Individual card wrapper */
 .panel-card {
   background-color: var(--content-background);
