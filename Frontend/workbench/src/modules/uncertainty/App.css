@@ -1386,6 +1386,36 @@ body.theme-cyberpunk .button {
   letter-spacing: 0.3px;
 }
 
+.sidebar-sort-header {
+  min-width: 0;
+  padding: 0;
+  border: 0;
+  background: transparent;
+  color: inherit;
+  cursor: pointer;
+  font: inherit;
+  letter-spacing: inherit;
+  text-transform: inherit;
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  justify-content: flex-start;
+}
+
+.sidebar-sort-header:hover,
+.sidebar-sort-header.active {
+  color: var(--primary-color);
+}
+
+.sidebar-sort-header[style*="center"] {
+  justify-content: center;
+}
+
+.sidebar-sort-indicator {
+  font-size: 0.68rem;
+  line-height: 1;
+}
+
 /* Sidebar Column Toggle Button Enhancement */
 /* --- Sidebar Toolbar (Filter + Quick Add) --- */
 .sidebar-toolbar {

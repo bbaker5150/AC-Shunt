@@ -138,6 +138,32 @@ const getMinSidebarWidth = (visibleColumns) => {
   return width;
 };
 
+const parseSortableNumber = (value) => {
+  if (value === undefined || value === null || value === "") return null;
+  if (typeof value === "number") return Number.isFinite(value) ? value : null;
+  const match = String(value).match(/[-+]?\d*\.?\d+(?:e[-+]?\d+)?/i);
+  if (!match) return null;
+  const parsed = Number(match[0]);
+  return Number.isFinite(parsed) ? parsed : null;
+};
+
+const getPointToleranceSortValue = (point) => {
+  const summary = getToleranceErrorSummary(
+    point.uutTolerance,
+    point.testPointInfo?.parameter,
+  );
+  return parseSortableNumber(summary);
+};
+
+const getPointLimitSortValue = (point, key) => {
+  const limits = getAbsoluteLimits(
+    point.uutTolerance,
+    point.testPointInfo?.parameter,
+  );
+  if (!limits || limits.low === "N/A") return null;
+  return parseSortableNumber(key === "lowLimit" ? limits.low : limits.high);
+};
+
 // --- HELPER COMPONENT: Sidebar Point Item (Supports Inline Editing) ---
 const SidebarPointItem = ({
   point,
@@ -813,6 +839,10 @@ function App() {
     gbLow: false,
     gbHigh: false,
   });
+  const [sidebarSort, setSidebarSort] = useState({
+    key: "section",
+    direction: "asc",
+  });
   const hasAnySectionedPoint = useMemo(
     () =>
       (currentTestPoints || []).some((point) =>
@@ -852,6 +882,103 @@ function App() {
       currentSessionData?.uutTolerance,
       guardbandColumnsEnabled,
     ],
+  );
+
+  const handleSidebarSort = useCallback((key) => {
+    setSidebarSort((current) => ({
+      key,
+      direction:
+        current.key === key && current.direction === "asc" ? "desc" : "asc",
+    }));
+  }, []);
+
+  const getSidebarSortValue = useCallback(
+    (point, key) => {
+      const risk = pointRiskMap[point.id] || point.riskMetrics || {};
+      switch (key) {
+        case "section":
+          return point.section || "";
+        case "value":
+          return parseSortableNumber(point.testPointInfo?.parameter?.value);
+        case "tolerance":
+          return getPointToleranceSortValue(point);
+        case "lowLimit":
+        case "highLimit":
+          return getPointLimitSortValue(point, key);
+        case "pfa":
+        case "pfr":
+        case "tur":
+        case "tar":
+        case "gbPfa":
+        case "gbPfr":
+        case "gbMult":
+        case "gbLow":
+        case "gbHigh":
+          return risk[key];
+        default:
+          return "";
+      }
+    },
+    [pointRiskMap],
+  );
+
+  const sortSidebarPoints = useCallback(
+    (points) => {
+      const directionMultiplier = sidebarSort.direction === "asc" ? 1 : -1;
+      return [...points].sort((a, b) => {
+        const aValue = getSidebarSortValue(a, sidebarSort.key);
+        const bValue = getSidebarSortValue(b, sidebarSort.key);
+        const aNumber = parseSortableNumber(aValue);
+        const bNumber = parseSortableNumber(bValue);
+        const aMissing =
+          aValue === undefined || aValue === null || String(aValue) === "";
+        const bMissing =
+          bValue === undefined || bValue === null || String(bValue) === "";
+
+        if (aMissing && bMissing) return 0;
+        if (aMissing) return 1;
+        if (bMissing) return -1;
+
+        if (aNumber !== null && bNumber !== null) {
+          return (aNumber - bNumber) * directionMultiplier;
+        }
+
+        return String(aValue).localeCompare(String(bValue), undefined, {
+          numeric: true,
+          sensitivity: "base",
+        }) * directionMultiplier;
+      });
+    },
+    [getSidebarSortValue, sidebarSort],
+  );
+
+  const renderSidebarSortHeader = useCallback(
+    (key, label, { align = "left" } = {}) => {
+      const isActive = sidebarSort.key === key;
+      const directionLabel = sidebarSort.direction === "asc" ? "ascending" : "descending";
+      return (
+        <button
+          type="button"
+          className={`sidebar-sort-header ${isActive ? "active" : ""}`}
+          onClick={(e) => {
+            e.stopPropagation();
+            handleSidebarSort(key);
+          }}
+          title={`Sort by ${label}${isActive ? ` (${directionLabel})` : ""}`}
+          aria-label={`Sort by ${label}`}
+          aria-sort={isActive ? directionLabel : "none"}
+          style={{ textAlign: align }}
+        >
+          <span>{label}</span>
+          {isActive && (
+            <span className="sidebar-sort-indicator" aria-hidden="true">
+              {sidebarSort.direction === "asc" ? "ASC" : "DESC"}
+            </span>
+          )}
+        </button>
+      );
+    },
+    [handleSidebarSort, sidebarSort],
   );
 
   const [isGlobalExpanded, setIsGlobalExpanded] = useState(false);
@@ -3296,6 +3423,8 @@ function App() {
                                           group.id &&
                                         selectedRangeContext.range._id ===
                                           range._id;
+                                      const sortedRangePoints =
+                                        sortSidebarPoints(range.points);
 
                                       return (
                                         <div
@@ -3417,86 +3546,85 @@ function App() {
                                                       minWidth: "min-content",
                                                     }}
                                                   >
-                                                    {visibleSidebarColumns.section && (
-                                                      <span>Sect.</span>
-                                                    )}
-                                                    {visibleSidebarColumns.value && (
-                                                      <span>Value</span>
-                                                    )}
-                                                    {visibleSidebarColumns.tolerance && (
-                                                      <span>Tolerance</span>
-                                                    )}
-                                                    {visibleSidebarColumns.lowLimit && (
-                                                      <span>Low</span>
-                                                    )}
-                                                    {visibleSidebarColumns.highLimit && (
-                                                      <span>High</span>
-                                                    )}
-                                                    {visibleSidebarColumns.pfa && (
-                                                      <span
-                                                        style={{
-                                                          textAlign: "center",
-                                                        }}
-                                                      >
-                                                        PFA
-                                                      </span>
-                                                    )}
-                                                    {visibleSidebarColumns.pfr && (
-                                                      <span
-                                                        style={{
-                                                          textAlign: "center",
-                                                        }}
-                                                      >
-                                                        PFR
-                                                      </span>
-                                                    )}
-                                                    {visibleSidebarColumns.tur && (
-                                                      <span
-                                                        style={{
-                                                          textAlign: "center",
-                                                        }}
-                                                      >
-                                                        TUR
-                                                      </span>
-                                                    )}
-                                                    {visibleSidebarColumns.tar && (
-                                                      <span
-                                                        style={{
-                                                          textAlign: "center",
-                                                        }}
-                                                      >
-                                                        TAR
-                                                      </span>
-                                                    )}
-                                                    {visibleSidebarColumns.gbPfa && (
-                                                      <span
-                                                        style={{ textAlign: "center" }}
-                                                      >
-                                                        PFA·GB
-                                                      </span>
-                                                    )}
-                                                    {visibleSidebarColumns.gbPfr && (
-                                                      <span
-                                                        style={{ textAlign: "center" }}
-                                                      >
-                                                        PFR·GB
-                                                      </span>
-                                                    )}
-                                                    {visibleSidebarColumns.gbMult && (
-                                                      <span
-                                                        style={{ textAlign: "center" }}
-                                                      >
-                                                        GB×
-                                                      </span>
-                                                    )}
-                                                    {visibleSidebarColumns.gbLow && (
-                                                      <span>GB Low</span>
-                                                    )}
-                                                    {visibleSidebarColumns.gbHigh && (
-                                                      <span>GB High</span>
-                                                    )}
+                                                    {visibleSidebarColumns.section &&
+                                                      renderSidebarSortHeader(
+                                                        "section",
+                                                        "Sect.",
+                                                      )}
+                                                    {visibleSidebarColumns.value &&
+                                                      renderSidebarSortHeader(
+                                                        "value",
+                                                        "Value",
+                                                      )}
+                                                    {visibleSidebarColumns.tolerance &&
+                                                      renderSidebarSortHeader(
+                                                        "tolerance",
+                                                        "Tolerance",
+                                                      )}
+                                                    {visibleSidebarColumns.lowLimit &&
+                                                      renderSidebarSortHeader(
+                                                        "lowLimit",
+                                                        "Low",
+                                                      )}
+                                                    {visibleSidebarColumns.highLimit &&
+                                                      renderSidebarSortHeader(
+                                                        "highLimit",
+                                                        "High",
+                                                      )}
+                                                    {visibleSidebarColumns.pfa &&
+                                                      renderSidebarSortHeader(
+                                                        "pfa",
+                                                        "PFA",
+                                                        { align: "center" },
+                                                      )}
+                                                    {visibleSidebarColumns.pfr &&
+                                                      renderSidebarSortHeader(
+                                                        "pfr",
+                                                        "PFR",
+                                                        { align: "center" },
+                                                      )}
+                                                    {visibleSidebarColumns.tur &&
+                                                      renderSidebarSortHeader(
+                                                        "tur",
+                                                        "TUR",
+                                                        { align: "center" },
+                                                      )}
+                                                    {visibleSidebarColumns.tar &&
+                                                      renderSidebarSortHeader(
+                                                        "tar",
+                                                        "TAR",
+                                                        { align: "center" },
+                                                      )}
+                                                    {visibleSidebarColumns.gbPfa &&
+                                                      renderSidebarSortHeader(
+                                                        "gbPfa",
+                                                        "PFA GB",
+                                                        { align: "center" },
+                                                      )}
+                                                    {visibleSidebarColumns.gbPfr &&
+                                                      renderSidebarSortHeader(
+                                                        "gbPfr",
+                                                        "PFR GB",
+                                                        { align: "center" },
+                                                      )}
+                                                    {visibleSidebarColumns.gbMult &&
+                                                      renderSidebarSortHeader(
+                                                        "gbMult",
+                                                        "GBx",
+                                                        { align: "center" },
+                                                      )}
+                                                    {visibleSidebarColumns.gbLow &&
+                                                      renderSidebarSortHeader(
+                                                        "gbLow",
+                                                        "GB Low",
+                                                      )}
+                                                    {visibleSidebarColumns.gbHigh &&
+                                                      renderSidebarSortHeader(
+                                                        "gbHigh",
+                                                        "GB High",
+                                                      )}
                                                   </div>
-                                                  {range.points.map((tp) => {
+                                                  {sortedRangePoints.map((tp) => {
                                                     const isSelected =
                                                       selectedTestPointId ===
                                                       tp.id;
