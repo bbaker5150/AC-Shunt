@@ -17,7 +17,8 @@ const calculateBudgetResults = (
   components,
   confidencePercent,
   valueSelector = (component) => component.value,
-  coverageFactorOverride = null
+  coverageFactorOverride = null,
+  applyEffectiveDof = true
 ) => {
   const validComponents = (components || [])
     .map((component) => ({
@@ -49,9 +50,9 @@ const calculateBudgetResults = (
   const kValue =
     Number.isFinite(override) && override > 0
       ? override
-      : effectiveDof === Infinity || isNaN(effectiveDof)
+      : !applyEffectiveDof || effectiveDof === Infinity || isNaN(effectiveDof)
       ? normalQuantile(probability)
-      : getKValueFromTDistribution(effectiveDof);
+      : getKValueFromTDistribution(effectiveDof, probability);
 
   return {
     combined,
@@ -182,13 +183,21 @@ export const useUncertaintyCalculation = (
 
       const confidencePercent =
         parseFloat(sessionData.uncReq.uncertaintyConfidence) || 95;
+      // One-sided upper probability for a two-sided coverage interval. Drives
+      // both the normal quantile (ν = ∞) and the Student-t quantile (finite ν).
+      const probability = 1 - (1 - confidencePercent / 100) / 2;
+      // Effective DOF is toggled independently per (sub)budget. The flag map is
+      // keyed by a stable group key: the variableType for input subbudgets,
+      // "equation" for the measurement-equation budget, and "final" for the
+      // final budget (also used by direct measurements, which have only it).
+      // Default ON — a no-op for pure Type-B budgets (ν_eff = ∞ ⇒ k = z).
+      const dofGroupFlags = testPointData.useEffectiveDofByGroup || {};
+      const applyDofForGroup = (key) => dofGroupFlags[key] !== false;
       const manualCoverageFactor =
         testPointData.coverageFactorMode === "manual"
           ? parseFloat(testPointData.coverageFactorOverride)
           : null;
-      const normalCoverageFactor = normalQuantile(
-        1 - (1 - confidencePercent / 100) / 2
-      );
+      const normalCoverageFactor = normalQuantile(probability);
 
       if (testPointData.measurementType === "derived") {
         
@@ -343,7 +352,8 @@ export const useUncertaintyCalculation = (
                     component.value_native !== undefined
                         ? component.value_native
                         : component.value,
-                manualCoverageFactor
+                manualCoverageFactor,
+                applyDofForGroup(item.type)
             );
             inputBudgetGroups.push({
                 id: `input_${item.variable}_${index}`,
@@ -493,9 +503,9 @@ export const useUncertaintyCalculation = (
         const equationK =
           Number.isFinite(manualCoverageFactor) && manualCoverageFactor > 0
             ? manualCoverageFactor
-            : effectiveDof === Infinity || isNaN(effectiveDof)
+            : !applyDofForGroup("equation") || effectiveDof === Infinity || isNaN(effectiveDof)
             ? normalCoverageFactor
-            : getKValueFromTDistribution(effectiveDof);
+            : getKValueFromTDistribution(effectiveDof, probability);
 
         const finalBudgetComponents = [
           {
@@ -535,9 +545,9 @@ export const useUncertaintyCalculation = (
         const finalK =
           Number.isFinite(manualCoverageFactor) && manualCoverageFactor > 0
             ? manualCoverageFactor
-            : finalEffectiveDof === Infinity || isNaN(finalEffectiveDof)
+            : !applyDofForGroup("final") || finalEffectiveDof === Infinity || isNaN(finalEffectiveDof)
             ? normalCoverageFactor
-            : getKValueFromTDistribution(finalEffectiveDof);
+            : getKValueFromTDistribution(finalEffectiveDof, probability);
         effectiveDof = finalEffectiveDof;
         calculatedBudgetGroups = [
           ...inputBudgetGroups,
@@ -688,13 +698,12 @@ export const useUncertaintyCalculation = (
         return;
       }
 
-      const probability = 1 - (1 - confidencePercent / 100) / 2;
       const kValue =
         Number.isFinite(manualCoverageFactor) && manualCoverageFactor > 0
           ? manualCoverageFactor
-          : effectiveDof === Infinity || isNaN(effectiveDof)
+          : !applyDofForGroup("final") || effectiveDof === Infinity || isNaN(effectiveDof)
           ? normalQuantile(probability)
-          : getKValueFromTDistribution(effectiveDof);
+          : getKValueFromTDistribution(effectiveDof, probability);
 
       const expandedUncertaintyPPM = !isNaN(combinedUncertaintyPPM)
         ? kValue * combinedUncertaintyPPM
@@ -809,6 +818,7 @@ export const useUncertaintyCalculation = (
     sessionData.uncReq.uncertaintyConfidence,
     testPointData.coverageFactorMode,
     testPointData.coverageFactorOverride,
+    testPointData.useEffectiveDofByGroup,
     onDataSave,
     testPointData.is_detailed_uncertainty_calculated,
     testPointData.expanded_uncertainty,

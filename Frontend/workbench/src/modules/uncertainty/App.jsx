@@ -99,6 +99,13 @@ const getSidebarGridTemplate = (visibleColumns) => {
   if (visibleColumns.tur) parts.push("55px");
   if (visibleColumns.tar) parts.push("55px");
 
+  // Guardband columns
+  if (visibleColumns.gbPfa) parts.push("60px");
+  if (visibleColumns.gbPfr) parts.push("60px");
+  if (visibleColumns.gbMult) parts.push("60px");
+  if (visibleColumns.gbLow) parts.push("minmax(60px, 0.8fr)");
+  if (visibleColumns.gbHigh) parts.push("minmax(60px, 0.8fr)");
+
   if (parts.length === 0) return "1fr";
   return parts.join(" ");
 };
@@ -118,6 +125,11 @@ const getMinSidebarWidth = (visibleColumns) => {
   if (visibleColumns.pfr) width += 60;
   if (visibleColumns.tur) width += 60;
   if (visibleColumns.tar) width += 60;
+  if (visibleColumns.gbPfa) width += 65;
+  if (visibleColumns.gbPfr) width += 65;
+  if (visibleColumns.gbMult) width += 65;
+  if (visibleColumns.gbLow) width += 70;
+  if (visibleColumns.gbHigh) width += 70;
 
   // Add extra buffer for gaps (4px per column gap)
   const columnCount = Object.values(visibleColumns).filter(Boolean).length;
@@ -138,6 +150,7 @@ const SidebarPointItem = ({
   onSave,
   onContextMenu,
   onDragStart,
+  onShowRiskBreakdown,
   visibleColumns = {
     section: true,
     value: true,
@@ -166,6 +179,14 @@ const SidebarPointItem = ({
     if (isSelected) {
       startEdit(e, field, currentVal);
     }
+  };
+
+  // Clicking a risk metric selects this point and requests its breakdown. The
+  // modal is opened by Analysis once the point's full riskResults are computed.
+  const handleMetricClick = (e, metricKey) => {
+    e.stopPropagation();
+    onSelect?.(e);
+    onShowRiskBreakdown?.(metricKey);
   };
 
   const cancelEdit = () => {
@@ -338,41 +359,94 @@ const SidebarPointItem = ({
         </span>
       )}
 
-      {/* Col 5-8 Risk Columns */}
+      {/* Col 5-8 Risk Columns. Clicking a metric selects the point and opens
+          that metric's risk breakdown (handled in Analysis once the point's
+          riskResults are ready). */}
       {visibleColumns.pfa && (
         <span
-          className="point-risk-metric"
+          className="point-risk-metric point-risk-metric-clickable"
           style={{ color: getPfaColor(risk.pfa), fontWeight: 600 }}
-          title={`PFA: ${risk.pfa}%`}
+          title="PFA — click for breakdown"
+          onClick={(e) => handleMetricClick(e, "pfa")}
         >
           {risk.pfa !== undefined ? `${Number(risk.pfa).toFixed(2)}%` : "-"}
         </span>
       )}
       {visibleColumns.pfr && (
         <span
-          className="point-risk-metric"
+          className="point-risk-metric point-risk-metric-clickable"
           style={{ color: getPfrColor(risk.pfr) }}
-          title={`PFR: ${risk.pfr}%`}
+          title="PFR — click for breakdown"
+          onClick={(e) => handleMetricClick(e, "pfr")}
         >
           {risk.pfr !== undefined ? `${Number(risk.pfr).toFixed(2)}%` : "-"}
         </span>
       )}
       {visibleColumns.tur && (
         <span
-          className="point-risk-metric"
+          className="point-risk-metric point-risk-metric-clickable"
           style={{ color: getTurColor(risk.tur), fontWeight: 600 }}
-          title={`TUR: ${risk.tur}:1`}
+          title="TUR — click for breakdown"
+          onClick={(e) => handleMetricClick(e, "tur")}
         >
           {risk.tur !== undefined ? `${Number(risk.tur).toFixed(1)}` : "-"}
         </span>
       )}
       {visibleColumns.tar && (
         <span
-          className="point-risk-metric"
+          className="point-risk-metric point-risk-metric-clickable"
           style={{ color: getTarColor(risk.tar) }}
-          title={`TAR: ${risk.tar}:1`}
+          title="TAR — click for breakdown"
+          onClick={(e) => handleMetricClick(e, "tar")}
         >
           {risk.tar !== undefined ? `${Number(risk.tar).toFixed(1)}` : "-"}
+        </span>
+      )}
+      {visibleColumns.gbPfa && (
+        <span
+          className="point-risk-metric point-risk-metric-clickable"
+          style={{ color: getPfaColor(risk.gbPfa), fontWeight: 600 }}
+          title="PFA w/ Guardband — click for breakdown"
+          onClick={(e) => handleMetricClick(e, "gbpfa")}
+        >
+          {risk.gbPfa !== undefined ? `${Number(risk.gbPfa).toFixed(2)}%` : "-"}
+        </span>
+      )}
+      {visibleColumns.gbPfr && (
+        <span
+          className="point-risk-metric point-risk-metric-clickable"
+          style={{ color: getPfrColor(risk.gbPfr) }}
+          title="PFR w/ Guardband — click for breakdown"
+          onClick={(e) => handleMetricClick(e, "gbpfr")}
+        >
+          {risk.gbPfr !== undefined ? `${Number(risk.gbPfr).toFixed(2)}%` : "-"}
+        </span>
+      )}
+      {visibleColumns.gbMult && (
+        <span
+          className="point-risk-metric point-risk-metric-clickable"
+          title="Guardband Multiplier — click for breakdown"
+          onClick={(e) => handleMetricClick(e, "gbmult")}
+        >
+          {risk.gbMult !== undefined ? `${Number(risk.gbMult).toFixed(1)}%` : "-"}
+        </span>
+      )}
+      {visibleColumns.gbLow && (
+        <span
+          className="point-metric point-risk-metric-clickable"
+          title="Guardband Low Limit — click for breakdown"
+          onClick={(e) => handleMetricClick(e, "gblow")}
+        >
+          {risk.gbLow !== undefined ? Number(risk.gbLow).toPrecision(4) : "-"}
+        </span>
+      )}
+      {visibleColumns.gbHigh && (
+        <span
+          className="point-metric point-risk-metric-clickable"
+          title="Guardband High Limit — click for breakdown"
+          onClick={(e) => handleMetricClick(e, "gbhigh")}
+        >
+          {risk.gbHigh !== undefined ? Number(risk.gbHigh).toPrecision(4) : "-"}
         </span>
       )}
     </div>
@@ -686,6 +760,10 @@ function App() {
 
   const [sessionImageCache, setSessionImageCache] = useState(new Map());
   const [riskResults, setRiskResults] = useState(null);
+  // A risk metric key (e.g. "pfa", "gbpfa") requested from a sidebar row click.
+  // Analysis opens the matching breakdown once the clicked point becomes active
+  // and its riskResults are computed, then clears this.
+  const [pendingRiskBreakdown, setPendingRiskBreakdown] = useState(null);
 
   const [sidebarWidth, setSidebarWidth] = useState(550);
   const isResizingRef = useRef(false);
@@ -707,6 +785,13 @@ function App() {
     pfr: true,
     tur: false,
     tar: false,
+    // Guardband columns (off by default; guardband is only computed when at
+    // least one of these is enabled — see pointRiskMap below).
+    gbPfa: false,
+    gbPfr: false,
+    gbMult: false,
+    gbLow: false,
+    gbHigh: false,
   });
   const hasAnySectionedPoint = useMemo(
     () =>
@@ -726,12 +811,26 @@ function App() {
   // in memory (no DB hits) whenever the points or the session's requirements /
   // shared tolerance change, so every row reflects the latest inputs without
   // needing to be clicked (#1).
+  // Guardband is iterative/expensive, so only compute it for the sidebar when at
+  // least one guardband column is actually enabled in the filter.
+  const guardbandColumnsEnabled =
+    sidebarColumns.gbPfa ||
+    sidebarColumns.gbPfr ||
+    sidebarColumns.gbMult ||
+    sidebarColumns.gbLow ||
+    sidebarColumns.gbHigh;
   const pointRiskMap = useMemo(
-    () => computeRiskMetricsMap(currentTestPoints, currentSessionData),
+    () =>
+      computeRiskMetricsMap(
+        currentTestPoints,
+        currentSessionData,
+        guardbandColumnsEnabled,
+      ),
     [
       currentTestPoints,
       currentSessionData?.uncReq,
       currentSessionData?.uutTolerance,
+      guardbandColumnsEnabled,
     ],
   );
 
@@ -2876,29 +2975,62 @@ function App() {
                           style={{ top: "100%", right: 0, left: "auto" }}
                         >
                           {[
-                            { key: "section", label: "Section" },
-                            { key: "value", label: "Value" },
-                            { key: "tolerance", label: "Tolerance" },
-                            { key: "lowLimit", label: "Low Limit" },
-                            { key: "highLimit", label: "High Limit" },
-                            { key: "pfa", label: "PFA" },
-                            { key: "pfr", label: "PFR" },
-                            { key: "tur", label: "TUR" },
-                            { key: "tar", label: "TAR" },
-                          ].map((col) => (
-                            <label key={col.key} className="filter-option">
-                              <input
-                                type="checkbox"
-                                checked={sidebarColumns[col.key]}
-                                onChange={() =>
-                                  setSidebarColumns((prev) => ({
-                                    ...prev,
-                                    [col.key]: !prev[col.key],
-                                  }))
-                                }
-                              />
-                              <span>{col.label}</span>
-                            </label>
+                            {
+                              group: "Measurement",
+                              cols: [
+                                { key: "section", label: "Section" },
+                                { key: "value", label: "Value" },
+                                { key: "tolerance", label: "Tolerance" },
+                                { key: "lowLimit", label: "Low Limit" },
+                                { key: "highLimit", label: "High Limit" },
+                              ],
+                            },
+                            {
+                              group: "Risk",
+                              cols: [
+                                { key: "pfa", label: "PFA" },
+                                { key: "pfr", label: "PFR" },
+                                { key: "tur", label: "TUR" },
+                                { key: "tar", label: "TAR" },
+                              ],
+                            },
+                            {
+                              group: "Guardband",
+                              cols: [
+                                { key: "gbPfa", label: "PFA w/ GB" },
+                                { key: "gbPfr", label: "PFR w/ GB" },
+                                { key: "gbMult", label: "GB Multiplier" },
+                                { key: "gbLow", label: "GB Low Limit" },
+                                { key: "gbHigh", label: "GB High Limit" },
+                              ],
+                            },
+                          ].map((section) => (
+                            <div
+                              key={section.group}
+                              className="filter-option-group"
+                            >
+                              <div className="filter-option-group-title">
+                                {section.group}
+                              </div>
+                              {section.cols.map((col) => (
+                                <label
+                                  key={col.key}
+                                  className="filter-option"
+                                >
+                                  <input
+                                    type="checkbox"
+                                    checked={sidebarColumns[col.key]}
+                                    onChange={() =>
+                                      setSidebarColumns((prev) => ({
+                                        ...prev,
+                                        [col.key]: !prev[col.key],
+                                      }))
+                                    }
+                                  />
+                                  <span>{col.label}</span>
+                                </label>
+                              ))}
+                            </div>
                           ))}
                         </div>
                       )}
@@ -3299,6 +3431,33 @@ function App() {
                                                         TAR
                                                       </span>
                                                     )}
+                                                    {visibleSidebarColumns.gbPfa && (
+                                                      <span
+                                                        style={{ textAlign: "center" }}
+                                                      >
+                                                        PFA·GB
+                                                      </span>
+                                                    )}
+                                                    {visibleSidebarColumns.gbPfr && (
+                                                      <span
+                                                        style={{ textAlign: "center" }}
+                                                      >
+                                                        PFR·GB
+                                                      </span>
+                                                    )}
+                                                    {visibleSidebarColumns.gbMult && (
+                                                      <span
+                                                        style={{ textAlign: "center" }}
+                                                      >
+                                                        GB×
+                                                      </span>
+                                                    )}
+                                                    {visibleSidebarColumns.gbLow && (
+                                                      <span>GB Low</span>
+                                                    )}
+                                                    {visibleSidebarColumns.gbHigh && (
+                                                      <span>GB High</span>
+                                                    )}
                                                   </div>
                                                   {range.points.map((tp) => {
                                                     const isSelected =
@@ -3326,6 +3485,13 @@ function App() {
                                                             e,
                                                             tp.id,
                                                             group.id,
+                                                          )
+                                                        }
+                                                        onShowRiskBreakdown={(
+                                                          key,
+                                                        ) =>
+                                                          setPendingRiskBreakdown(
+                                                            key,
                                                           )
                                                         }
                                                         onModalOpen={(p) => {
@@ -3427,6 +3593,9 @@ function App() {
                                                     group.id,
                                                   )
                                                 }
+                                                onShowRiskBreakdown={(key) =>
+                                                  setPendingRiskBreakdown(key)
+                                                }
                                                 onModalOpen={(p) => {
                                                   setEditingTestPoint(p);
                                                   setIsAddModalOpen(true);
@@ -3502,6 +3671,9 @@ function App() {
                                   onSelect={(e) =>
                                     handleSelectTestPoint(e, tp.id, null)
                                   }
+                                  onShowRiskBreakdown={(key) =>
+                                    setPendingRiskBreakdown(key)
+                                  }
                                   onModalOpen={(p) => {
                                     setEditingTestPoint(p);
                                     setIsAddModalOpen(true);
@@ -3563,6 +3735,10 @@ function App() {
                     handleOpenSessionEditor={handleOpenSessionEditor}
                     riskResults={riskResults}
                     setRiskResults={setRiskResults}
+                    pendingRiskBreakdown={pendingRiskBreakdown}
+                    onConsumePendingRiskBreakdown={() =>
+                      setPendingRiskBreakdown(null)
+                    }
                     onDeleteTmdeDefinition={handleDeleteTmdeDefinition}
                     onDecrementTmdeQuantity={decrementTmdeQuantity}
                     onDeleteUut={handleDeleteUut}

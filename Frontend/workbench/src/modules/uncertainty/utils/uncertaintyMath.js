@@ -347,29 +347,127 @@ export const errorDistributions = [
   { value: "1.000", label: "Std. Uncertainty" },
 ];
 
-const T_DISTRIBUTION_95 = {
-  1: 12.71, 2: 4.3, 3: 3.18, 4: 2.78, 5: 2.57, 6: 2.45, 7: 2.36, 8: 2.31, 9: 2.26, 10: 2.23,
-  15: 2.13, 20: 2.09, 25: 2.06, 30: 2.04, 40: 2.02, 50: 2.01, 60: 2.0, 100: 1.98, 120: 1.98,
-};
+// ---------------------------------------------------------------------------
+// Student-t inverse CDF (coverage factor at finite degrees of freedom)
+// ---------------------------------------------------------------------------
+//
+// The coverage factor k = t_p(ν) depends on BOTH the coverage probability p
+// (from the uncertainty requirements' confidence %) AND the effective degrees
+// of freedom ν (Welch–Satterthwaite). The previous implementation hard-coded a
+// 95 % lookup table, which silently ignored the configured confidence whenever
+// ν was finite. This computes t_p(ν) exactly for any p and ν via the inverse
+// regularized incomplete beta function, so 90 / 95 / 99 % all give correct k.
 
-export function getKValueFromTDistribution(dof) {
-  if (dof === Infinity || dof > 120) return 1.96;
-  const roundedDof = Math.round(dof);
-  if (T_DISTRIBUTION_95[roundedDof]) {
-    return T_DISTRIBUTION_95[roundedDof];
+// Lanczos log-gamma.
+function logGamma(x) {
+  const g = 7;
+  const c = [
+    0.99999999999980993, 676.5203681218851, -1259.1392167224028,
+    771.32342877765313, -176.61502916214059, 12.507343278686905,
+    -0.13857109526572012, 9.9843695780195716e-6, 1.5056327351493116e-7,
+  ];
+  if (x < 0.5) {
+    return Math.log(Math.PI / Math.sin(Math.PI * x)) - logGamma(1 - x);
   }
-  const lowerKeys = Object.keys(T_DISTRIBUTION_95).map(Number).filter((k) => k < roundedDof);
-  const upperKeys = Object.keys(T_DISTRIBUTION_95).map(Number).filter((k) => k > roundedDof);
-  if (lowerKeys.length === 0) return T_DISTRIBUTION_95[Math.min(...upperKeys)];
-  if (upperKeys.length === 0) return T_DISTRIBUTION_95[Math.max(...lowerKeys)];
-  const lowerBound = Math.max(...lowerKeys);
-  const upperBound = Math.min(...upperKeys);
-  const kLower = T_DISTRIBUTION_95[lowerBound];
-  const kUpper = T_DISTRIBUTION_95[upperBound];
-  return (
-    kLower +
-    ((roundedDof - lowerBound) * (kUpper - kLower)) / (upperBound - lowerBound)
-  );
+  x -= 1;
+  let a = c[0];
+  const t = x + g + 0.5;
+  for (let i = 1; i < g + 2; i++) a += c[i] / (x + i);
+  return 0.5 * Math.log(2 * Math.PI) + (x + 0.5) * Math.log(t) - t + Math.log(a);
+}
+
+// Continued-fraction kernel for the incomplete beta function (Numerical Recipes).
+function betacf(a, b, x) {
+  const FPMIN = 1e-300;
+  const EPS = 3e-14;
+  const qab = a + b;
+  const qap = a + 1;
+  const qam = a - 1;
+  let c = 1;
+  let d = 1 - (qab * x) / qap;
+  if (Math.abs(d) < FPMIN) d = FPMIN;
+  d = 1 / d;
+  let h = d;
+  for (let m = 1; m <= 10000; m++) {
+    const m2 = 2 * m;
+    let aa = (m * (b - m) * x) / ((qam + m2) * (a + m2));
+    d = 1 + aa * d;
+    if (Math.abs(d) < FPMIN) d = FPMIN;
+    c = 1 + aa / c;
+    if (Math.abs(c) < FPMIN) c = FPMIN;
+    d = 1 / d;
+    h *= d * c;
+    aa = (-(a + m) * (qab + m) * x) / ((a + m2) * (qap + m2));
+    d = 1 + aa * d;
+    if (Math.abs(d) < FPMIN) d = FPMIN;
+    c = 1 + aa / c;
+    if (Math.abs(c) < FPMIN) c = FPMIN;
+    d = 1 / d;
+    const del = d * c;
+    h *= del;
+    if (Math.abs(del - 1) <= EPS) break;
+  }
+  return h;
+}
+
+// Regularized incomplete beta I_x(a,b).
+function regularizedIncompleteBeta(x, a, b) {
+  if (x <= 0) return 0;
+  if (x >= 1) return 1;
+  const lbeta =
+    logGamma(a + b) -
+    logGamma(a) -
+    logGamma(b) +
+    a * Math.log(x) +
+    b * Math.log(1 - x);
+  const front = Math.exp(lbeta);
+  if (x < (a + 1) / (a + b + 2)) {
+    return (front * betacf(a, b, x)) / a;
+  }
+  return 1 - (front * betacf(b, a, 1 - x)) / b;
+}
+
+// Inverse of the regularized incomplete beta: returns x with I_x(a,b) = p.
+// Bisection — robust for the a = ν/2, b = 1/2 shape we need (including small ν).
+function inverseRegularizedIncompleteBeta(p, a, b) {
+  if (p <= 0) return 0;
+  if (p >= 1) return 1;
+  let lo = 0;
+  let hi = 1;
+  let x = 0.5;
+  for (let i = 0; i < 200; i++) {
+    x = 0.5 * (lo + hi);
+    const err = regularizedIncompleteBeta(x, a, b) - p;
+    if (Math.abs(err) < 1e-12) break;
+    if (err < 0) lo = x;
+    else hi = x;
+  }
+  return x;
+}
+
+/**
+ * Inverse Student-t CDF: the value t such that P(T <= t) = p for ν = df.
+ * Used as the coverage factor for a two-sided interval with p = (1 + C)/2.
+ */
+export function studentTQuantile(p, df) {
+  if (!Number.isFinite(df) || df <= 0 || df > 1e7) return normalQuantile(p);
+  if (p === 0.5) return 0;
+  const tail = p < 0.5 ? p : 1 - p; // upper/lower tail probability
+  const x = inverseRegularizedIncompleteBeta(2 * tail, df / 2, 0.5);
+  const t = Math.sqrt((df * (1 - x)) / x);
+  return p >= 0.5 ? t : -t;
+}
+
+/**
+ * Coverage factor from degrees of freedom at a given two-sided coverage
+ * probability. ν = ∞ (or NaN) collapses to the normal quantile. `probability`
+ * is the one-sided upper probability p = (1 + C)/2 (default 0.975 ≡ 95 %).
+ */
+export function getKValueFromTDistribution(dof, probability = 0.975) {
+  if (dof === Infinity || dof == null || isNaN(dof)) {
+    return normalQuantile(probability);
+  }
+  return studentTQuantile(probability, dof);
 }
 
 // ==========================================

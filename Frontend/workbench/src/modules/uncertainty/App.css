@@ -1330,6 +1330,19 @@ body.theme-cyberpunk .button {
   white-space: nowrap;
 }
 
+/* Risk/guardband cells open a breakdown on click. */
+.point-risk-metric-clickable {
+  cursor: pointer;
+  border-radius: 3px;
+  transition: background-color 0.1s ease;
+}
+
+.point-risk-metric-clickable:hover {
+  background: var(--primary-color-light);
+  text-decoration: underline;
+  text-underline-offset: 2px;
+}
+
 /* Placeholder dash for empty values */
 .point-placeholder {
   opacity: 0.3;
@@ -1402,6 +1415,22 @@ body.theme-cyberpunk .button {
 @keyframes filterDropdownIn {
   from { opacity: 0; transform: translateY(-4px); }
   to { opacity: 1; transform: translateY(0); }
+}
+
+/* Grouped sections in the column filter dropdown (Measurement / Risk / GB). */
+.filter-option-group + .filter-option-group {
+  margin-top: 4px;
+  padding-top: 4px;
+  border-top: 1px solid var(--border-color);
+}
+
+.filter-option-group-title {
+  font-size: 0.62rem;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+  color: var(--text-color-muted);
+  padding: 4px 8px 2px;
 }
 
 .filter-option {
@@ -4047,6 +4076,184 @@ body.dark-mode .symbol-popout .symbol-button:hover {
   line-height: 1.25;
 }
 
+/* Effective DOF row: inline toggle ahead of the label text. */
+.budget-results-dof-label {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+}
+
+/* ==========================================================================
+   Effective DOF toggle — styled identically to the ac-shunt DirectionToggle
+   (brushed-metal puck switch). Copied here because the uncertainty module
+   loads its own stylesheet, independent of the ac-shunt module's.
+   ========================================================================== */
+.budget-results-dof-label .direction-toggle-switch {
+  position: relative;
+  display: inline-block;
+  width: 50px;
+  height: 28px;
+  margin: 0;
+  -webkit-tap-highlight-color: transparent;
+  flex: 0 0 auto;
+}
+
+.budget-results-dof-label .direction-toggle-switch input {
+  opacity: 0;
+  width: 0;
+  height: 0;
+}
+
+.budget-results-dof-label .direction-toggle-slider {
+  position: absolute;
+  cursor: pointer;
+  inset: 0;
+  border-radius: 34px;
+  background: var(--surface-sunken);
+  box-shadow:
+    inset 0 3px 6px rgba(15, 23, 42, 0.08),
+    inset 0 0 0 1px var(--border-color-strong),
+    0 1px 1px rgba(255, 255, 255, 0.8);
+  transition: all 0.3s ease;
+  overflow: hidden;
+}
+
+.budget-results-dof-label .direction-toggle-slider::after {
+  content: "";
+  position: absolute;
+  inset: 0;
+  background: linear-gradient(
+    180deg,
+    rgba(15, 23, 42, 0.08) 0%,
+    transparent 25%,
+    transparent 75%,
+    rgba(255, 255, 255, 0.6) 100%
+  );
+  transition: opacity 0.3s ease;
+  z-index: 1;
+  pointer-events: none;
+}
+
+.budget-results-dof-label .direction-toggle-slider:before {
+  position: absolute;
+  content: "";
+  height: 20px;
+  width: 20px;
+  left: 4px;
+  bottom: 4px;
+  border-radius: 50%;
+  z-index: 2;
+  background:
+    radial-gradient(circle at 50% 50%, color-mix(in srgb, var(--text-color-muted) 60%, #000) 14%, transparent 18%),
+    conic-gradient(
+      from 180deg at 50% 50%,
+      #f8fafc 0deg,
+      #94a3b8 90deg,
+      #f8fafc 180deg,
+      #94a3b8 270deg,
+      #f8fafc 360deg
+    );
+  box-shadow:
+    0 2px 5px rgba(15, 23, 42, 0.25),
+    0 1px 1px rgba(15, 23, 42, 0.15),
+    inset 0 1px 1px rgba(255, 255, 255, 0.9),
+    inset 0 -1px 2px rgba(15, 23, 42, 0.2);
+  transition: transform 0.4s cubic-bezier(0.68, -0.55, 0.26, 1.55),
+    box-shadow 0.3s ease,
+    background 0.3s ease;
+}
+
+.budget-results-dof-label .direction-toggle-switch input:checked + .direction-toggle-slider {
+  /* Saturated fill so ON reads clearly in light mode (the soft tint was too
+     close to the OFF sunken track to distinguish at a glance). */
+  background: var(--primary-color);
+  box-shadow:
+    inset 0 2px 4px rgba(15, 23, 42, 0.12),
+    inset 0 0 0 1px color-mix(in srgb, var(--primary-color) 70%, #000),
+    0 1px 2px rgba(255, 255, 255, 0.6);
+}
+
+.budget-results-dof-label .direction-toggle-switch input:checked + .direction-toggle-slider::after {
+  opacity: 0.15;
+}
+
+.budget-results-dof-label .direction-toggle-switch input:checked + .direction-toggle-slider:before {
+  transform: translateX(22px);
+  background:
+    radial-gradient(circle at 50% 50%, #fff 6%, var(--primary-color) 16%, transparent 22%),
+    conic-gradient(
+      from 180deg at 50% 50%,
+      #f8fafc 0deg,
+      #94a3b8 90deg,
+      #f8fafc 180deg,
+      #94a3b8 270deg,
+      #f8fafc 360deg
+    );
+  box-shadow:
+    0 2px 5px rgba(15, 23, 42, 0.25),
+    0 0 4px var(--primary-color-glow),
+    inset 0 1px 1px rgba(255, 255, 255, 0.9),
+    inset 0 -1px 2px rgba(15, 23, 42, 0.2);
+}
+
+/* Dark-mode overrides (heavy gunmetal), matching the ac-shunt toggle. */
+body.dark-mode .budget-results-dof-label .direction-toggle-slider {
+  background: color-mix(in srgb, var(--surface-sunken) 50%, #000 50%);
+  box-shadow:
+    inset 0 3px 8px rgba(0, 0, 0, 0.8),
+    inset 0 0 0 1px rgba(255, 255, 255, 0.05),
+    0 1px 1px rgba(255, 255, 255, 0.05);
+}
+
+body.dark-mode .budget-results-dof-label .direction-toggle-slider::after {
+  background: repeating-linear-gradient(
+    -45deg, transparent, transparent 3px, rgba(0, 0, 0, 0.4) 3px, rgba(0, 0, 0, 0.4) 6px
+  );
+}
+
+body.dark-mode .budget-results-dof-label .direction-toggle-slider:before {
+  background:
+    radial-gradient(circle at 50% 50%, color-mix(in srgb, var(--text-color-muted) 40%, #000) 14%, transparent 18%),
+    conic-gradient(
+      from 180deg at 50% 50%,
+      #e2e8f0 0deg,
+      #64748b 90deg,
+      #e2e8f0 180deg,
+      #64748b 270deg,
+      #e2e8f0 360deg
+    );
+  box-shadow:
+    0 2px 4px rgba(0, 0, 0, 0.6),
+    inset 0 1px 1px rgba(255, 255, 255, 0.9),
+    inset 0 -1px 2px rgba(0, 0, 0, 0.5);
+}
+
+body.dark-mode .budget-results-dof-label .direction-toggle-switch input:checked + .direction-toggle-slider {
+  background: color-mix(in srgb, var(--primary-color) 25%, #000 75%);
+  box-shadow:
+    inset 0 3px 8px rgba(0, 0, 0, 0.8),
+    inset 0 0 0 1px var(--primary-color),
+    0 0 12px color-mix(in srgb, var(--primary-color) 40%, transparent);
+}
+
+body.dark-mode .budget-results-dof-label .direction-toggle-switch input:checked + .direction-toggle-slider:before {
+  background:
+    radial-gradient(circle at 50% 50%, #fff 6%, var(--primary-color) 16%, transparent 22%),
+    conic-gradient(
+      from 180deg at 50% 50%,
+      #e2e8f0 0deg,
+      #64748b 90deg,
+      #e2e8f0 180deg,
+      #64748b 270deg,
+      #e2e8f0 360deg
+    );
+  box-shadow:
+    0 2px 4px rgba(0, 0, 0, 0.6),
+    0 0 8px var(--primary-color),
+    inset 0 1px 1px rgba(255, 255, 255, 0.9),
+    inset 0 -1px 2px rgba(0, 0, 0, 0.5);
+}
+
 .manual-dof-column {
   gap: 8px;
 }
@@ -4527,6 +4734,112 @@ body.dark-mode .symbol-popout .symbol-button:hover {
   white-space: nowrap;
   overflow: hidden;
   text-overflow: ellipsis;
+}
+
+/* ------------------------------------------------------------------- */
+/* Slim risk strip — a compact, polished version of the metric pods for */
+/* the bottom of the budget panel. Clicking a pod opens its breakdown.  */
+/* ------------------------------------------------------------------- */
+.budget-risk-strip {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  width: 100%;
+  margin-top: 22px;
+}
+
+.budget-risk-pods {
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: center;
+  gap: 10px;
+}
+
+.budget-risk-pods.guardband {
+  padding-top: 10px;
+  border-top: 1px dashed var(--border-color);
+}
+
+.risk-pod {
+  --pod-accent: var(--text-color-muted);
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 2px;
+  min-width: 92px;
+  padding: 8px 14px;
+  border: 1px solid var(--border-color);
+  border-left: 3px solid var(--pod-accent);
+  border-radius: 10px;
+  background: var(--content-background);
+  cursor: pointer;
+  text-align: left;
+  box-shadow: 0 1px 2px rgba(15, 23, 42, 0.04);
+  transition:
+    transform 0.15s ease,
+    box-shadow 0.15s ease,
+    border-color 0.15s ease;
+}
+
+.risk-pod:hover {
+  transform: translateY(-2px);
+  border-color: color-mix(in srgb, var(--pod-accent) 50%, var(--border-color));
+  box-shadow: 0 6px 16px -10px color-mix(in srgb, var(--pod-accent) 70%, transparent);
+}
+
+.risk-pod-label {
+  font-size: 0.6rem;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0.07em;
+  color: var(--text-color-muted);
+}
+
+.risk-pod-value {
+  font-family: var(--readout-font);
+  font-variant-numeric: tabular-nums;
+  font-size: 1rem;
+  font-weight: 700;
+  color: var(--pod-accent);
+  white-space: nowrap;
+}
+
+.risk-pod.neutral {
+  --pod-accent: var(--text-color);
+}
+.risk-pod.status-good {
+  --pod-accent: var(--status-good);
+}
+.risk-pod.status-warning {
+  --pod-accent: var(--status-warning);
+}
+.risk-pod.status-bad {
+  --pod-accent: var(--status-bad);
+}
+
+/* Display-settings gear that lives with the bottom readout toggles. */
+.budget-final-toggles .budget-settings-wrap {
+  pointer-events: auto;
+  margin-left: auto;
+}
+
+.budget-result-settings-btn {
+  pointer-events: auto;
+  background: transparent;
+  border: none;
+  color: var(--text-color-muted);
+  cursor: pointer;
+  font-size: 0.85rem;
+  padding: 4px 6px;
+  border-radius: 6px;
+  transition:
+    color 0.15s ease,
+    background-color 0.15s ease;
+}
+
+.budget-result-settings-btn:hover {
+  color: var(--primary-color);
+  background: var(--primary-color-light);
 }
 
 /* Separator for Guardband Section */
@@ -7255,6 +7568,10 @@ body.theme-cyberpunk .notification-window .window-header {
   width: 100%;
   border-collapse: separate;
   border-spacing: 0;
+  /* Match the budget tables: tabular figures so numeric columns line up. */
+  font-size: 0.9rem;
+  font-variant-numeric: tabular-nums;
+  background-color: var(--content-background);
   /* Remove table-layout: fixed - let columns auto-size based on content */
 }
 
@@ -7264,30 +7581,40 @@ body.theme-cyberpunk .notification-window .window-header {
   font-weight: 600;
   text-transform: none;
   letter-spacing: normal;
-  padding: 10px 14px;
+  padding: 10px 12px;
   text-align: left;
   border-bottom: 1px solid var(--border-color);
-  font-size: 0.8rem;
+  font-size: 0.9rem;
   border-top: 1px solid var(--border-color);
   white-space: nowrap; /* Headers should never wrap */
 }
 
+/* Header treatment identical to .uncertainty-budget-table thead th */
 .instrument-summary-table thead th {
   text-transform: uppercase;
-  font-size: 0.7rem;
+  font-size: 0.72rem;
   font-weight: 700;
-  letter-spacing: 0.05em;
+  letter-spacing: 0.06em;
+  background-image: linear-gradient(
+    180deg,
+    color-mix(in srgb, var(--table-header-bg) 60%, var(--content-background)),
+    var(--table-header-bg)
+  );
 }
 
 .instrument-summary-table td {
-  padding: 10px 14px;
+  padding: 10px 12px;
   border-bottom: 1px solid var(--border-color);
   color: var(--text-color);
   vertical-align: middle;
   font-family: inherit;
-  font-size: 0.85rem;
+  font-size: 0.9rem;
   line-height: 1.4;
   /* Default: allow wrapping for text-heavy columns */
+}
+
+.instrument-summary-table tbody tr {
+  transition: background-color 0.15s ease;
 }
 
 /* Numeric/Value columns should NOT wrap - these are critical for readability */
@@ -7342,7 +7669,7 @@ body.theme-cyberpunk .notification-window .window-header {
 }
 
 .instrument-summary-table tbody tr:hover {
-  background-color: var(--background-color);
+  background-color: var(--table-hover-row-bg, var(--background-color));
 }
 
 /* Mini Select Dropdown for Table Cells */
@@ -7612,6 +7939,15 @@ body.dark-mode .instrument-summary-table th {
   background-color: var(--component-header-bg);
   color: var(--text-color);
   border-color: var(--border-color);
+}
+
+/* Match .uncertainty-budget-table dark-mode header gradient exactly. */
+body.dark-mode .instrument-summary-table thead th {
+  background-image: linear-gradient(
+    180deg,
+    color-mix(in srgb, var(--component-header-bg) 55%, var(--content-background)),
+    var(--component-header-bg)
+  );
 }
 
 body.dark-mode .instrument-summary-table tbody tr:hover {
@@ -8935,43 +9271,42 @@ body.theme-cyberpunk .area-header-sticky {
 /* =================================================================== */
 
 /* Make value cells compact but readable */
+/* Body cells uniform with .uncertainty-budget-table td (0.9rem, normal weight,
+   default text color). Only layout hints (width / nowrap) remain per column. */
 .instrument-summary-table td.cell-value {
   font-variant-numeric: tabular-nums;
   min-width: 60px;
   max-width: 120px;
-  font-weight: 700;
-  color: var(--primary-color);
   white-space: nowrap;
-  font-size: 0.85rem;
+  font-size: 0.9rem;
 }
 
 .instrument-summary-table td.cell-unit {
   min-width: 40px;
   max-width: 80px;
   white-space: nowrap;
-  font-size: 0.8rem;
-  color: var(--text-color-muted);
+  font-size: 0.9rem;
 }
 
 .instrument-summary-table td.cell-tolerance {
   min-width: 80px;
   max-width: 150px;
   white-space: nowrap;
-  font-size: 0.8rem;
+  font-size: 0.9rem;
 }
 
 .instrument-summary-table td.cell-limit {
   min-width: 100px;
   max-width: 180px;
   white-space: nowrap;
-  font-size: 0.8rem;
+  font-size: 0.9rem;
 }
 
 /* Section cell - fixed narrow width */
 .instrument-summary-table td.cell-section {
   width: 70px;
   max-width: 90px;
-  font-size: 0.75rem;
+  font-size: 0.9rem;
   text-transform: uppercase;
   font-weight: 600;
   color: var(--text-color-muted);
@@ -8982,9 +9317,8 @@ body.theme-cyberpunk .area-header-sticky {
 .instrument-summary-table td.cell-area {
   min-width: 60px;
   max-width: 100px;
-  font-weight: 600;
   white-space: nowrap;
-  font-size: 0.8rem;
+  font-size: 0.9rem;
 }
 
 /* =================================================================== */

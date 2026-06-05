@@ -1850,6 +1850,24 @@ function DetailedView({
   };
 
   const handleComponentUpdate = (id, updates, component) => {
+    // Distribution change on the UUT's own resolution row. This component is
+    // synthesized from the UUT tolerance (it has no sourceTmdeId and isn't a
+    // manual or TMDE component), so without this branch the change fell through
+    // and the dropdown appeared frozen. Route the divisor back to the UUT
+    // tolerance's resolution distribution so the budget + risk recompute.
+    if (
+      updates.distribution !== undefined &&
+      (component?.componentId === "UUT Resolution" || id === "uut_resolution")
+    ) {
+      onUpdateTestPoint({
+        uutTolerance: {
+          ...uutToleranceData,
+          measuringResolutionDistribution: updates.distribution,
+        },
+      });
+      return;
+    }
+
     // Distribution change on a TMDE-derived accuracy row: route the divisor
     // back to the originating TMDE instance so the budget + risk recompute (#6).
     if (updates.distribution !== undefined && component?.sourceTmdeId) {
@@ -2854,14 +2872,17 @@ function DetailedView({
               style={{ tableLayout: "fixed" }}
             >
               <colgroup>
-                <col style={{ width: "50px" }} />
+                {/* The "Use" checkbox column is redundant for derived points —
+                    assigning a TMDE to an equation variable is the inclusion
+                    action there — so it's only shown for direct measurements. */}
+                {!isDerived && <col style={{ width: "50px" }} />}
                 <col style={{ width: "40%" }} />
                 <col style={{ width: "30%" }} />
                 <col style={{ width: "30%" }} />
               </colgroup>
               <thead>
                 <tr>
-                  <th style={{ textAlign: "center" }}>Use</th>
+                  {!isDerived && <th style={{ textAlign: "center" }}>Use</th>}
                   <th>Description</th>
                   <th>Range</th>
                   <th>Specification</th>
@@ -2870,7 +2891,9 @@ function DetailedView({
               <tbody>
                 {!sessionData.tmdes || sessionData.tmdes.length === 0 ? (
                   <tr className="panel-empty-row">
-                    <td colSpan="4">No TMDEs defined in Session.</td>
+                    <td colSpan={isDerived ? 3 : 4}>
+                      No TMDEs defined in Session.
+                    </td>
                   </tr>
                 ) : (
                   sessionData.tmdes.map((masterTmde) => {
@@ -2933,33 +2956,35 @@ function DetailedView({
                             }
                             title="Click to select, Double-click to edit TMDE details"
                           >
-                            <td
-                              rowSpan={rowSpan}
-                              style={{
-                                textAlign: "center",
-                                verticalAlign: "top",
-                              }}
-                              onClick={(e) => e.stopPropagation()}
-                              className={`${hoveredCell.tableId === "tmde_det" && hoveredCell.colIndex === 0 ? "col-hovered" : ""}`}
-                              onMouseEnter={() =>
-                                setHoveredCell({
-                                  tableId: "tmde_det",
-                                  colIndex: 0,
-                                })
-                              }
-                            >
-                              <input
-                                type="checkbox"
-                                checked={isChecked}
-                                onChange={(e) =>
-                                  handleToggleTmdeUsage(
-                                    masterTmde.id,
-                                    e.target.checked,
-                                  )
+                            {!isDerived && (
+                              <td
+                                rowSpan={rowSpan}
+                                style={{
+                                  textAlign: "center",
+                                  verticalAlign: "top",
+                                }}
+                                onClick={(e) => e.stopPropagation()}
+                                className={`${hoveredCell.tableId === "tmde_det" && hoveredCell.colIndex === 0 ? "col-hovered" : ""}`}
+                                onMouseEnter={() =>
+                                  setHoveredCell({
+                                    tableId: "tmde_det",
+                                    colIndex: 0,
+                                  })
                                 }
-                                style={{ cursor: "pointer" }}
-                              />
-                            </td>
+                              >
+                                <input
+                                  type="checkbox"
+                                  checked={isChecked}
+                                  onChange={(e) =>
+                                    handleToggleTmdeUsage(
+                                      masterTmde.id,
+                                      e.target.checked,
+                                    )
+                                  }
+                                  style={{ cursor: "pointer" }}
+                                />
+                              </td>
+                            )}
 
                             <td
                               rowSpan={rowSpan}
@@ -3117,8 +3142,9 @@ function DetailedView({
               onOpenCorrelation={onOpenCorrelation}
               setNotification={setNotification}
               onBudgetSettingsChange={onUpdateTestPoint}
-              coverageFactorMode={testPointData.coverageFactorMode || "auto"}
-              coverageFactorOverride={testPointData.coverageFactorOverride || ""}
+              useEffectiveDofByGroup={
+                testPointData.useEffectiveDofByGroup || {}
+              }
             />
             {showContribution &&
               calcResults?.calculatedBudgetComponents?.length > 0 && (
