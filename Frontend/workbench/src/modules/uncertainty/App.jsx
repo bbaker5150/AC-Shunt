@@ -138,6 +138,85 @@ const getMinSidebarWidth = (visibleColumns) => {
   return width;
 };
 
+const SCOPED_ZOOM_SURFACE_SELECTOR = [
+  ".measurement-point-list",
+  ".panel-table-container",
+  ".instrument-table-container",
+  ".budget-section-table-wrap",
+  ".lookup-table-container",
+  ".ranges-table-container",
+].join(", ");
+
+const UNCERTAINTY_UI_PREFERENCES_PREFIX = "uncertalytics.uiPreferences.v1";
+const DEFAULT_SIDEBAR_COLUMNS = {
+  section: true,
+  value: true,
+  tolerance: true,
+  lowLimit: true,
+  highLimit: true,
+  pfa: true,
+  pfr: true,
+  tur: false,
+  tar: false,
+  gbPfa: false,
+  gbPfr: false,
+  gbMult: false,
+  gbLow: false,
+  gbHigh: false,
+};
+const DEFAULT_SIDEBAR_SORT = { key: "section", direction: "asc" };
+
+const getUiPreferencesStorageKey = (sessionId) =>
+  `${UNCERTAINTY_UI_PREFERENCES_PREFIX}:${sessionId}`;
+
+const readUiPreferences = (sessionId) => {
+  if (!sessionId) return {};
+  try {
+    return JSON.parse(
+      window.localStorage.getItem(getUiPreferencesStorageKey(sessionId)) || "{}",
+    );
+  } catch (error) {
+    console.warn("Unable to read uncertainty UI preferences", error);
+    return {};
+  }
+};
+
+const getScopedZoomKey = (surface) => {
+  if (surface.classList.contains("measurement-point-list")) {
+    return "measurement-points";
+  }
+
+  const surfaceClass = [
+    "panel-table-container",
+    "instrument-table-container",
+    "budget-section-table-wrap",
+    "lookup-table-container",
+    "ranges-table-container",
+  ].find((className) => surface.classList.contains(className));
+  if (!surfaceClass) return null;
+
+  const matchingSurfaces = Array.from(
+    document.querySelectorAll(`.${surfaceClass}`),
+  );
+  return `${surfaceClass}:${matchingSurfaces.indexOf(surface)}`;
+};
+
+const getScopedZoomTarget = (eventTarget) => {
+  if (!(eventTarget instanceof Element)) return null;
+
+  const surface = eventTarget.closest(SCOPED_ZOOM_SURFACE_SELECTOR);
+  if (!surface) return null;
+
+  if (surface.classList.contains("measurement-point-list")) {
+    const content = surface.querySelector(":scope > .scoped-zoom-content");
+    return content ? { surface, content } : null;
+  }
+
+  const table = eventTarget.closest("table");
+  if (!table || !surface.contains(table)) return null;
+  return { surface, content: table };
+};
+
 const parseSortableNumber = (value) => {
   if (value === undefined || value === null || value === "") return null;
   if (typeof value === "number") return Number.isFinite(value) ? value : null;
@@ -564,11 +643,13 @@ const SidebarSessionHeader = ({
   onUpdate,
   isActive,
   onSelect,
+  isSessionInfoOpen,
+  onSessionInfoOpenChange,
+  isRequirementsOpen,
+  onRequirementsOpenChange,
 }) => {
   const [editingField, setEditingField] = useState(null);
   const [tempValue, setTempValue] = useState("");
-  const [isSessionInfoOpen, setIsSessionInfoOpen] = useState(true);
-  const [isRequirementsOpen, setIsRequirementsOpen] = useState(true);
 
   if (!sessionData) return null;
 
@@ -659,7 +740,7 @@ const SidebarSessionHeader = ({
           className="session-section-toggle"
           onClick={(e) => {
             e.stopPropagation();
-            setIsSessionInfoOpen((open) => !open);
+            onSessionInfoOpenChange(!isSessionInfoOpen);
           }}
           aria-expanded={isSessionInfoOpen}
         >
@@ -710,7 +791,7 @@ const SidebarSessionHeader = ({
           className="session-section-toggle"
           onClick={(e) => {
             e.stopPropagation();
-            setIsRequirementsOpen((open) => !open);
+            onRequirementsOpenChange(!isRequirementsOpen);
           }}
           aria-expanded={isRequirementsOpen}
         >
@@ -812,6 +893,13 @@ function App() {
   const [pendingRiskBreakdown, setPendingRiskBreakdown] = useState(null);
 
   const [sidebarWidth, setSidebarWidth] = useState(550);
+  const [isSessionInfoOpen, setIsSessionInfoOpen] = useState(true);
+  const [isRequirementsOpen, setIsRequirementsOpen] = useState(true);
+  const [analysisMode, setAnalysisMode] = useState("uncertaintyTool");
+  const [showContribution, setShowContribution] = useState(false);
+  const [scopedZoomLevels, setScopedZoomLevels] = useState({});
+  const [loadedPreferencesSessionId, setLoadedPreferencesSessionId] =
+    useState(null);
   const isResizingRef = useRef(false);
   // The flex row that holds the sidebar + main pane. The resize math measures
   // the pointer against this element's box (not the viewport) so the divider
@@ -839,10 +927,7 @@ function App() {
     gbLow: false,
     gbHigh: false,
   });
-  const [sidebarSort, setSidebarSort] = useState({
-    key: "section",
-    direction: "asc",
-  });
+  const [sidebarSort, setSidebarSort] = useState(DEFAULT_SIDEBAR_SORT);
   const hasAnySectionedPoint = useMemo(
     () =>
       (currentTestPoints || []).some((point) =>
@@ -1126,6 +1211,116 @@ function App() {
 
   // --- Global UUT Selection State ---
   const [currentUutSelection, setCurrentUutSelection] = useState([]);
+
+  useEffect(() => {
+    if (!selectedSessionId) {
+      setLoadedPreferencesSessionId(null);
+      return;
+    }
+
+    const preferences = readUiPreferences(selectedSessionId);
+    setSidebarColumns({
+      ...DEFAULT_SIDEBAR_COLUMNS,
+      ...(preferences.sidebarColumns || {}),
+    });
+    setSidebarSort({
+      ...DEFAULT_SIDEBAR_SORT,
+      ...(preferences.sidebarSort || {}),
+    });
+    setSidebarWidth(
+      Number.isFinite(preferences.sidebarWidth)
+        ? preferences.sidebarWidth
+        : 550,
+    );
+    setIsSessionInfoOpen(preferences.isSessionInfoOpen ?? true);
+    setIsRequirementsOpen(preferences.isRequirementsOpen ?? true);
+    setIsMeasurementPointsOpen(preferences.isMeasurementPointsOpen ?? true);
+    setIsGlobalExpanded(preferences.isGlobalExpanded ?? false);
+    setExpandedAreas(new Set(preferences.expandedAreas || []));
+    setExpandedUuts(new Set(preferences.expandedUuts || []));
+    setExpandedRanges(new Set(preferences.expandedRanges || []));
+    setActiveRangeIndices(preferences.activeRangeIndices || {});
+    setAnalysisMode(preferences.analysisMode || "uncertaintyTool");
+    setShowContribution(preferences.showContribution ?? false);
+    setScopedZoomLevels(preferences.scopedZoomLevels || {});
+    setLoadedPreferencesSessionId(selectedSessionId);
+  }, [selectedSessionId]);
+
+  useEffect(() => {
+    if (
+      !selectedSessionId ||
+      loadedPreferencesSessionId !== selectedSessionId
+    ) {
+      return;
+    }
+
+    const preferences = {
+      sidebarColumns,
+      sidebarSort,
+      sidebarWidth,
+      isSessionInfoOpen,
+      isRequirementsOpen,
+      isMeasurementPointsOpen,
+      isGlobalExpanded,
+      expandedAreas: Array.from(expandedAreas),
+      expandedUuts: Array.from(expandedUuts),
+      expandedRanges: Array.from(expandedRanges),
+      activeRangeIndices,
+      analysisMode,
+      showContribution,
+      scopedZoomLevels,
+    };
+
+    try {
+      window.localStorage.setItem(
+        getUiPreferencesStorageKey(selectedSessionId),
+        JSON.stringify(preferences),
+      );
+    } catch (error) {
+      console.warn("Unable to save uncertainty UI preferences", error);
+    }
+  }, [
+    activeRangeIndices,
+    analysisMode,
+    expandedAreas,
+    expandedRanges,
+    expandedUuts,
+    isGlobalExpanded,
+    isMeasurementPointsOpen,
+    isRequirementsOpen,
+    isSessionInfoOpen,
+    loadedPreferencesSessionId,
+    scopedZoomLevels,
+    selectedSessionId,
+    showContribution,
+    sidebarColumns,
+    sidebarSort,
+    sidebarWidth,
+  ]);
+
+  useEffect(() => {
+    const root = resultsContainerRef.current;
+    if (!root) return undefined;
+
+    const applyZoomLevels = () => {
+      root.querySelectorAll(SCOPED_ZOOM_SURFACE_SELECTOR).forEach((surface) => {
+        const key = getScopedZoomKey(surface);
+        const zoom = scopedZoomLevels[key] || 1;
+        const content = surface.classList.contains("measurement-point-list")
+          ? surface.querySelector(":scope > .scoped-zoom-content")
+          : surface.querySelector(":scope > table");
+        if (!content) return;
+
+        surface.dataset.zoomLevel = String(zoom);
+        content.style.zoom = String(zoom);
+      });
+    };
+
+    applyZoomLevels();
+    const observer = new MutationObserver(applyZoomLevels);
+    observer.observe(root, { childList: true, subtree: true });
+    return () => observer.disconnect();
+  }, [scopedZoomLevels]);
 
   // --- DRAG AND DROP & CLIPBOARD STATE ---
   const [draggedPointId, setDraggedPointId] = useState(null);
@@ -1469,26 +1664,42 @@ function App() {
 
   useEffect(() => {
     const handleZoom = (e) => {
-      if (e.ctrlKey) {
-        e.preventDefault();
-        if (window.require) {
-          try {
-            const { webFrame } = window.require("electron");
-            const currentZoom = webFrame.getZoomFactor();
-            let newZoom = currentZoom;
-            if (e.deltaY < 0) {
-              newZoom += 0.1;
-            } else {
-              newZoom -= 0.1;
-            }
-            newZoom = Math.max(0.5, Math.min(newZoom, 3.0));
-            webFrame.setZoomFactor(newZoom);
-            showToast(`Zoom Level: ${Math.round(newZoom * 100)}%`);
-          } catch (error) {
-            console.warn("Zoom adjustment failed", error);
-          }
-        }
+      if (!e.ctrlKey && !e.metaKey) return;
+
+      const zoomTarget = getScopedZoomTarget(e.target);
+      // Let Chromium perform normal page zoom when the pointer is not over a
+      // scoped work surface.
+      if (!zoomTarget) return;
+
+      e.preventDefault();
+
+      const { surface, content } = zoomTarget;
+      const currentZoom = parseFloat(surface.dataset.zoomLevel || "1");
+      const zoomDirection = e.deltaY < 0 ? 1 : -1;
+      const nextZoom = Math.max(
+        0.6,
+        Math.min(2, Math.round((currentZoom + zoomDirection * 0.1) * 10) / 10),
+      );
+      if (nextZoom === currentZoom) return;
+
+      const bounds = surface.getBoundingClientRect();
+      const cursorX = e.clientX - bounds.left;
+      const cursorY = e.clientY - bounds.top;
+      const logicalX = (surface.scrollLeft + cursorX) / currentZoom;
+      const logicalY = (surface.scrollTop + cursorY) / currentZoom;
+
+      surface.dataset.zoomLevel = String(nextZoom);
+      content.style.zoom = String(nextZoom);
+      const zoomKey = getScopedZoomKey(surface);
+      if (zoomKey) {
+        setScopedZoomLevels((current) => ({
+          ...current,
+          [zoomKey]: nextZoom,
+        }));
       }
+
+      surface.scrollLeft = logicalX * nextZoom - cursorX;
+      surface.scrollTop = logicalY * nextZoom - cursorY;
     };
 
     window.addEventListener("wheel", handleZoom, { passive: false });
@@ -3065,10 +3276,15 @@ function App() {
 
               {/* === SIDEBAR LIST === */}
               <div className="measurement-point-list">
+                <div className="scoped-zoom-content">
                 {/* 1. DASHBOARD HOME BUTTON */}
                 <SidebarSessionHeader
                   sessionData={currentSessionData}
                   onUpdate={updateSession}
+                  isSessionInfoOpen={isSessionInfoOpen}
+                  onSessionInfoOpenChange={setIsSessionInfoOpen}
+                  isRequirementsOpen={isRequirementsOpen}
+                  onRequirementsOpenChange={setIsRequirementsOpen}
                   isActive={
                     selectedSessionId &&
                     !selectedAreaId &&
@@ -3528,9 +3744,6 @@ function App() {
                                                         getSidebarGridTemplate(
                                                           visibleSidebarColumns,
                                                         ),
-                                                      gap: "4px",
-                                                      padding:
-                                                        "4px 8px 4px 12px",
                                                       fontSize: "0.7rem",
                                                       fontWeight: "bold",
                                                       color:
@@ -3545,6 +3758,7 @@ function App() {
                                                       renderSidebarSortHeader(
                                                         "section",
                                                         "Sect.",
+                                                        { align: "right" },
                                                       )}
                                                     {visibleSidebarColumns.value &&
                                                       renderSidebarSortHeader(
@@ -3871,6 +4085,7 @@ function App() {
                     </div>
                   );
                 })}
+                </div>
               </div>
             </aside>
 
@@ -3910,6 +4125,10 @@ function App() {
                     onRangeSelectionChange={setActiveRangeIndices}
                     selectedTablePointIds={selectedTablePointIds}
                     setSelectedTablePointIds={setSelectedTablePointIds}
+                    preferredAnalysisMode={analysisMode}
+                    onAnalysisModeChange={setAnalysisMode}
+                    preferredShowContribution={showContribution}
+                    onShowContributionChange={setShowContribution}
                     onSelectUut={handleSelectUut}
                     onSelectTestPoint={handleSelectTestPoint}
                     onDefineTestPoint={handleAddNewTestPoint}

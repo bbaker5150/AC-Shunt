@@ -83,6 +83,10 @@ function Analysis({
   setSelectedTablePointIds = () => {},
   activeRangeIndices,
   onRangeSelectionChange,
+  preferredAnalysisMode = "uncertaintyTool",
+  onAnalysisModeChange = () => {},
+  preferredShowContribution = false,
+  onShowContributionChange = () => {},
 
   // --- NEW: Handlers passed from App.jsx to control Global Modal ---
   onEditUut,
@@ -94,8 +98,18 @@ function Analysis({
   // =========================================================================
 
   // --- UI State ---
-  const [analysisMode, setAnalysisMode] = useState("uncertaintyTool"); // 'uncertaintyTool' | 'risk' | 'riskmitigation'
-  const [showContribution, setShowContribution] = useState(false);
+  const analysisMode = preferredAnalysisMode;
+  const showContribution = preferredShowContribution;
+  const setShowContribution = useCallback(
+    (nextValue) => {
+      onShowContributionChange(
+        typeof nextValue === "function"
+          ? nextValue(preferredShowContribution)
+          : nextValue,
+      );
+    },
+    [onShowContributionChange, preferredShowContribution],
+  );
   const [notification, setNotification] = useState(null);
 
   // --- Modal Visibility State ---
@@ -728,7 +742,7 @@ function Analysis({
                       // Still allow tab switch or block? Original code allowed it but showed notification.
                     }
                   }
-                  setAnalysisMode(mode);
+                  onAnalysisModeChange(mode);
                 }}
               >
                 {mode === "uncertaintyTool"

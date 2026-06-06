@@ -76,7 +76,7 @@ function createWindow() {
     mainWindow = new BrowserWindow({
         width: 1280,
         height: 800,
-        title: "AC Shunt Calibration",
+        title: "Metrology Workbench",
         icon: path.join(__dirname, 'favicon.ico'),
         autoHideMenuBar: true,
         backgroundColor: THEME_BACKGROUND[initialTheme],

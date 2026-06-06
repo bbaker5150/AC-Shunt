@@ -19,7 +19,10 @@ export default function WorkbenchTopBar() {
   const location = useLocation();
   const navigate = useNavigate();
   const { theme, toggleTheme } = useTheme();
-  const atHome = location.pathname === "/" || location.pathname === "";
+  const atHome =
+    location.pathname === "/" ||
+    location.pathname === "" ||
+    location.pathname === "/home";
 
   return (
     <header className="workbench-topbar">
@@ -30,7 +33,7 @@ export default function WorkbenchTopBar() {
           <button
             type="button"
             className="workbench-topbar-home"
-            onClick={() => navigate("/")}
+            onClick={() => navigate("/home")}
             title="Return to the Workbench launcher"
             aria-label="Return to the Workbench launcher"
           >

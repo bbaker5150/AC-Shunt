@@ -1245,6 +1245,12 @@ body.theme-cyberpunk .button {
     border-color 0.3s ease;
 }
 
+body:not(.dark-mode) .uncertainty-module .results-sidebar,
+body:not(.dark-mode) .uncertainty-module .sidebar-header,
+body:not(.dark-mode) .uncertainty-module .measurement-point-list {
+  background-color: #ffffff;
+}
+
 /* --- Sidebar Global Actions (The Tree Header) --- */
 .sidebar-global-actions {
   display: flex;
@@ -1376,14 +1382,17 @@ body.theme-cyberpunk .button {
   display: grid;
   font-size: 0.6rem;
   color: var(--text-color-muted);
-  padding: 4px 14px 4px 14px;
+  padding: 4px 10px;
   margin-bottom: 0;
   border-bottom: 1px solid var(--border-color);
+  border-left: 1px solid transparent;
+  border-right: 1px solid transparent;
   opacity: 0.7;
-  gap: 4px;
+  gap: 8px;
   text-transform: uppercase;
   font-weight: 700;
   letter-spacing: 0.3px;
+  box-sizing: border-box;
 }
 
 .sidebar-sort-header {
@@ -1409,6 +1418,10 @@ body.theme-cyberpunk .button {
 
 .sidebar-sort-header[style*="center"] {
   justify-content: center;
+}
+
+.sidebar-sort-header[style*="right"] {
+  justify-content: flex-end;
 }
 
 /* Sidebar Column Toggle Button Enhancement */
@@ -2073,6 +2086,11 @@ body.dark-mode .sidebar-points-scroll-wrapper::-webkit-scrollbar-thumb:hover {
   gap: 2rem;
   border-bottom: 2px solid var(--border-color);
   margin-bottom: 10px;
+}
+
+.analysis-container > .analysis-tabs {
+  padding-inline: 20px;
+  box-sizing: border-box;
 }
 
 .analysis-tabs button {
@@ -9003,6 +9021,15 @@ body.theme-cyberpunk:not(.dark-mode) .range-label-row.active {
   position: relative;
 }
 
+/* Header and data rows must use identical horizontal geometry. */
+.sidebar-column-headers,
+.point-grid-item {
+  column-gap: 8px;
+  padding-left: 10px;
+  padding-right: 10px;
+  box-sizing: border-box;
+}
+
 /* Hover State - Subtle */
 .point-grid-item:hover {
   background-color: rgba(var(--primary-rgb), 0.04);
@@ -9369,6 +9396,29 @@ body.theme-cyberpunk .industry-table tr.selected-row {
 .measurement-point-list {
   padding: 8px 10px;
   gap: 4px;
+}
+
+.measurement-point-list {
+  padding: 0;
+  gap: 0;
+}
+
+.measurement-point-list > .scoped-zoom-content {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  padding: 8px 10px 40px;
+  min-width: 100%;
+  box-sizing: border-box;
+  transform-origin: top left;
+}
+
+.panel-table-container > table,
+.instrument-table-container > table,
+.budget-section-table-wrap > table,
+.lookup-table-container > table,
+.ranges-table-container > table {
+  transform-origin: top left;
 }
 
 /* Area group container tightening */
