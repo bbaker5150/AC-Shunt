@@ -286,12 +286,20 @@ const SidebarPointItem = ({
     }
   };
 
-  // Clicking a risk metric selects this point and requests its breakdown. The
-  // modal is opened by Analysis once the point's full riskResults are computed.
+  // A plain click on a risk metric just selects the point (what users usually
+  // mean). The breakdown modal only opens on Ctrl/Cmd-click, so it isn't
+  // triggered accidentally while clicking around a row. The modal is opened by
+  // Analysis once the selected point's full riskResults are computed.
   const handleMetricClick = (e, metricKey) => {
     e.stopPropagation();
-    onSelect?.(e);
-    onShowRiskBreakdown?.(metricKey);
+    if (e.ctrlKey || e.metaKey) {
+      // Select as a clean single selection (strip modifiers so it doesn't also
+      // toggle the multi-select set), then request the breakdown.
+      onSelect?.({ ctrlKey: false, metaKey: false, shiftKey: false });
+      onShowRiskBreakdown?.(metricKey);
+    } else {
+      onSelect?.(e);
+    }
   };
 
   const cancelEdit = () => {
@@ -471,7 +479,7 @@ const SidebarPointItem = ({
         <span
           className="point-risk-metric point-risk-metric-clickable"
           style={{ color: getPfaColor(risk.pfa), fontWeight: 600 }}
-          title="PFA — click for breakdown"
+          title="PFA — Ctrl+click for breakdown"
           onClick={(e) => handleMetricClick(e, "pfa")}
         >
           {risk.pfa !== undefined ? `${Number(risk.pfa).toFixed(2)}%` : "-"}
@@ -481,7 +489,7 @@ const SidebarPointItem = ({
         <span
           className="point-risk-metric point-risk-metric-clickable"
           style={{ color: getPfrColor(risk.pfr) }}
-          title="PFR — click for breakdown"
+          title="PFR — Ctrl+click for breakdown"
           onClick={(e) => handleMetricClick(e, "pfr")}
         >
           {risk.pfr !== undefined ? `${Number(risk.pfr).toFixed(2)}%` : "-"}
@@ -491,7 +499,7 @@ const SidebarPointItem = ({
         <span
           className="point-risk-metric point-risk-metric-clickable"
           style={{ color: getTurColor(risk.tur), fontWeight: 600 }}
-          title="TUR — click for breakdown"
+          title="TUR — Ctrl+click for breakdown"
           onClick={(e) => handleMetricClick(e, "tur")}
         >
           {risk.tur !== undefined ? `${Number(risk.tur).toFixed(1)}` : "-"}
@@ -501,7 +509,7 @@ const SidebarPointItem = ({
         <span
           className="point-risk-metric point-risk-metric-clickable"
           style={{ color: getTarColor(risk.tar) }}
-          title="TAR — click for breakdown"
+          title="TAR — Ctrl+click for breakdown"
           onClick={(e) => handleMetricClick(e, "tar")}
         >
           {risk.tar !== undefined ? `${Number(risk.tar).toFixed(1)}` : "-"}
@@ -511,7 +519,7 @@ const SidebarPointItem = ({
         <span
           className="point-risk-metric point-risk-metric-clickable"
           style={{ color: getPfaColor(risk.gbPfa), fontWeight: 600 }}
-          title="PFA w/ Guardband — click for breakdown"
+          title="PFA w/ Guardband — Ctrl+click for breakdown"
           onClick={(e) => handleMetricClick(e, "gbpfa")}
         >
           {risk.gbPfa !== undefined ? `${Number(risk.gbPfa).toFixed(2)}%` : "-"}
@@ -521,7 +529,7 @@ const SidebarPointItem = ({
         <span
           className="point-risk-metric point-risk-metric-clickable"
           style={{ color: getPfrColor(risk.gbPfr) }}
-          title="PFR w/ Guardband — click for breakdown"
+          title="PFR w/ Guardband — Ctrl+click for breakdown"
           onClick={(e) => handleMetricClick(e, "gbpfr")}
         >
           {risk.gbPfr !== undefined ? `${Number(risk.gbPfr).toFixed(2)}%` : "-"}
@@ -530,7 +538,7 @@ const SidebarPointItem = ({
       {visibleColumns.gbMult && (
         <span
           className="point-risk-metric point-risk-metric-clickable"
-          title="Guardband Multiplier — click for breakdown"
+          title="Guardband Multiplier — Ctrl+click for breakdown"
           onClick={(e) => handleMetricClick(e, "gbmult")}
         >
           {risk.gbMult !== undefined ? `${Number(risk.gbMult).toFixed(1)}%` : "-"}
@@ -539,7 +547,7 @@ const SidebarPointItem = ({
       {visibleColumns.gbLow && (
         <span
           className="point-metric point-risk-metric-clickable"
-          title="Guardband Low Limit — click for breakdown"
+          title="Guardband Low Limit — Ctrl+click for breakdown"
           onClick={(e) => handleMetricClick(e, "gblow")}
         >
           {risk.gbLow !== undefined ? Number(risk.gbLow).toPrecision(4) : "-"}
@@ -548,7 +556,7 @@ const SidebarPointItem = ({
       {visibleColumns.gbHigh && (
         <span
           className="point-metric point-risk-metric-clickable"
-          title="Guardband High Limit — click for breakdown"
+          title="Guardband High Limit — Ctrl+click for breakdown"
           onClick={(e) => handleMetricClick(e, "gbhigh")}
         >
           {risk.gbHigh !== undefined ? Number(risk.gbHigh).toPrecision(4) : "-"}
@@ -2620,6 +2628,21 @@ function App() {
   };
 
   const handleAddArea = () => {
+    if (!currentSessionData) return;
+    // Confirm first so a stray click doesn't immediately spawn an area.
+    setAppNotification({
+      title: "Add Measurement Area",
+      message: "Create a new measurement area? You can rename it right after.",
+      confirmText: "Add Area",
+      isIconConfirm: true,
+      onConfirm: () => {
+        setAppNotification(null);
+        createMeasurementArea();
+      },
+    });
+  };
+
+  const createMeasurementArea = () => {
     if (!currentSessionData) return;
     const existing = currentSessionData.measurementAreas || [];
     const names = new Set(existing.map((a) => (a.name || "").toLowerCase()));
