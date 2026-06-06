@@ -15,16 +15,20 @@ const makeTmde = (id) => ({
 });
 
 describe("calculateDerivedUncertainty input contributors", () => {
-  it("combines multiple TMDE variances assigned to one derived input", () => {
+  it("additively composes multiple TMDEs assigned to one derived input", () => {
     const result = calculateDerivedUncertainty(
       "y = x",
       { x: "Length" },
       [makeTmde("tmde-a"), makeTmde("tmde-b")],
-      { value: 10, unit: "V" },
+      { value: 20, unit: "V" },
     );
 
     expect(result.error).toBeNull();
-    expect(result.nominalResult).toBeCloseTo(10, 10);
+    // Two TMDEs each reading 10 compose ADDITIVELY into the variable: 10+10=20.
+    // (Previously only the first TMDE's value was kept, giving 10.)
+    expect(result.nominalResult).toBeCloseTo(20, 10);
+    // Combined uncertainty is absolute, so the two independent ±1 V floors still
+    // RSS to √(1/3 + 1/3) = √(2/3) regardless of the summed nominal.
     expect(result.combinedUncertaintyNative).toBeCloseTo(
       Math.sqrt(2 / 3),
       8,
