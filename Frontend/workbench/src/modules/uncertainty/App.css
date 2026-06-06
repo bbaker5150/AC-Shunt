@@ -7919,7 +7919,10 @@ body.theme-cyberpunk .notification-window .window-header {
   padding: 14px;
   display: flex;
   flex-direction: column;
-  gap: 12px;
+  gap: 10px;
+  /* Keep the equation editor + status banners compact rather than stretching
+     across the full panel width. */
+  max-width: 560px;
 }
 
 .measurement-equation-input-row {

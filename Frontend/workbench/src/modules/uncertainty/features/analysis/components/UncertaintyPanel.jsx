@@ -2133,20 +2133,6 @@ function DetailedView({
     });
   };
 
-  const handleVariableNominalUpdate = (variableType, field, value) => {
-    const nextTolerances = tmdeTolerancesData.map((tmde) => {
-      if (tmde.variableType !== variableType) return tmde;
-      return {
-        ...tmde,
-        measurementPoint: {
-          ...(tmde.measurementPoint || { value: "", unit: "" }),
-          [field]: value,
-        },
-      };
-    });
-    onUpdateTestPoint({ tmdeTolerances: nextTolerances });
-  };
-
   // Per-SOURCE measurement point update (additive composition): each source on a
   // variable carries its own value, and the variable is their sum. Edits one
   // source by id rather than broadcasting to every source of the variable type.
@@ -2275,23 +2261,6 @@ function DetailedView({
   const calculatedNominal = calcResults?.calculatedNominalValue;
   const targetNominal = parseFloat(uutNominal?.value);
 
-  // PROTOTYPE: consolidated "compact" layout — hides the variable cards and
-  // surfaces each source's value directly in the TMDE table (plus a slim
-  // per-variable strip for nominals / unassigned warnings). Toggle persists so
-  // the classic card layout can be compared side-by-side.
-  const [compactLayout, setCompactLayoutState] = useState(
-    () => typeof window !== "undefined" &&
-      window.localStorage?.getItem("uncCompactLayout") === "1",
-  );
-  const setCompactLayout = (next) => {
-    setCompactLayoutState(next);
-    try {
-      window.localStorage?.setItem("uncCompactLayout", next ? "1" : "0");
-    } catch {
-      /* ignore storage failures */
-    }
-  };
-
   const getCalculatedStatus = () => {
     if (isNaN(calculatedNominal) || isNaN(targetNominal)) return "neutral";
     const diff = Math.abs(calculatedNominal - targetNominal);
@@ -2308,11 +2277,15 @@ function DetailedView({
   // NB: use uutToleranceData (defined above) — activeResolvedTolerance is
   // declared further down, so referencing it here would hit the TDZ.
   const uutRangeMax = parseFloat(uutToleranceData?.max);
+  // Only flag when the derived value also diverges from the target (calcStatus
+  // "mismatch") — i.e. the additive sum genuinely blew up. A legitimate point
+  // sitting just above its range-label max (calc ≈ target) must not warn.
   const calcExceedsRange =
+    calcStatus === "mismatch" &&
     Number.isFinite(calculatedNominal) &&
     Number.isFinite(uutRangeMax) &&
     uutRangeMax > 0 &&
-    Math.abs(calculatedNominal) > uutRangeMax * 1.0000001;
+    Math.abs(calculatedNominal) > uutRangeMax * 1.05;
 
   const calcStatusStyle = {
     match: {
@@ -2718,32 +2691,7 @@ function DetailedView({
       <div className="measurement-equation-section">
         {isDerived && equationDisplayData && (
           <div className="measurement-equation-block">
-            <div
-              style={{
-                display: "flex",
-                alignItems: "center",
-                justifyContent: "space-between",
-              }}
-            >
-              <h3 className="panel-section-title">Measurement Equation</h3>
-              <button
-                type="button"
-                onClick={() => setCompactLayout(!compactLayout)}
-                title="Toggle between the classic variable cards and the consolidated table layout"
-                style={{
-                  background: "transparent",
-                  border: "1px solid var(--border-color)",
-                  borderRadius: "6px",
-                  color: "var(--text-color-muted)",
-                  fontSize: "0.72rem",
-                  fontWeight: 700,
-                  padding: "4px 10px",
-                  cursor: "pointer",
-                }}
-              >
-                {compactLayout ? "Classic view" : "Compact view (beta)"}
-              </button>
-            </div>
+            <h3 className="panel-section-title">Measurement Equation</h3>
             <div className="measurement-equation-card">
               <div className="add-point-equation-input measurement-equation-input-row">
                 <input
@@ -2814,323 +2762,6 @@ function DetailedView({
                   </div>
                 </div>
               )}
-
-              {!compactLayout && (
-              <div className="var-map-grid measurement-equation-var-grid">
-                {equationDisplayData.variables.map((v) => (
-                  <div
-                    key={v.symbol}
-                    className={`var-card-modern ${v.isAssigned ? "assigned" : "unassigned"}`}
-                  >
-                    <div className="var-card-header">
-                      <div className="var-symbol-badge">{v.symbol}</div>
-                      <input
-                        type="text"
-                        className="var-name-input"
-                        value={v.name || ""}
-                        placeholder="Map to (e.g. Volts)..."
-                        onChange={(e) =>
-                          handleVariableMappingChange(v.symbol, e.target.value)
-                        }
-                      />
-                    </div>
-
-                    <div className="var-card-body">
-                      <div>
-                        <label
-                          style={{
-                            display: "block",
-                            fontSize: "0.75rem",
-                            fontWeight: 700,
-                            color: "var(--text-color-muted)",
-                            marginBottom: "5px",
-                          }}
-                        >
-                          ASSIGNED SOURCE
-                        </label>
-                        <div className="var-source-summary">
-                          {v.assignedTmdes.length > 0 ? (
-                            <>
-                              <strong>
-                                {v.assignedTmdes.length} source
-                                {v.assignedTmdes.length === 1 ? "" : "s"}
-                              </strong>
-                              <span>
-                                {v.assignedTmdes
-                                  .map(
-                                    (tmde) =>
-                                      tmde.name ||
-                                      tmde.description ||
-                                      "Unnamed TMDE",
-                                  )
-                                  .join(", ")}
-                              </span>
-                            </>
-                          ) : (
-                            <span>
-                              Assign instruments in the TMDE table below
-                            </span>
-                          )}
-                        </div>
-                      </div>
-
-                      <div>
-                        <label
-                          style={{
-                            display: "block",
-                            fontSize: "0.75rem",
-                            fontWeight: 700,
-                            color: "var(--text-color-muted)",
-                            marginBottom: "5px",
-                          }}
-                        >
-                          VALUE
-                        </label>
-                        {v.isAssigned ? (
-                          v.assignedTmdes.length > 1 ? (
-                            // Additive composition: one value per source, summed.
-                            <div
-                              style={{
-                                display: "flex",
-                                flexDirection: "column",
-                                gap: "4px",
-                              }}
-                            >
-                              {v.assignedTmdes.map((src) => (
-                                <div
-                                  key={src.id}
-                                  style={{
-                                    display: "flex",
-                                    alignItems: "center",
-                                    gap: "6px",
-                                  }}
-                                >
-                                  <span
-                                    title={
-                                      src.name || src.description || "Source"
-                                    }
-                                    style={{
-                                      fontSize: "0.7rem",
-                                      color: "var(--text-color-muted)",
-                                      width: "110px",
-                                      whiteSpace: "nowrap",
-                                      overflow: "hidden",
-                                      textOverflow: "ellipsis",
-                                    }}
-                                  >
-                                    {src.name || src.description || "Source"}
-                                  </span>
-                                  <EditableCell
-                                    value={src.measurementPoint?.value}
-                                    type="number"
-                                    onSave={(val) =>
-                                      handleSourceNominalUpdate(
-                                        src.id,
-                                        "value",
-                                        val,
-                                      )
-                                    }
-                                    style={{
-                                      fontFamily: "'Consolas', monospace",
-                                      fontSize: "0.95rem",
-                                      fontWeight: 700,
-                                      color: "var(--primary-color)",
-                                      backgroundColor: "transparent",
-                                      border: "none",
-                                      padding: 0,
-                                      width: "90px",
-                                    }}
-                                  />
-                                </div>
-                              ))}
-                              <div
-                                style={{
-                                  display: "flex",
-                                  alignItems: "center",
-                                  gap: "6px",
-                                  borderTop: "1px solid var(--border-color)",
-                                  paddingTop: "4px",
-                                  marginTop: "2px",
-                                }}
-                              >
-                                <span
-                                  style={{
-                                    fontSize: "0.7rem",
-                                    fontWeight: 700,
-                                    color: "var(--text-color-muted)",
-                                    width: "110px",
-                                  }}
-                                >
-                                  Σ Total
-                                </span>
-                                <span
-                                  style={{
-                                    fontFamily: "'Consolas', monospace",
-                                    fontSize: "1.05rem",
-                                    fontWeight: 700,
-                                    color: "var(--primary-color)",
-                                    width: "90px",
-                                  }}
-                                >
-                                  {(() => {
-                                    const t = v.assignedTmdes.reduce(
-                                      (sum, src) => {
-                                        const n = parseFloat(
-                                          src.measurementPoint?.value,
-                                        );
-                                        return sum + (isNaN(n) ? 0 : n);
-                                      },
-                                      0,
-                                    );
-                                    return Number.isFinite(t)
-                                      ? parseFloat(t.toPrecision(8))
-                                      : 0;
-                                  })()}
-                                </span>
-                                <div
-                                  style={{
-                                    width: "85px",
-                                    borderBottom:
-                                      "1px dashed var(--border-color)",
-                                  }}
-                                >
-                                  <Select
-                                    options={groupedUnitOptions}
-                                    value={
-                                      groupedUnitOptions
-                                        .flatMap((g) => g.options)
-                                        .find((opt) => opt.value === v.unit) ||
-                                      (v.unit
-                                        ? { value: v.unit, label: v.unit }
-                                        : null)
-                                    }
-                                    onChange={(opt) =>
-                                      opt &&
-                                      handleVariableNominalUpdate(
-                                        v.name,
-                                        "unit",
-                                        opt.value,
-                                      )
-                                    }
-                                    styles={customUnitSelectStyles}
-                                    placeholder="Unit"
-                                    menuPortalTarget={document.body}
-                                    isSearchable={true}
-                                  />
-                                </div>
-                              </div>
-                              {new Set(
-                                v.assignedTmdes
-                                  .map((s) => s.measurementPoint?.unit)
-                                  .filter(Boolean),
-                              ).size > 1 && (
-                                <div
-                                  style={{
-                                    display: "flex",
-                                    alignItems: "center",
-                                    gap: "6px",
-                                    fontSize: "0.7rem",
-                                    color: "var(--status-warning)",
-                                    marginTop: "2px",
-                                  }}
-                                >
-                                  <FontAwesomeIcon
-                                    icon={faExclamationTriangle}
-                                  />
-                                  <span>
-                                    Sources use different units — set them to the
-                                    same unit so the sum is valid.
-                                  </span>
-                                </div>
-                              )}
-                            </div>
-                          ) : (
-                          <div className="var-value-display">
-                            <EditableCell
-                              value={v.value}
-                              type="number"
-                              onSave={(val) =>
-                                handleVariableNominalUpdate(
-                                  v.name,
-                                  "value",
-                                  val,
-                                )
-                              }
-                              style={{
-                                fontFamily: "'Consolas', monospace",
-                                fontSize: "1.1rem",
-                                fontWeight: 700,
-                                color: "var(--primary-color)",
-                                backgroundColor: "transparent",
-                                border: "none",
-                                padding: 0,
-                                width: "100px",
-                              }}
-                            />
-                            <div
-                              style={{
-                                width: "85px",
-                                marginLeft: "5px",
-                                borderBottom: "1px dashed var(--border-color)",
-                              }}
-                            >
-                              <Select
-                                options={groupedUnitOptions}
-                                value={
-                                  groupedUnitOptions
-                                    .flatMap((g) => g.options)
-                                    .find((opt) => opt.value === v.unit) ||
-                                  (v.unit
-                                    ? { value: v.unit, label: v.unit }
-                                    : null)
-                                }
-                                onChange={(opt) =>
-                                  opt &&
-                                  handleVariableNominalUpdate(
-                                    v.name,
-                                    "unit",
-                                    opt.value,
-                                  )
-                                }
-                                styles={customUnitSelectStyles}
-                                placeholder="Unit"
-                                menuPortalTarget={document.body}
-                                isSearchable={true}
-                              />
-                            </div>
-                          </div>
-                          )
-                        ) : (
-                          <div
-                            className="var-value-display"
-                            style={{
-                              backgroundColor: "var(--input-background)",
-                            }}
-                          >
-                            <span
-                              style={{
-                                color: "var(--text-color-muted)",
-                                fontSize: "0.9rem",
-                                fontStyle: "italic",
-                              }}
-                            >
-                              <FontAwesomeIcon
-                                icon={faExclamationTriangle}
-                                style={{
-                                  color: "var(--status-warning)",
-                                  marginRight: "6px",
-                                }}
-                              />
-                              Assign a source below
-                            </span>
-                          </div>
-                        )}
-                      </div>
-                    </div>
-                  </div>
-                ))}
-              </div>
-              )}
             </div>
           </div>
         )}
@@ -3179,7 +2810,7 @@ function DetailedView({
                     contribute to the same input budget. */}
                 <col style={{ width: isDerived ? "22%" : "50px" }} />
                 <col style={{ width: isDerived ? "26%" : "40%" }} />
-                {compactLayout && isDerived && (
+                {isDerived && (
                   <col style={{ width: "16%" }} />
                 )}
                 <col style={{ width: isDerived ? "20%" : "30%" }} />
@@ -3191,7 +2822,7 @@ function DetailedView({
                     {isDerived ? "Assigned Input" : "Use"}
                   </th>
                   <th>Description</th>
-                  {compactLayout && isDerived && <th>Value</th>}
+                  {isDerived && <th>Value</th>}
                   <th>Range</th>
                   <th>Specification</th>
                 </tr>
@@ -3199,7 +2830,7 @@ function DetailedView({
               <tbody>
                 {relevantTmdes.length === 0 ? (
                   <tr className="panel-empty-row">
-                    <td colSpan={compactLayout && isDerived ? "5" : "4"}>
+                    <td colSpan={isDerived ? "5" : "4"}>
                       No TMDEs defined for this measurement area.
                     </td>
                   </tr>
@@ -3340,7 +2971,7 @@ function DetailedView({
                               </div>
                             </td>
 
-                            {compactLayout && isDerived && (
+                            {isDerived && (
                               <td
                                 rowSpan={rowSpan}
                                 style={{ verticalAlign: "top" }}
