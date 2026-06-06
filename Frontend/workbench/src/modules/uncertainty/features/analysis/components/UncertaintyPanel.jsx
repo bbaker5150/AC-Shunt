@@ -3050,19 +3050,23 @@ function DetailedView({
                                 }
                               >
                                 {ranges.map((range, rIdx) => {
-                                  let rangeText =
-                                    typeof range.range === "string"
+                                  // Show the actual measurement range (min–max),
+                                  // not the spec string — the full spec already
+                                  // lives in the Specification column.
+                                  const hasBounds =
+                                    range.min !== undefined &&
+                                    range.min !== null &&
+                                    range.min !== "" &&
+                                    range.max !== undefined &&
+                                    range.max !== null &&
+                                    range.max !== "";
+                                  const rangeText = hasBounds
+                                    ? `${range.min} to ${range.max}`
+                                    : typeof range.range === "string"
                                       ? range.range
-                                      : null;
-                                  if (!rangeText) {
-                                    if (
-                                      range.min !== undefined &&
-                                      range.max !== undefined
-                                    )
-                                      rangeText = `${range.min} to ${range.max}`;
-                                    else rangeText = "Full Range";
-                                  }
-                                  const label = `${rangeText} ${range.unit || ""}`;
+                                      : "Full Range";
+                                  const label =
+                                    `${rangeText} ${range.unit || ""}`.trim();
                                   return (
                                     <option key={rIdx} value={rIdx}>
                                       {label}
