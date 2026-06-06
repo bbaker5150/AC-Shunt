@@ -79,17 +79,11 @@ function computeUncertaintyForPoint(point, sessionData) {
         return null;
       }
 
-      const activeMappedVars = Object.values(point.variableMappings || {}).filter(
-        (v) => v,
-      );
-      const mappedTmdes = tmdeTolerancesData.filter(
-        (t) => t.variableType && activeMappedVars.includes(t.variableType),
-      );
-      const hasInvalidValues = mappedTmdes.some(
-        (t) => !isFilledNumber(t.measurementPoint?.value),
-      );
-      if (hasInvalidValues) return null;
-
+      // Empty-valued sources are SKIPPED by calculateDerivedUncertainty, and a
+      // variable left with no valued source surfaces as `missingInputs` below.
+      // So we no longer bail just because ONE of several additive sources on a
+      // variable is still being entered — that previously blanked the whole
+      // risk row the instant a second TMDE was assigned.
       const derivedCalculationResult = calculateDerivedUncertainty(
         point.equationString,
         point.variableMappings,

@@ -1608,6 +1608,38 @@ function DetailedView({
     }
   };
 
+  // Switching to a different test point clears any stale panel row selection so
+  // the Delete target always follows what's actually on screen.
+  useEffect(() => {
+    setSelectedUutIds([]);
+    setSelectedTmdeIds([]);
+  }, [testPointData?.id]);
+
+  // Delete/Backspace removes the selected panel rows (UUT/TMDE). Runs in the
+  // CAPTURE phase and stops propagation when it handles the key, so it pre-empts
+  // the app-level point-delete handler: once you've clicked a UUT/TMDE row,
+  // Delete removes THAT, not the open measurement point. With no panel row
+  // selected it does nothing and the app's point delete proceeds as before.
+  useEffect(() => {
+    const onKey = (e) => {
+      if (e.key !== "Delete" && e.key !== "Backspace") return;
+      const tag = document.activeElement?.tagName;
+      if (tag === "INPUT" || tag === "TEXTAREA") return;
+      if (selectedUutIds.length > 0) {
+        e.preventDefault();
+        e.stopImmediatePropagation();
+        handleDeleteSelectedUuts();
+      } else if (selectedTmdeIds.length > 0) {
+        e.preventDefault();
+        e.stopImmediatePropagation();
+        handleDeleteSelectedTmdes();
+      }
+    };
+    window.addEventListener("keydown", onKey, true);
+    return () => window.removeEventListener("keydown", onKey, true);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [selectedUutIds, selectedTmdeIds]);
+
   useEffect(() => {
     function handleClickOutside(event) {
       if (
@@ -2103,7 +2135,14 @@ function DetailedView({
     const activeRange = resolution.activeRange || {};
     const rangeSpecs = { ...activeRange };
     delete rangeSpecs.id;
+    // Additive sources on one variable must share a unit so they can be summed.
+    // Inherit the unit from any source already on this variable; fall back to the
+    // range/instrument unit. Value starts empty so the user enters this piece.
+    const sibling = tmdeTolerancesData.find(
+      (t) => t.variableType === variableType && t.measurementPoint?.unit,
+    );
     const defaultUnit =
+      sibling?.measurementPoint?.unit ||
       activeRange.unit ||
       masterTmde.instrument?.functions?.[0]?.unit ||
       "";
@@ -2118,26 +2157,29 @@ function DetailedView({
           sourceId: masterTmde.id,
           variableType,
           quantity: 1,
-          measurementPoint: masterTmde.measurementPoint || {
-            value: "",
-            unit: defaultUnit,
-          },
+          measurementPoint: masterTmde.measurementPoint?.value
+            ? masterTmde.measurementPoint
+            : { value: "", unit: defaultUnit },
         },
       ],
     });
   };
 
-  const handleVariableNominalUpdate = (variableType, field, value) => {
-    const nextTolerances = tmdeTolerancesData.map((tmde) => {
-      if (tmde.variableType !== variableType) return tmde;
-      return {
-        ...tmde,
-        measurementPoint: {
-          ...(tmde.measurementPoint || { value: "", unit: "" }),
-          [field]: value,
-        },
-      };
-    });
+  // Per-SOURCE measurement point update (additive composition): each source on a
+  // variable carries its own value, and the variable is their sum. Edits one
+  // source by id rather than broadcasting to every source of the variable type.
+  const handleSourceNominalUpdate = (tmdeId, field, value) => {
+    const nextTolerances = tmdeTolerancesData.map((tmde) =>
+      tmde.id === tmdeId
+        ? {
+            ...tmde,
+            measurementPoint: {
+              ...(tmde.measurementPoint || { value: "", unit: "" }),
+              [field]: value,
+            },
+          }
+        : tmde,
+    );
     onUpdateTestPoint({ tmdeTolerances: nextTolerances });
   };
 
@@ -2259,6 +2301,23 @@ function DetailedView({
   };
 
   const calcStatus = getCalculatedStatus();
+
+  // Sum-vs-range sanity hint: when the derived value (e.g. the additive sum of
+  // several sources on one variable) lands outside the UUT's measurement range,
+  // the resulting TUR/PFA are meaningless. Flag it explicitly rather than
+  // letting the user puzzle over a wild risk number.
+  // NB: use uutToleranceData (defined above) — activeResolvedTolerance is
+  // declared further down, so referencing it here would hit the TDZ.
+  const uutRangeMax = parseFloat(uutToleranceData?.max);
+  // Only flag when the derived value also diverges from the target (calcStatus
+  // "mismatch") — i.e. the additive sum genuinely blew up. A legitimate point
+  // sitting just above its range-label max (calc ≈ target) must not warn.
+  const calcExceedsRange =
+    calcStatus === "mismatch" &&
+    Number.isFinite(calculatedNominal) &&
+    Number.isFinite(uutRangeMax) &&
+    uutRangeMax > 0 &&
+    Math.abs(calculatedNominal) > uutRangeMax * 1.05;
 
   const calcStatusStyle = {
     match: {
@@ -2384,13 +2443,14 @@ function DetailedView({
                   return (
                     <React.Fragment key={uut.id}>
                       <tr
-                        className={`${isLinked ? "linked-row" : ""} ${isSelected ? "selected-row" : ""} ${hoveredRowId === uut.id ? "row-hovered" : ""}`}
+                        className={`${isSelected ? "selected-row" : ""} ${hoveredRowId === uut.id ? "row-hovered" : ""}`}
                         onMouseEnter={() => setHoveredRowId(uut.id)}
                         style={{
-                          borderLeft:
-                            isLinked || isSelected
-                              ? "4px solid var(--primary-color)"
-                              : "4px solid transparent",
+                          // Highlight only the clicked (selected) row; the linked
+                          // UUT keeps a subtle accent-colored description instead.
+                          borderLeft: isSelected
+                            ? "4px solid var(--primary-color)"
+                            : "4px solid transparent",
                           cursor: "pointer",
                         }}
                         onClick={(e) => handleUutClick(e, uut.id)}
@@ -2711,161 +2771,30 @@ function DetailedView({
                 </div>
               )}
 
-              <div className="var-map-grid measurement-equation-var-grid">
-                {equationDisplayData.variables.map((v) => (
-                  <div
-                    key={v.symbol}
-                    className={`var-card-modern ${v.isAssigned ? "assigned" : "unassigned"}`}
-                  >
-                    <div className="var-card-header">
-                      <div className="var-symbol-badge">{v.symbol}</div>
-                      <input
-                        type="text"
-                        className="var-name-input"
-                        value={v.name || ""}
-                        placeholder="Map to (e.g. Volts)..."
-                        onChange={(e) =>
-                          handleVariableMappingChange(v.symbol, e.target.value)
-                        }
-                      />
-                    </div>
-
-                    <div className="var-card-body">
-                      <div>
-                        <label
-                          style={{
-                            display: "block",
-                            fontSize: "0.75rem",
-                            fontWeight: 700,
-                            color: "var(--text-color-muted)",
-                            marginBottom: "5px",
-                          }}
-                        >
-                          ASSIGNED SOURCE
-                        </label>
-                        <div className="var-source-summary">
-                          {v.assignedTmdes.length > 0 ? (
-                            <>
-                              <strong>
-                                {v.assignedTmdes.length} source
-                                {v.assignedTmdes.length === 1 ? "" : "s"}
-                              </strong>
-                              <span>
-                                {v.assignedTmdes
-                                  .map(
-                                    (tmde) =>
-                                      tmde.name ||
-                                      tmde.description ||
-                                      "Unnamed TMDE",
-                                  )
-                                  .join(", ")}
-                              </span>
-                            </>
-                          ) : (
-                            <span>
-                              Assign instruments in the TMDE table below
-                            </span>
-                          )}
-                        </div>
-                      </div>
-
-                      <div>
-                        <label
-                          style={{
-                            display: "block",
-                            fontSize: "0.75rem",
-                            fontWeight: 700,
-                            color: "var(--text-color-muted)",
-                            marginBottom: "5px",
-                          }}
-                        >
-                          VALUE
-                        </label>
-                        {v.isAssigned ? (
-                          <div className="var-value-display">
-                            <EditableCell
-                              value={v.value}
-                              type="number"
-                              onSave={(val) =>
-                                handleVariableNominalUpdate(
-                                  v.name,
-                                  "value",
-                                  val,
-                                )
-                              }
-                              style={{
-                                fontFamily: "'Consolas', monospace",
-                                fontSize: "1.1rem",
-                                fontWeight: 700,
-                                color: "var(--primary-color)",
-                                backgroundColor: "transparent",
-                                border: "none",
-                                padding: 0,
-                                width: "100px",
-                              }}
-                            />
-                            <div
-                              style={{
-                                width: "85px",
-                                marginLeft: "5px",
-                                borderBottom: "1px dashed var(--border-color)",
-                              }}
-                            >
-                              <Select
-                                options={groupedUnitOptions}
-                                value={
-                                  groupedUnitOptions
-                                    .flatMap((g) => g.options)
-                                    .find((opt) => opt.value === v.unit) ||
-                                  (v.unit
-                                    ? { value: v.unit, label: v.unit }
-                                    : null)
-                                }
-                                onChange={(opt) =>
-                                  opt &&
-                                  handleVariableNominalUpdate(
-                                    v.name,
-                                    "unit",
-                                    opt.value,
-                                  )
-                                }
-                                styles={customUnitSelectStyles}
-                                placeholder="Unit"
-                                menuPortalTarget={document.body}
-                                isSearchable={true}
-                              />
-                            </div>
-                          </div>
-                        ) : (
-                          <div
-                            className="var-value-display"
-                            style={{
-                              backgroundColor: "var(--input-background)",
-                            }}
-                          >
-                            <span
-                              style={{
-                                color: "var(--text-color-muted)",
-                                fontSize: "0.9rem",
-                                fontStyle: "italic",
-                              }}
-                            >
-                              <FontAwesomeIcon
-                                icon={faExclamationTriangle}
-                                style={{
-                                  color: "var(--status-warning)",
-                                  marginRight: "6px",
-                                }}
-                              />
-                              Assign a source below
-                            </span>
-                          </div>
-                        )}
-                      </div>
-                    </div>
+              {calcExceedsRange && (
+                <div
+                  className="measurement-equation-status"
+                  style={{
+                    border: "1px solid var(--status-warning)",
+                    backgroundColor: "rgba(255, 193, 7, 0.12)",
+                    color: "var(--status-warning)",
+                  }}
+                >
+                  <div className="measurement-equation-status-main">
+                    <FontAwesomeIcon icon={faExclamationTriangle} />
+                    <span>
+                      Calculated value{" "}
+                      <strong>
+                        {calculatedNominal?.toPrecision(6)} {uutNominal?.unit}
+                      </strong>{" "}
+                      exceeds the UUT range (max {uutRangeMax?.toPrecision(6)}{" "}
+                      {activeResolvedTolerance?.unit || uutNominal?.unit}) —
+                      TUR/PFA will be meaningless. Check the source values or the
+                      point setup.
+                    </span>
                   </div>
-                ))}
-              </div>
+                </div>
+              )}
             </div>
           </div>
         )}
@@ -2912,10 +2841,13 @@ function DetailedView({
                 {/* Direct points toggle usage. Derived points assign each
                     instrument to one mapped input; several instruments may
                     contribute to the same input budget. */}
-                <col style={{ width: isDerived ? "24%" : "50px" }} />
-                <col style={{ width: isDerived ? "30%" : "40%" }} />
+                <col style={{ width: isDerived ? "22%" : "50px" }} />
+                <col style={{ width: isDerived ? "26%" : "40%" }} />
+                {isDerived && (
+                  <col style={{ width: "16%" }} />
+                )}
+                <col style={{ width: isDerived ? "20%" : "30%" }} />
                 <col style={{ width: isDerived ? "22%" : "30%" }} />
-                <col style={{ width: isDerived ? "24%" : "30%" }} />
               </colgroup>
               <thead>
                 <tr>
@@ -2923,6 +2855,7 @@ function DetailedView({
                     {isDerived ? "Assigned Input" : "Use"}
                   </th>
                   <th>Description</th>
+                  {isDerived && <th>Value</th>}
                   <th>Range</th>
                   <th>Specification</th>
                 </tr>
@@ -2930,7 +2863,7 @@ function DetailedView({
               <tbody>
                 {relevantTmdes.length === 0 ? (
                   <tr className="panel-empty-row">
-                    <td colSpan="4">
+                    <td colSpan={isDerived ? "5" : "4"}>
                       No TMDEs defined for this measurement area.
                     </td>
                   </tr>
@@ -2981,7 +2914,7 @@ function DetailedView({
                             className={`tmde-row ${isSelectedRow ? "selected-row" : ""} ${hoveredRowId === masterTmde.id ? "row-hovered" : ""}`}
                             onMouseEnter={() => setHoveredRowId(masterTmde.id)}
                             style={{
-                              // Apply Selection Highlight
+                              // Highlight only the clicked (selected) row.
                               borderLeft: isSelectedRow
                                 ? "4px solid var(--primary-color)"
                                 : "4px solid transparent",
@@ -3071,6 +3004,60 @@ function DetailedView({
                               </div>
                             </td>
 
+                            {isDerived && (
+                              <td
+                                rowSpan={rowSpan}
+                                style={{ verticalAlign: "top" }}
+                                onClick={(e) => e.stopPropagation()}
+                              >
+                                {isChecked ? (
+                                  <div
+                                    style={{
+                                      display: "flex",
+                                      alignItems: "center",
+                                      gap: "4px",
+                                    }}
+                                  >
+                                    <EditableCell
+                                      value={tmdeInstance.measurementPoint?.value}
+                                      type="number"
+                                      placeholder="value"
+                                      onSave={(val) =>
+                                        handleSourceNominalUpdate(
+                                          tmdeInstance.id,
+                                          "value",
+                                          val,
+                                        )
+                                      }
+                                      style={{
+                                        fontFamily: "'Consolas', monospace",
+                                        fontWeight: 700,
+                                        color: "var(--primary-color)",
+                                        backgroundColor: "transparent",
+                                        border: "none",
+                                        padding: 0,
+                                        width: "70px",
+                                      }}
+                                    />
+                                    <span
+                                      style={{
+                                        fontSize: "0.72rem",
+                                        color: "var(--text-color-muted)",
+                                      }}
+                                    >
+                                      {tmdeInstance.measurementPoint?.unit || ""}
+                                    </span>
+                                  </div>
+                                ) : (
+                                  <span
+                                    style={{ color: "var(--text-color-muted)" }}
+                                  >
+                                    —
+                                  </span>
+                                )}
+                              </td>
+                            )}
+
                             <td
                               rowSpan={rowSpan}
                               className={`cell-value ${hoveredCell.tableId === "tmde_det" && hoveredCell.colIndex === 2 ? "col-hovered" : ""}`}
@@ -3094,19 +3081,23 @@ function DetailedView({
                                 }
                               >
                                 {ranges.map((range, rIdx) => {
-                                  let rangeText =
-                                    typeof range.range === "string"
+                                  // Show the actual measurement range (min–max),
+                                  // not the spec string — the full spec already
+                                  // lives in the Specification column.
+                                  const hasBounds =
+                                    range.min !== undefined &&
+                                    range.min !== null &&
+                                    range.min !== "" &&
+                                    range.max !== undefined &&
+                                    range.max !== null &&
+                                    range.max !== "";
+                                  const rangeText = hasBounds
+                                    ? `${range.min} to ${range.max}`
+                                    : typeof range.range === "string"
                                       ? range.range
-                                      : null;
-                                  if (!rangeText) {
-                                    if (
-                                      range.min !== undefined &&
-                                      range.max !== undefined
-                                    )
-                                      rangeText = `${range.min} to ${range.max}`;
-                                    else rangeText = "Full Range";
-                                  }
-                                  const label = `${rangeText} ${range.unit || ""}`;
+                                      : "Full Range";
+                                  const label =
+                                    `${rangeText} ${range.unit || ""}`.trim();
                                   return (
                                     <option key={rIdx} value={rIdx}>
                                       {label}

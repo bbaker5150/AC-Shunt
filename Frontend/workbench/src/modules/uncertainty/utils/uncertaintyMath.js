@@ -1095,6 +1095,16 @@ export const calculateDerivedUncertainty = (
 
       const quantity = parseInt(tmde.quantity, 10) || 1;
       const variance_base = ui_absolute_base ** 2 * quantity;
+      // Additive composition: when several TMDEs map to ONE equation variable,
+      // the variable's value is the SUM of the pieces (the workbook's torque
+      // case — deadweights summing to a load), and `quantity` is additive
+      // multiplicity. Independent pieces' variances add (RSS). This makes a
+      // single variable carrying N TMDEs mathematically identical to the same
+      // equation rewritten with the N pieces as separate summed input variables.
+      // Previously only the FIRST TMDE's value was kept as the nominal, so two
+      // 10 kg weights read as 10 (not 20) — halving the derived result and, via
+      // the sensitivity evaluation point, corrupting every risk metric.
+      const nominalContribution_base = nominalInBase * quantity;
 
       if (isNaN(variance_base) || variance_base < 0) {
         return;
@@ -1103,10 +1113,11 @@ export const calculateDerivedUncertainty = (
       // Store in map
       if (uncertaintyInputs[tmde.variableType]) {
         uncertaintyInputs[tmde.variableType].ui_squared_sum_base += variance_base;
+        uncertaintyInputs[tmde.variableType].nominalBase += nominalContribution_base;
       } else {
         uncertaintyInputs[tmde.variableType] = {
           ui_squared_sum_base: variance_base,
-          nominalBase: nominalInBase, // STORE BASE VALUE
+          nominalBase: nominalContribution_base, // SUM of pieces (base SI)
           unit: tmde.measurementPoint.unit,
         };
       }

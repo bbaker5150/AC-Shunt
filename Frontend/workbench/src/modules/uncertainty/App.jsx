@@ -286,12 +286,20 @@ const SidebarPointItem = ({
     }
   };
 
-  // Clicking a risk metric selects this point and requests its breakdown. The
-  // modal is opened by Analysis once the point's full riskResults are computed.
+  // A plain click on a risk metric just selects the point (what users usually
+  // mean). The breakdown modal only opens on Ctrl/Cmd-click, so it isn't
+  // triggered accidentally while clicking around a row. The modal is opened by
+  // Analysis once the selected point's full riskResults are computed.
   const handleMetricClick = (e, metricKey) => {
     e.stopPropagation();
-    onSelect?.(e);
-    onShowRiskBreakdown?.(metricKey);
+    if (e.ctrlKey || e.metaKey) {
+      // Select as a clean single selection (strip modifiers so it doesn't also
+      // toggle the multi-select set), then request the breakdown.
+      onSelect?.({ ctrlKey: false, metaKey: false, shiftKey: false });
+      onShowRiskBreakdown?.(metricKey);
+    } else {
+      onSelect?.(e);
+    }
   };
 
   const cancelEdit = () => {
@@ -471,7 +479,7 @@ const SidebarPointItem = ({
         <span
           className="point-risk-metric point-risk-metric-clickable"
           style={{ color: getPfaColor(risk.pfa), fontWeight: 600 }}
-          title="PFA — click for breakdown"
+          title="PFA — Ctrl+click for breakdown"
           onClick={(e) => handleMetricClick(e, "pfa")}
         >
           {risk.pfa !== undefined ? `${Number(risk.pfa).toFixed(2)}%` : "-"}
@@ -481,7 +489,7 @@ const SidebarPointItem = ({
         <span
           className="point-risk-metric point-risk-metric-clickable"
           style={{ color: getPfrColor(risk.pfr) }}
-          title="PFR — click for breakdown"
+          title="PFR — Ctrl+click for breakdown"
           onClick={(e) => handleMetricClick(e, "pfr")}
         >
           {risk.pfr !== undefined ? `${Number(risk.pfr).toFixed(2)}%` : "-"}
@@ -491,7 +499,7 @@ const SidebarPointItem = ({
         <span
           className="point-risk-metric point-risk-metric-clickable"
           style={{ color: getTurColor(risk.tur), fontWeight: 600 }}
-          title="TUR — click for breakdown"
+          title="TUR — Ctrl+click for breakdown"
           onClick={(e) => handleMetricClick(e, "tur")}
         >
           {risk.tur !== undefined ? `${Number(risk.tur).toFixed(1)}` : "-"}
@@ -501,7 +509,7 @@ const SidebarPointItem = ({
         <span
           className="point-risk-metric point-risk-metric-clickable"
           style={{ color: getTarColor(risk.tar) }}
-          title="TAR — click for breakdown"
+          title="TAR — Ctrl+click for breakdown"
           onClick={(e) => handleMetricClick(e, "tar")}
         >
           {risk.tar !== undefined ? `${Number(risk.tar).toFixed(1)}` : "-"}
@@ -511,7 +519,7 @@ const SidebarPointItem = ({
         <span
           className="point-risk-metric point-risk-metric-clickable"
           style={{ color: getPfaColor(risk.gbPfa), fontWeight: 600 }}
-          title="PFA w/ Guardband — click for breakdown"
+          title="PFA w/ Guardband — Ctrl+click for breakdown"
           onClick={(e) => handleMetricClick(e, "gbpfa")}
         >
           {risk.gbPfa !== undefined ? `${Number(risk.gbPfa).toFixed(2)}%` : "-"}
@@ -521,7 +529,7 @@ const SidebarPointItem = ({
         <span
           className="point-risk-metric point-risk-metric-clickable"
           style={{ color: getPfrColor(risk.gbPfr) }}
-          title="PFR w/ Guardband — click for breakdown"
+          title="PFR w/ Guardband — Ctrl+click for breakdown"
           onClick={(e) => handleMetricClick(e, "gbpfr")}
         >
           {risk.gbPfr !== undefined ? `${Number(risk.gbPfr).toFixed(2)}%` : "-"}
@@ -530,7 +538,7 @@ const SidebarPointItem = ({
       {visibleColumns.gbMult && (
         <span
           className="point-risk-metric point-risk-metric-clickable"
-          title="Guardband Multiplier — click for breakdown"
+          title="Guardband Multiplier — Ctrl+click for breakdown"
           onClick={(e) => handleMetricClick(e, "gbmult")}
         >
           {risk.gbMult !== undefined ? `${Number(risk.gbMult).toFixed(1)}%` : "-"}
@@ -539,7 +547,7 @@ const SidebarPointItem = ({
       {visibleColumns.gbLow && (
         <span
           className="point-metric point-risk-metric-clickable"
-          title="Guardband Low Limit — click for breakdown"
+          title="Guardband Low Limit — Ctrl+click for breakdown"
           onClick={(e) => handleMetricClick(e, "gblow")}
         >
           {risk.gbLow !== undefined ? Number(risk.gbLow).toPrecision(4) : "-"}
@@ -548,7 +556,7 @@ const SidebarPointItem = ({
       {visibleColumns.gbHigh && (
         <span
           className="point-metric point-risk-metric-clickable"
-          title="Guardband High Limit — click for breakdown"
+          title="Guardband High Limit — Ctrl+click for breakdown"
           onClick={(e) => handleMetricClick(e, "gbhigh")}
         >
           {risk.gbHigh !== undefined ? Number(risk.gbHigh).toPrecision(4) : "-"}
@@ -1186,6 +1194,9 @@ function App() {
 
   // --- SELECTION & VIRTUAL STATE ---
   const [selectedAreaId, setSelectedAreaId] = useState(null);
+  // Inline rename of a measurement area from the sidebar.
+  const [editingAreaId, setEditingAreaId] = useState(null);
+  const [editingAreaName, setEditingAreaName] = useState("");
   const [selectedUutId, setSelectedUutId] = useState(null);
   const [selectedRangeContext, setSelectedRangeContext] = useState(null); // { uutId, range }
   const [virtualPoint, setVirtualPoint] = useState(null);
@@ -2616,6 +2627,76 @@ function App() {
     });
   };
 
+  const handleAddArea = () => {
+    if (!currentSessionData) return;
+    // Confirm first so a stray click doesn't immediately spawn an area.
+    setAppNotification({
+      title: "Add Measurement Area",
+      message: "Create a new measurement area? You can rename it right after.",
+      confirmText: "Add Area",
+      isIconConfirm: true,
+      onConfirm: () => {
+        setAppNotification(null);
+        createMeasurementArea();
+      },
+    });
+  };
+
+  const createMeasurementArea = () => {
+    if (!currentSessionData) return;
+    const existing = currentSessionData.measurementAreas || [];
+    const names = new Set(existing.map((a) => (a.name || "").toLowerCase()));
+    let name = "New Area";
+    let n = 2;
+    while (names.has(name.toLowerCase())) name = `New Area ${n++}`;
+    const palette = [
+      "#3498db", "#2ecc71", "#e67e22", "#9b59b6",
+      "#e74c3c", "#1abc9c", "#f1c40f", "#34495e",
+    ];
+    const newArea = {
+      id: uuidv4(),
+      name,
+      color: palette[existing.length % palette.length],
+    };
+    updateSession({
+      ...currentSessionData,
+      measurementAreas: [...existing, newArea],
+    });
+    setExpandedAreas((prev) => new Set(prev).add(newArea.id));
+    handleSelectArea(newArea.id);
+    // Drop straight into inline rename so the default name can be replaced.
+    setEditingAreaId(newArea.id);
+    setEditingAreaName(name);
+  };
+
+  const handleRenameArea = (areaId, rawName) => {
+    setEditingAreaId(null);
+    if (!currentSessionData) return;
+    const name = (rawName || "").trim();
+    const area = (currentSessionData.measurementAreas || []).find(
+      (a) => a.id === areaId,
+    );
+    if (!area || !name || name === area.name) return;
+    const oldName = area.name;
+    // Keep the denormalized `measurementArea` name in sync on every record that
+    // references this area (by id, or by the old name for legacy rows).
+    const syncName = (arr) =>
+      (arr || []).map((x) =>
+        x.measurementAreaId === areaId || x.measurementArea === oldName
+          ? { ...x, measurementArea: name }
+          : x,
+      );
+    updateSession({
+      ...currentSessionData,
+      measurementAreas: currentSessionData.measurementAreas.map((a) =>
+        a.id === areaId ? { ...a, name } : a,
+      ),
+      uuts: syncName(currentSessionData.uuts),
+      tmdes: syncName(currentSessionData.tmdes),
+      testPoints: syncName(currentSessionData.testPoints),
+    });
+  };
+
   const handleDeleteArea = (areaId) => {
     if (!currentSessionData) return;
     const area = (currentSessionData.measurementAreas || []).find(
@@ -3327,6 +3408,16 @@ function App() {
                   <div className="sidebar-actions-group">
                     {/* Eyeball Button Removed - Moved to HeaderToolbox */}
 
+                    {/* Add Measurement Area */}
+                    <button
+                      onClick={handleAddArea}
+                      title="Add Measurement Area"
+                      className="sidebar-action-btn-organic"
+                      disabled={!currentSessionData}
+                    >
+                      <FontAwesomeIcon icon={faLayerGroup} />
+                    </button>
+
                     {/* Expand/Collapse All */}
                     <button
                       onClick={handleToggleExpandAll}
@@ -3484,7 +3575,37 @@ function App() {
                           }}
                           size="sm"
                         />
-                        <span className="area-label">{areaData.name}</span>
+                        {editingAreaId === areaData.id ? (
+                          <input
+                            className="area-label area-label-edit"
+                            autoFocus
+                            value={editingAreaName}
+                            onClick={(e) => e.stopPropagation()}
+                            onChange={(e) => setEditingAreaName(e.target.value)}
+                            onBlur={() =>
+                              handleRenameArea(areaData.id, editingAreaName)
+                            }
+                            onKeyDown={(e) => {
+                              if (e.key === "Enter") {
+                                handleRenameArea(areaData.id, editingAreaName);
+                              } else if (e.key === "Escape") {
+                                setEditingAreaId(null);
+                              }
+                            }}
+                          />
+                        ) : (
+                          <span
+                            className="area-label"
+                            title="Double-click to rename"
+                            onDoubleClick={(e) => {
+                              e.stopPropagation();
+                              setEditingAreaId(areaData.id);
+                              setEditingAreaName(areaData.name);
+                            }}
+                          >
+                            {areaData.name}
+                          </span>
+                        )}
                       </div>
 
                       {isAreaExpanded && (
