@@ -10,7 +10,7 @@
  * 4. Handles instrument (UUT/TMDE) selection and editing logic.
  */
 
-import { useState, useMemo, useCallback } from "react";
+import { useState, useMemo, useCallback, useEffect } from "react";
 import { v4 as uuidv4 } from "uuid";
 
 // --- Custom Hooks ---
@@ -71,6 +71,11 @@ function Analysis({
   instruments,
   setRiskResults: parentSetRiskResults,
 
+  // Sidebar-driven risk breakdown request (a metric key the user clicked in the
+  // measurement-point list). Opened here once this point's riskResults exist.
+  pendingRiskBreakdown,
+  onConsumePendingRiskBreakdown,
+
   // Selections
   currentUutSelection = [],
   setCurrentUutSelection,
@@ -78,6 +83,10 @@ function Analysis({
   setSelectedTablePointIds = () => {},
   activeRangeIndices,
   onRangeSelectionChange,
+  preferredAnalysisMode = "uncertaintyTool",
+  onAnalysisModeChange = () => {},
+  preferredShowContribution = false,
+  onShowContributionChange = () => {},
 
   // --- NEW: Handlers passed from App.jsx to control Global Modal ---
   onEditUut,
@@ -89,8 +98,18 @@ function Analysis({
   // =========================================================================
 
   // --- UI State ---
-  const [analysisMode, setAnalysisMode] = useState("uncertaintyTool"); // 'uncertaintyTool' | 'risk' | 'riskmitigation'
-  const [showContribution, setShowContribution] = useState(false);
+  const analysisMode = preferredAnalysisMode;
+  const showContribution = preferredShowContribution;
+  const setShowContribution = useCallback(
+    (nextValue) => {
+      onShowContributionChange(
+        typeof nextValue === "function"
+          ? nextValue(preferredShowContribution)
+          : nextValue,
+      );
+    },
+    [onShowContributionChange, preferredShowContribution],
+  );
   const [notification, setNotification] = useState(null);
 
   // --- Modal Visibility State ---
@@ -420,11 +439,16 @@ function Analysis({
   };
 
   const handleSaveRepeatability = (data) => {
+    // When opened from a derived subbudget header, manualComponentScope carries
+    // the variable this Type A component belongs to. Convert relative to that
+    // variable's nominal (falling back to the UUT nominal for direct points).
+    const scope = manualComponentScope;
+    const nominalForConv = scope?.nominalPoint || uutNominal;
     const { value: ppm, warning } = convertToPPM(
       data.stdDev,
       data.unit,
-      uutNominal?.value,
-      uutNominal?.unit,
+      nominalForConv?.value,
+      nominalForConv?.unit,
       null,
       true,
     );
@@ -439,10 +463,15 @@ function Analysis({
     const newId = isEditing
       ? editingComponent.id
       : `repeatability_${Date.now()}`;
+    // Route into the right subbudget: explicit scope on add, else preserve the
+    // existing component's variable on edit.
+    const variableType = scope?.variableType ?? editingComponent?.variableType;
     const componentData = {
       id: newId,
       name: "Repeatability",
-      sourcePointLabel: `N=${data.count}, Mean=${data.mean.toPrecision(5)}`,
+      sourcePointLabel: scope?.label
+        ? `${scope.label} • N=${data.count}`
+        : `N=${data.count}, Mean=${data.mean.toPrecision(5)}`,
       type: "A",
       value: ppm,
       value_native: data.stdDev,
@@ -451,6 +480,7 @@ function Analysis({
       distribution: "Normal",
       isCore: false,
       savedInputs: data,
+      ...(variableType ? { variableType } : {}),
     };
 
     const updatedComponents = isEditing
@@ -459,6 +489,7 @@ function Analysis({
 
     onDataSave({ components: updatedComponents });
     setEditingComponent(null);
+    setManualComponentScope(null);
     setRepeatabilityModalOpen(false);
   };
 
@@ -504,6 +535,20 @@ function Analysis({
   const handleCloseRiskBreakdown = (type) => {
     setActiveRiskModals((prev) => prev.filter((t) => t !== type));
   };
+
+  // Open the requested breakdown when a sidebar metric was clicked, but only
+  // once this (now-active) point's riskResults are computed. Then clear the
+  // request so it fires once. Uses a direct add (not the toggle) so re-clicking
+  // the same metric never closes an already-open modal.
+  useEffect(() => {
+    if (!pendingRiskBreakdown || !riskResults) return;
+    setActiveRiskModals((prev) =>
+      prev.includes(pendingRiskBreakdown)
+        ? prev
+        : [...prev, pendingRiskBreakdown],
+    );
+    onConsumePendingRiskBreakdown?.();
+  }, [pendingRiskBreakdown, riskResults, onConsumePendingRiskBreakdown]);
 
   const handleInlineUutUpdate = (field, value) => {
     if (field === "description") {
@@ -593,9 +638,10 @@ function Analysis({
         onClose={() => {
           setRepeatabilityModalOpen(false);
           setEditingComponent(null);
+          setManualComponentScope(null);
         }}
         onSave={handleSaveRepeatability}
-        uutNominal={uutNominal}
+        uutNominal={manualComponentScope?.nominalPoint || uutNominal}
         existingData={editingComponent}
         position={modalPosition}
       />
@@ -696,7 +742,7 @@ function Analysis({
                       // Still allow tab switch or block? Original code allowed it but showed notification.
                     }
                   }
-                  setAnalysisMode(mode);
+                  onAnalysisModeChange(mode);
                 }}
               >
                 {mode === "uncertaintyTool"
@@ -764,9 +810,10 @@ function Analysis({
                     handleBudgetRowContextMenu({ preventDefault: () => {} });
                 }}
                 onShowRiskBreakdown={handleShowRiskBreakdown}
-                onOpenRepeatability={(e) => {
+                onOpenRepeatability={(e, scope = null) => {
                   if (e && e.clientY)
                     setModalPosition({ top: e.clientY, left: e.clientX });
+                  setManualComponentScope(scope);
                   setEditingComponent(null);
                   setRepeatabilityModalOpen(true);
                 }}

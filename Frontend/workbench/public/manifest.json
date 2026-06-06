@@ -1,6 +1,6 @@
 {
-  "short_name": "AC Shunt",
-  "name": "AC Shunt Calibration App",
+  "short_name": "Workbench",
+  "name": "Metrology Workbench",
   "icons": [
     {
       "src": "favicon.ico",

@@ -6,8 +6,7 @@ import {
   faInfoCircle, 
   faExclamationTriangle, 
   faCheck, 
-  faTimes, 
-  faBell 
+  faTimes
 } from "@fortawesome/free-solid-svg-icons";
 
 const NotificationModal = ({ 
@@ -19,116 +18,89 @@ const NotificationModal = ({
   confirmText = "OK",
   isIconConfirm = false
 }) => {
-  
-  // Explicitly calculate initial position to ensure it spawns in a visible, safe area
-  // (e.g., 1/3 down the screen, centered horizontally)
+  const windowWidth = Math.min(420, window.innerWidth - 32);
   const safeInitialPosition = {
-      x: window.innerWidth / 2 - 200, // Center based on 400px width
-      y: Math.max(100, window.innerHeight / 3) // Ensure at least 100px from top
+    x: Math.max(16, (window.innerWidth - windowWidth) / 2),
+    y: Math.max(88, Math.min(window.innerHeight / 3, window.innerHeight - 280)),
   };
 
   const { position, handleMouseDown } = useFloatingWindow({
     isOpen,
-    defaultWidth: 400,
+    defaultWidth: windowWidth,
     defaultHeight: "auto",
-    initialPosition: safeInitialPosition // <--- FIXED: Passed correctly now
+    initialPosition: safeInitialPosition,
   });
 
   if (!isOpen) return null;
 
   // Determine Icon & Color based on Title keywords
   let icon = faInfoCircle;
-  let headerColor = "var(--primary-color)";
+  let tone = "info";
   
   const lowerTitle = title.toLowerCase();
   if (lowerTitle.includes("delete") || lowerTitle.includes("warning") || lowerTitle.includes("error")) {
     icon = faExclamationTriangle;
-    headerColor = "var(--status-bad)";
+    tone = "danger";
   } else if (lowerTitle.includes("success") || lowerTitle.includes("saved")) {
     icon = faCheck;
-    headerColor = "var(--status-good)";
+    tone = "success";
   }
 
   return ReactDOM.createPortal(
     <div
-      className="notification-window floating-window-content"
+      className={`notification-window floating-window-content notification-window--${tone}`}
       style={{
         position: "fixed",
         top: position.y,
         left: position.x,
-        width: "400px",
-        zIndex: 3001, 
-        display: "flex",
-        flexDirection: "column",
-        boxShadow: "0 10px 30px rgba(0,0,0,0.5)"
+        zIndex: 3001,
       }}
+      role="alertdialog"
+      aria-modal="true"
+      aria-labelledby="notification-modal-title"
     >
-      {/* --- Draggable Header --- */}
       <div
         className="window-header"
         onMouseDown={handleMouseDown}
-        style={{
-          padding: "10px 15px",
-          borderBottom: "1px solid var(--border-color)",
-          display: "flex",
-          justifyContent: "space-between",
-          alignItems: "center",
-          cursor: "move",
-          backgroundColor: "var(--background-secondary)",
-          userSelect: "none",
-          borderTop: `3px solid ${headerColor}`
-        }}
       >
-        <h3 style={{ margin: 0, fontSize: "0.95rem", display: "flex", alignItems: "center", gap: "8px", color: "var(--text-color)" }}>
-          <FontAwesomeIcon icon={icon} style={{ color: headerColor }} />
-          {title}
-        </h3>
+        <div className="notification-window-heading">
+          <span className="notification-window-icon">
+            <FontAwesomeIcon icon={icon} />
+          </span>
+          <div>
+            <span className="notification-window-eyebrow">
+              {tone === "danger" ? "Confirmation required" : "Notification"}
+            </span>
+            <h3 id="notification-modal-title">{title}</h3>
+          </div>
+        </div>
         <button
           onClick={onClose}
           className="modal-close-button"
-          style={{ position: "static", fontSize: "1.1rem" }}
           title="Close"
+          aria-label="Close"
         >
-          &times;
+          <FontAwesomeIcon icon={faTimes} />
         </button>
       </div>
 
-      {/* --- Body --- */}
-      <div className="window-body" style={{ padding: "20px" }}>
-        <p style={{ 
-            marginTop: 0, 
-            marginBottom: "20px", 
-            lineHeight: "1.5", 
-            color: "var(--text-color)",
-            fontSize: "0.95rem"
-        }}>
-          {message}
-        </p>
+      <div className="window-body">
+        <p>{message}</p>
 
-        {/* --- Actions --- */}
-        <div style={{ display: "flex", justifyContent: "flex-end", gap: "10px" }}>
+        <div className="notification-window-actions">
           {onConfirm && (
             <button
-              className="button"
+              className={`notification-window-confirm notification-window-confirm--${tone}`}
               onClick={onConfirm}
-              style={{
-                backgroundColor: headerColor === "var(--status-bad)" ? "var(--status-bad)" : "var(--primary-color)",
-                borderColor: headerColor === "var(--status-bad)" ? "var(--status-bad)" : "var(--primary-color)",
-                minWidth: isIconConfirm ? "auto" : "100px",
-                display: 'flex',
-                alignItems: 'center',
-                justifyContent: 'center',
-                gap: '8px'
-              }}
             >
-               {confirmText} 
-               {isIconConfirm && <FontAwesomeIcon icon={faCheck} />}
+              {confirmText}
+              {isIconConfirm && <FontAwesomeIcon icon={faCheck} />}
             </button>
           )}
           
           {!onConfirm && (
-            <button className="button button-secondary" onClick={onClose}>
-                Close
+            <button className="notification-window-confirm" onClick={onClose}>
+              Close
             </button>
           )}
         </div>

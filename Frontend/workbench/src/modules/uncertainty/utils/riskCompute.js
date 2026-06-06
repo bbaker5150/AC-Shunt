@@ -28,6 +28,13 @@ import {
   calcTUR,
   PFAMgr,
   PFRMgr,
+  resDwn,
+  resUp,
+  gbLowMgr,
+  gbUpMgr,
+  GBMultMgr,
+  PFAwGBMgr,
+  PFRwGBMgr,
 } from "./uncertaintyMath";
 import {
   getBudgetComponentsFromTolerance,
@@ -56,6 +63,7 @@ function computeUncertaintyForPoint(point, sessionData) {
   let combinedUncertaintyPPM = NaN;
   let combinedUncertaintyAbsoluteBase = NaN;
   let effectiveDof = Infinity;
+  let calculatedNominalValue;
   const componentsForBudgetTable = [];
 
   try {
@@ -99,6 +107,7 @@ function computeUncertaintyForPoint(point, sessionData) {
       const { combinedUncertaintyNative, breakdown: derivedBreakdown } =
         derivedCalculationResult;
       if (isNaN(combinedUncertaintyNative)) return null;
+      calculatedNominalValue = derivedCalculationResult.nominalResult;
 
       // Unified SIGNED contributions in base SI (equation inputs + non-mapped
       // manual components), combined with the optional correlation matrix. Must
@@ -217,16 +226,20 @@ function computeUncertaintyForPoint(point, sessionData) {
       point.coverageFactorMode === "manual"
         ? parseFloat(point.coverageFactorOverride)
         : null;
+    // Risk uses the final budget's coverage factor → the "final" group's flag.
+    const applyEffectiveDof =
+      (point.useEffectiveDofByGroup || {}).final !== false;
     const kValue =
       Number.isFinite(manualCoverageFactor) && manualCoverageFactor > 0
         ? manualCoverageFactor
-        : effectiveDof === Infinity || isNaN(effectiveDof)
+        : !applyEffectiveDof || effectiveDof === Infinity || isNaN(effectiveDof)
         ? normalQuantile(probability)
-        : getKValueFromTDistribution(effectiveDof);
+        : getKValueFromTDistribution(effectiveDof, probability);
 
     return {
       combined_uncertainty_absolute_base: combinedUncertaintyAbsoluteBase,
       expanded_uncertainty_absolute_base: kValue * combinedUncertaintyAbsoluteBase,
+      calculated_nominal_value: calculatedNominalValue,
       k_value: kValue,
     };
   } catch {
@@ -236,7 +249,7 @@ function computeUncertaintyForPoint(point, sessionData) {
 
 // --- Pure risk (mirrors useRiskCalculation limit derivation + core metrics) ---
 // Returns { pfa, pfr, tur, tar } (pfa/pfr as percentages) or null.
-export function computePointRiskMetrics(point, sessionData) {
+export function computePointRiskMetrics(point, sessionData, includeGuardband = false) {
   if (!point || !sessionData) return null;
   const uutNominal = point.testPointInfo?.parameter;
   if (!uutNominal || !isFilledNumber(uutNominal.value) || !uutNominal.unit) {
@@ -297,6 +310,8 @@ export function computePointRiskMetrics(point, sessionData) {
     calcResults.combined_uncertainty_absolute_base / targetUnitInfo.to_si;
   const U_Native =
     calcResults.expanded_uncertainty_absolute_base / targetUnitInfo.to_si;
+  const calculatedAverage = parseFloat(calcResults.calculated_nominal_value);
+  const riskAverage = Number.isFinite(calculatedAverage) ? calculatedAverage : 0;
 
   // TMDE tolerance span (for TAR), mirroring useRiskCalculation.
   let tmdeToleranceHigh_Native = 0;
@@ -356,16 +371,22 @@ export function computePointRiskMetrics(point, sessionData) {
 
   const tarResult = calcTAR(
     uutNominal.value,
-    0,
+    riskAverage,
     LLow,
     LUp,
     nominalValue + tmdeToleranceLow_Native,
     nominalValue + tmdeToleranceHigh_Native,
   );
-  const turResult = calcTUR(uutNominal.value, 0, LLow, LUp, U_Native);
+  const turResult = calcTUR(
+    uutNominal.value,
+    riskAverage,
+    LLow,
+    LUp,
+    U_Native,
+  );
   const pfaArr = PFAMgr(
     uutNominal.value,
-    0,
+    riskAverage,
     LLow,
     LUp,
     uCal_Native,
@@ -375,7 +396,7 @@ export function computePointRiskMetrics(point, sessionData) {
   );
   const pfrArr = PFRMgr(
     uutNominal.value,
-    0,
+    riskAverage,
     LLow,
     LUp,
     uCal_Native,
@@ -394,20 +415,109 @@ export function computePointRiskMetrics(point, sessionData) {
   const tur = toNum(turResult);
   const tar = toNum(tarResult);
 
+  // --- Guardband (mirrors useRiskCalculation lines ~315-399) ---
+  // Iterative/convergent, so only computed when requested by the caller to keep
+  // the sidebar map cheap. Returns the guardbanded limits, multiplier, and the
+  // post-guardband PFA/PFR.
+  let guardband;
+  if (includeGuardband) {
+    const pfaRequired = parseFloat(sessionData.uncReq?.reqPFA) / 100;
+    if (!isNaN(pfaRequired) && pfaRequired > 0) {
+      // Measurement resolution converted into the nominal unit's grid (the unit
+      // the limits live in) so the guard-band rounding matches the workbook.
+      const resRaw = parseFloat(uutToleranceData?.measuringResolution);
+      let safeRes = 0;
+      if (!isNaN(resRaw)) {
+        const resUnit =
+          uutToleranceData?.measuringResolutionUnit || nominalUnit;
+        const resUnitInfo = unitSystem.units[resUnit];
+        safeRes =
+          resUnitInfo && !isNaN(resUnitInfo.to_si) && targetUnitInfo.to_si
+            ? (resRaw * resUnitInfo.to_si) / targetUnitInfo.to_si
+            : resRaw;
+      }
+
+      try {
+        const lowMgr = gbLowMgr(
+          pfaRequired,
+          uutNominal.value,
+          riskAverage,
+          LLow,
+          LUp,
+          uCal_Native,
+          reliability,
+        );
+        const upMgr = gbUpMgr(
+          pfaRequired,
+          uutNominal.value,
+          riskAverage,
+          LLow,
+          LUp,
+          uCal_Native,
+          reliability,
+        );
+        const gbLow = resDwn(lowMgr[0], safeRes);
+        const gbHigh = resUp(upMgr[0], safeRes);
+        const gbMult = GBMultMgr(
+          pfaRequired,
+          uutNominal.value,
+          riskAverage,
+          LLow,
+          LUp,
+          gbLow,
+          gbHigh,
+        );
+        const gbPfaArr = PFAwGBMgr(
+          uutNominal.value,
+          riskAverage,
+          LLow,
+          LUp,
+          uCal_Native,
+          reliability,
+          gbLow,
+          gbHigh,
+        );
+        const gbPfrArr = PFRwGBMgr(
+          uutNominal.value,
+          riskAverage,
+          LLow,
+          LUp,
+          uCal_Native,
+          reliability,
+          gbLow,
+          gbHigh,
+        );
+        const gbPfa = toNum(gbPfaArr?.[0]);
+        const gbPfr = toNum(gbPfrArr?.[0]);
+        const gbMultNum = toNum(gbMult);
+        guardband = {
+          gbLow: toNum(gbLow),
+          gbHigh: toNum(gbHigh),
+          gbMult: gbMultNum !== undefined ? gbMultNum * 100 : undefined,
+          gbPfa: gbPfa !== undefined ? gbPfa * 100 : undefined,
+          gbPfr: gbPfr !== undefined ? gbPfr * 100 : undefined,
+        };
+      } catch {
+        guardband = undefined;
+      }
+    }
+  }
+
   return {
     pfa: pfa !== undefined ? pfa * 100 : undefined,
     pfr: pfr !== undefined ? pfr * 100 : undefined,
     tur,
     tar,
+    ...(guardband || {}),
   };
 }
 
 // Build a { pointId -> metrics } map for a list of points. Used by App.jsx with
 // useMemo so the whole sidebar reflects the latest inputs in one pass.
-export function computeRiskMetricsMap(points, sessionData) {
+export function computeRiskMetricsMap(points, sessionData, includeGuardband = false) {
   const map = {};
   (points || []).forEach((p) => {
-    map[p.id] = computePointRiskMetrics(p, sessionData);
+    map[p.id] = computePointRiskMetrics(p, sessionData, includeGuardband);
   });
   return map;
 }

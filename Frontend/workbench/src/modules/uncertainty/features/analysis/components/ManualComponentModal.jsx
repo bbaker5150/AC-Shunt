@@ -147,13 +147,16 @@ const ManualComponentModal = ({
   const handleSubmit = () => {
     const usesStandardUncertainty =
       component.type === "A" || component.inputMode === "standard";
-    const dof = component.useFiniteDof ? parseFloat(component.dof) : Infinity;
+    // Degrees of freedom only apply to Type A uncertainties. Type B bounds are
+    // treated as fully reliable (ν = ∞) and drop out of Welch–Satterthwaite.
+    const isTypeA = component.type === "A";
+    const dof = isTypeA && component.useFiniteDof ? parseFloat(component.dof) : Infinity;
 
     if (!component.name?.trim()) {
       setError("Component Name is required.");
       return;
     }
-    if (component.useFiniteDof && (isNaN(dof) || dof < 1)) {
+    if (isTypeA && component.useFiniteDof && (isNaN(dof) || dof < 1)) {
       setError("Finite DoF must be a number greater than or equal to 1.");
       return;
     }
@@ -428,29 +431,38 @@ const ManualComponentModal = ({
             </>
           )}
 
-          <div className="config-column manual-dof-column">
-            <label>Degrees of Freedom</label>
-            <label className="manual-dof-toggle">
-              <input
-                type="checkbox"
-                name="useFiniteDof"
-                checked={!!component.useFiniteDof}
-                onChange={handleChange}
-              />
-              <span>Use finite DoF</span>
-            </label>
-            {component.useFiniteDof && (
-              <input
-                type="number"
-                step="1"
-                min="1"
-                name="dof"
-                value={component.dof}
-                onChange={handleChange}
-                placeholder="e.g., 9"
-              />
-            )}
-          </div>
+          {component.type === "A" ? (
+            <div className="config-column manual-dof-column">
+              <label>Degrees of Freedom</label>
+              <label className="manual-dof-toggle">
+                <input
+                  type="checkbox"
+                  name="useFiniteDof"
+                  checked={!!component.useFiniteDof}
+                  onChange={handleChange}
+                />
+                <span>Use finite DoF</span>
+              </label>
+              {component.useFiniteDof && (
+                <input
+                  type="number"
+                  step="1"
+                  min="1"
+                  name="dof"
+                  value={component.dof}
+                  onChange={handleChange}
+                  placeholder="e.g., 9"
+                />
+              )}
+            </div>
+          ) : (
+            <div className="config-column manual-dof-column">
+              <label>Degrees of Freedom</label>
+              <span style={{ color: "var(--text-color-muted)", fontSize: "0.85rem" }}>
+                Type B treated as infinite (ν = ∞)
+              </span>
+            </div>
+          )}
         </div>
 
         <div className="modal-actions" style={{ marginTop: "20px" }}>

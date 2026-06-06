@@ -17,7 +17,8 @@ const calculateBudgetResults = (
   components,
   confidencePercent,
   valueSelector = (component) => component.value,
-  coverageFactorOverride = null
+  coverageFactorOverride = null,
+  applyEffectiveDof = true
 ) => {
   const validComponents = (components || [])
     .map((component) => ({
@@ -49,9 +50,9 @@ const calculateBudgetResults = (
   const kValue =
     Number.isFinite(override) && override > 0
       ? override
-      : effectiveDof === Infinity || isNaN(effectiveDof)
+      : !applyEffectiveDof || effectiveDof === Infinity || isNaN(effectiveDof)
       ? normalQuantile(probability)
-      : getKValueFromTDistribution(effectiveDof);
+      : getKValueFromTDistribution(effectiveDof, probability);
 
   return {
     combined,
@@ -182,13 +183,21 @@ export const useUncertaintyCalculation = (
 
       const confidencePercent =
         parseFloat(sessionData.uncReq.uncertaintyConfidence) || 95;
+      // One-sided upper probability for a two-sided coverage interval. Drives
+      // both the normal quantile (ν = ∞) and the Student-t quantile (finite ν).
+      const probability = 1 - (1 - confidencePercent / 100) / 2;
+      // Effective DOF is toggled independently per (sub)budget. The flag map is
+      // keyed by a stable group key: the variableType for input subbudgets,
+      // "equation" for the measurement-equation budget, and "final" for the
+      // final budget (also used by direct measurements, which have only it).
+      // Default ON — a no-op for pure Type-B budgets (ν_eff = ∞ ⇒ k = z).
+      const dofGroupFlags = testPointData.useEffectiveDofByGroup || {};
+      const applyDofForGroup = (key) => dofGroupFlags[key] !== false;
       const manualCoverageFactor =
         testPointData.coverageFactorMode === "manual"
           ? parseFloat(testPointData.coverageFactorOverride)
           : null;
-      const normalCoverageFactor = normalQuantile(
-        1 - (1 - confidencePercent / 100) / 2
-      );
+      const normalCoverageFactor = normalQuantile(probability);
 
       if (testPointData.measurementType === "derived") {
         
@@ -279,11 +288,19 @@ export const useUncertaintyCalculation = (
           Object.values(testPointData.variableMappings || {}).filter(Boolean)
         );
         const signedContribsBase = [];
+        // Just the measurement-equation inputs (no manual / UUT-resolution
+        // components), so the equation budget's combined uncertainty can be
+        // combined with the SAME correlation matrix the final budget uses.
+        const equationSignedContribsBase = [];
 
         const inputBudgetGroups = [];
 
         derivedBreakdown.forEach((item, index) => {
             signedContribsBase.push({
+                id: item.componentId,
+                contribution: item.contribution_base_signed,
+            });
+            equationSignedContribsBase.push({
                 id: item.componentId,
                 contribution: item.contribution_base_signed,
             });
@@ -343,7 +360,8 @@ export const useUncertaintyCalculation = (
                     component.value_native !== undefined
                         ? component.value_native
                         : component.value,
-                manualCoverageFactor
+                manualCoverageFactor,
+                applyDofForGroup(item.type)
             );
             inputBudgetGroups.push({
                 id: `input_${item.variable}_${index}`,
@@ -445,6 +463,29 @@ export const useUncertaintyCalculation = (
           inputCorrelations
         );
 
+        // The measurement-equation uncertainty IS the correlated combination of
+        // its input contributions. Previously it reported the plain RSS while
+        // the final budget (and therefore the risk metrics) used the correlated
+        // value — so adding a correlation moved the risk numbers without any
+        // visible change in the equation table. Recompute it here with the same
+        // matrix (an empty map reduces to the prior RSS, so uncorrelated budgets
+        // are unaffected) and keep the RSS around to surface the delta.
+        const uncorrelatedEquationInputsBase = derivedUcInputs_Base;
+        const correlatedEquationInputsBase = combineWithCorrelation(
+          equationSignedContribsBase,
+          inputCorrelations
+        );
+        derivedUcInputs_Base = correlatedEquationInputsBase;
+        derivedUcInputs_Native = correlatedEquationInputsBase / targetUnitInfo.to_si;
+        const correlationAffectsEquation =
+          Number.isFinite(uncorrelatedEquationInputsBase) &&
+          uncorrelatedEquationInputsBase > 0 &&
+          Math.abs(
+            correlatedEquationInputsBase - uncorrelatedEquationInputsBase
+          ) /
+            uncorrelatedEquationInputsBase >
+            1e-9;
+
         const equationRows = componentsForBudgetTable
           .filter((component) => component.name.startsWith("Input:"))
           .map((component) => ({
@@ -493,9 +534,9 @@ export const useUncertaintyCalculation = (
         const equationK =
           Number.isFinite(manualCoverageFactor) && manualCoverageFactor > 0
             ? manualCoverageFactor
-            : effectiveDof === Infinity || isNaN(effectiveDof)
+            : !applyDofForGroup("equation") || effectiveDof === Infinity || isNaN(effectiveDof)
             ? normalCoverageFactor
-            : getKValueFromTDistribution(effectiveDof);
+            : getKValueFromTDistribution(effectiveDof, probability);
 
         const finalBudgetComponents = [
           {
@@ -535,9 +576,9 @@ export const useUncertaintyCalculation = (
         const finalK =
           Number.isFinite(manualCoverageFactor) && manualCoverageFactor > 0
             ? manualCoverageFactor
-            : finalEffectiveDof === Infinity || isNaN(finalEffectiveDof)
+            : !applyDofForGroup("final") || finalEffectiveDof === Infinity || isNaN(finalEffectiveDof)
             ? normalCoverageFactor
-            : getKValueFromTDistribution(finalEffectiveDof);
+            : getKValueFromTDistribution(finalEffectiveDof, probability);
         effectiveDof = finalEffectiveDof;
         calculatedBudgetGroups = [
           ...inputBudgetGroups,
@@ -547,6 +588,11 @@ export const useUncertaintyCalculation = (
             label: "Measurement Equation Uncertainty",
             unit: derivedNominalUnit,
             rows: equationRows,
+            // Surface the correlation effect: whether the combined value below
+            // includes off-diagonal terms, and the plain RSS for comparison.
+            correlationApplied: correlationAffectsEquation,
+            uncorrelatedCombined:
+              uncorrelatedEquationInputsBase / targetUnitInfo.to_si,
             results: {
               combined: derivedUcInputs_Native,
               effective_dof: effectiveDof,
@@ -688,13 +734,12 @@ export const useUncertaintyCalculation = (
         return;
       }
 
-      const probability = 1 - (1 - confidencePercent / 100) / 2;
       const kValue =
         Number.isFinite(manualCoverageFactor) && manualCoverageFactor > 0
           ? manualCoverageFactor
-          : effectiveDof === Infinity || isNaN(effectiveDof)
+          : !applyDofForGroup("final") || effectiveDof === Infinity || isNaN(effectiveDof)
           ? normalQuantile(probability)
-          : getKValueFromTDistribution(effectiveDof);
+          : getKValueFromTDistribution(effectiveDof, probability);
 
       const expandedUncertaintyPPM = !isNaN(combinedUncertaintyPPM)
         ? kValue * combinedUncertaintyPPM
@@ -809,6 +854,7 @@ export const useUncertaintyCalculation = (
     sessionData.uncReq.uncertaintyConfidence,
     testPointData.coverageFactorMode,
     testPointData.coverageFactorOverride,
+    testPointData.useEffectiveDofByGroup,
     onDataSave,
     testPointData.is_detailed_uncertainty_calculated,
     testPointData.expanded_uncertainty,

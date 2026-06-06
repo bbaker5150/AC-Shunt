@@ -8,13 +8,13 @@ import React, {
   useRef,
   useCallback,
 } from "react";
+import ReactDOM from "react-dom";
 import Select from "react-select";
 import * as math from "mathjs";
 import { FontAwesomeIcon } from "@fortawesome/react-fontawesome";
 import {
   faPlus,
   faTrashAlt,
-  faTimes,
   faExclamationTriangle,
   faCheckCircle,
   faTimesCircle,
@@ -68,16 +68,39 @@ const customUnitSelectStyles = {
   }),
 };
 
-const symbolCategories = [
-  {
-    name: "Operators",
-    symbols: ["+", "-", "*", "/", "(", ")", "^", "sqrt"],
-  },
-  {
-    name: "Greek",
-    symbols: ["alpha", "beta", "delta", "theta", "sigma", "pi"],
-  },
-];
+const symbolCategories = {
+  Operators: [
+    { symbol: "+", title: "Add" },
+    { symbol: "-", title: "Subtract" },
+    { symbol: "*", title: "Multiply" },
+    { symbol: "/", title: "Divide" },
+    { symbol: "^", title: "Power" },
+    { symbol: "()", title: "Parentheses" },
+    { symbol: "%", title: "Percent" },
+  ],
+  Functions: [
+    { symbol: "sqrt()", title: "Square Root" },
+    { symbol: "abs()", title: "Absolute Value" },
+    { symbol: "log()", title: "Log base 10" },
+    { symbol: "ln()", title: "Natural Log" },
+    { symbol: "exp()", title: "Exponential" },
+    { symbol: "mod()", title: "Modulus" },
+  ],
+  Trigonometry: [
+    { symbol: "sin()", title: "Sine" },
+    { symbol: "cos()", title: "Cosine" },
+    { symbol: "tan()", title: "Tangent" },
+    { symbol: "asin()", title: "Arcsine" },
+    { symbol: "acos()", title: "Arccosine" },
+    { symbol: "atan()", title: "Arctangent" },
+  ],
+  Constants: [
+    { symbol: "pi", title: "Pi" },
+    { symbol: "e", title: "Euler constant" },
+    { symbol: "i", title: "Imaginary unit" },
+    { symbol: "Infinity", title: "Infinity" },
+  ],
+};
 
 // Sub-components
 import UncertaintyBudgetTable from "./UncertaintyBudgetTable";
@@ -95,17 +118,14 @@ import {
 } from "../../../utils/uncertaintyMath";
 import { oldErrorDistributions } from "../utils/budgetUtils";
 
-// Small inline button used by the equation "f(x)" symbol popout. This was
-// previously referenced but never defined, which threw once the popout
-// rendered. `symbol` here is a plain string (see symbolCategories above).
 const SymbolButton = ({ symbol, title, onSymbolClick }) => (
   <button
     type="button"
-    className="symbol-button"
+    className="add-point-symbol-button"
     title={title || `Insert ${symbol}`}
     onClick={() => onSymbolClick(symbol)}
   >
-    {symbol}
+    {symbol.replace("()", "( )")}
   </button>
 );
 
@@ -1536,6 +1556,10 @@ function DetailedView({
   onDeleteTmdeDefinition,
 }) {
   const [isSymbolMenuOpen, setIsSymbolMenuOpen] = useState(false);
+  const [symbolMenuPosition, setSymbolMenuPosition] = useState({
+    top: 0,
+    left: 0,
+  });
   const [tmdeRangeIndices, setTmdeRangeIndices] = useState({});
 
   // --- NEW: Local Selection State ---
@@ -1652,9 +1676,63 @@ function DetailedView({
   }, []);
 
   const activeMeasurementAreaId = testPointData.measurementAreaId;
+  const activeMeasurementArea = sessionData.measurementAreas?.find(
+    (area) => area.id === activeMeasurementAreaId,
+  );
 
-  // We read directly from sessionData to ensure we catch mutations/updates from the modal
-  const relevantUuts = sessionData.uuts || [];
+  // Keep the instrument inventory stable while moving between points. A point
+  // only highlights its linked UUT; it does not hide the area's other choices.
+  const relevantUuts = useMemo(() => {
+    const allUuts = sessionData.uuts || [];
+    if (!activeMeasurementAreaId) return allUuts;
+    return allUuts.filter(
+      (uut) =>
+        uut.measurementAreaId === activeMeasurementAreaId ||
+        (!uut.measurementAreaId &&
+          activeMeasurementArea?.name &&
+          uut.measurementArea === activeMeasurementArea.name),
+    );
+  }, [sessionData.uuts, activeMeasurementAreaId, activeMeasurementArea?.name]);
+
+  const relevantTmdes = useMemo(() => {
+    const allTmdes = sessionData.tmdes || [];
+    if (!activeMeasurementAreaId) return allTmdes;
+    return allTmdes.filter((tmde) => {
+      if (tmde.measurementAreaId) {
+        return tmde.measurementAreaId === activeMeasurementAreaId;
+      }
+      if (
+        activeMeasurementArea?.name &&
+        tmde.measurementArea === activeMeasurementArea.name
+      ) {
+        return true;
+      }
+
+      // Legacy TMDEs predate explicit area ownership. Infer their scope from
+      // the points that already use them; truly unused legacy entries remain
+      // available so they can be assigned and scoped without data migration.
+      const inferredAreaIds = new Set(
+        (sessionData.testPoints || [])
+          .filter((point) =>
+            (point.tmdeTolerances || []).some(
+              (instance) =>
+                instance.id === tmde.id || instance.sourceId === tmde.id,
+            ),
+          )
+          .map((point) => point.measurementAreaId)
+          .filter(Boolean),
+      );
+      return (
+        inferredAreaIds.size === 0 ||
+        inferredAreaIds.has(activeMeasurementAreaId)
+      );
+    });
+  }, [
+    sessionData.tmdes,
+    sessionData.testPoints,
+    activeMeasurementAreaId,
+    activeMeasurementArea?.name,
+  ]);
 
   const associatedUutIds = testPointData.associatedUutIds || [];
   const isDerived = testPointData.measurementType === "derived";
@@ -1763,10 +1841,22 @@ function DetailedView({
     }
   };
 
+  const handleSymbolMenuToggle = () => {
+    const rect = symbolButtonRef.current?.getBoundingClientRect();
+    if (rect) {
+      setSymbolMenuPosition({
+        top: rect.bottom + 6,
+        left: Math.max(12, rect.right - 360),
+      });
+    }
+    setIsSymbolMenuOpen((open) => !open);
+  };
+
   const handleSymbolClick = (symbol) => {
     const input = equationInputRef.current;
     if (!input) return;
 
+    input.focus();
     const start = input.selectionStart;
     const end = input.selectionEnd;
     const currentValue = input.value;
@@ -1784,8 +1874,9 @@ function DetailedView({
         currentValue.substring(0, start) +
         textToInsert +
         currentValue.substring(end);
-      newCursorPos =
-        start + (selectedText ? textToInsert.length + 1 : funcName.length + 1);
+      newCursorPos = selectedText
+        ? start + textToInsert.length
+        : start + funcName.length + 1;
     } else {
       newValue =
         currentValue.substring(0, start) + symbol + currentValue.substring(end);
@@ -1801,6 +1892,33 @@ function DetailedView({
       }
     }, 0);
   };
+
+  const symbolMenu = isSymbolMenuOpen
+    ? ReactDOM.createPortal(
+        <div
+          className="add-point-symbol-popover"
+          ref={symbolMenuRef}
+          style={{ top: symbolMenuPosition.top, left: symbolMenuPosition.left }}
+        >
+          {Object.entries(symbolCategories).map(([category, symbols]) => (
+            <div key={category} className="add-point-symbol-category">
+              <h5>{category}</h5>
+              <div className="add-point-symbol-grid">
+                {symbols.map((item) => (
+                  <SymbolButton
+                    key={item.symbol}
+                    symbol={item.symbol}
+                    title={item.title}
+                    onSymbolClick={handleSymbolClick}
+                  />
+                ))}
+              </div>
+            </div>
+          ))}
+        </div>,
+        document.body,
+      )
+    : null;
 
   const handleVariableMappingChange = (symbol, newName) => {
     const cleanedName = newName ? newName.trim() : "";
@@ -1850,6 +1968,24 @@ function DetailedView({
   };
 
   const handleComponentUpdate = (id, updates, component) => {
+    // Distribution change on the UUT's own resolution row. This component is
+    // synthesized from the UUT tolerance (it has no sourceTmdeId and isn't a
+    // manual or TMDE component), so without this branch the change fell through
+    // and the dropdown appeared frozen. Route the divisor back to the UUT
+    // tolerance's resolution distribution so the budget + risk recompute.
+    if (
+      updates.distribution !== undefined &&
+      (component?.componentId === "UUT Resolution" || id === "uut_resolution")
+    ) {
+      onUpdateTestPoint({
+        uutTolerance: {
+          ...uutToleranceData,
+          measuringResolutionDistribution: updates.distribution,
+        },
+      });
+      return;
+    }
+
     // Distribution change on a TMDE-derived accuracy row: route the divisor
     // back to the originating TMDE instance so the budget + risk recompute (#6).
     if (updates.distribution !== undefined && component?.sourceTmdeId) {
@@ -1933,55 +2069,75 @@ function DetailedView({
     }
   };
 
-  const handleAssignTmdeToVariable = (symbol, tmdeIdStr) => {
-    const varName = testPointData.variableMappings?.[symbol] || "";
-    if (!varName) return;
-
-    // The "Assigned Source" dropdown is a picker: it chooses which TMDE backs a
-    // variable. It must NOT spawn a new table instance on every selection.
-    // We always start from a copy where any prior holder of this variable is
-    // cleared, then either re-tag an existing instance or add the target once.
-    let nextTolerances = tmdeTolerancesData.map((t) =>
-      t.variableType === varName ? { ...t, variableType: "" } : t,
+  const handleAssignTmdeToInput = (masterTmde, variableType) => {
+    const existing = tmdeTolerancesData.find(
+      (tmde) =>
+        tmde.id === masterTmde.id || tmde.sourceId === masterTmde.id,
     );
 
-    // Clearing the source ("-- No Source --").
-    if (!tmdeIdStr) {
-      onUpdateTestPoint({ tmdeTolerances: nextTolerances });
+    if (!variableType) {
+      onUpdateTestPoint({
+        tmdeTolerances: tmdeTolerancesData.filter(
+          (tmde) =>
+            tmde.id !== masterTmde.id && tmde.sourceId !== masterTmde.id,
+        ),
+      });
       return;
     }
 
-    const targetTmde =
-      sessionData.tmdes?.find((t) => t.id == tmdeIdStr) ||
-      tmdeTolerancesData.find((t) => t.id == tmdeIdStr);
-    if (!targetTmde) return;
-    const realTmdeId = targetTmde.id;
-
-    // Is this TMDE already present in the budget (by id or sourceId)? If so,
-    // just tag it with the variable rather than appending a duplicate.
-    const existing = nextTolerances.find(
-      (t) => t.id === realTmdeId || t.sourceId === realTmdeId,
-    );
-
     if (existing) {
-      nextTolerances = nextTolerances.map((t) =>
-        t.id === existing.id ? { ...t, variableType: varName } : t,
-      );
-    } else {
-      nextTolerances = [
-        ...nextTolerances,
-        {
-          ...targetTmde,
-          variableType: varName,
-          quantity: 1,
-          measurementPoint: targetTmde.measurementPoint || {
-            value: "",
-            unit: "",
-          },
-        },
-      ];
+      onUpdateTestPoint({
+        tmdeTolerances: tmdeTolerancesData.map((tmde) =>
+          tmde.id === existing.id ? { ...tmde, variableType } : tmde,
+        ),
+      });
+      return;
     }
 
+    const resolution = resolveUutRangeHelper(
+      masterTmde,
+      tmdeRangeIndices,
+      null,
+      null,
+    );
+    const activeRange = resolution.activeRange || {};
+    const rangeSpecs = { ...activeRange };
+    delete rangeSpecs.id;
+    const defaultUnit =
+      activeRange.unit ||
+      masterTmde.instrument?.functions?.[0]?.unit ||
+      "";
+
+    onUpdateTestPoint({
+      tmdeTolerances: [
+        ...tmdeTolerancesData,
+        {
+          ...masterTmde,
+          ...rangeSpecs,
+          id: masterTmde.id,
+          sourceId: masterTmde.id,
+          variableType,
+          quantity: 1,
+          measurementPoint: masterTmde.measurementPoint || {
+            value: "",
+            unit: defaultUnit,
+          },
+        },
+      ],
+    });
+  };
+
+  const handleVariableNominalUpdate = (variableType, field, value) => {
+    const nextTolerances = tmdeTolerancesData.map((tmde) => {
+      if (tmde.variableType !== variableType) return tmde;
+      return {
+        ...tmde,
+        measurementPoint: {
+          ...(tmde.measurementPoint || { value: "", unit: "" }),
+          [field]: value,
+        },
+      };
+    });
     onUpdateTestPoint({ tmdeTolerances: nextTolerances });
   };
 
@@ -2046,22 +2202,21 @@ function DetailedView({
       .sort()
       .map((symbol) => {
         const name = currentMappings[symbol];
-        const assignedTmde = tmdeTolerancesData.find(
+        const assignedTmdes = tmdeTolerancesData.filter(
           (t) =>
             t.variableType &&
             name &&
             String(t.variableType).trim() === String(name).trim(),
         );
+        const assignedTmde = assignedTmdes[0];
 
         return {
           symbol,
           name,
-          isAssigned: !!assignedTmde,
+          isAssigned: assignedTmdes.length > 0,
+          assignedTmdes,
           value: assignedTmde?.measurementPoint?.value,
           unit: assignedTmde?.measurementPoint?.unit,
-          // --- FIX: Add fallback for name to prevent crash ---
-          instrumentName: assignedTmde?.name || "Unknown Device",
-          tmdeId: assignedTmde?.id,
         };
       });
 
@@ -2160,18 +2315,11 @@ function DetailedView({
     return result.display;
   }, [activeResolvedTolerance, uutNominal]);
 
-  const calculatedLimits = useMemo(() => {
-    const result = calculateToleranceMetrics(
-      activeResolvedTolerance,
-      uutNominal,
-    );
-    return result.limits;
-  }, [activeResolvedTolerance, uutNominal]);
-
   return (
     <div className="configuration-panel">
-      {/* 1. UUT INFORMATION (Now stacked at the top) */}
-      <div className="panel-card">
+      <div className="uut-measurement-grid">
+        {/* 1. UUT INFORMATION */}
+        <div className="panel-card uut-detail-card">
         <div className="panel-card-header">
           <div className="panel-card-title">
             <FontAwesomeIcon icon={faMicroscope} />
@@ -2236,7 +2384,7 @@ function DetailedView({
                   return (
                     <React.Fragment key={uut.id}>
                       <tr
-                        className={`${isSelected ? "selected-row" : ""} ${hoveredRowId === uut.id ? "row-hovered" : ""}`}
+                        className={`${isLinked ? "linked-row" : ""} ${isSelected ? "selected-row" : ""} ${hoveredRowId === uut.id ? "row-hovered" : ""}`}
                         onMouseEnter={() => setHoveredRowId(uut.id)}
                         style={{
                           borderLeft:
@@ -2356,10 +2504,10 @@ function DetailedView({
             </tbody>
           </table>
         </div>
-      </div>
+        </div>
 
-      {/* 2. MEASUREMENT POINT TABLE (Now stacked below UUT) */}
-      <div className="panel-card">
+        {/* 2. MEASUREMENT POINT TABLE */}
+        <div className="panel-card measurement-point-card">
         <div className="panel-card-header">
           <div className="panel-card-title">
             <FontAwesomeIcon icon={faRulerCombined} />
@@ -2383,13 +2531,11 @@ function DetailedView({
             style={{ width: "100%", tableLayout: "fixed" }}
           >
             <colgroup>
-              {showSectionColumn && <col style={{ width: "15%" }} />}
-              <col style={{ width: showSectionColumn ? "15%" : "18%" }} />
-              <col style={{ width: "10%" }} />
-              <col style={{ width: showSectionColumn ? "20%" : "24%" }} />
-              <col style={{ width: "15%" }} />
-              <col style={{ width: "15%" }} />
-              <col style={{ width: "10%" }} />
+              {showSectionColumn && <col style={{ width: "22%" }} />}
+              <col style={{ width: showSectionColumn ? "22%" : "28%" }} />
+              <col style={{ width: showSectionColumn ? "14%" : "16%" }} />
+              <col style={{ width: showSectionColumn ? "30%" : "44%" }} />
+              <col style={{ width: "12%" }} />
             </colgroup>
             <thead>
               <tr>
@@ -2397,8 +2543,6 @@ function DetailedView({
                 <th>Point</th>
                 <th>Unit</th>
                 <th>Tolerance</th>
-                <th>Low Limit</th>
-                <th>High Limit</th>
                 <th style={{ textAlign: "center", paddingRight: "20px" }}></th>
               </tr>
             </thead>
@@ -2485,34 +2629,6 @@ function DetailedView({
                     </div>
                   </td>
 
-                  <td>
-                    <span
-                      style={{
-                        fontWeight: 600,
-                        whiteSpace: "nowrap",
-                        overflow: "hidden",
-                        textOverflow: "ellipsis",
-                        color: "var(--text-color)",
-                      }}
-                    >
-                      {calculatedLimits.low}
-                    </span>
-                  </td>
-
-                  <td>
-                    <span
-                      style={{
-                        fontWeight: 600,
-                        whiteSpace: "nowrap",
-                        overflow: "hidden",
-                        textOverflow: "ellipsis",
-                        color: "var(--text-color)",
-                      }}
-                    >
-                      {calculatedLimits.high}
-                    </span>
-                  </td>
-
                   <td className="action-cell" style={{ paddingRight: "20px" }}>
                     <div style={{ display: "flex", justifyContent: "center" }}>
                       <span
@@ -2532,7 +2648,7 @@ function DetailedView({
                 </tr>
               ) : (
                 <tr className="panel-empty-row">
-                  <td colSpan={showSectionColumn ? 7 : 6}>
+                  <td colSpan={showSectionColumn ? 5 : 4}>
                     No active point. Select a UUT range on the left and define a
                     point.
                   </td>
@@ -2541,111 +2657,46 @@ function DetailedView({
             </tbody>
           </table>
         </div>
+        </div>
       </div>
 
-      {/* --- MIDDLE ROW: EQUATION (Kept as is) --- */}
-      <div style={{ marginBottom: "30px" }}>
+      {/* --- MIDDLE ROW: EQUATION --- */}
+      <div className="measurement-equation-section">
         {isDerived && equationDisplayData && (
-          <div>
+          <div className="measurement-equation-block">
             <h3 className="panel-section-title">Measurement Equation</h3>
-            <div
-              style={{
-                backgroundColor: "var(--content-background)",
-                border: "1px solid var(--border-color)",
-                borderRadius: "8px",
-                boxShadow: "0 4px 6px rgba(0,0,0,0.02)",
-                padding: "20px",
-                display: "flex",
-                flexDirection: "column",
-                gap: "15px",
-              }}
-            >
-              <div className="input-with-symbol-button">
+            <div className="measurement-equation-card">
+              <div className="add-point-equation-input measurement-equation-input-row">
                 <input
                   ref={equationInputRef}
                   type="text"
+                  className="measurement-equation-input"
                   value={equationDisplayData.equation}
                   onChange={(e) => handleEquationChange(e.target.value)}
                   placeholder="e.g. V / R or W * L"
-                  style={{ fontFamily: "monospace" }}
                 />
                 <button
                   type="button"
-                  className="symbol-toggle-button"
-                  title="Show Symbols"
+                  className="add-point-fx-button"
+                  title="Insert function or symbol"
                   ref={symbolButtonRef}
-                  onClick={() => setIsSymbolMenuOpen(!isSymbolMenuOpen)}
+                  onClick={handleSymbolMenuToggle}
                 >
                   f(x)
                 </button>
-
-                {isSymbolMenuOpen && (
-                  <div
-                    className="symbol-popout"
-                    ref={symbolMenuRef}
-                    style={{ maxHeight: "300px", overflowY: "auto" }}
-                  >
-                    <div
-                      style={{
-                        display: "flex",
-                        justifyContent: "space-between",
-                        marginBottom: "10px",
-                        paddingBottom: "5px",
-                        borderBottom: "1px solid var(--border-color)",
-                      }}
-                    >
-                      <span style={{ fontWeight: 700, fontSize: "0.85rem" }}>
-                        Math Symbols
-                      </span>
-                      <span
-                        onClick={() => setIsSymbolMenuOpen(false)}
-                        style={{ cursor: "pointer" }}
-                      >
-                        <FontAwesomeIcon icon={faTimes} />
-                      </span>
-                    </div>
-                    {symbolCategories.map((category) => (
-                      <div key={category.name} className="symbol-category">
-                        <h5 className="symbol-category-title">
-                          {category.name}
-                        </h5>
-                        <div className="symbol-category-grid">
-                          {category.symbols.map((sym) => (
-                            <SymbolButton
-                              key={sym}
-                              symbol={sym}
-                              onSymbolClick={handleSymbolClick}
-                            />
-                          ))}
-                        </div>
-                      </div>
-                    ))}
-                  </div>
-                )}
               </div>
+              {symbolMenu}
 
               {calcStatus !== "neutral" && (
                 <div
+                  className="measurement-equation-status"
                   style={{
-                    display: "flex",
-                    alignItems: "center",
-                    justifyContent: "space-between",
-                    padding: "10px 14px",
-                    borderRadius: "6px",
                     border: `1px solid ${calcStatusStyle.borderColor}`,
                     backgroundColor: calcStatusStyle.backgroundColor,
-                    fontSize: "0.9rem",
-                    fontWeight: 500,
                     color: calcStatusStyle.color,
                   }}
                 >
-                  <div
-                    style={{
-                      display: "flex",
-                      alignItems: "center",
-                      gap: "8px",
-                    }}
-                  >
+                  <div className="measurement-equation-status-main">
                     <FontAwesomeIcon icon={calcStatusStyle.icon} />
                     <span>
                       Calculated:{" "}
@@ -2654,18 +2705,13 @@ function DetailedView({
                       </strong>
                     </span>
                   </div>
-                  <div
-                    style={{
-                      color: "var(--text-color-muted)",
-                      fontSize: "0.85rem",
-                    }}
-                  >
+                  <div className="measurement-equation-status-target">
                     (Target: {targetNominal?.toPrecision(6)} {uutNominal?.unit})
                   </div>
                 </div>
               )}
 
-              <div className="var-map-grid" style={{ flex: 1 }}>
+              <div className="var-map-grid measurement-equation-var-grid">
                 {equationDisplayData.variables.map((v) => (
                   <div
                     key={v.symbol}
@@ -2697,23 +2743,30 @@ function DetailedView({
                         >
                           ASSIGNED SOURCE
                         </label>
-                        <select
-                          className="var-source-select"
-                          value={v.tmdeId || ""}
-                          onChange={(e) =>
-                            handleAssignTmdeToVariable(v.symbol, e.target.value)
-                          }
-                          disabled={!v.name}
-                        >
-                          <option value="">
-                            -- No Source (Manual Entry) --
-                          </option>
-                          {sessionData.tmdes?.map((tmde) => (
-                            <option key={tmde.id} value={tmde.id}>
-                              {tmde.name || "Unnamed TMDE"}
-                            </option>
-                          ))}
-                        </select>
+                        <div className="var-source-summary">
+                          {v.assignedTmdes.length > 0 ? (
+                            <>
+                              <strong>
+                                {v.assignedTmdes.length} source
+                                {v.assignedTmdes.length === 1 ? "" : "s"}
+                              </strong>
+                              <span>
+                                {v.assignedTmdes
+                                  .map(
+                                    (tmde) =>
+                                      tmde.name ||
+                                      tmde.description ||
+                                      "Unnamed TMDE",
+                                  )
+                                  .join(", ")}
+                              </span>
+                            </>
+                          ) : (
+                            <span>
+                              Assign instruments in the TMDE table below
+                            </span>
+                          )}
+                        </div>
                       </div>
 
                       <div>
@@ -2734,8 +2787,11 @@ function DetailedView({
                               value={v.value}
                               type="number"
                               onSave={(val) =>
-                                onInlineTmdeUpdate &&
-                                onInlineTmdeUpdate(v.tmdeId, "nominal", val)
+                                handleVariableNominalUpdate(
+                                  v.name,
+                                  "value",
+                                  val,
+                                )
                               }
                               style={{
                                 fontFamily: "'Consolas', monospace",
@@ -2766,10 +2822,9 @@ function DetailedView({
                                     : null)
                                 }
                                 onChange={(opt) =>
-                                  onInlineTmdeUpdate &&
                                   opt &&
-                                  onInlineTmdeUpdate(
-                                    v.tmdeId,
+                                  handleVariableNominalUpdate(
+                                    v.name,
                                     "unit",
                                     opt.value,
                                   )
@@ -2802,7 +2857,7 @@ function DetailedView({
                                   marginRight: "6px",
                                 }}
                               />
-                              Map source above
+                              Assign a source below
                             </span>
                           </div>
                         )}
@@ -2854,26 +2909,33 @@ function DetailedView({
               style={{ tableLayout: "fixed" }}
             >
               <colgroup>
-                <col style={{ width: "50px" }} />
-                <col style={{ width: "40%" }} />
-                <col style={{ width: "30%" }} />
-                <col style={{ width: "30%" }} />
+                {/* Direct points toggle usage. Derived points assign each
+                    instrument to one mapped input; several instruments may
+                    contribute to the same input budget. */}
+                <col style={{ width: isDerived ? "24%" : "50px" }} />
+                <col style={{ width: isDerived ? "30%" : "40%" }} />
+                <col style={{ width: isDerived ? "22%" : "30%" }} />
+                <col style={{ width: isDerived ? "24%" : "30%" }} />
               </colgroup>
               <thead>
                 <tr>
-                  <th style={{ textAlign: "center" }}>Use</th>
+                  <th style={{ textAlign: isDerived ? "left" : "center" }}>
+                    {isDerived ? "Assigned Input" : "Use"}
+                  </th>
                   <th>Description</th>
                   <th>Range</th>
                   <th>Specification</th>
                 </tr>
               </thead>
               <tbody>
-                {!sessionData.tmdes || sessionData.tmdes.length === 0 ? (
+                {relevantTmdes.length === 0 ? (
                   <tr className="panel-empty-row">
-                    <td colSpan="4">No TMDEs defined in Session.</td>
+                    <td colSpan="4">
+                      No TMDEs defined for this measurement area.
+                    </td>
                   </tr>
                 ) : (
-                  sessionData.tmdes.map((masterTmde) => {
+                  relevantTmdes.map((masterTmde) => {
                     // Check selection state
                     const isSelectedRow = selectedTmdeIds.includes(
                       masterTmde.id,
@@ -2936,7 +2998,7 @@ function DetailedView({
                             <td
                               rowSpan={rowSpan}
                               style={{
-                                textAlign: "center",
+                                textAlign: isDerived ? "left" : "center",
                                 verticalAlign: "top",
                               }}
                               onClick={(e) => e.stopPropagation()}
@@ -2948,17 +3010,45 @@ function DetailedView({
                                 })
                               }
                             >
-                              <input
-                                type="checkbox"
-                                checked={isChecked}
-                                onChange={(e) =>
-                                  handleToggleTmdeUsage(
-                                    masterTmde.id,
-                                    e.target.checked,
-                                  )
-                                }
-                                style={{ cursor: "pointer" }}
-                              />
+                              {isDerived ? (
+                                <select
+                                  className="tmde-input-assignment"
+                                  value={
+                                    isChecked
+                                      ? tmdeInstance.variableType || ""
+                                      : ""
+                                  }
+                                  onChange={(e) =>
+                                    handleAssignTmdeToInput(
+                                      masterTmde,
+                                      e.target.value,
+                                    )
+                                  }
+                                  aria-label={`Assign ${safeDescription} to equation input`}
+                                >
+                                  <option value="">Not used</option>
+                                  {availableVariables.map((variableType) => (
+                                    <option
+                                      key={variableType}
+                                      value={variableType}
+                                    >
+                                      {variableType}
+                                    </option>
+                                  ))}
+                                </select>
+                              ) : (
+                                <input
+                                  type="checkbox"
+                                  checked={isChecked}
+                                  onChange={(e) =>
+                                    handleToggleTmdeUsage(
+                                      masterTmde.id,
+                                      e.target.checked,
+                                    )
+                                  }
+                                  style={{ cursor: "pointer" }}
+                                />
+                              )}
                             </td>
 
                             <td
@@ -3117,8 +3207,9 @@ function DetailedView({
               onOpenCorrelation={onOpenCorrelation}
               setNotification={setNotification}
               onBudgetSettingsChange={onUpdateTestPoint}
-              coverageFactorMode={testPointData.coverageFactorMode || "auto"}
-              coverageFactorOverride={testPointData.coverageFactorOverride || ""}
+              useEffectiveDofByGroup={
+                testPointData.useEffectiveDofByGroup || {}
+              }
             />
             {showContribution &&
               calcResults?.calculatedBudgetComponents?.length > 0 && (

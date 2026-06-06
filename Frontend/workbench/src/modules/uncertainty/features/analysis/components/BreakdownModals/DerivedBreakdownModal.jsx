@@ -21,8 +21,8 @@ const DerivedBreakdownModal = ({ isOpen, onClose, breakdownData }) => {
     
     const { style: windowStyle, handleMouseDown } = useFloatingWindow({
         isOpen,
-        defaultWidth: 700,
-        defaultHeight: 600
+        defaultWidth: Math.min(860, window.innerWidth - 48),
+        defaultHeight: Math.min(720, window.innerHeight - 120)
     });
 
     // --- This hook now rebuilds the formula from individual TMDEs ---
@@ -147,16 +147,13 @@ const DerivedBreakdownModal = ({ isOpen, onClose, breakdownData }) => {
             className="modal-content breakdown-modal-content" 
             style={{ 
                 ...windowStyle, 
-                width: '700px',
                 zIndex: 2000,
-                display: 'flex',
-                flexDirection: 'column'
             }}
         >
             <button onClick={onClose} className="modal-close-button">&times;</button>
             <h3 
+                className="breakdown-modal-title"
                 onMouseDown={handleMouseDown} 
-                style={{ cursor: 'move', userSelect: 'none', margin: '0 0 15px 0', paddingRight: '30px' }}
             >
                 Derived Uncertainty Calculation Breakdown
             </h3>

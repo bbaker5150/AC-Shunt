@@ -1,5 +1,4 @@
 import React, { useState, useMemo, useEffect, useRef } from "react";
-import Latex from "../../../components/common/Latex";
 import { unitSystem, errorDistributions } from "../../../utils/uncertaintyMath";
 import { oldErrorDistributions } from "../utils/budgetUtils";
 import { FontAwesomeIcon } from "@fortawesome/react-fontawesome";
@@ -39,10 +38,34 @@ const formatNumber = (value, sigFigs = 4) => {
   return n.toPrecision(sigFigs);
 };
 
+// Blank when there is no finite DOF to report (Type B / ν = ∞), per the drafted
+// layout — an empty cell reads cleaner than "Not used".
 const formatDof = (dof) => {
   const n = Number(dof);
-  if (dof === Infinity || !Number.isFinite(n)) return "Not used";
+  if (dof === Infinity || !Number.isFinite(n)) return "";
   return formatNumber(n, 4);
+};
+
+// A component is "entered as a standard uncertainty" (Type A results, or a
+// Type B typed in directly as uᵢ) when there is no underlying tolerance/error
+// limit to show. For these the Tolerance Limit column is left blank — the value
+// lives in the Standard Uncertainty column instead.
+const isStandardUncertaintyEntry = (component) => {
+  if (component.type === "A") return true;
+  if (component.originalInput?.inputMode === "standard") return true;
+  const dist = component.distribution || "";
+  return /std\.?\s*unc/i.test(dist) || dist === "Other (Std. Unc.)";
+};
+
+// The tolerance (error) limit is the half-span the spec was entered as, i.e.
+// the standard uncertainty multiplied back up by its distribution divisor:
+//   limit = uᵢ × divisor.
+const getComponentToleranceLimit = (component, std) => {
+  let divisor =
+    parseFloat(component.distributionDivisor) ||
+    parseFloat(component.originalInput?.errorDistributionDivisor);
+  if (!Number.isFinite(divisor) || divisor <= 0) divisor = 1;
+  return { value: std.value * divisor, unit: std.unit };
 };
 
 const getComponentStdUncertainty = (component, fallbackUnit) => {
@@ -70,28 +93,57 @@ const getComponentStdUncertainty = (component, fallbackUnit) => {
   };
 };
 
-const ResultsCard = ({ title = "Results", results, unit, sigFigs, isFinal }) => {
-  const rows = [
-    ["Combined Uncertainty", results?.combined],
-    ["Effective DOF", formatDof(results?.effective_dof), true],
-    ["Coverage Factor (k)", results?.k_value],
-    ["Expanded Uncertainty", results?.expanded],
-  ];
+const ResultsCard = ({
+  title = "Results",
+  results,
+  unit,
+  sigFigs,
+  isFinal,
+  useEffectiveDof,
+  onToggleEffectiveDof,
+}) => {
+  // When effective DOF is off, ν_eff is not applied to k, so leave it blank.
+  const effDofDisplay = useEffectiveDof ? formatDof(results?.effective_dof) : "";
+  const unitSuffix = unit ? ` ${unit}` : "";
 
   return (
     <aside className={`budget-results-card ${isFinal ? "final" : ""}`}>
       <div className="budget-results-title">{title}</div>
-      {rows.map(([label, value, alreadyFormatted]) => (
-        <div className="budget-results-row" key={label}>
-          <span>{label}</span>
-          <strong>
-            {alreadyFormatted ? value : formatNumber(value, sigFigs)}
-            {!alreadyFormatted && label !== "Coverage Factor (k)" && unit
-              ? ` ${unit}`
-              : ""}
-          </strong>
-        </div>
-      ))}
+      <div className="budget-results-row">
+        <span>Combined Uncertainty</span>
+        <strong>
+          {formatNumber(results?.combined, sigFigs)}
+          {unitSuffix}
+        </strong>
+      </div>
+      <div className="budget-results-row">
+        <span className="budget-results-dof-label">
+          <label
+            className="direction-toggle-switch"
+            title="Apply Welch–Satterthwaite effective degrees of freedom"
+          >
+            <input
+              type="checkbox"
+              checked={!!useEffectiveDof}
+              onChange={(e) => onToggleEffectiveDof?.(e.target.checked)}
+            />
+            <span className="direction-toggle-slider"></span>
+          </label>
+          Effective DOF
+        </span>
+        <strong>{effDofDisplay}</strong>
+      </div>
+      <div className="budget-results-row">
+        <span>Coverage Factor (k)</span>
+        <strong>{formatNumber(results?.k_value, sigFigs)}</strong>
+      </div>
+      <div className="budget-results-row">
+        <span>Expanded Uncertainty</span>
+        <strong>
+          {formatNumber(results?.expanded, sigFigs)}
+          {unitSuffix}
+        </strong>
+      </div>
     </aside>
   );
 };
@@ -118,15 +170,26 @@ const UncertaintyBudgetTable = ({
   onComponentUpdate,
   onOpenCorrelation,
   onBudgetSettingsChange,
-  coverageFactorMode = "auto",
-  coverageFactorOverride = "",
+  useEffectiveDofByGroup = {},
 }) => {
+  // Effective DOF is toggled per (sub)budget. Persist the change as a patch to
+  // the keyed map (variableType / "equation" / "final"). Default ON.
+  const handleToggleEffectiveDof = (groupKey, checked) =>
+    onBudgetSettingsChange?.({
+      useEffectiveDofByGroup: { ...useEffectiveDofByGroup, [groupKey]: checked },
+    });
+  const groupDofKey = (group) =>
+    group.kind === "input"
+      ? group.variableType
+      : group.kind === "equation"
+        ? "equation"
+        : "final";
   const confidencePercent = parseFloat(uncertaintyConfidence) || 95;
   const derivedUnit = referencePoint?.unit || "Units";
   const derivedName = referencePoint?.name || "Derived";
   const isDirect = measurementType === "direct";
   const [showGuardband, setShowGuardband] = useState(false);
-  const [uiSigFigs, setUiSigFigs] = useState(4);
+  const [uiSigFigs] = useState(4);
   const [expandedSigFigs, setExpandedSigFigs] = useState(5);
   const [riskSigFigs, setRiskSigFigs] = useState(4);
   const [showSettings, setShowSettings] = useState(false);
@@ -173,12 +236,6 @@ const UncertaintyBudgetTable = ({
       },
     ];
   }, [calcResults, components, derivedName, derivedUnit]);
-
-  const getPfaClass = (pfa) => {
-    if (pfa > 5) return "status-bad";
-    if (pfa > 2) return "status-warning";
-    return "status-good";
-  };
 
   if (!hasTmde) {
     return (
@@ -289,7 +346,7 @@ const UncertaintyBudgetTable = ({
         <tr>
           <th>Error Source Name</th>
           <th>Source / Nominal</th>
-          <th>Error Limit (or Std. Unc.)</th>
+          <th>Tolerance Limit</th>
           <th>Error Limit Distribution</th>
           <th>Type (A/B)</th>
           <th>DOF</th>
@@ -300,6 +357,7 @@ const UncertaintyBudgetTable = ({
       <tbody className="component-group-tbody">
         {(group.components || []).map((component) => {
           const std = getComponentStdUncertainty(component, group.unit);
+          const tolLimit = getComponentToleranceLimit(component, std);
           const quantity = component.quantity || 1;
           const displayName =
             quantity > 1 ? `${component.name} (Qty: ${quantity})` : component.name;
@@ -311,7 +369,9 @@ const UncertaintyBudgetTable = ({
               <td>{displayName}</td>
               <td>{component.sourcePointLabel || "N/A"}</td>
               <td>
-                {formatNumber(std.value, uiSigFigs)} {std.unit}
+                {isStandardUncertaintyEntry(component)
+                  ? ""
+                  : `${formatNumber(tolLimit.value, uiSigFigs)} ${tolLimit.unit}`}
               </td>
               <td>{renderDistributionCell(component)}</td>
               <td>{component.type || "B"}</td>
@@ -328,6 +388,7 @@ const UncertaintyBudgetTable = ({
   );
 
   const renderEquationTable = (group) => (
+    <>
     <table className="uncertainty-budget-table">
       <thead>
         <tr>
@@ -336,10 +397,7 @@ const UncertaintyBudgetTable = ({
           <th>DOF</th>
           <th>Standard Uncertainty</th>
           <th>Sensitivity Coefficient</th>
-          <th>
-            <Latex>{"Contribution ($|c_i \\times u_i|$)"}</Latex>
-          </th>
-          <th></th>
+          <th>Contribution</th>
         </tr>
       </thead>
       <tbody className="component-group-tbody">
@@ -355,25 +413,51 @@ const UncertaintyBudgetTable = ({
             <td>
               {formatNumber(row.contribution, uiSigFigs)} {derivedUnit}
             </td>
-            <td className="action-cell">
-              <span
-                onClick={onShowDerivedBreakdown}
-                className="action-icon"
-                title="View Calculation Breakdown"
-              >
-                <FontAwesomeIcon icon={faCalculator} />
-              </span>
-            </td>
           </tr>
         ))}
       </tbody>
     </table>
+    {group.correlationApplied && (
+      <p className="budget-correlation-note">
+        Combined uncertainty includes input correlations (ρ); without
+        correlation (RSS) it would be{" "}
+        {formatNumber(group.uncorrelatedCombined, uiSigFigs)} {group.unit}.
+      </p>
+    )}
+    </>
   );
+
+  // Direct-measurement toolbar: the single budget table's Add Manual +
+  // Repeatability. (Derived points get these per-subbudget in the section
+  // headers, so this row is only rendered for direct measurements.)
+  const renderToolbar = () => (
+    <div className="budget-stack-toolbar">
+      <button
+        type="button"
+        onClick={() => onAddManualComponent?.(null)}
+        title="Add Manual Component"
+      >
+        <FontAwesomeIcon icon={faPlus} />
+      </button>
+      <button
+        type="button"
+        onClick={(e) => onOpenRepeatability?.(e)}
+        title="Repeatability Calculator"
+      >
+        <FontAwesomeIcon icon={faRedo} />
+      </button>
+    </div>
+  );
+
+  const getPfaClass = (pfa) => {
+    if (pfa > 5) return "status-bad";
+    if (pfa > 2) return "status-warning";
+    return "status-good";
+  };
 
   const handleGuardbandToggle = (isChecked) => {
     setShowGuardband(isChecked);
     if (!isChecked) return;
-
     const gbLowValid =
       riskResults?.gbResults?.GBLOW !== undefined &&
       !isNaN(riskResults.gbResults.GBLOW);
@@ -381,7 +465,6 @@ const UncertaintyBudgetTable = ({
       riskResults?.gbResults?.GBUP !== undefined &&
       !isNaN(riskResults.gbResults.GBUP);
     if (gbLowValid && gbUpValid) return;
-
     setNotification?.({
       title: "Convergence Failure",
       isFloating: true,
@@ -390,160 +473,134 @@ const UncertaintyBudgetTable = ({
     });
   };
 
-  const renderToolbar = () => (
-    <div className="budget-stack-toolbar">
-      {!isDirect && onOpenCorrelation && components?.length >= 2 && (
-        <button type="button" onClick={onOpenCorrelation} title="Input Correlation Matrix">
-          <FontAwesomeIcon icon={faProjectDiagram} />
-        </button>
-      )}
-      <button type="button" onClick={() => onAddManualComponent?.(null)} title="Add Manual Component">
-        <FontAwesomeIcon icon={faPlus} />
-      </button>
-      <button type="button" onClick={(e) => onOpenRepeatability?.(e)} title="Repeatability Calculator">
-        <FontAwesomeIcon icon={faRedo} />
-      </button>
-      <div ref={settingsRef} className="budget-settings-wrap">
-        <button type="button" onClick={() => setShowSettings(!showSettings)} title="Table Settings">
-          <FontAwesomeIcon icon={faCog} />
-        </button>
-        {showSettings && (
-          <div className="budget-settings-menu">
-            <h5>Precision Settings</h5>
-            <label>
-              u_i Sig Figs
-              <input
-                type="number"
-                min="1"
-                max="10"
-                value={uiSigFigs}
-                onChange={(e) => setUiSigFigs(Math.max(1, parseInt(e.target.value) || 2))}
-              />
-            </label>
-            <label>
-              Expanded Unc (U) Sig Figs
-              <input
-                type="number"
-                min="1"
-                max="10"
-                value={expandedSigFigs}
-                onChange={(e) =>
-                  setExpandedSigFigs(Math.max(1, parseInt(e.target.value) || 2))
-                }
-              />
-            </label>
-            <label>
-              Risk Sig Figs
-              <input
-                type="number"
-                min="1"
-                max="10"
-                value={riskSigFigs}
-                onChange={(e) =>
-                  setRiskSigFigs(Math.max(1, parseInt(e.target.value) || 2))
-                }
-              />
-            </label>
-            <label>
-              Coverage Factor
-              <select
-                value={coverageFactorMode || "auto"}
-                onChange={(e) =>
-                  onBudgetSettingsChange?.({
-                    coverageFactorMode: e.target.value,
-                    coverageFactorOverride:
-                      e.target.value === "manual" ? coverageFactorOverride : null,
-                  })
-                }
-              >
-                <option value="auto">Auto from DOF</option>
-                <option value="manual">Manual k</option>
-              </select>
-            </label>
-            {(coverageFactorMode || "auto") === "manual" && (
-              <label>
-                Manual k
-                <input
-                  type="number"
-                  min="0.0001"
-                  step="0.0001"
-                  value={coverageFactorOverride ?? ""}
-                  onChange={(e) =>
-                    onBudgetSettingsChange?.({
-                      coverageFactorMode: "manual",
-                      coverageFactorOverride: e.target.value,
-                    })
-                  }
-                />
-              </label>
-            )}
-          </div>
-        )}
-      </div>
-    </div>
-  );
-
+  // Slim risk metric cards for the bottom of the panel. These mirror the
+  // sidebar columns but give an at-a-glance read for the open point; clicking a
+  // card opens its breakdown (same handler as the sidebar).
   const renderRiskMetrics = () => {
     if (!riskResults) return null;
-    const riskPods = [
-      ["pfa", "PFA", `${riskResults.pfa.toPrecision(riskSigFigs)} %`, getPfaClass(riskResults.pfa)],
-      ["pfr", "PFR", `${riskResults.pfr.toPrecision(riskSigFigs)} %`, "pfr"],
-      ["tur", "TUR", `${riskResults.tur.toFixed(2)} : 1`, "tur"],
+    const corePods = [
+      ["pfa", "PFA", `${riskResults.pfa?.toPrecision(riskSigFigs)}%`, getPfaClass(riskResults.pfa)],
+      ["pfr", "PFR", `${riskResults.pfr?.toPrecision(riskSigFigs)}%`, "neutral"],
+      ["tur", "TUR", `${riskResults.tur?.toFixed(2)}:1`, "neutral"],
     ];
     if (isDirect) {
-      riskPods.push(["tar", "TAR", `${riskResults.tar.toFixed(2)} : 1`, "tar"]);
+      corePods.push(["tar", "TAR", `${riskResults.tar?.toFixed(2)}:1`, "neutral"]);
     }
+    const gb = riskResults.gbResults;
+    const fmtGb = (v) =>
+      Number.isFinite(Number(v)) ? Number(v).toPrecision(riskSigFigs) : "N/A";
 
     return (
-      <div className="budget-risk-metrics">
-        <div className="metrics-row">
-          {riskPods.map(([key, label, value, klass]) => (
-            <div
+      <div className="budget-risk-strip">
+        <div className="budget-risk-pods">
+          {corePods.map(([key, label, value, klass]) => (
+            <button
+              type="button"
               key={key}
-              className={`metric-pod ${klass} clickable`}
+              className={`risk-pod ${klass}`}
               onClick={() => onShowRiskBreakdown?.(key)}
-              title={`Show ${label} Breakdown`}
+              title={`${label} — view breakdown`}
             >
-              <span className="metric-pod-label">{label}</span>
-              <span className="metric-pod-value">{value}</span>
-            </div>
+              <span className="risk-pod-label">{label}</span>
+              <span className="risk-pod-value">{value}</span>
+            </button>
           ))}
         </div>
-        {showGuardband && riskResults.gbResults && (
-          <>
-            <div className="metrics-separator">
-              <span>Guardband Analysis</span>
-            </div>
-            <div className="metrics-row">
-              {[
-                ["gblow", "GB LOW", riskResults.gbResults.GBLOW],
-                ["gbhigh", "GB HIGH", riskResults.gbResults.GBUP],
-                ["gbmult", "GB Multiplier", riskResults.gbResults.GBMULT],
-                ["gbpfa", "PFA w/ GB", riskResults.gbResults.GBPFA],
-                ["gbpfr", "PFR w/ GB", riskResults.gbResults.GBPFR],
-              ].map(([key, label, value]) => (
-                <div
-                  key={key}
-                  className="metric-pod clickable"
-                  onClick={() => onShowRiskBreakdown?.(key)}
-                >
-                  <span className="metric-pod-label">{label}</span>
-                  <span className="metric-pod-value">
-                    {Number.isFinite(Number(value))
-                      ? Number(value).toPrecision(riskSigFigs)
-                      : "N/A"}
-                  </span>
-                </div>
-              ))}
-            </div>
-          </>
+        {showGuardband && gb && (
+          <div className="budget-risk-pods guardband">
+            {[
+              ["gblow", "GB Low", fmtGb(gb.GBLOW)],
+              ["gbhigh", "GB High", fmtGb(gb.GBUP)],
+              ["gbmult", "GB Mult", `${fmtGb(gb.GBMULT)}%`],
+              ["gbpfa", "PFA·GB", `${fmtGb(gb.GBPFA)}%`],
+              ["gbpfr", "PFR·GB", `${fmtGb(gb.GBPFR)}%`],
+            ].map(([key, label, value]) => (
+              <button
+                type="button"
+                key={key}
+                className="risk-pod neutral"
+                onClick={() => onShowRiskBreakdown?.(key)}
+                title={`${label} — view breakdown`}
+              >
+                <span className="risk-pod-label">{label}</span>
+                <span className="risk-pod-value">{value}</span>
+              </button>
+            ))}
+          </div>
         )}
       </div>
     );
   };
 
+  // Compact settings popover for the bottom readout. Only controls the sig figs
+  // shown in THIS results area (expanded uncertainty + risk metrics) — the
+  // budget tables above format independently.
+  const renderResultSettings = () => (
+    <div ref={settingsRef} className="budget-settings-wrap">
+      <button
+        type="button"
+        className="budget-result-settings-btn"
+        onClick={() => setShowSettings(!showSettings)}
+        title="Display settings"
+      >
+        <FontAwesomeIcon icon={faCog} />
+      </button>
+      {showSettings && (
+        <div className="budget-settings-menu">
+          <h5>Display</h5>
+          <label className="budget-settings-check">
+            <input
+              type="checkbox"
+              checked={showContribution}
+              onChange={(e) => setShowContribution(e.target.checked)}
+            />
+            Show contribution
+          </label>
+          <label className="budget-settings-check">
+            <input
+              type="checkbox"
+              checked={showGuardband}
+              onChange={(e) => handleGuardbandToggle(e.target.checked)}
+            />
+            Show guardband
+          </label>
+          <h5>Display Precision</h5>
+          <label>
+            Expanded Unc (U) Sig Figs
+            <input
+              type="number"
+              min="1"
+              max="10"
+              value={expandedSigFigs}
+              onChange={(e) =>
+                setExpandedSigFigs(Math.max(1, parseInt(e.target.value) || 2))
+              }
+            />
+          </label>
+          <label>
+            Risk Sig Figs
+            <input
+              type="number"
+              min="1"
+              max="10"
+              value={riskSigFigs}
+              onChange={(e) =>
+                setRiskSigFigs(Math.max(1, parseInt(e.target.value) || 2))
+              }
+            />
+          </label>
+        </div>
+      )}
+    </div>
+  );
+
   const finalGroup = groups.find((group) => group.kind === "final");
   const finalExpanded = finalGroup?.results?.expanded;
+  // Coverage factor for the footnote — read from the SAME computed result the
+  // expanded uncertainty above uses, never hardcoded. It already tracks the
+  // configured confidence and any Type A repeatability that lowers the
+  // effective DOF (which raises k via the Student-t quantile).
+  const displayK = finalGroup?.results?.k_value ?? calcResults?.k_value;
 
   return (
     <div className="budget-stack">
@@ -557,7 +614,7 @@ const UncertaintyBudgetTable = ({
 
       {groups.map((group) => (
         <React.Fragment key={group.id}>
-          {group.kind === "final" && (
+          {group.kind === "final" && isDirect && (
             <div className="budget-final-toolbar-row">{renderToolbar()}</div>
           )}
           <section className="budget-section-row">
@@ -590,6 +647,60 @@ const UncertaintyBudgetTable = ({
                       <FontAwesomeIcon icon={faPlus} />
                     </button>
                   )}
+                  {/* Repeatability for a derived subbudget — scoped to this
+                      variable so the Type A component lands in this table. */}
+                  {group.kind === "input" && (
+                    <button
+                      type="button"
+                      title={`Repeatability for ${group.label}`}
+                      onClick={(e) =>
+                        onOpenRepeatability?.(e, {
+                          variableType: group.variableType,
+                          label: group.label.replace(
+                            /\s+Uncertainty Budget$/i,
+                            "",
+                          ),
+                          nominalPoint: group.nominalPoint || {
+                            value: group.nominalValue,
+                            unit: group.unit,
+                          },
+                        })
+                      }
+                    >
+                      <FontAwesomeIcon icon={faRedo} />
+                    </button>
+                  )}
+                  {/* Derived-equation actions clustered at the table's top-right:
+                      add manual component, the input correlation matrix, and a
+                      single calculation-breakdown button (replaces the old
+                      per-row calculator icons). */}
+                  {group.kind === "equation" && (
+                    <>
+                      <button
+                        type="button"
+                        title="Add Manual Component"
+                        onClick={() => onAddManualComponent?.(null)}
+                      >
+                        <FontAwesomeIcon icon={faPlus} />
+                      </button>
+                      {onOpenCorrelation && components?.length >= 2 && (
+                        <button
+                          type="button"
+                          title="Input Correlation Matrix"
+                          onClick={onOpenCorrelation}
+                        >
+                          <FontAwesomeIcon icon={faProjectDiagram} />
+                        </button>
+                      )}
+                      <button
+                        type="button"
+                        title="View Calculation Breakdown"
+                        onClick={onShowDerivedBreakdown}
+                      >
+                        <FontAwesomeIcon icon={faCalculator} />
+                      </button>
+                    </>
+                  )}
                 </div>
               </div>
               <div className="budget-section-table-wrap">
@@ -604,6 +715,12 @@ const UncertaintyBudgetTable = ({
               unit={group.unit}
               sigFigs={group.kind === "final" ? expandedSigFigs : uiSigFigs}
               isFinal={group.kind === "final"}
+              useEffectiveDof={
+                (useEffectiveDofByGroup[groupDofKey(group)] ?? true) !== false
+              }
+              onToggleEffectiveDof={(checked) =>
+                handleToggleEffectiveDof(groupDofKey(group), checked)
+              }
             />
           </section>
         </React.Fragment>
@@ -611,38 +728,15 @@ const UncertaintyBudgetTable = ({
 
       {calcResults && (
         <div className="final-result-display budget-stack-final-display">
-          <div className="budget-final-toggles">
-            <label>
-              <span>Show Contribution</span>
-              <span className="dark-mode-toggle">
-                <input
-                  type="checkbox"
-                  checked={showContribution}
-                  onChange={(e) => setShowContribution(e.target.checked)}
-                />
-                <span className="slider"></span>
-              </span>
-            </label>
-            <label>
-              <span>Show Guardband</span>
-              <span className="dark-mode-toggle">
-                <input
-                  type="checkbox"
-                  checked={showGuardband}
-                  onChange={(e) => handleGuardbandToggle(e.target.checked)}
-                />
-                <span className="slider"></span>
-              </span>
-            </label>
-          </div>
+          <div className="budget-final-toggles">{renderResultSettings()}</div>
           <span className="final-result-label">Expanded Uncertainty (U)</span>
           <div className="final-result-value">
             +/- {formatNumber(finalExpanded, expandedSigFigs)}
             <span className="final-result-unit">{derivedUnit}</span>
           </div>
           <span className="final-result-confidence-note">
-            The reported expanded uncertainty uses k=
-            {formatNumber(finalGroup?.results?.k_value, 4)} at {confidencePercent}%.
+            The reported expanded uncertainty uses k={formatNumber(displayK, 4)}{" "}
+            at {confidencePercent}%.
           </span>
           {renderRiskMetrics()}
         </div>
