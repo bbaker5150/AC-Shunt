@@ -2284,6 +2284,19 @@ function DetailedView({
 
   const calcStatus = getCalculatedStatus();
 
+  // Sum-vs-range sanity hint: when the derived value (e.g. the additive sum of
+  // several sources on one variable) lands outside the UUT's measurement range,
+  // the resulting TUR/PFA are meaningless. Flag it explicitly rather than
+  // letting the user puzzle over a wild risk number.
+  const uutRangeMax = parseFloat(
+    activeResolvedTolerance?.max ?? uutToleranceData?.max,
+  );
+  const calcExceedsRange =
+    Number.isFinite(calculatedNominal) &&
+    Number.isFinite(uutRangeMax) &&
+    uutRangeMax > 0 &&
+    Math.abs(calculatedNominal) > uutRangeMax * 1.0000001;
+
   const calcStatusStyle = {
     match: {
       borderColor: "var(--status-good)",
@@ -2735,6 +2748,31 @@ function DetailedView({
                 </div>
               )}
 
+              {calcExceedsRange && (
+                <div
+                  className="measurement-equation-status"
+                  style={{
+                    border: "1px solid var(--status-warning)",
+                    backgroundColor: "rgba(255, 193, 7, 0.12)",
+                    color: "var(--status-warning)",
+                  }}
+                >
+                  <div className="measurement-equation-status-main">
+                    <FontAwesomeIcon icon={faExclamationTriangle} />
+                    <span>
+                      Calculated value{" "}
+                      <strong>
+                        {calculatedNominal?.toPrecision(6)} {uutNominal?.unit}
+                      </strong>{" "}
+                      exceeds the UUT range (max {uutRangeMax?.toPrecision(6)}{" "}
+                      {activeResolvedTolerance?.unit || uutNominal?.unit}) —
+                      TUR/PFA will be meaningless. Check the source values or the
+                      point setup.
+                    </span>
+                  </div>
+                </div>
+              )}
+
               <div className="var-map-grid measurement-equation-var-grid">
                 {equationDisplayData.variables.map((v) => (
                   <div
@@ -2938,6 +2976,30 @@ function DetailedView({
                                   />
                                 </div>
                               </div>
+                              {new Set(
+                                v.assignedTmdes
+                                  .map((s) => s.measurementPoint?.unit)
+                                  .filter(Boolean),
+                              ).size > 1 && (
+                                <div
+                                  style={{
+                                    display: "flex",
+                                    alignItems: "center",
+                                    gap: "6px",
+                                    fontSize: "0.7rem",
+                                    color: "var(--status-warning)",
+                                    marginTop: "2px",
+                                  }}
+                                >
+                                  <FontAwesomeIcon
+                                    icon={faExclamationTriangle}
+                                  />
+                                  <span>
+                                    Sources use different units — set them to the
+                                    same unit so the sum is valid.
+                                  </span>
+                                </div>
+                              )}
                             </div>
                           ) : (
                           <div className="var-value-display">
