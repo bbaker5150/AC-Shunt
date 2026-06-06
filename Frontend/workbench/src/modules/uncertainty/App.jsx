@@ -2346,6 +2346,25 @@ function App() {
       data.type === "tmde" ||
       (data.type === "library" && data.useAs === "tmde")
     ) {
+      const cleanAreaName = String(data.measurementArea || "").trim();
+      const matchedArea = (currentSessionData.measurementAreas || []).find(
+        (area) =>
+          area.id === data.measurementAreaId ||
+          (cleanAreaName &&
+            area.name.toLowerCase() === cleanAreaName.toLowerCase()),
+      );
+      const resolvedAreaId =
+        matchedArea?.id ||
+        data.measurementAreaId ||
+        currentTestPoints.find((tp) => tp.id === selectedTestPointId)
+          ?.measurementAreaId ||
+        selectedAreaId ||
+        null;
+      const resolvedArea =
+        matchedArea ||
+        (currentSessionData.measurementAreas || []).find(
+          (area) => area.id === resolvedAreaId,
+        );
       let newTmde = {};
       if (data.type === "library") {
         newTmde = {
@@ -2355,6 +2374,8 @@ function App() {
           assetId: "",
           instrument: { ...data },
           isInstrumentBased: true,
+          measurementAreaId: resolvedAreaId,
+          measurementArea: resolvedArea?.name || cleanAreaName,
         };
         delete newTmde.instrument.useAs;
       } else {
@@ -2365,6 +2386,8 @@ function App() {
           assetId: data.assetId,
           instrument: data.instrument,
           isInstrumentBased: true,
+          measurementAreaId: resolvedAreaId,
+          measurementArea: resolvedArea?.name || cleanAreaName,
         };
       }
       const existingTmdeIndex = (currentSessionData.tmdes || []).findIndex(
@@ -2990,6 +3013,13 @@ function App() {
           instruments={instruments}
           mode={instrumentModalConfig.mode}
           initialData={instrumentModalConfig.data}
+          defaultMeasurementArea={(currentSessionData?.measurementAreas || []).find(
+            (area) =>
+              area.id ===
+              (currentTestPoints.find(
+                (point) => point.id === selectedTestPointId,
+              )?.measurementAreaId || selectedAreaId),
+          )}
         />
 
         <NotificationModal

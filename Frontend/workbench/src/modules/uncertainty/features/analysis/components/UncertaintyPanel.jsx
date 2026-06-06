@@ -1676,9 +1676,63 @@ function DetailedView({
   }, []);
 
   const activeMeasurementAreaId = testPointData.measurementAreaId;
+  const activeMeasurementArea = sessionData.measurementAreas?.find(
+    (area) => area.id === activeMeasurementAreaId,
+  );
 
-  // We read directly from sessionData to ensure we catch mutations/updates from the modal
-  const relevantUuts = sessionData.uuts || [];
+  // Keep the instrument inventory stable while moving between points. A point
+  // only highlights its linked UUT; it does not hide the area's other choices.
+  const relevantUuts = useMemo(() => {
+    const allUuts = sessionData.uuts || [];
+    if (!activeMeasurementAreaId) return allUuts;
+    return allUuts.filter(
+      (uut) =>
+        uut.measurementAreaId === activeMeasurementAreaId ||
+        (!uut.measurementAreaId &&
+          activeMeasurementArea?.name &&
+          uut.measurementArea === activeMeasurementArea.name),
+    );
+  }, [sessionData.uuts, activeMeasurementAreaId, activeMeasurementArea?.name]);
+
+  const relevantTmdes = useMemo(() => {
+    const allTmdes = sessionData.tmdes || [];
+    if (!activeMeasurementAreaId) return allTmdes;
+    return allTmdes.filter((tmde) => {
+      if (tmde.measurementAreaId) {
+        return tmde.measurementAreaId === activeMeasurementAreaId;
+      }
+      if (
+        activeMeasurementArea?.name &&
+        tmde.measurementArea === activeMeasurementArea.name
+      ) {
+        return true;
+      }
+
+      // Legacy TMDEs predate explicit area ownership. Infer their scope from
+      // the points that already use them; truly unused legacy entries remain
+      // available so they can be assigned and scoped without data migration.
+      const inferredAreaIds = new Set(
+        (sessionData.testPoints || [])
+          .filter((point) =>
+            (point.tmdeTolerances || []).some(
+              (instance) =>
+                instance.id === tmde.id || instance.sourceId === tmde.id,
+            ),
+          )
+          .map((point) => point.measurementAreaId)
+          .filter(Boolean),
+      );
+      return (
+        inferredAreaIds.size === 0 ||
+        inferredAreaIds.has(activeMeasurementAreaId)
+      );
+    });
+  }, [
+    sessionData.tmdes,
+    sessionData.testPoints,
+    activeMeasurementAreaId,
+    activeMeasurementArea?.name,
+  ]);
 
   const associatedUutIds = testPointData.associatedUutIds || [];
   const isDerived = testPointData.measurementType === "derived";
@@ -2015,55 +2069,75 @@ function DetailedView({
     }
   };
 
-  const handleAssignTmdeToVariable = (symbol, tmdeIdStr) => {
-    const varName = testPointData.variableMappings?.[symbol] || "";
-    if (!varName) return;
-
-    // The "Assigned Source" dropdown is a picker: it chooses which TMDE backs a
-    // variable. It must NOT spawn a new table instance on every selection.
-    // We always start from a copy where any prior holder of this variable is
-    // cleared, then either re-tag an existing instance or add the target once.
-    let nextTolerances = tmdeTolerancesData.map((t) =>
-      t.variableType === varName ? { ...t, variableType: "" } : t,
+  const handleAssignTmdeToInput = (masterTmde, variableType) => {
+    const existing = tmdeTolerancesData.find(
+      (tmde) =>
+        tmde.id === masterTmde.id || tmde.sourceId === masterTmde.id,
     );
 
-    // Clearing the source ("-- No Source --").
-    if (!tmdeIdStr) {
-      onUpdateTestPoint({ tmdeTolerances: nextTolerances });
+    if (!variableType) {
+      onUpdateTestPoint({
+        tmdeTolerances: tmdeTolerancesData.filter(
+          (tmde) =>
+            tmde.id !== masterTmde.id && tmde.sourceId !== masterTmde.id,
+        ),
+      });
       return;
     }
 
-    const targetTmde =
-      sessionData.tmdes?.find((t) => t.id == tmdeIdStr) ||
-      tmdeTolerancesData.find((t) => t.id == tmdeIdStr);
-    if (!targetTmde) return;
-    const realTmdeId = targetTmde.id;
-
-    // Is this TMDE already present in the budget (by id or sourceId)? If so,
-    // just tag it with the variable rather than appending a duplicate.
-    const existing = nextTolerances.find(
-      (t) => t.id === realTmdeId || t.sourceId === realTmdeId,
-    );
-
     if (existing) {
-      nextTolerances = nextTolerances.map((t) =>
-        t.id === existing.id ? { ...t, variableType: varName } : t,
-      );
-    } else {
-      nextTolerances = [
-        ...nextTolerances,
-        {
-          ...targetTmde,
-          variableType: varName,
-          quantity: 1,
-          measurementPoint: targetTmde.measurementPoint || {
-            value: "",
-            unit: "",
-          },
-        },
-      ];
+      onUpdateTestPoint({
+        tmdeTolerances: tmdeTolerancesData.map((tmde) =>
+          tmde.id === existing.id ? { ...tmde, variableType } : tmde,
+        ),
+      });
+      return;
     }
 
+    const resolution = resolveUutRangeHelper(
+      masterTmde,
+      tmdeRangeIndices,
+      null,
+      null,
+    );
+    const activeRange = resolution.activeRange || {};
+    const rangeSpecs = { ...activeRange };
+    delete rangeSpecs.id;
+    const defaultUnit =
+      activeRange.unit ||
+      masterTmde.instrument?.functions?.[0]?.unit ||
+      "";
+
+    onUpdateTestPoint({
+      tmdeTolerances: [
+        ...tmdeTolerancesData,
+        {
+          ...masterTmde,
+          ...rangeSpecs,
+          id: masterTmde.id,
+          sourceId: masterTmde.id,
+          variableType,
+          quantity: 1,
+          measurementPoint: masterTmde.measurementPoint || {
+            value: "",
+            unit: defaultUnit,
+          },
+        },
+      ],
+    });
+  };
+
+  const handleVariableNominalUpdate = (variableType, field, value) => {
+    const nextTolerances = tmdeTolerancesData.map((tmde) => {
+      if (tmde.variableType !== variableType) return tmde;
+      return {
+        ...tmde,
+        measurementPoint: {
+          ...(tmde.measurementPoint || { value: "", unit: "" }),
+          [field]: value,
+        },
+      };
+    });
     onUpdateTestPoint({ tmdeTolerances: nextTolerances });
   };
 
@@ -2128,22 +2202,21 @@ function DetailedView({
       .sort()
       .map((symbol) => {
         const name = currentMappings[symbol];
-        const assignedTmde = tmdeTolerancesData.find(
+        const assignedTmdes = tmdeTolerancesData.filter(
           (t) =>
             t.variableType &&
             name &&
             String(t.variableType).trim() === String(name).trim(),
         );
+        const assignedTmde = assignedTmdes[0];
 
         return {
           symbol,
           name,
-          isAssigned: !!assignedTmde,
+          isAssigned: assignedTmdes.length > 0,
+          assignedTmdes,
           value: assignedTmde?.measurementPoint?.value,
           unit: assignedTmde?.measurementPoint?.unit,
-          // --- FIX: Add fallback for name to prevent crash ---
-          instrumentName: assignedTmde?.name || "Unknown Device",
-          tmdeId: assignedTmde?.id,
         };
       });
 
@@ -2311,7 +2384,7 @@ function DetailedView({
                   return (
                     <React.Fragment key={uut.id}>
                       <tr
-                        className={`${isSelected ? "selected-row" : ""} ${hoveredRowId === uut.id ? "row-hovered" : ""}`}
+                        className={`${isLinked ? "linked-row" : ""} ${isSelected ? "selected-row" : ""} ${hoveredRowId === uut.id ? "row-hovered" : ""}`}
                         onMouseEnter={() => setHoveredRowId(uut.id)}
                         style={{
                           borderLeft:
@@ -2670,23 +2743,30 @@ function DetailedView({
                         >
                           ASSIGNED SOURCE
                         </label>
-                        <select
-                          className="var-source-select"
-                          value={v.tmdeId || ""}
-                          onChange={(e) =>
-                            handleAssignTmdeToVariable(v.symbol, e.target.value)
-                          }
-                          disabled={!v.name}
-                        >
-                          <option value="">
-                            -- No Source (Manual Entry) --
-                          </option>
-                          {sessionData.tmdes?.map((tmde) => (
-                            <option key={tmde.id} value={tmde.id}>
-                              {tmde.name || "Unnamed TMDE"}
-                            </option>
-                          ))}
-                        </select>
+                        <div className="var-source-summary">
+                          {v.assignedTmdes.length > 0 ? (
+                            <>
+                              <strong>
+                                {v.assignedTmdes.length} source
+                                {v.assignedTmdes.length === 1 ? "" : "s"}
+                              </strong>
+                              <span>
+                                {v.assignedTmdes
+                                  .map(
+                                    (tmde) =>
+                                      tmde.name ||
+                                      tmde.description ||
+                                      "Unnamed TMDE",
+                                  )
+                                  .join(", ")}
+                              </span>
+                            </>
+                          ) : (
+                            <span>
+                              Assign instruments in the TMDE table below
+                            </span>
+                          )}
+                        </div>
                       </div>
 
                       <div>
@@ -2707,8 +2787,11 @@ function DetailedView({
                               value={v.value}
                               type="number"
                               onSave={(val) =>
-                                onInlineTmdeUpdate &&
-                                onInlineTmdeUpdate(v.tmdeId, "nominal", val)
+                                handleVariableNominalUpdate(
+                                  v.name,
+                                  "value",
+                                  val,
+                                )
                               }
                               style={{
                                 fontFamily: "'Consolas', monospace",
@@ -2739,10 +2822,9 @@ function DetailedView({
                                     : null)
                                 }
                                 onChange={(opt) =>
-                                  onInlineTmdeUpdate &&
                                   opt &&
-                                  onInlineTmdeUpdate(
-                                    v.tmdeId,
+                                  handleVariableNominalUpdate(
+                                    v.name,
                                     "unit",
                                     opt.value,
                                   )
@@ -2775,7 +2857,7 @@ function DetailedView({
                                   marginRight: "6px",
                                 }}
                               />
-                              Map source above
+                              Assign a source below
                             </span>
                           </div>
                         )}
@@ -2827,31 +2909,33 @@ function DetailedView({
               style={{ tableLayout: "fixed" }}
             >
               <colgroup>
-                {/* The "Use" checkbox column is redundant for derived points —
-                    assigning a TMDE to an equation variable is the inclusion
-                    action there — so it's only shown for direct measurements. */}
-                {!isDerived && <col style={{ width: "50px" }} />}
-                <col style={{ width: "40%" }} />
-                <col style={{ width: "30%" }} />
-                <col style={{ width: "30%" }} />
+                {/* Direct points toggle usage. Derived points assign each
+                    instrument to one mapped input; several instruments may
+                    contribute to the same input budget. */}
+                <col style={{ width: isDerived ? "24%" : "50px" }} />
+                <col style={{ width: isDerived ? "30%" : "40%" }} />
+                <col style={{ width: isDerived ? "22%" : "30%" }} />
+                <col style={{ width: isDerived ? "24%" : "30%" }} />
               </colgroup>
               <thead>
                 <tr>
-                  {!isDerived && <th style={{ textAlign: "center" }}>Use</th>}
+                  <th style={{ textAlign: isDerived ? "left" : "center" }}>
+                    {isDerived ? "Assigned Input" : "Use"}
+                  </th>
                   <th>Description</th>
                   <th>Range</th>
                   <th>Specification</th>
                 </tr>
               </thead>
               <tbody>
-                {!sessionData.tmdes || sessionData.tmdes.length === 0 ? (
+                {relevantTmdes.length === 0 ? (
                   <tr className="panel-empty-row">
-                    <td colSpan={isDerived ? 3 : 4}>
-                      No TMDEs defined in Session.
+                    <td colSpan="4">
+                      No TMDEs defined for this measurement area.
                     </td>
                   </tr>
                 ) : (
-                  sessionData.tmdes.map((masterTmde) => {
+                  relevantTmdes.map((masterTmde) => {
                     // Check selection state
                     const isSelectedRow = selectedTmdeIds.includes(
                       masterTmde.id,
@@ -2911,22 +2995,48 @@ function DetailedView({
                             }
                             title="Click to select, Double-click to edit TMDE details"
                           >
-                            {!isDerived && (
-                              <td
-                                rowSpan={rowSpan}
-                                style={{
-                                  textAlign: "center",
-                                  verticalAlign: "top",
-                                }}
-                                onClick={(e) => e.stopPropagation()}
-                                className={`${hoveredCell.tableId === "tmde_det" && hoveredCell.colIndex === 0 ? "col-hovered" : ""}`}
-                                onMouseEnter={() =>
-                                  setHoveredCell({
-                                    tableId: "tmde_det",
-                                    colIndex: 0,
-                                  })
-                                }
-                              >
+                            <td
+                              rowSpan={rowSpan}
+                              style={{
+                                textAlign: isDerived ? "left" : "center",
+                                verticalAlign: "top",
+                              }}
+                              onClick={(e) => e.stopPropagation()}
+                              className={`${hoveredCell.tableId === "tmde_det" && hoveredCell.colIndex === 0 ? "col-hovered" : ""}`}
+                              onMouseEnter={() =>
+                                setHoveredCell({
+                                  tableId: "tmde_det",
+                                  colIndex: 0,
+                                })
+                              }
+                            >
+                              {isDerived ? (
+                                <select
+                                  className="tmde-input-assignment"
+                                  value={
+                                    isChecked
+                                      ? tmdeInstance.variableType || ""
+                                      : ""
+                                  }
+                                  onChange={(e) =>
+                                    handleAssignTmdeToInput(
+                                      masterTmde,
+                                      e.target.value,
+                                    )
+                                  }
+                                  aria-label={`Assign ${safeDescription} to equation input`}
+                                >
+                                  <option value="">Not used</option>
+                                  {availableVariables.map((variableType) => (
+                                    <option
+                                      key={variableType}
+                                      value={variableType}
+                                    >
+                                      {variableType}
+                                    </option>
+                                  ))}
+                                </select>
+                              ) : (
                                 <input
                                   type="checkbox"
                                   checked={isChecked}
@@ -2938,8 +3048,8 @@ function DetailedView({
                                   }
                                   style={{ cursor: "pointer" }}
                                 />
-                              </td>
-                            )}
+                              )}
+                            </td>
 
                             <td
                               rowSpan={rowSpan}

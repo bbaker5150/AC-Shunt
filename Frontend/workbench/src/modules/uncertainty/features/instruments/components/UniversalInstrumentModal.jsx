@@ -113,7 +113,8 @@ const UniversalInstrumentModal = ({
     onSave, 
     mode = 'library', // 'uut', 'tmde', 'library'
     initialData = null, 
-    instruments = [] 
+    instruments = [],
+    defaultMeasurementArea = null
 }) => {
     const [viewMode, setViewMode] = useState("edit"); 
     const [effectiveMode, setEffectiveMode] = useState(mode);
@@ -124,6 +125,7 @@ const UniversalInstrumentModal = ({
     const [metaData, setMetaData] = useState({
         name: "", 
         measurementArea: "",
+        measurementAreaId: "",
         measurementAreaColor: "#3498db", 
         quantity: 1, 
         assetId: "" 
@@ -171,17 +173,25 @@ const UniversalInstrumentModal = ({
                 setMetaData({
                     name: initialData.description || initialData.name || "",
                     measurementArea: initialData.measurementArea || "",
+                    measurementAreaId: initialData.measurementAreaId || "",
                     measurementAreaColor: initialData.measurementAreaColor || "#3498db",
                     quantity: initialData.quantity || 1, 
                     assetId: initialData.assetId || ""
                 });
             } else {
-                setMetaData({ name: "", measurementArea: "", measurementAreaColor: "#3498db", quantity: 1, assetId: "" });
+                setMetaData({
+                    name: "",
+                    measurementArea: defaultMeasurementArea?.name || "",
+                    measurementAreaId: defaultMeasurementArea?.id || "",
+                    measurementAreaColor: defaultMeasurementArea?.color || "#3498db",
+                    quantity: 1,
+                    assetId: ""
+                });
                 setInstrumentDef({ id: uuidv4(), manufacturer: "", model: "", description: "", functions: [] });
                 setActiveFunctionId(null);
             }
         }
-    }, [isOpen, initialData, mode]);
+    }, [isOpen, initialData, mode, defaultMeasurementArea]);
 
     const filteredInstruments = useMemo(() => {
         if (!searchTerm) return instruments;
@@ -271,7 +281,11 @@ const UniversalInstrumentModal = ({
     };
 
     const handleMetaChange = (field, value) => {
-        setMetaData(prev => ({ ...prev, [field]: value }));
+        setMetaData(prev => ({
+            ...prev,
+            [field]: value,
+            ...(field === "measurementArea" ? { measurementAreaId: "" } : {})
+        }));
     };
 
     const handleAddFunction = () => {
@@ -352,6 +366,7 @@ const UniversalInstrumentModal = ({
                 description: metaData.name, 
                 name: metaData.name,
                 measurementArea: metaData.measurementArea,
+                measurementAreaId: metaData.measurementAreaId,
                 measurementAreaColor: metaData.measurementAreaColor,
                 instrument: instrumentDef,
                 type: effectiveMode
