@@ -2275,6 +2275,23 @@ function DetailedView({
   const calculatedNominal = calcResults?.calculatedNominalValue;
   const targetNominal = parseFloat(uutNominal?.value);
 
+  // PROTOTYPE: consolidated "compact" layout — hides the variable cards and
+  // surfaces each source's value directly in the TMDE table (plus a slim
+  // per-variable strip for nominals / unassigned warnings). Toggle persists so
+  // the classic card layout can be compared side-by-side.
+  const [compactLayout, setCompactLayoutState] = useState(
+    () => typeof window !== "undefined" &&
+      window.localStorage?.getItem("uncCompactLayout") === "1",
+  );
+  const setCompactLayout = (next) => {
+    setCompactLayoutState(next);
+    try {
+      window.localStorage?.setItem("uncCompactLayout", next ? "1" : "0");
+    } catch {
+      /* ignore storage failures */
+    }
+  };
+
   const getCalculatedStatus = () => {
     if (isNaN(calculatedNominal) || isNaN(targetNominal)) return "neutral";
     const diff = Math.abs(calculatedNominal - targetNominal);
@@ -2701,7 +2718,32 @@ function DetailedView({
       <div className="measurement-equation-section">
         {isDerived && equationDisplayData && (
           <div className="measurement-equation-block">
-            <h3 className="panel-section-title">Measurement Equation</h3>
+            <div
+              style={{
+                display: "flex",
+                alignItems: "center",
+                justifyContent: "space-between",
+              }}
+            >
+              <h3 className="panel-section-title">Measurement Equation</h3>
+              <button
+                type="button"
+                onClick={() => setCompactLayout(!compactLayout)}
+                title="Toggle between the classic variable cards and the consolidated table layout"
+                style={{
+                  background: "transparent",
+                  border: "1px solid var(--border-color)",
+                  borderRadius: "6px",
+                  color: "var(--text-color-muted)",
+                  fontSize: "0.72rem",
+                  fontWeight: 700,
+                  padding: "4px 10px",
+                  cursor: "pointer",
+                }}
+              >
+                {compactLayout ? "Classic view" : "Compact view (beta)"}
+              </button>
+            </div>
             <div className="measurement-equation-card">
               <div className="add-point-equation-input measurement-equation-input-row">
                 <input
@@ -2773,6 +2815,83 @@ function DetailedView({
                 </div>
               )}
 
+              {compactLayout && (
+                <div
+                  style={{
+                    display: "flex",
+                    flexWrap: "wrap",
+                    gap: "8px",
+                    marginTop: "10px",
+                  }}
+                >
+                  {equationDisplayData.variables.map((v) => {
+                    const total = v.assignedTmdes.reduce((sum, src) => {
+                      const n = parseFloat(src.measurementPoint?.value);
+                      return sum + (isNaN(n) ? 0 : n);
+                    }, 0);
+                    const hasValue = v.assignedTmdes.some((src) =>
+                      Number.isFinite(parseFloat(src.measurementPoint?.value)),
+                    );
+                    const ok = v.isAssigned && hasValue;
+                    return (
+                      <div
+                        key={v.symbol}
+                        title={
+                          v.isAssigned
+                            ? `${v.name}: assign values in the table below`
+                            : "Assign a source in the table below"
+                        }
+                        style={{
+                          display: "flex",
+                          alignItems: "center",
+                          gap: "6px",
+                          padding: "4px 10px",
+                          borderRadius: "6px",
+                          border: `1px solid ${ok ? "var(--border-color)" : "var(--status-warning)"}`,
+                          backgroundColor: ok
+                            ? "var(--input-background)"
+                            : "rgba(255, 193, 7, 0.10)",
+                          fontSize: "0.78rem",
+                        }}
+                      >
+                        <span
+                          style={{
+                            fontWeight: 700,
+                            color: "var(--primary-color)",
+                          }}
+                        >
+                          {v.symbol}
+                        </span>
+                        <span style={{ color: "var(--text-color-muted)" }}>
+                          {v.name || "unmapped"}
+                        </span>
+                        {ok ? (
+                          <span
+                            style={{
+                              fontFamily: "'Consolas', monospace",
+                              fontWeight: 700,
+                              color: "var(--text-color)",
+                            }}
+                          >
+                            = {parseFloat(total.toPrecision(8))}{" "}
+                            {v.unit || ""}
+                            {v.assignedTmdes.length > 1
+                              ? ` (${v.assignedTmdes.length} sources)`
+                              : ""}
+                          </span>
+                        ) : (
+                          <span style={{ color: "var(--status-warning)" }}>
+                            <FontAwesomeIcon icon={faExclamationTriangle} />{" "}
+                            {v.isAssigned ? "needs value" : "needs source"}
+                          </span>
+                        )}
+                      </div>
+                    );
+                  })}
+                </div>
+              )}
+
+              {!compactLayout && (
               <div className="var-map-grid measurement-equation-var-grid">
                 {equationDisplayData.variables.map((v) => (
                   <div
@@ -3087,6 +3206,7 @@ function DetailedView({
                   </div>
                 ))}
               </div>
+              )}
             </div>
           </div>
         )}
@@ -3133,10 +3253,13 @@ function DetailedView({
                 {/* Direct points toggle usage. Derived points assign each
                     instrument to one mapped input; several instruments may
                     contribute to the same input budget. */}
-                <col style={{ width: isDerived ? "24%" : "50px" }} />
-                <col style={{ width: isDerived ? "30%" : "40%" }} />
+                <col style={{ width: isDerived ? "22%" : "50px" }} />
+                <col style={{ width: isDerived ? "26%" : "40%" }} />
+                {compactLayout && isDerived && (
+                  <col style={{ width: "16%" }} />
+                )}
+                <col style={{ width: isDerived ? "20%" : "30%" }} />
                 <col style={{ width: isDerived ? "22%" : "30%" }} />
-                <col style={{ width: isDerived ? "24%" : "30%" }} />
               </colgroup>
               <thead>
                 <tr>
@@ -3144,6 +3267,7 @@ function DetailedView({
                     {isDerived ? "Assigned Input" : "Use"}
                   </th>
                   <th>Description</th>
+                  {compactLayout && isDerived && <th>Value</th>}
                   <th>Range</th>
                   <th>Specification</th>
                 </tr>
@@ -3151,7 +3275,7 @@ function DetailedView({
               <tbody>
                 {relevantTmdes.length === 0 ? (
                   <tr className="panel-empty-row">
-                    <td colSpan="4">
+                    <td colSpan={compactLayout && isDerived ? "5" : "4"}>
                       No TMDEs defined for this measurement area.
                     </td>
                   </tr>
@@ -3291,6 +3415,60 @@ function DetailedView({
                                 {safeDescription}
                               </div>
                             </td>
+
+                            {compactLayout && isDerived && (
+                              <td
+                                rowSpan={rowSpan}
+                                style={{ verticalAlign: "top" }}
+                                onClick={(e) => e.stopPropagation()}
+                              >
+                                {isChecked ? (
+                                  <div
+                                    style={{
+                                      display: "flex",
+                                      alignItems: "center",
+                                      gap: "4px",
+                                    }}
+                                  >
+                                    <EditableCell
+                                      value={tmdeInstance.measurementPoint?.value}
+                                      type="number"
+                                      placeholder="value"
+                                      onSave={(val) =>
+                                        handleSourceNominalUpdate(
+                                          tmdeInstance.id,
+                                          "value",
+                                          val,
+                                        )
+                                      }
+                                      style={{
+                                        fontFamily: "'Consolas', monospace",
+                                        fontWeight: 700,
+                                        color: "var(--primary-color)",
+                                        backgroundColor: "transparent",
+                                        border: "none",
+                                        padding: 0,
+                                        width: "70px",
+                                      }}
+                                    />
+                                    <span
+                                      style={{
+                                        fontSize: "0.72rem",
+                                        color: "var(--text-color-muted)",
+                                      }}
+                                    >
+                                      {tmdeInstance.measurementPoint?.unit || ""}
+                                    </span>
+                                  </div>
+                                ) : (
+                                  <span
+                                    style={{ color: "var(--text-color-muted)" }}
+                                  >
+                                    —
+                                  </span>
+                                )}
+                              </td>
+                            )}
 
                             <td
                               rowSpan={rowSpan}
