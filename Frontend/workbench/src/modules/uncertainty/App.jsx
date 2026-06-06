@@ -2992,37 +2992,15 @@ function App() {
           initialData={instrumentModalConfig.data}
         />
 
-        {confirmationModal && (
-          <div className="modal-overlay" style={{ zIndex: 2001 }}>
-            {" "}
-            <div className="modal-content">
-              {" "}
-              <button
-                onClick={() => setConfirmationModal(null)}
-                className="modal-close-button"
-              >
-                {" "}
-                &times;{" "}
-              </button>{" "}
-              <h3>{confirmationModal.title}</h3>{" "}
-              <p>{confirmationModal.message}</p>{" "}
-              <div
-                className="modal-actions"
-                style={{ justifyContent: "center", gap: "15px" }}
-              >
-                {" "}
-                <button
-                  className="button"
-                  style={{ backgroundColor: "var(--status-bad)" }}
-                  onClick={confirmationModal.onConfirm}
-                >
-                  {" "}
-                  Delete{" "}
-                </button>{" "}
-              </div>{" "}
-            </div>{" "}
-          </div>
-        )}
+        <NotificationModal
+          isOpen={!!confirmationModal}
+          onClose={() => setConfirmationModal(null)}
+          title={confirmationModal?.title}
+          message={confirmationModal?.message}
+          confirmText={confirmationModal?.confirmText || "Delete"}
+          isIconConfirm
+          onConfirm={confirmationModal?.onConfirm}
+        />
         <AddTestPointModal
           isOpen={isAddModalOpen || !!editingTestPoint}
           onClose={() => {
