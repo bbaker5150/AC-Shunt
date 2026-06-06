@@ -2288,9 +2288,9 @@ function DetailedView({
   // several sources on one variable) lands outside the UUT's measurement range,
   // the resulting TUR/PFA are meaningless. Flag it explicitly rather than
   // letting the user puzzle over a wild risk number.
-  const uutRangeMax = parseFloat(
-    activeResolvedTolerance?.max ?? uutToleranceData?.max,
-  );
+  // NB: use uutToleranceData (defined above) — activeResolvedTolerance is
+  // declared further down, so referencing it here would hit the TDZ.
+  const uutRangeMax = parseFloat(uutToleranceData?.max);
   const calcExceedsRange =
     Number.isFinite(calculatedNominal) &&
     Number.isFinite(uutRangeMax) &&
