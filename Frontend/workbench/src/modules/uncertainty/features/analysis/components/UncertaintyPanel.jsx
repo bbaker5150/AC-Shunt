@@ -1608,6 +1608,38 @@ function DetailedView({
     }
   };
 
+  // Switching to a different test point clears any stale panel row selection so
+  // the Delete target always follows what's actually on screen.
+  useEffect(() => {
+    setSelectedUutIds([]);
+    setSelectedTmdeIds([]);
+  }, [testPointData?.id]);
+
+  // Delete/Backspace removes the selected panel rows (UUT/TMDE). Runs in the
+  // CAPTURE phase and stops propagation when it handles the key, so it pre-empts
+  // the app-level point-delete handler: once you've clicked a UUT/TMDE row,
+  // Delete removes THAT, not the open measurement point. With no panel row
+  // selected it does nothing and the app's point delete proceeds as before.
+  useEffect(() => {
+    const onKey = (e) => {
+      if (e.key !== "Delete" && e.key !== "Backspace") return;
+      const tag = document.activeElement?.tagName;
+      if (tag === "INPUT" || tag === "TEXTAREA") return;
+      if (selectedUutIds.length > 0) {
+        e.preventDefault();
+        e.stopImmediatePropagation();
+        handleDeleteSelectedUuts();
+      } else if (selectedTmdeIds.length > 0) {
+        e.preventDefault();
+        e.stopImmediatePropagation();
+        handleDeleteSelectedTmdes();
+      }
+    };
+    window.addEventListener("keydown", onKey, true);
+    return () => window.removeEventListener("keydown", onKey, true);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [selectedUutIds, selectedTmdeIds]);
+
   useEffect(() => {
     function handleClickOutside(event) {
       if (
@@ -2411,13 +2443,14 @@ function DetailedView({
                   return (
                     <React.Fragment key={uut.id}>
                       <tr
-                        className={`${isLinked ? "linked-row" : ""} ${isSelected ? "selected-row" : ""} ${hoveredRowId === uut.id ? "row-hovered" : ""}`}
+                        className={`${isSelected ? "selected-row" : ""} ${hoveredRowId === uut.id ? "row-hovered" : ""}`}
                         onMouseEnter={() => setHoveredRowId(uut.id)}
                         style={{
-                          borderLeft:
-                            isLinked || isSelected
-                              ? "4px solid var(--primary-color)"
-                              : "4px solid transparent",
+                          // Highlight only the clicked (selected) row; the linked
+                          // UUT keeps a subtle accent-colored description instead.
+                          borderLeft: isSelected
+                            ? "4px solid var(--primary-color)"
+                            : "4px solid transparent",
                           cursor: "pointer",
                         }}
                         onClick={(e) => handleUutClick(e, uut.id)}
@@ -2878,15 +2911,13 @@ function DetailedView({
                       return (
                         <React.Fragment key={`${masterTmde.id}-${idx}`}>
                           <tr
-                            className={`tmde-row ${isChecked ? "linked-row" : ""} ${isSelectedRow ? "selected-row" : ""} ${hoveredRowId === masterTmde.id ? "row-hovered" : ""}`}
+                            className={`tmde-row ${isSelectedRow ? "selected-row" : ""} ${hoveredRowId === masterTmde.id ? "row-hovered" : ""}`}
                             onMouseEnter={() => setHoveredRowId(masterTmde.id)}
                             style={{
-                              // Active (assigned) rows get the same left-border +
-                              // highlight as the UUT table's linked row.
-                              borderLeft:
-                                isChecked || isSelectedRow
-                                  ? "4px solid var(--primary-color)"
-                                  : "4px solid transparent",
+                              // Highlight only the clicked (selected) row.
+                              borderLeft: isSelectedRow
+                                ? "4px solid var(--primary-color)"
+                                : "4px solid transparent",
                               opacity: isChecked ? 1 : isSelectedRow ? 1 : 0.7,
                               cursor: "pointer",
                             }}
@@ -3093,12 +3124,11 @@ function DetailedView({
                           {specRows.slice(1).map((specComp, sIdx) => (
                             <tr
                               key={`${masterTmde.id}-${idx}-spec-${sIdx}`}
-                              className={`${isChecked ? "linked-row" : ""} ${isSelectedRow ? "selected-row spec-row" : "spec-row"} ${hoveredRowId === masterTmde.id ? "row-hovered" : ""}`}
+                              className={`${isSelectedRow ? "selected-row spec-row" : "spec-row"} ${hoveredRowId === masterTmde.id ? "row-hovered" : ""}`}
                               style={{
-                                borderLeft:
-                                  isChecked || isSelectedRow
-                                    ? "4px solid var(--primary-color)"
-                                    : "4px solid transparent",
+                                borderLeft: isSelectedRow
+                                  ? "4px solid var(--primary-color)"
+                                  : "4px solid transparent",
                                 opacity: isChecked ? 1 : 0.7,
                               }}
                             >

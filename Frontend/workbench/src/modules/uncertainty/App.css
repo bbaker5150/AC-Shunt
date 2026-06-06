@@ -7841,19 +7841,9 @@ body.theme-cyberpunk .notification-window .window-header {
   white-space: nowrap;
 }
 
-.uut-detail-card .industry-table tr.linked-row td,
-.instrument-summary-table tr.linked-row td {
-  background-color: var(--table-selected-row-bg);
-}
-
-.uut-detail-card .industry-table tr.linked-row:hover td,
-.instrument-summary-table tr.linked-row:hover td {
-  background-color: color-mix(
-    in srgb,
-    var(--table-selected-row-bg) 84%,
-    var(--primary-color-light)
-  );
-}
+/* Rows highlight ONLY when the user has clicked (selected) them — see
+   .industry-table tr.selected-row. Associated ("linked") and assigned rows are
+   indicated by accent text/border, not a full-row highlight. */
 
 .var-source-summary {
   display: flex;
