@@ -63,6 +63,7 @@ function computeUncertaintyForPoint(point, sessionData) {
   let combinedUncertaintyPPM = NaN;
   let combinedUncertaintyAbsoluteBase = NaN;
   let effectiveDof = Infinity;
+  let calculatedNominalValue;
   const componentsForBudgetTable = [];
 
   try {
@@ -106,6 +107,7 @@ function computeUncertaintyForPoint(point, sessionData) {
       const { combinedUncertaintyNative, breakdown: derivedBreakdown } =
         derivedCalculationResult;
       if (isNaN(combinedUncertaintyNative)) return null;
+      calculatedNominalValue = derivedCalculationResult.nominalResult;
 
       // Unified SIGNED contributions in base SI (equation inputs + non-mapped
       // manual components), combined with the optional correlation matrix. Must
@@ -237,6 +239,7 @@ function computeUncertaintyForPoint(point, sessionData) {
     return {
       combined_uncertainty_absolute_base: combinedUncertaintyAbsoluteBase,
       expanded_uncertainty_absolute_base: kValue * combinedUncertaintyAbsoluteBase,
+      calculated_nominal_value: calculatedNominalValue,
       k_value: kValue,
     };
   } catch {
@@ -307,6 +310,8 @@ export function computePointRiskMetrics(point, sessionData, includeGuardband = f
     calcResults.combined_uncertainty_absolute_base / targetUnitInfo.to_si;
   const U_Native =
     calcResults.expanded_uncertainty_absolute_base / targetUnitInfo.to_si;
+  const calculatedAverage = parseFloat(calcResults.calculated_nominal_value);
+  const riskAverage = Number.isFinite(calculatedAverage) ? calculatedAverage : 0;
 
   // TMDE tolerance span (for TAR), mirroring useRiskCalculation.
   let tmdeToleranceHigh_Native = 0;
@@ -366,16 +371,22 @@ export function computePointRiskMetrics(point, sessionData, includeGuardband = f
 
   const tarResult = calcTAR(
     uutNominal.value,
-    0,
+    riskAverage,
     LLow,
     LUp,
     nominalValue + tmdeToleranceLow_Native,
     nominalValue + tmdeToleranceHigh_Native,
   );
-  const turResult = calcTUR(uutNominal.value, 0, LLow, LUp, U_Native);
+  const turResult = calcTUR(
+    uutNominal.value,
+    riskAverage,
+    LLow,
+    LUp,
+    U_Native,
+  );
   const pfaArr = PFAMgr(
     uutNominal.value,
-    0,
+    riskAverage,
     LLow,
     LUp,
     uCal_Native,
@@ -385,7 +396,7 @@ export function computePointRiskMetrics(point, sessionData, includeGuardband = f
   );
   const pfrArr = PFRMgr(
     uutNominal.value,
-    0,
+    riskAverage,
     LLow,
     LUp,
     uCal_Native,
@@ -430,7 +441,7 @@ export function computePointRiskMetrics(point, sessionData, includeGuardband = f
         const lowMgr = gbLowMgr(
           pfaRequired,
           uutNominal.value,
-          0,
+          riskAverage,
           LLow,
           LUp,
           uCal_Native,
@@ -439,7 +450,7 @@ export function computePointRiskMetrics(point, sessionData, includeGuardband = f
         const upMgr = gbUpMgr(
           pfaRequired,
           uutNominal.value,
-          0,
+          riskAverage,
           LLow,
           LUp,
           uCal_Native,
@@ -450,7 +461,7 @@ export function computePointRiskMetrics(point, sessionData, includeGuardband = f
         const gbMult = GBMultMgr(
           pfaRequired,
           uutNominal.value,
-          0,
+          riskAverage,
           LLow,
           LUp,
           gbLow,
@@ -458,7 +469,7 @@ export function computePointRiskMetrics(point, sessionData, includeGuardband = f
         );
         const gbPfaArr = PFAwGBMgr(
           uutNominal.value,
-          0,
+          riskAverage,
           LLow,
           LUp,
           uCal_Native,
@@ -468,7 +479,7 @@ export function computePointRiskMetrics(point, sessionData, includeGuardband = f
         );
         const gbPfrArr = PFRwGBMgr(
           uutNominal.value,
-          0,
+          riskAverage,
           LLow,
           LUp,
           uCal_Native,

@@ -129,6 +129,8 @@ export const useRiskCalculation = (
     const uCal_Native = uCal_Base / targetUnitInfo.to_si;
     const U_Base = calcResults.expanded_uncertainty_absolute_base;
     const U_Native = U_Base / targetUnitInfo.to_si;
+    const calculatedAverage = parseFloat(calcResults.calculatedNominalValue);
+    const riskAverage = Number.isFinite(calculatedAverage) ? calculatedAverage : 0;
 
     if (!targetUnitInfo || isNaN(targetUnitInfo.to_si)) {
       setNotification({
@@ -262,16 +264,22 @@ export const useRiskCalculation = (
     // ... [Math Calculations] ...
     let tarResult = calcTAR(
       uutNominal.value,
-      0,
+      riskAverage,
       LLow,
       LUp,
       parseFloat(uutNominal.value) + tmdeToleranceLow_Native,
       parseFloat(uutNominal.value) + tmdeToleranceHigh_Native
     );
-    let turResult = calcTUR(uutNominal.value, 0, LLow, LUp, U_Native);
+    let turResult = calcTUR(
+      uutNominal.value,
+      riskAverage,
+      LLow,
+      LUp,
+      U_Native
+    );
     let [pfaResult, pfa_term1, pfa_term2, uUUT, uDev, cor] = PFAMgr(
       uutNominal.value,
-      0,
+      riskAverage,
       LLow,
       LUp,
       uCal_Native,
@@ -281,7 +289,7 @@ export const useRiskCalculation = (
     );
     let [pfrResult, pfr_term1, pfr_term2] = PFRMgr(
       uutNominal.value,
-      0,
+      riskAverage,
       LLow,
       LUp,
       uCal_Native,
@@ -328,7 +336,7 @@ export const useRiskCalculation = (
       gbLowMgr(
         pfaRequired,
         uutNominal.value,
-        0,
+        riskAverage,
         LLow,
         LUp,
         uCal_Native,
@@ -340,7 +348,7 @@ export const useRiskCalculation = (
       gbLowMgr(
         pfaRequired,
         uutNominal.value,
-        0,
+        riskAverage,
         LLow,
         LUp,
         uCal_Native,
@@ -350,7 +358,7 @@ export const useRiskCalculation = (
       gbUpMgr(
         pfaRequired,
         uutNominal.value,
-        0,
+        riskAverage,
         LLow,
         LUp,
         uCal_Native,
@@ -362,7 +370,7 @@ export const useRiskCalculation = (
       gbUpMgr(
         pfaRequired,
         uutNominal.value,
-        0,
+        riskAverage,
         LLow,
         LUp,
         uCal_Native,
@@ -371,7 +379,7 @@ export const useRiskCalculation = (
     let gbMult = GBMultMgr(
       pfaRequired,
       uutNominal.value,
-      0,
+      riskAverage,
       LLow,
       LUp,
       gbLow,
@@ -379,7 +387,7 @@ export const useRiskCalculation = (
     );
     let [gbPFA, gbPFAT1, gbPFAT2, gbPFAuUUT, gbPFAuDev, gbPFACor] = PFAwGBMgr(
       uutNominal.value,
-      0,
+      riskAverage,
       LLow,
       LUp,
       uCal_Native,
@@ -389,7 +397,7 @@ export const useRiskCalculation = (
     );
     let [gbPFR, gbPFRT1, gbPFRT2] = PFRwGBMgr(
       uutNominal.value,
-      0,
+      riskAverage,
       LLow,
       LUp,
       uCal_Native,
@@ -399,7 +407,7 @@ export const useRiskCalculation = (
     );
     let [gbCalInt,gbCalIntObs,gbCalIntPred] = CalIntwGBMgr(
       uutNominal.value,
-      0,
+      riskAverage,
       LLow,
       LUp,
       uCal_Native,
@@ -413,7 +421,7 @@ export const useRiskCalculation = (
     );
     let [nogbCalInt,nogbCalIntObs,nogbCalIntPred] = CalIntMgr(
       uutNominal.value,
-      0,
+      riskAverage,
       LLow,
       LUp,
       uCal_Native,
@@ -426,7 +434,7 @@ export const useRiskCalculation = (
     );
     let [nogbMeasRel,nogbMeasRelOBS] = CalRelMgr(
       uutNominal.value,
-      0,
+      riskAverage,
       LLow,
       LUp,
       uCal_Native,

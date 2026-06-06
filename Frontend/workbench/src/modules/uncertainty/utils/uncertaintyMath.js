@@ -1683,6 +1683,15 @@ export function uutUnc(r, uCal, LLow, LUp) {
   return uUUT;
 }
 
+// VBA passes these limits ByRef. UUTunc rewrites them to a symmetric
+// +/- half-span, and its callers continue calculating with the rewritten pair.
+function vbaUutUnc(r, uCal, LLow, LUp) {
+  const mid = (LUp + LLow) / 2;
+  const low = -Math.abs(LLow - mid);
+  const up = Math.abs(LUp - mid);
+  return { uUUT: uutUnc(r, uCal, low, up), low, up };
+}
+
 export function uutUncLL(r, uCal, Avg, LLow) {
   let workingAvg = Avg;
   let workingLLow = LLow;
@@ -1723,7 +1732,10 @@ export function ObsRel(
   let dBiasUnc, dDevUnc;
 
   if (sRiskType === "NotThreshold") {
-    dBiasUnc = uutUnc(dMeasRel, dCalUnc, dTolLow, dTolUp);
+    const normalized = vbaUutUnc(dMeasRel, dCalUnc, dTolLow, dTolUp);
+    dBiasUnc = normalized.uUUT;
+    dTolLow = normalized.low;
+    dTolUp = normalized.up;
     dDevUnc = Math.sqrt(Math.pow(dMeasUnc, 2) + Math.pow(dBiasUnc, 2));
     return vbNormSDist(dTolUp / dDevUnc) - vbNormSDist(dTolLow / dDevUnc);
   }
@@ -1757,7 +1769,10 @@ export function PredRel(
   let dBiasUnc, dDevUnc;
 
   if (sRiskType === "NotThreshold") {
-    dBiasUnc = uutUnc(dMeasRel, dCalUnc, dGBLow, dGBUp);
+    const normalized = vbaUutUnc(dMeasRel, dCalUnc, dGBLow, dGBUp);
+    dBiasUnc = normalized.uUUT;
+    dGBLow = normalized.low;
+    dGBUp = normalized.up;
     dDevUnc = Math.sqrt(Math.pow(dMeasUnc, 2) + Math.pow(dBiasUnc, 2));
     return vbNormSDist(dTolUp / dDevUnc) - vbNormSDist(dTolLow / dDevUnc);
   }
@@ -1884,7 +1899,10 @@ function calRelwTUR(sRiskType, rngTUR, rngReqTUR, dMeasUnc, dMeasRel, dTolLow, d
   let dBiasUnc, dDevUnc;
 
   if (sRiskType === "NotThreshold") {
-    dBiasUnc = uutUnc(dMeasRel, dCalUnc, dTolLow, dTolUp);
+    const normalized = vbaUutUnc(dMeasRel, dCalUnc, dTolLow, dTolUp);
+    dBiasUnc = normalized.uUUT;
+    dTolLow = normalized.low;
+    dTolUp = normalized.up;
     dDevUnc = Math.sqrt(dMeasUnc * dMeasUnc + dBiasUnc * dBiasUnc);
     dMeasRel = vbNormSDist(dTolUp / dDevUnc) - vbNormSDist(dTolLow / dDevUnc);
   } else if (sRiskType === "UpThreshold") {
@@ -1954,7 +1972,10 @@ function PFRLL_Core(uUUT, uCal, avg, LLow, ALow) {
 function PFAIter(sRiskType, dMeasRel, dAvg, dTolLow, dTolUp, dMeasUnc) {
   let dUUTUnc;
   if (sRiskType === "NotThreshold") {
-    dUUTUnc = uutUnc(dMeasRel, dMeasUnc, dTolLow, dTolUp);
+    const normalized = vbaUutUnc(dMeasRel, dMeasUnc, dTolLow, dTolUp);
+    dUUTUnc = normalized.uUUT;
+    dTolLow = normalized.low;
+    dTolUp = normalized.up;
     if (dUUTUnc <= 0) return -1;
     return PFA_Core(dUUTUnc, dMeasUnc, dTolLow, dTolUp, dTolLow, dTolUp)[0];
   }
@@ -2067,7 +2088,10 @@ export function PFAMgr(rngNominal, rngAvg, rngTolLow, rngTolUp, rngMeasUnc, rngM
 
   let dUUTUnc;
   if (sRiskType === "NotThreshold") {
-    dUUTUnc = uutUnc(dMeasRel, dMeasUnc, dTolLow, dTolUp);
+    const normalized = vbaUutUnc(dMeasRel, dMeasUnc, dTolLow, dTolUp);
+    dUUTUnc = normalized.uUUT;
+    dTolLow = normalized.low;
+    dTolUp = normalized.up;
     // Only reject truly invalid values (zero or negative)
     // Removed the `dUUTUnc <= dMeasUnc / 10` check to allow low-TUR scenarios to calculate
     if (dUUTUnc <= 0) return ["", "", "", "", "", ""];
@@ -2093,7 +2117,10 @@ export function PFRMgr(rngNominal, rngAvg, rngTolLow, rngTolUp, rngMeasUnc, rngM
 
   let dUUTUnc;
   if (sRiskType === "NotThreshold") {
-    dUUTUnc = uutUnc(dMeasRel, dMeasUnc, dTolLow, dTolUp);
+    const normalized = vbaUutUnc(dMeasRel, dMeasUnc, dTolLow, dTolUp);
+    dUUTUnc = normalized.uUUT;
+    dTolLow = normalized.low;
+    dTolUp = normalized.up;
     // Only reject truly invalid values (zero or negative)
     if (dUUTUnc <= 0) return ["", "", ""];
     // FIX: Using tolerance limits (dTolLow, dTolUp) as acceptance limits
@@ -2113,7 +2140,7 @@ export function PFRMgr(rngNominal, rngAvg, rngTolLow, rngTolUp, rngMeasUnc, rngM
 }
 
 export function gbLowMgr(rngReq, rngNominal, rngAvg, rngTolLow, rngTolUp, rngMeasUnc, rngMeasRel) {
-  const [sRiskType, dNominal, dAvg, dTolLow, dTolUp, dMeasUnc, dMeasRel] = getRiskInfo(
+  let [sRiskType, dNominal, dAvg, dTolLow, dTolUp, dMeasUnc, dMeasRel] = getRiskInfo(
     rngNominal, rngAvg, rngTolLow, rngTolUp, rngMeasUnc, rngMeasRel
   );
   const dReq = vbaNbrValidate(rngReq);
@@ -2183,7 +2210,10 @@ export function gbLowMgr(rngReq, rngNominal, rngAvg, rngTolLow, rngTolUp, rngMea
   }
 
   if (sRiskType === "NotThreshold") {
-    dUUTUnc = uutUnc(dMeasRel, dMeasUnc, dTolLow, dTolUp);
+    const normalized = vbaUutUnc(dMeasRel, dMeasUnc, dTolLow, dTolUp);
+    dUUTUnc = normalized.uUUT;
+    dTolLow = normalized.low;
+    dTolUp = normalized.up;
     if (dUUTUnc <= 0) return [NaN, NaN];
     GBMult = pfaGBMult(dReq, dUUTUnc, dMeasUnc, dTolLow, dTolUp);
     return [dNominal + dTolLow * GBMult, GBMult];
@@ -2199,7 +2229,7 @@ export function gbLowMgr(rngReq, rngNominal, rngAvg, rngTolLow, rngTolUp, rngMea
 }
 
 export function gbUpMgr(rngReq, rngNominal, rngAvg, rngTolLow, rngTolUp, rngMeasUnc, rngMeasRel) {
-  const [sRiskType, dNominal, dAvg, dTolLow, dTolUp, dMeasUnc, dMeasRel] = getRiskInfo(
+  let [sRiskType, dNominal, dAvg, dTolLow, dTolUp, dMeasUnc, dMeasRel] = getRiskInfo(
     rngNominal, rngAvg, rngTolLow, rngTolUp, rngMeasUnc, rngMeasRel
   );
   const dReq = vbaNbrValidate(rngReq);
@@ -2267,7 +2297,10 @@ export function gbUpMgr(rngReq, rngNominal, rngAvg, rngTolLow, rngTolUp, rngMeas
   }
 
   if (sRiskType === "NotThreshold") {
-    dUUTUnc = uutUnc(dMeasRel, dMeasUnc, dTolLow, dTolUp);
+    const normalized = vbaUutUnc(dMeasRel, dMeasUnc, dTolLow, dTolUp);
+    dUUTUnc = normalized.uUUT;
+    dTolLow = normalized.low;
+    dTolUp = normalized.up;
     if (dUUTUnc <= 0) return [NaN, NaN];
     GBMult = pfaGBMult(dReq, dUUTUnc, dMeasUnc, dTolLow, dTolUp);
     return [dTolUp * GBMult + dNominal, GBMult];
@@ -2300,7 +2333,7 @@ export function GBMultMgr(rngReq, rngNominal, rngAvg, rngTolLow, rngTolUp, rngGB
 }
 
 export function PFAwGBMgr(rngNominal, rngAvg, rngTolLow, rngTolUp, rngMeasUnc, rngMeasRel, rngGBLow, rngGBUp) {
-  const [sRiskType, dNominal, dAvg, dTolLow, dTolUp, dMeasUnc, dMeasRel, dGBLow, dGBUp] = GetGBInfo(
+  let [sRiskType, dNominal, dAvg, dTolLow, dTolUp, dMeasUnc, dMeasRel, dGBLow, dGBUp] = GetGBInfo(
     rngNominal, rngAvg, rngTolLow, rngTolUp, rngMeasUnc, rngMeasRel, rngGBLow, rngGBUp
   );
 
@@ -2310,7 +2343,10 @@ export function PFAwGBMgr(rngNominal, rngAvg, rngTolLow, rngTolUp, rngMeasUnc, r
   let dUUTUnc;
 
   if (sRiskType === "NotThreshold") {
-    dUUTUnc = uutUnc(dMeasRel, dMeasUnc, dGBLow, dGBUp);
+    const normalized = vbaUutUnc(dMeasRel, dMeasUnc, dGBLow, dGBUp);
+    dUUTUnc = normalized.uUUT;
+    dGBLow = normalized.low;
+    dGBUp = normalized.up;
     if (dUUTUnc <= 0) return ["", "", ""];
     return PFA_Core(dUUTUnc, dMeasUnc, dTolLow, dTolUp, dGBLow, dGBUp);
   }
@@ -2339,7 +2375,7 @@ export function PFAwGBMgr(rngNominal, rngAvg, rngTolLow, rngTolUp, rngMeasUnc, r
 }
 
 export function PFRwGBMgr(rngNominal, rngAvg, rngTolLow, rngTolUp, rngMeasUnc, rngMeasRel, rngGBLow, rngGBUp) {
-  const [sRiskType, dNominal, dAvg, dTolLow, dTolUp, dMeasUnc, dMeasRel, dGBLow, dGBUp] = GetGBInfo(
+  let [sRiskType, dNominal, dAvg, dTolLow, dTolUp, dMeasUnc, dMeasRel, dGBLow, dGBUp] = GetGBInfo(
     rngNominal, rngAvg, rngTolLow, rngTolUp, rngMeasUnc, rngMeasRel, rngGBLow, rngGBUp
   );
 
@@ -2348,7 +2384,10 @@ export function PFRwGBMgr(rngNominal, rngAvg, rngTolLow, rngTolUp, rngMeasUnc, r
   let dUUTUnc;
 
   if (sRiskType === "NotThreshold") {
-    dUUTUnc = uutUnc(dMeasRel, dMeasUnc, dGBLow, dGBUp);
+    const normalized = vbaUutUnc(dMeasRel, dMeasUnc, dGBLow, dGBUp);
+    dUUTUnc = normalized.uUUT;
+    dGBLow = normalized.low;
+    dGBUp = normalized.up;
     if (dUUTUnc <= 0) return ["", "", ""];
     return PFR_Core(dUUTUnc, dMeasUnc, dTolLow, dTolUp, dGBLow, dGBUp);
   }
