@@ -7841,11 +7841,13 @@ body.theme-cyberpunk .notification-window .window-header {
   white-space: nowrap;
 }
 
-.uut-detail-card .industry-table tr.linked-row td {
+.uut-detail-card .industry-table tr.linked-row td,
+.instrument-summary-table tr.linked-row td {
   background-color: var(--table-selected-row-bg);
 }
 
-.uut-detail-card .industry-table tr.linked-row:hover td {
+.uut-detail-card .industry-table tr.linked-row:hover td,
+.instrument-summary-table tr.linked-row:hover td {
   background-color: color-mix(
     in srgb,
     var(--table-selected-row-bg) 84%,
@@ -9210,6 +9212,23 @@ body.theme-cyberpunk .range-header-container:hover {
 
 .area-header-sticky:hover .area-label {
   color: var(--primary-color);
+}
+
+/* Inline rename input — inherits the label's look so editing is seamless. */
+input.area-label-edit {
+  font-size: 0.7rem;
+  font-weight: 800;
+  text-transform: uppercase;
+  letter-spacing: 0.8px;
+  color: var(--text-color);
+  background: var(--input-background, var(--content-background));
+  border: 1px solid var(--primary-color);
+  border-radius: 4px;
+  padding: 2px 6px;
+  margin: -2px 0;
+  min-width: 0;
+  width: 100%;
+  outline: none;
 }
 
 .area-header-sticky.active {

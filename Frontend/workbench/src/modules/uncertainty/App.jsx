@@ -1186,6 +1186,9 @@ function App() {
 
   // --- SELECTION & VIRTUAL STATE ---
   const [selectedAreaId, setSelectedAreaId] = useState(null);
+  // Inline rename of a measurement area from the sidebar.
+  const [editingAreaId, setEditingAreaId] = useState(null);
+  const [editingAreaName, setEditingAreaName] = useState("");
   const [selectedUutId, setSelectedUutId] = useState(null);
   const [selectedRangeContext, setSelectedRangeContext] = useState(null); // { uutId, range }
   const [virtualPoint, setVirtualPoint] = useState(null);
@@ -2616,6 +2619,61 @@ function App() {
     });
   };
 
+  const handleAddArea = () => {
+    if (!currentSessionData) return;
+    const existing = currentSessionData.measurementAreas || [];
+    const names = new Set(existing.map((a) => (a.name || "").toLowerCase()));
+    let name = "New Area";
+    let n = 2;
+    while (names.has(name.toLowerCase())) name = `New Area ${n++}`;
+    const palette = [
+      "#3498db", "#2ecc71", "#e67e22", "#9b59b6",
+      "#e74c3c", "#1abc9c", "#f1c40f", "#34495e",
+    ];
+    const newArea = {
+      id: uuidv4(),
+      name,
+      color: palette[existing.length % palette.length],
+    };
+    updateSession({
+      ...currentSessionData,
+      measurementAreas: [...existing, newArea],
+    });
+    setExpandedAreas((prev) => new Set(prev).add(newArea.id));
+    handleSelectArea(newArea.id);
+    // Drop straight into inline rename so the default name can be replaced.
+    setEditingAreaId(newArea.id);
+    setEditingAreaName(name);
+  };
+
+  const handleRenameArea = (areaId, rawName) => {
+    setEditingAreaId(null);
+    if (!currentSessionData) return;
+    const name = (rawName || "").trim();
+    const area = (currentSessionData.measurementAreas || []).find(
+      (a) => a.id === areaId,
+    );
+    if (!area || !name || name === area.name) return;
+    const oldName = area.name;
+    // Keep the denormalized `measurementArea` name in sync on every record that
+    // references this area (by id, or by the old name for legacy rows).
+    const syncName = (arr) =>
+      (arr || []).map((x) =>
+        x.measurementAreaId === areaId || x.measurementArea === oldName
+          ? { ...x, measurementArea: name }
+          : x,
+      );
+    updateSession({
+      ...currentSessionData,
+      measurementAreas: currentSessionData.measurementAreas.map((a) =>
+        a.id === areaId ? { ...a, name } : a,
+      ),
+      uuts: syncName(currentSessionData.uuts),
+      tmdes: syncName(currentSessionData.tmdes),
+      testPoints: syncName(currentSessionData.testPoints),
+    });
+  };
+
   const handleDeleteArea = (areaId) => {
     if (!currentSessionData) return;
     const area = (currentSessionData.measurementAreas || []).find(
@@ -3327,6 +3385,16 @@ function App() {
                   <div className="sidebar-actions-group">
                     {/* Eyeball Button Removed - Moved to HeaderToolbox */}
 
+                    {/* Add Measurement Area */}
+                    <button
+                      onClick={handleAddArea}
+                      title="Add Measurement Area"
+                      className="sidebar-action-btn-organic"
+                      disabled={!currentSessionData}
+                    >
+                      <FontAwesomeIcon icon={faLayerGroup} />
+                    </button>
+
                     {/* Expand/Collapse All */}
                     <button
                       onClick={handleToggleExpandAll}
@@ -3484,7 +3552,37 @@ function App() {
                           }}
                           size="sm"
                         />
-                        <span className="area-label">{areaData.name}</span>
+                        {editingAreaId === areaData.id ? (
+                          <input
+                            className="area-label area-label-edit"
+                            autoFocus
+                            value={editingAreaName}
+                            onClick={(e) => e.stopPropagation()}
+                            onChange={(e) => setEditingAreaName(e.target.value)}
+                            onBlur={() =>
+                              handleRenameArea(areaData.id, editingAreaName)
+                            }
+                            onKeyDown={(e) => {
+                              if (e.key === "Enter") {
+                                handleRenameArea(areaData.id, editingAreaName);
+                              } else if (e.key === "Escape") {
+                                setEditingAreaId(null);
+                              }
+                            }}
+                          />
+                        ) : (
+                          <span
+                            className="area-label"
+                            title="Double-click to rename"
+                            onDoubleClick={(e) => {
+                              e.stopPropagation();
+                              setEditingAreaId(areaData.id);
+                              setEditingAreaName(areaData.name);
+                            }}
+                          >
+                            {areaData.name}
+                          </span>
+                        )}
                       </div>
 
                       {isAreaExpanded && (

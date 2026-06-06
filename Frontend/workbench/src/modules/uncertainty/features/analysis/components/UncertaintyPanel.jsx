@@ -2878,13 +2878,15 @@ function DetailedView({
                       return (
                         <React.Fragment key={`${masterTmde.id}-${idx}`}>
                           <tr
-                            className={`tmde-row ${isSelectedRow ? "selected-row" : ""} ${hoveredRowId === masterTmde.id ? "row-hovered" : ""}`}
+                            className={`tmde-row ${isChecked ? "linked-row" : ""} ${isSelectedRow ? "selected-row" : ""} ${hoveredRowId === masterTmde.id ? "row-hovered" : ""}`}
                             onMouseEnter={() => setHoveredRowId(masterTmde.id)}
                             style={{
-                              // Apply Selection Highlight
-                              borderLeft: isSelectedRow
-                                ? "4px solid var(--primary-color)"
-                                : "4px solid transparent",
+                              // Active (assigned) rows get the same left-border +
+                              // highlight as the UUT table's linked row.
+                              borderLeft:
+                                isChecked || isSelectedRow
+                                  ? "4px solid var(--primary-color)"
+                                  : "4px solid transparent",
                               opacity: isChecked ? 1 : isSelectedRow ? 1 : 0.7,
                               cursor: "pointer",
                             }}
@@ -3087,11 +3089,12 @@ function DetailedView({
                           {specRows.slice(1).map((specComp, sIdx) => (
                             <tr
                               key={`${masterTmde.id}-${idx}-spec-${sIdx}`}
-                              className={`${isSelectedRow ? "selected-row spec-row" : "spec-row"} ${hoveredRowId === masterTmde.id ? "row-hovered" : ""}`}
+                              className={`${isChecked ? "linked-row" : ""} ${isSelectedRow ? "selected-row spec-row" : "spec-row"} ${hoveredRowId === masterTmde.id ? "row-hovered" : ""}`}
                               style={{
-                                borderLeft: isSelectedRow
-                                  ? "4px solid var(--primary-color)"
-                                  : "4px solid transparent",
+                                borderLeft:
+                                  isChecked || isSelectedRow
+                                    ? "4px solid var(--primary-color)"
+                                    : "4px solid transparent",
                                 opacity: isChecked ? 1 : 0.7,
                               }}
                             >
