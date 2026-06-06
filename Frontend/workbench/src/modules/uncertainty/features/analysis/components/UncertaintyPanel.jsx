@@ -2103,7 +2103,14 @@ function DetailedView({
     const activeRange = resolution.activeRange || {};
     const rangeSpecs = { ...activeRange };
     delete rangeSpecs.id;
+    // Additive sources on one variable must share a unit so they can be summed.
+    // Inherit the unit from any source already on this variable; fall back to the
+    // range/instrument unit. Value starts empty so the user enters this piece.
+    const sibling = tmdeTolerancesData.find(
+      (t) => t.variableType === variableType && t.measurementPoint?.unit,
+    );
     const defaultUnit =
+      sibling?.measurementPoint?.unit ||
       activeRange.unit ||
       masterTmde.instrument?.functions?.[0]?.unit ||
       "";
@@ -2118,10 +2125,9 @@ function DetailedView({
           sourceId: masterTmde.id,
           variableType,
           quantity: 1,
-          measurementPoint: masterTmde.measurementPoint || {
-            value: "",
-            unit: defaultUnit,
-          },
+          measurementPoint: masterTmde.measurementPoint?.value
+            ? masterTmde.measurementPoint
+            : { value: "", unit: defaultUnit },
         },
       ],
     });
@@ -2138,6 +2144,24 @@ function DetailedView({
         },
       };
     });
+    onUpdateTestPoint({ tmdeTolerances: nextTolerances });
+  };
+
+  // Per-SOURCE measurement point update (additive composition): each source on a
+  // variable carries its own value, and the variable is their sum. Edits one
+  // source by id rather than broadcasting to every source of the variable type.
+  const handleSourceNominalUpdate = (tmdeId, field, value) => {
+    const nextTolerances = tmdeTolerancesData.map((tmde) =>
+      tmde.id === tmdeId
+        ? {
+            ...tmde,
+            measurementPoint: {
+              ...(tmde.measurementPoint || { value: "", unit: "" }),
+              [field]: value,
+            },
+          }
+        : tmde,
+    );
     onUpdateTestPoint({ tmdeTolerances: nextTolerances });
   };
 
@@ -2782,6 +2806,140 @@ function DetailedView({
                           VALUE
                         </label>
                         {v.isAssigned ? (
+                          v.assignedTmdes.length > 1 ? (
+                            // Additive composition: one value per source, summed.
+                            <div
+                              style={{
+                                display: "flex",
+                                flexDirection: "column",
+                                gap: "4px",
+                              }}
+                            >
+                              {v.assignedTmdes.map((src) => (
+                                <div
+                                  key={src.id}
+                                  style={{
+                                    display: "flex",
+                                    alignItems: "center",
+                                    gap: "6px",
+                                  }}
+                                >
+                                  <span
+                                    title={
+                                      src.name || src.description || "Source"
+                                    }
+                                    style={{
+                                      fontSize: "0.7rem",
+                                      color: "var(--text-color-muted)",
+                                      width: "110px",
+                                      whiteSpace: "nowrap",
+                                      overflow: "hidden",
+                                      textOverflow: "ellipsis",
+                                    }}
+                                  >
+                                    {src.name || src.description || "Source"}
+                                  </span>
+                                  <EditableCell
+                                    value={src.measurementPoint?.value}
+                                    type="number"
+                                    onSave={(val) =>
+                                      handleSourceNominalUpdate(
+                                        src.id,
+                                        "value",
+                                        val,
+                                      )
+                                    }
+                                    style={{
+                                      fontFamily: "'Consolas', monospace",
+                                      fontSize: "0.95rem",
+                                      fontWeight: 700,
+                                      color: "var(--primary-color)",
+                                      backgroundColor: "transparent",
+                                      border: "none",
+                                      padding: 0,
+                                      width: "90px",
+                                    }}
+                                  />
+                                </div>
+                              ))}
+                              <div
+                                style={{
+                                  display: "flex",
+                                  alignItems: "center",
+                                  gap: "6px",
+                                  borderTop: "1px solid var(--border-color)",
+                                  paddingTop: "4px",
+                                  marginTop: "2px",
+                                }}
+                              >
+                                <span
+                                  style={{
+                                    fontSize: "0.7rem",
+                                    fontWeight: 700,
+                                    color: "var(--text-color-muted)",
+                                    width: "110px",
+                                  }}
+                                >
+                                  Σ Total
+                                </span>
+                                <span
+                                  style={{
+                                    fontFamily: "'Consolas', monospace",
+                                    fontSize: "1.05rem",
+                                    fontWeight: 700,
+                                    color: "var(--primary-color)",
+                                    width: "90px",
+                                  }}
+                                >
+                                  {(() => {
+                                    const t = v.assignedTmdes.reduce(
+                                      (sum, src) => {
+                                        const n = parseFloat(
+                                          src.measurementPoint?.value,
+                                        );
+                                        return sum + (isNaN(n) ? 0 : n);
+                                      },
+                                      0,
+                                    );
+                                    return Number.isFinite(t)
+                                      ? parseFloat(t.toPrecision(8))
+                                      : 0;
+                                  })()}
+                                </span>
+                                <div
+                                  style={{
+                                    width: "85px",
+                                    borderBottom:
+                                      "1px dashed var(--border-color)",
+                                  }}
+                                >
+                                  <Select
+                                    options={groupedUnitOptions}
+                                    value={
+                                      groupedUnitOptions
+                                        .flatMap((g) => g.options)
+                                        .find((opt) => opt.value === v.unit) ||
+                                      (v.unit
+                                        ? { value: v.unit, label: v.unit }
+                                        : null)
+                                    }
+                                    onChange={(opt) =>
+                                      opt &&
+                                      handleVariableNominalUpdate(
+                                        v.name,
+                                        "unit",
+                                        opt.value,
+                                      )
+                                    }
+                                    styles={customUnitSelectStyles}
+                                    placeholder="Unit"
+                                    menuPortalTarget={document.body}
+                                    isSearchable={true}
+                                  />
+                                </div>
+                              </div>
+                            </div>
+                          ) : (
                           <div className="var-value-display">
                             <EditableCell
                               value={v.value}
@@ -2836,6 +2994,7 @@ function DetailedView({
                               />
                             </div>
                           </div>
+                          )
                         ) : (
                           <div
                             className="var-value-display"

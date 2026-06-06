@@ -191,3 +191,36 @@ describe("derived multi-TMDE composition — first-principles absolute", () => {
     expect(Number.isFinite(mtr.pfa)).toBe(true);
   });
 });
+
+// ---------------------------------------------------------------------------
+// Guard relaxation — a freshly-assigned (empty-valued) source must NOT blank
+// the panel. The empty piece is ignored until the user enters its value.
+// ---------------------------------------------------------------------------
+describe("derived multi-TMDE composition — empty source does not blank risk", () => {
+  const valued = tmde("m1", "Mass", 12, "N", 0.02);
+  const empty = { ...tmde("m2", "Mass", 0, "N", 0.02), measurementPoint: { value: "", unit: "N" } };
+  const L = tmde("L", "Length", 0.5, "m", 0.001);
+
+  it("computes from the valued source while a sibling is mid-entry", () => {
+    const p = derivedPoint({
+      eq: "y = m * L",
+      map: { m: "Mass", L: "Length" },
+      tmdes: [valued, empty, L],
+      resultValue: 6, // 12 * 0.5 — only the valued mass contributes yet
+      resultUnit: "Hz",
+    });
+    const m = computePointRiskMetrics(p, sessionData);
+    expect(m, "risk blanked with an empty sibling source").not.toBeNull();
+    expect(unc(p).nominalResult).toBeCloseTo(6, 9); // empty piece ignored, not summed
+
+    // Once the second piece gets a value, it composes additively.
+    const filled = derivedPoint({
+      eq: "y = m * L",
+      map: { m: "Mass", L: "Length" },
+      tmdes: [valued, tmde("m2", "Mass", 8, "N", 0.02), L],
+      resultValue: 10, // (12 + 8) * 0.5
+      resultUnit: "Hz",
+    });
+    expect(unc(filled).nominalResult).toBeCloseTo(10, 9);
+  });
+});

@@ -200,38 +200,14 @@ export const useUncertaintyCalculation = (
       const normalCoverageFactor = normalQuantile(probability);
 
       if (testPointData.measurementType === "derived") {
-        
-        // --- FIX START: PRE-CALCULATION GUARD ---
-        // Check for mapped TMDEs with empty/invalid values to prevent Math Engine crash.
-        const activeMappedVars = Object.values(testPointData.variableMappings || {}).filter(v => v);
-        const mappedTmdes = tmdeTolerancesData.filter(t => 
-            t.variableType && activeMappedVars.includes(t.variableType)
-        );
 
-        const hasInvalidValues = mappedTmdes.some(t => {
-            const val = t.measurementPoint?.value;
-            // Allow 0, but reject "" (empty string), null, undefined, or non-numeric strings
-            return val === "" || val === null || val === undefined || isNaN(parseFloat(val));
-        });
-
-        if (hasInvalidValues) {
-             setCalcResults(null);
-             // Return silently. This is a "User is typing" state, not a system error.
-             if (testPointData.is_detailed_uncertainty_calculated) {
-                onDataSave({
-                    combined_uncertainty: null,
-                    effective_dof: null,
-                    k_value: null,
-                    expanded_uncertainty: null,
-                    is_detailed_uncertainty_calculated: false,
-                    calculatedBudgetComponents: [],
-                    calculatedBudgetGroups: [],
-                    calculatedNominalValue: null,
-                });
-             }
-             return; 
-        }
-        // --- FIX END ---
+        // NOTE: we intentionally do NOT bail when an individual mapped TMDE has
+        // an empty value. With additive composition a variable can carry several
+        // sources (e.g. stacked deadweights), and one being mid-entry must not
+        // blank the whole budget. calculateDerivedUncertainty skips empty-valued
+        // sources, and a variable left with NO valued source comes back as
+        // `missingInputs` (handled below) — the proper "user is still typing"
+        // signal — instead of an all-or-nothing guard on every source.
 
         const derivedCalculationResult = calculateDerivedUncertainty(
           testPointData.equationString,
