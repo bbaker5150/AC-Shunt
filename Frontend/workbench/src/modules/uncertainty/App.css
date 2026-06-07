@@ -11010,11 +11010,7 @@ body.theme-cyberpunk .uncertainty-module .point-grid-item.active-point {
 .uncertainty-module
   .industry-table
   tbody
-  tr.selected-instrument-start {
-  border-left: 0 !important;
-  box-shadow: none !important;
-}
-
+  tr.selected-instrument-start,
 .uncertainty-module
   .industry-table
   tbody
@@ -11023,18 +11019,20 @@ body.theme-cyberpunk .uncertainty-module .point-grid-item.active-point {
   box-shadow: none !important;
 }
 
+/* Use the table cells that physically occupy each outer edge. Unlike separate
+   row shadows, these borders share the table's geometry and cannot leave a
+   subpixel seam where row-spanned cells meet a continuation spec row. */
 .uncertainty-module
   .industry-table
   tbody
   tr.selected-instrument-start
   > td {
-  box-shadow:
-    inset 0 2px 0
-      color-mix(
-        in srgb,
-        var(--primary-color) var(--selected-outline-strength),
-        white
-      ) !important;
+  border-top: 2px solid
+    color-mix(
+      in srgb,
+      var(--primary-color) var(--selected-outline-strength),
+      white
+    ) !important;
   animation: selectedInstrumentBorderPulse 1.8s ease-in-out infinite;
 }
 
@@ -11043,14 +11041,7 @@ body.theme-cyberpunk .uncertainty-module .point-grid-item.active-point {
   tbody
   tr.selected-instrument-start
   > td:first-child {
-  box-shadow:
-    inset 3px 0 0 var(--primary-color),
-    inset 0 2px 0
-      color-mix(
-        in srgb,
-        var(--primary-color) var(--selected-outline-strength),
-        white
-      ) !important;
+  border-left: 3px solid var(--primary-color) !important;
   animation: selectedInstrumentBorderPulse 1.8s ease-in-out infinite;
 }
 
@@ -11064,13 +11055,12 @@ body.theme-cyberpunk .uncertainty-module .point-grid-item.active-point {
   tbody
   tr.selected-instrument-continuation
   > td:last-child {
-  box-shadow:
-    inset -2px 0 0
-      color-mix(
-        in srgb,
-        var(--primary-color) var(--selected-outline-strength),
-        white
-      ) !important;
+  border-right: 2px solid
+    color-mix(
+      in srgb,
+      var(--primary-color) var(--selected-outline-strength),
+      white
+    ) !important;
   animation: selectedInstrumentBorderPulse 1.8s ease-in-out infinite;
 }
 
@@ -11079,40 +11069,12 @@ body.theme-cyberpunk .uncertainty-module .point-grid-item.active-point {
   tbody
   tr.selected-instrument-start:not(.selected-instrument-end)
   > td:last-child {
-  box-shadow:
-    inset -2px 0 0
-      color-mix(
-        in srgb,
-        var(--primary-color) var(--selected-outline-strength),
-        white
-      ),
-    inset 0 2px 0
-      color-mix(
-        in srgb,
-        var(--primary-color) var(--selected-outline-strength),
-        white
-      ) !important;
-}
-
-.uncertainty-module
-  .industry-table
-  tbody
-  tr.selected-instrument-start
-  > td:first-child:last-child {
-  box-shadow:
-    inset 3px 0 0 var(--primary-color),
-    inset -2px 0 0
-      color-mix(
-        in srgb,
-        var(--primary-color) var(--selected-outline-strength),
-        white
-      ),
-    inset 0 2px 0
-      color-mix(
-        in srgb,
-        var(--primary-color) var(--selected-outline-strength),
-        white
-      ) !important;
+  border-top: 2px solid
+    color-mix(
+      in srgb,
+      var(--primary-color) var(--selected-outline-strength),
+      white
+    ) !important;
 }
 
 .uncertainty-module
@@ -11125,108 +11087,13 @@ body.theme-cyberpunk .uncertainty-module .point-grid-item.active-point {
   tbody
   tr.selected-instrument-end
   > td {
-  box-shadow:
-    inset 0 2px 0
-      color-mix(
-        in srgb,
-        var(--primary-color) var(--selected-outline-strength),
-        white
-      ),
-    inset 0 -2px 0
-      color-mix(
-        in srgb,
-        var(--primary-color) var(--selected-outline-strength),
-        white
-      ) !important;
+  border-bottom: 2px solid
+    color-mix(
+      in srgb,
+      var(--primary-color) var(--selected-outline-strength),
+      white
+    ) !important;
   animation: selectedInstrumentBorderPulse 1.8s ease-in-out infinite;
-}
-
-.uncertainty-module
-  .industry-table
-  tbody
-  tr.selected-instrument-start:not(.selected-instrument-end)
-  > td[rowspan]:first-child {
-  box-shadow:
-    inset 3px 0 0 var(--primary-color),
-    inset 0 2px 0
-      color-mix(
-        in srgb,
-        var(--primary-color) var(--selected-outline-strength),
-        white
-      ),
-    inset 0 -2px 0
-      color-mix(
-        in srgb,
-        var(--primary-color) var(--selected-outline-strength),
-        white
-      ) !important;
-}
-
-.uncertainty-module
-  .industry-table
-  tbody
-  tr.selected-instrument-continuation.selected-instrument-end
-  > td:last-child {
-  box-shadow:
-    inset -2px 0 0
-      color-mix(
-        in srgb,
-        var(--primary-color) var(--selected-outline-strength),
-        white
-      ),
-    inset 0 -2px 0
-      color-mix(
-        in srgb,
-        var(--primary-color) var(--selected-outline-strength),
-        white
-      ) !important;
-}
-
-.uncertainty-module
-  .industry-table
-  tbody
-  tr.selected-instrument-start.selected-instrument-end
-  > td:first-child {
-  box-shadow:
-    inset 3px 0 0 var(--primary-color),
-    inset 0 2px 0
-      color-mix(
-        in srgb,
-        var(--primary-color) var(--selected-outline-strength),
-        white
-      ),
-    inset 0 -2px 0
-      color-mix(
-        in srgb,
-        var(--primary-color) var(--selected-outline-strength),
-        white
-      ) !important;
-}
-
-.uncertainty-module
-  .industry-table
-  tbody
-  tr.selected-instrument-start.selected-instrument-end
-  > td:last-child {
-  box-shadow:
-    inset -2px 0 0
-      color-mix(
-        in srgb,
-        var(--primary-color) var(--selected-outline-strength),
-        white
-      ),
-    inset 0 2px 0
-      color-mix(
-        in srgb,
-        var(--primary-color) var(--selected-outline-strength),
-        white
-      ),
-    inset 0 -2px 0
-      color-mix(
-        in srgb,
-        var(--primary-color) var(--selected-outline-strength),
-        white
-      ) !important;
 }
 
 @keyframes selectedInstrumentBorderPulse {
