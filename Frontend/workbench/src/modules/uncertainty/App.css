@@ -11011,6 +11011,7 @@ body.theme-cyberpunk .uncertainty-module .point-grid-item.active-point {
   .industry-table
   tbody
   tr.selected-instrument-start {
+  border-left: 0 !important;
   box-shadow:
     inset 3px 0 0 var(--primary-color),
     inset -2px 0 0
@@ -11032,6 +11033,7 @@ body.theme-cyberpunk .uncertainty-module .point-grid-item.active-point {
   .industry-table
   tbody
   tr.selected-instrument-continuation {
+  border-left: 0 !important;
   box-shadow:
     inset 3px 0 0 var(--primary-color),
     inset -2px 0 0

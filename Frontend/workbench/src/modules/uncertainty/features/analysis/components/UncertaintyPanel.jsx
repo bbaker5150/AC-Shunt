@@ -2479,11 +2479,6 @@ function DetailedView({
                         className={`${isSelected ? `selected-row selected-instrument-start ${specRows.length <= 1 ? "selected-instrument-end" : ""}` : ""} ${isActivePointUut ? "active-point-uut-row" : ""} ${hoveredRowId === uut.id ? "row-hovered" : ""}`}
                         onMouseEnter={() => setHoveredRowId(uut.id)}
                         style={{
-                          // Highlight only the clicked (selected) row; the linked
-                          // UUT keeps a subtle accent-colored description instead.
-                          borderLeft: isSelected
-                            ? "4px solid var(--primary-color)"
-                            : "4px solid transparent",
                           cursor: "pointer",
                         }}
                         onClick={(e) => handleUutClick(e, uut.id)}
@@ -2563,7 +2558,6 @@ function DetailedView({
                           className={`spec-row ${isSelected ? `selected-spec-row selected-instrument-continuation ${sIdx === specRows.length - 2 ? "selected-instrument-end" : ""}` : ""} ${isActivePointUut ? "active-point-uut-spec-row" : ""} ${hoveredRowId === uut.id ? "hovered-spec-row" : ""}`}
                           onMouseEnter={() => setHoveredRowId(uut.id)}
                           style={{
-                            borderLeft: "4px solid transparent",
                             cursor: "pointer",
                           }}
                         >
@@ -2926,10 +2920,6 @@ function DetailedView({
                             className={`tmde-row ${isChecked ? "active-point-tmde-row" : ""} ${isSelectedRow ? `selected-row selected-instrument-start ${specRows.length <= 1 ? "selected-instrument-end" : ""}` : ""} ${hoveredRowId === masterTmde.id ? "row-hovered" : ""}`}
                             onMouseEnter={() => setHoveredRowId(masterTmde.id)}
                             style={{
-                              // Highlight only the clicked (selected) row.
-                              borderLeft: isSelectedRow
-                                ? "4px solid var(--primary-color)"
-                                : "4px solid transparent",
                               opacity: isChecked ? 1 : isSelectedRow ? 1 : 0.7,
                               cursor: "pointer",
                             }}
@@ -3144,7 +3134,6 @@ function DetailedView({
                                 setHoveredRowId(masterTmde.id)
                               }
                               style={{
-                                borderLeft: "4px solid transparent",
                                 opacity: isChecked ? 1 : 0.7,
                               }}
                             >
