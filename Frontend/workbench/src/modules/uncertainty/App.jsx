@@ -763,7 +763,6 @@ const SidebarSessionHeader = ({
         aria-current={isActive ? "page" : undefined}
       >
         <span>Session Overview</span>
-        <FontAwesomeIcon icon={faEye} />
       </button>
 
       <div className="session-collapsible-block session-info-block">
