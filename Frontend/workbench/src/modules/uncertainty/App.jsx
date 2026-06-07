@@ -65,6 +65,7 @@ import {
   faSave,
   faFolderOpen,
   faCopy,
+  faCut,
   faPaste,
   faCheckCircle,
   faSlidersH,
@@ -81,6 +82,15 @@ import {
   getAbsoluteLimits,
 } from "./utils/uncertaintyMath";
 import { computeRiskMetricsMap } from "./utils/riskCompute";
+import {
+  associateUutWithPoint,
+  resolvePointAreaId,
+  resolveAreaWorkspacePoint,
+} from "./utils/areaWorkspace";
+import {
+  getRemainingCutPoints,
+  preparePointForPaste,
+} from "./utils/pointClipboard";
 
 const getSidebarGridTemplate = (visibleColumns) => {
   const parts = [];
@@ -247,6 +257,7 @@ const getPointLimitSortValue = (point, key) => {
 const SidebarPointItem = ({
   point,
   isSelected,
+  isActivePoint = false,
   isTableSelected,
   liveRiskMetrics = null,
   isLiveRiskTarget = false,
@@ -384,7 +395,7 @@ const SidebarPointItem = ({
   return (
     <div
       draggable={!editingField}
-      className={`point-grid-item ${isSelected ? "active" : ""} ${isTableSelected ? "table-highlight" : ""}`}
+      className={`point-grid-item ${isSelected ? "active" : ""} ${isActivePoint ? "active-point" : ""} ${isTableSelected ? "table-highlight" : ""}`}
       style={{ gridTemplateColumns: getSidebarGridTemplate(visibleColumns) }}
       onClick={(e) => {
         if (!editingField) {
@@ -742,6 +753,18 @@ const SidebarSessionHeader = ({
       title="Click to select Session Overview"
       onClick={onSelect}
     >
+      <button
+        type="button"
+        className={`session-overview-button ${isActive ? "active" : ""}`}
+        onClick={(e) => {
+          e.stopPropagation();
+          onSelect();
+        }}
+        aria-current={isActive ? "page" : undefined}
+      >
+        <span>Session Overview</span>
+      </button>
+
       <div className="session-collapsible-block session-info-block">
         <button
           type="button"
@@ -888,6 +911,7 @@ function App() {
   const [instrumentModalConfig, setInstrumentModalConfig] = useState({
     mode: "library",
     data: null,
+    associateToPointId: null,
   });
 
   const [isHelpOpen, setIsHelpOpen] = useState(false);
@@ -1338,6 +1362,8 @@ function App() {
   const [dragOverTargetId, setDragOverTargetId] = useState(null);
   const [clipboardPoint, setClipboardPoint] = useState(null);
   const [clipboardUut, setClipboardUut] = useState(null);
+  const [clipboardPointMode, setClipboardPointMode] = useState("copy");
+  const [clipboardKind, setClipboardKind] = useState(null);
 
   // Toast Helper — delegates to the shared workbench toast stack so toasts
   // render globally (above all modules) with consistent styling.
@@ -1438,16 +1464,36 @@ function App() {
     const points = Array.isArray(pointOrPoints)
       ? pointOrPoints
       : [pointOrPoints];
-    setClipboardPoint(points); // Now stores array
+    setClipboardPoint(points);
+    setClipboardPointMode("copy");
+    setClipboardKind("point");
     showToast(
       `${points.length} Measurement point${points.length > 1 ? "s" : ""} copied to clipboard`,
     );
     setContextMenu(null);
   }, []);
 
+  const handleCutPoint = useCallback((pointOrPoints) => {
+    const points = Array.isArray(pointOrPoints)
+      ? pointOrPoints
+      : [pointOrPoints];
+    setClipboardPoint(points);
+    setClipboardPointMode("cut");
+    setClipboardKind("point");
+    showToast(
+      `${points.length} measurement point${points.length > 1 ? "s" : ""} cut. Select a destination UUT or range and paste.`,
+    );
+    setContextMenu(null);
+  }, []);
+
   const handlePastePoint = useCallback(
     (targetUutId, targetAreaId, targetRange = null) => {
-      if (!clipboardPoint || clipboardPoint.length === 0) return;
+      if (
+        clipboardKind !== "point" ||
+        !clipboardPoint ||
+        clipboardPoint.length === 0
+      )
+        return;
 
       const pointsToPaste = Array.isArray(clipboardPoint)
         ? clipboardPoint
@@ -1494,14 +1540,9 @@ function App() {
       let errorCount = 0;
 
       pointsToPaste.forEach((pt) => {
-        // Create new point object (Clean ID)
-        const newPointData = { ...pt };
-        delete newPointData.id;
-        newPointData.measurementAreaId = resolvedAreaId;
-        newPointData.associatedUutIds = [targetUutId];
-
-        const val = newPointData.testPointInfo?.parameter?.value;
-        const unit = newPointData.testPointInfo?.parameter?.unit;
+        const val = pt.testPointInfo?.parameter?.value;
+        const unit = pt.testPointInfo?.parameter?.unit;
+        let resolvedTolerance = pt.uutTolerance;
 
         // Resolve Tolerance
         if (targetRange) {
@@ -1510,12 +1551,18 @@ function App() {
             errorCount++;
             return;
           }
-          newPointData.uutTolerance = targetRange;
+          resolvedTolerance = targetRange;
         } else if (targetUut) {
           // Auto-Resolve
           const matched = findMatchingRange(targetUut, val, unit);
-          newPointData.uutTolerance = matched || null;
+          resolvedTolerance = matched || null;
         }
+        const newPointData = preparePointForPaste(pt, {
+          mode: clipboardPointMode,
+          targetUutId,
+          targetAreaId: resolvedAreaId,
+          targetTolerance: resolvedTolerance,
+        });
         newPoints.push(newPointData);
       });
 
@@ -1528,12 +1575,29 @@ function App() {
 
       if (newPoints.length > 0) {
         saveTestPoint(newPoints, null);
-        showToast(`${newPoints.length} point(s) pasted processing.`);
+        const action = clipboardPointMode === "cut" ? "Moved" : "Pasted";
+        showToast(
+          `${action} ${newPoints.length} measurement point${newPoints.length > 1 ? "s" : ""}.`,
+        );
         setSelectedTestPointContextUutId(targetUutId);
+
+        if (clipboardPointMode === "cut") {
+          const remainingPoints = getRemainingCutPoints(
+            pointsToPaste,
+            newPoints,
+          );
+          setClipboardPoint(remainingPoints.length > 0 ? remainingPoints : null);
+          if (remainingPoints.length === 0) {
+            setClipboardKind(null);
+            setClipboardPointMode("copy");
+          }
+        }
       }
     },
     [
+      clipboardKind,
       clipboardPoint,
+      clipboardPointMode,
       currentSessionData,
       saveTestPoint,
       setSelectedTestPointContextUutId,
@@ -1542,13 +1606,19 @@ function App() {
 
   const handleCopyUut = useCallback((uut) => {
     setClipboardUut(uut);
+    setClipboardKind("uut");
     showToast(`UUT "${uut.model || "Item"}" copied to clipboard`);
     setContextMenu(null);
   }, []);
 
   const handlePasteUut = useCallback(
     (targetAreaId) => {
-      if (!clipboardUut || !currentSessionData) return;
+      if (
+        clipboardKind !== "uut" ||
+        !clipboardUut ||
+        !currentSessionData
+      )
+        return;
 
       // Create Clone
       const newUut = {
@@ -1566,67 +1636,87 @@ function App() {
       showToast(`Pasted UUT "${newUut.model}"`);
       setContextMenu(null);
     },
-    [clipboardUut, currentSessionData, updateSession],
+    [clipboardKind, clipboardUut, currentSessionData, updateSession],
   );
 
   useEffect(() => {
     const handleKeyDown = (e) => {
-      // Ctrl+C for Copy Point
-      if ((e.ctrlKey || e.metaKey) && e.key === "c") {
-        if (
-          document.activeElement.tagName !== "INPUT" &&
-          document.activeElement.tagName !== "TEXTAREA"
-        ) {
-          if (selectedSidebarPointIds.length > 0) {
-            const points = currentTestPoints.filter((p) =>
-              selectedSidebarPointIds.includes(p.id),
-            );
-            if (points.length > 0) {
-              e.preventDefault();
-              handleCopyPoint(points);
-            }
-          } else if (selectedTestPointId) {
-            const point = currentTestPoints.find(
-              (p) => p.id === selectedTestPointId,
-            );
-            if (point) {
-              e.preventDefault();
-              handleCopyPoint(point);
-            }
+      const key = e.key.toLowerCase();
+      const isTextEntry =
+        document.activeElement.tagName === "INPUT" ||
+        document.activeElement.tagName === "TEXTAREA";
+
+      if ((e.ctrlKey || e.metaKey) && key === "c" && !isTextEntry) {
+        let handled = false;
+        if (selectedUutId) {
+          const uut = currentSessionData?.uuts?.find(
+            (item) => item.id === selectedUutId,
+          );
+          if (uut) {
+            handleCopyUut(uut);
+            handled = true;
           }
+        } else if (selectedSidebarPointIds.length > 0) {
+          const points = currentTestPoints.filter((p) =>
+            selectedSidebarPointIds.includes(p.id),
+          );
+          if (points.length > 0) {
+            handleCopyPoint(points);
+            handled = true;
+          }
+        } else if (selectedTestPointId) {
+          const point = currentTestPoints.find(
+            (p) => p.id === selectedTestPointId,
+          );
+          if (point) {
+            handleCopyPoint(point);
+            handled = true;
+          }
+        }
+        if (handled) e.preventDefault();
+      }
+
+      if (
+        (e.ctrlKey || e.metaKey) &&
+        key === "x" &&
+        !isTextEntry &&
+        !selectedUutId &&
+        !selectedRangeContext
+      ) {
+        let points = [];
+        if (selectedSidebarPointIds.length > 0) {
+          points = currentTestPoints.filter((point) =>
+            selectedSidebarPointIds.includes(point.id),
+          );
+        } else if (selectedTestPointId) {
+          const point = currentTestPoints.find(
+            (item) => item.id === selectedTestPointId,
+          );
+          if (point) points = [point];
+        }
+        if (points.length > 0) {
+          e.preventDefault();
+          handleCutPoint(points);
         }
       }
 
-      // 3. Ctrl+V for Paste Point
-      if ((e.ctrlKey || e.metaKey) && e.key === "v") {
-        // (Paste logic remains mostly same, just checking clipboard array)
-        if (
-          clipboardPoint &&
-          document.activeElement.tagName !== "INPUT" &&
-          document.activeElement.tagName !== "TEXTAREA"
-        ) {
+      if ((e.ctrlKey || e.metaKey) && key === "v" && !isTextEntry) {
+        if (clipboardKind === "point" && clipboardPoint) {
           e.preventDefault();
-          // Determine target from selection state
           let targetUutId = null;
           let targetAreaId = selectedAreaId;
           let targetRange = null;
 
-          // Priority 0: Selected Range
           if (selectedRangeContext) {
             targetUutId = selectedRangeContext.uutId;
             targetRange = selectedRangeContext.range;
-          }
-          // Priority 1: Selected UUT Folder
-          else if (selectedUutId) {
+          } else if (selectedUutId) {
             targetUutId = selectedUutId;
-          }
-          // Priority 2: Selected Point's Context UUT
-          else if (selectedTestPointId && selectedTestPointContextUutId) {
+          } else if (selectedTestPointId && selectedTestPointContextUutId) {
             targetUutId = selectedTestPointContextUutId;
           }
 
           if (targetUutId) {
-            // Find area if needed
             if (!targetAreaId) {
               const uut = currentSessionData?.uuts?.find(
                 (u) => u.id === targetUutId,
@@ -1634,24 +1724,34 @@ function App() {
               if (uut) targetAreaId = uut.measurementAreaId;
             }
             handlePastePoint(targetUutId, targetAreaId, targetRange);
+          } else {
+            showToast("Select a destination UUT or range before pasting.", "error");
           }
+        } else if (
+          clipboardKind === "uut" &&
+          clipboardUut &&
+          selectedAreaId
+        ) {
+          e.preventDefault();
+          handlePasteUut(selectedAreaId);
         }
       }
 
-      // 4. Delete Key
+      /*
+       * Do not intercept native clipboard shortcuts while editing text. This
+       * preserves standard copy, cut, and paste behavior in every input.
+       */
+      if (isTextEntry) return;
+
+      /* Legacy point delete shortcut. */
       if (e.key === "Delete" || e.key === "Backspace") {
         if (e.key === "Delete") {
-          if (
-            document.activeElement.tagName !== "INPUT" &&
-            document.activeElement.tagName !== "TEXTAREA"
-          ) {
-            if (selectedSidebarPointIds.length > 0) {
-              e.preventDefault();
-              handleDeleteTestPoint(selectedSidebarPointIds);
-            } else if (selectedTestPointId) {
-              e.preventDefault();
-              handleDeleteTestPoint(selectedTestPointId);
-            }
+          if (selectedSidebarPointIds.length > 0) {
+            e.preventDefault();
+            handleDeleteTestPoint(selectedSidebarPointIds);
+          } else if (selectedTestPointId) {
+            e.preventDefault();
+            handleDeleteTestPoint(selectedTestPointId);
           }
         }
       }
@@ -1663,14 +1763,19 @@ function App() {
     selectedUutId,
     selectedSidebarPointIds,
     selectedTestPointContextUutId,
+    clipboardKind,
     clipboardPoint,
+    clipboardUut,
     currentTestPoints,
     currentSessionData,
     selectedAreaId,
     selectedRangeContext,
     handleCopyPoint,
+    handleCopyUut,
+    handleCutPoint,
     handleDeleteTestPoint,
     handlePastePoint,
+    handlePasteUut,
   ]);
 
   useEffect(() => {
@@ -1890,44 +1995,66 @@ function App() {
   };
 
   const handleSelectArea = (areaId) => {
-    // Set selection for the main panel
     setRiskResults(null);
+    const pointInArea = resolveAreaWorkspacePoint(
+      currentTestPoints,
+      selectedTestPointId,
+      areaId,
+    );
+
     setSelectedAreaId(areaId);
     setSelectedUutId(null);
     setSelectedRangeContext(null);
-    setSelectedTestPointId(null);
-    setSelectedTestPointContextUutId(null);
+    setSelectedTestPointId(pointInArea?.id || null);
+    setSelectedTestPointContextUutId(
+      pointInArea?.associatedUutIds?.[0] || null,
+    );
     setCurrentUutSelection([]);
     setVirtualPoint(null);
     setSelectedTablePointIds([]);
-    setSelectedSidebarPointIds([]);
+    setSelectedSidebarPointIds(pointInArea ? [pointInArea.id] : []);
   };
 
   const handleSelectUut = (uutId, areaId) => {
-    // Set selection for the main panel
     setRiskResults(null);
+    const pointInArea = resolveAreaWorkspacePoint(
+      currentTestPoints,
+      selectedTestPointId,
+      areaId,
+    );
+
     setSelectedUutId(uutId);
     setSelectedAreaId(areaId);
     setSelectedRangeContext(null);
-    setSelectedTestPointId(null);
-    setSelectedTestPointContextUutId(null);
+    setSelectedTestPointId(pointInArea?.id || null);
+    setSelectedTestPointContextUutId(
+      pointInArea?.associatedUutIds?.[0] || null,
+    );
     setCurrentUutSelection([uutId]);
     setVirtualPoint(null);
     setSelectedTablePointIds([]);
-    setSelectedSidebarPointIds([]);
+    setSelectedSidebarPointIds(pointInArea ? [pointInArea.id] : []);
   };
 
   // ---  Handle Range Selection ---
   const handleSelectRange = (uutId, range, areaId) => {
-    // Set selection for the main panel
     setRiskResults(null);
+    const pointInArea = resolveAreaWorkspacePoint(
+      currentTestPoints,
+      selectedTestPointId,
+      areaId,
+    );
+
     setSelectedRangeContext({ uutId, range });
     setSelectedUutId(null);
-    setSelectedTestPointId(null);
+    setSelectedTestPointId(pointInArea?.id || null);
     setVirtualPoint(null);
     setSelectedAreaId(areaId);
     setSelectedTablePointIds([]);
-    setSelectedSidebarPointIds([]);
+    setSelectedSidebarPointIds(pointInArea ? [pointInArea.id] : []);
+    setSelectedTestPointContextUutId(
+      pointInArea?.associatedUutIds?.[0] || null,
+    );
 
     // Auto-select the UUT so the "Add Point" button knows what to link to
     setCurrentUutSelection([uutId]);
@@ -1973,8 +2100,9 @@ function App() {
       setSelectedTestPointId(tpId);
     }
 
-    setSelectedRangeContext(null); // Clear range
-    setSelectedAreaId(null);
+    const selectedPoint = currentTestPoints.find((point) => point.id === tpId);
+    setSelectedRangeContext(null);
+    setSelectedAreaId(selectedPoint?.measurementAreaId || null);
     setSelectedUutId(null);
     setVirtualPoint(null);
     setSelectedTestPointContextUutId(contextUutId);
@@ -2165,7 +2293,7 @@ function App() {
   };
 
   // --- NEW HANDLERS to Open Modal in Correct Mode ---
-  const handleEditUut = (uut = null) => {
+  const handleEditUut = (uut = null, options = {}) => {
     let dataWithColor = uut;
 
     // FIX: If editing an existing UUT, look up its area color so the modal
@@ -2191,22 +2319,38 @@ function App() {
       }
     }
 
-    setInstrumentModalConfig({ mode: "uut", data: dataWithColor });
+    setInstrumentModalConfig({
+      mode: "uut",
+      data: dataWithColor,
+      associateToPointId: uut ? null : options.associateToPointId || null,
+    });
     setIsInstrumentBuilderOpen(true);
   };
 
   const handleAddTmde = () => {
-    setInstrumentModalConfig({ mode: "tmde", data: null });
+    setInstrumentModalConfig({
+      mode: "tmde",
+      data: null,
+      associateToPointId: null,
+    });
     setIsInstrumentBuilderOpen(true);
   };
 
   const handleEditTmde = (tmde) => {
-    setInstrumentModalConfig({ mode: "tmde", data: tmde });
+    setInstrumentModalConfig({
+      mode: "tmde",
+      data: tmde,
+      associateToPointId: null,
+    });
     setIsInstrumentBuilderOpen(true);
   };
 
   const handleOpenLibrary = () => {
-    setInstrumentModalConfig({ mode: "library", data: null });
+    setInstrumentModalConfig({
+      mode: "library",
+      data: null,
+      associateToPointId: null,
+    });
     setIsInstrumentBuilderOpen(true);
   };
 
@@ -2286,7 +2430,14 @@ function App() {
     if (data.type === "uut") {
       const rawName = data.measurementArea || "";
       const cleanName = rawName.trim();
-      let resolvedAreaId = data.measurementAreaId || selectedAreaId || null;
+      const associationPoint = currentTestPoints.find(
+        (point) => point.id === instrumentModalConfig.associateToPointId,
+      );
+      let resolvedAreaId =
+        data.measurementAreaId ||
+        associationPoint?.measurementAreaId ||
+        selectedAreaId ||
+        null;
       let updatedMeasurementAreas = [
         ...(currentSessionData.measurementAreas || []),
       ];
@@ -2324,11 +2475,14 @@ function App() {
           resolvedAreaId = newArea.id;
         }
       }
+      const resolvedAreaName =
+        updatedMeasurementAreas.find((area) => area.id === resolvedAreaId)
+          ?.name || cleanName;
 
       const newUut = {
         id: data.id || uuidv4(),
         description: data.description || data.name,
-        measurementArea: cleanName,
+        measurementArea: resolvedAreaName,
         measurementAreaId: resolvedAreaId,
         instrument: data.instrument,
       };
@@ -2345,10 +2499,20 @@ function App() {
         updatedUuts.push(newUut);
       }
 
+      const updatedTestPoints =
+        existingUutIndex < 0 && associationPoint
+          ? associateUutWithPoint(
+              currentSessionData.testPoints,
+              associationPoint.id,
+              newUut.id,
+            )
+          : currentSessionData.testPoints;
+
       updateSession({
         ...currentSessionData,
         uuts: updatedUuts,
         measurementAreas: updatedMeasurementAreas,
+        testPoints: updatedTestPoints,
       });
     }
 
@@ -2425,7 +2589,11 @@ function App() {
 
     // CASE 3: Library Item used as UUT
     else if (data.type === "library" && data.useAs === "uut") {
-      let resolvedAreaId = selectedAreaId;
+      const associationPoint = currentTestPoints.find(
+        (point) => point.id === instrumentModalConfig.associateToPointId,
+      );
+      let resolvedAreaId =
+        associationPoint?.measurementAreaId || selectedAreaId;
       let updatedMeasurementAreas = [
         ...(currentSessionData.measurementAreas || []),
       ];
@@ -2454,10 +2622,19 @@ function App() {
       };
       delete newUut.instrument.useAs;
 
+      const updatedTestPoints = associationPoint
+        ? associateUutWithPoint(
+            currentSessionData.testPoints,
+            associationPoint.id,
+            newUut.id,
+          )
+        : currentSessionData.testPoints;
+
       updateSession({
         ...currentSessionData,
         uuts: [...(currentSessionData.uuts || []), newUut],
         measurementAreas: updatedMeasurementAreas,
+        testPoints: updatedTestPoints,
       });
     }
     // CASE 4: Standard Library Save
@@ -2629,26 +2806,36 @@ function App() {
 
   const handleAddArea = () => {
     if (!currentSessionData) return;
-    // Confirm first so a stray click doesn't immediately spawn an area.
     setAppNotification({
       title: "Add Measurement Area",
-      message: "Create a new measurement area? You can rename it right after.",
+      message: "Name the measurement area before adding it.",
       confirmText: "Add Area",
       isIconConfirm: true,
-      onConfirm: () => {
+      inputLabel: "Measurement area name",
+      inputPlaceholder: "e.g. Electrical",
+      validateInput: (rawName) => {
+        const name = (rawName || "").trim();
+        if (!name) return "Enter a measurement area name.";
+        const duplicate = (currentSessionData.measurementAreas || []).some(
+          (area) =>
+            (area.name || "").trim().toLowerCase() === name.toLowerCase(),
+        );
+        return duplicate
+          ? "A measurement area with this name already exists."
+          : "";
+      },
+      onConfirm: (name) => {
         setAppNotification(null);
-        createMeasurementArea();
+        createMeasurementArea(name);
       },
     });
   };
 
-  const createMeasurementArea = () => {
+  const createMeasurementArea = (rawName) => {
     if (!currentSessionData) return;
     const existing = currentSessionData.measurementAreas || [];
-    const names = new Set(existing.map((a) => (a.name || "").toLowerCase()));
-    let name = "New Area";
-    let n = 2;
-    while (names.has(name.toLowerCase())) name = `New Area ${n++}`;
+    const name = (rawName || "").trim();
+    if (!name) return;
     const palette = [
       "#3498db", "#2ecc71", "#e67e22", "#9b59b6",
       "#e74c3c", "#1abc9c", "#f1c40f", "#34495e",
@@ -2664,9 +2851,6 @@ function App() {
     });
     setExpandedAreas((prev) => new Set(prev).add(newArea.id));
     handleSelectArea(newArea.id);
-    // Drop straight into inline rename so the default name can be replaced.
-    setEditingAreaId(newArea.id);
-    setEditingAreaName(name);
   };
 
   const handleRenameArea = (areaId, rawName) => {
@@ -2958,9 +3142,17 @@ function App() {
         }
       }
 
+      const effectiveMeasurementAreaId = resolvePointAreaId(
+        pointData,
+        currentSessionData.uuts,
+        currentSessionData.measurementAreas,
+        activeUutId,
+      );
+
       return {
         ...pointData,
         viewMode: "point",
+        measurementAreaId: effectiveMeasurementAreaId,
         uutDescription: effectiveUutDescription,
         uutTolerance: effectiveUutTolerance,
         activeUutId: activeUutId,
@@ -2980,21 +3172,6 @@ function App() {
         viewMode: "point",
         activeUutId: activeUutId,
       };
-    }
-
-    // ---  Range View Mode ---
-    if (selectedRangeContext) {
-      return {
-        viewMode: "range",
-        id: `${selectedRangeContext.uutId}-${selectedRangeContext.range._id}`,
-        rangeData: selectedRangeContext.range,
-        uutId: selectedRangeContext.uutId,
-        measurementAreaId: selectedAreaId,
-      };
-    }
-
-    if (selectedUutId) {
-      return { viewMode: "uut", id: selectedUutId };
     }
 
     if (selectedAreaId) {
@@ -3035,6 +3212,10 @@ function App() {
             cancelText={appNotification.cancelText}
             isIconConfirm={appNotification.isIconConfirm}
             onConfirm={appNotification.onConfirm}
+            inputLabel={appNotification.inputLabel}
+            inputPlaceholder={appNotification.inputPlaceholder}
+            initialInputValue={appNotification.initialInputValue}
+            validateInput={appNotification.validateInput}
           />
         )}
 
@@ -3393,6 +3574,9 @@ function App() {
                     }
                     aria-expanded={isMeasurementPointsOpen}
                   >
+                    <span className="sidebar-section-title">
+                      Measurement Points
+                    </span>
                     <FontAwesomeIcon
                       icon={
                         isMeasurementPointsOpen
@@ -3400,9 +3584,6 @@ function App() {
                           : faChevronRight
                       }
                     />
-                    <span className="sidebar-section-title">
-                    Measurement Points
-                    </span>
                   </button>
 
                   <div className="sidebar-actions-group">
@@ -3540,7 +3721,10 @@ function App() {
                                 label: "Paste UUT Here",
                                 action: () => handlePasteUut(areaData.id),
                                 icon: faPaste,
-                                className: !clipboardUut ? "disabled" : "",
+                                className:
+                                  clipboardKind !== "uut" || !clipboardUut
+                                    ? "disabled"
+                                    : "",
                               },
                               {
                                 label: "Delete Measurement Area",
@@ -3658,9 +3842,11 @@ function App() {
                                               areaData.id,
                                             ),
                                           icon: faPaste,
-                                          className: !clipboardPoint
-                                            ? "disabled"
-                                            : "",
+                                          className:
+                                            clipboardKind !== "point" ||
+                                            !clipboardPoint
+                                              ? "disabled"
+                                              : "",
                                         },
                                         {
                                           label: "Copy UUT",
@@ -3808,9 +3994,12 @@ function App() {
                                                         range,
                                                       ),
                                                     icon: faPaste,
-                                                    className: !clipboardPoint
-                                                      ? "disabled"
-                                                      : "",
+                                                    className:
+                                                      clipboardKind !==
+                                                        "point" ||
+                                                      !clipboardPoint
+                                                        ? "disabled"
+                                                        : "",
                                                   },
                                                 ],
                                               });
@@ -3963,9 +4152,6 @@ function App() {
                                                       )}
                                                   </div>
                                                   {sortedRangePoints.map((tp) => {
-                                                    const isSelected =
-                                                      selectedTestPointId ===
-                                                      tp.id;
                                                     return (
                                                       <SidebarPointItem
                                                         key={tp.id}
@@ -3973,6 +4159,10 @@ function App() {
                                                         isSelected={selectedSidebarPointIds.includes(
                                                           tp.id,
                                                         )}
+                                                        isActivePoint={
+                                                          selectedTestPointId ===
+                                                          tp.id
+                                                        }
                                                         isTableSelected={selectedTablePointIds.includes(
                                                           tp.id,
                                                         )}
@@ -4032,6 +4222,26 @@ function App() {
                                                               },
                                                               {
                                                                 label:
+                                                                  "Cut Point",
+                                                                action: () =>
+                                                                  handleCutPoint(
+                                                                    selectedSidebarPointIds.includes(
+                                                                      p.id,
+                                                                    )
+                                                                      ? currentTestPoints.filter(
+                                                                          (
+                                                                            point,
+                                                                          ) =>
+                                                                            selectedSidebarPointIds.includes(
+                                                                              point.id,
+                                                                            ),
+                                                                        )
+                                                                      : p,
+                                                                  ),
+                                                                icon: faCut,
+                                                              },
+                                                              {
+                                                                label:
                                                                   "Delete Point",
                                                                 action: () =>
                                                                   handleDeleteTestPoint(
@@ -4082,6 +4292,9 @@ function App() {
                                                 isSelected={selectedSidebarPointIds.includes(
                                                   tp.id,
                                                 )}
+                                                isActivePoint={
+                                                  selectedTestPointId === tp.id
+                                                }
                                                 isTableSelected={selectedTablePointIds.includes(
                                                   tp.id,
                                                 )}
@@ -4117,6 +4330,23 @@ function App() {
                                                         action: () =>
                                                           handleCopyPoint(p),
                                                         icon: faCopy,
+                                                      },
+                                                      {
+                                                        label: "Cut Point",
+                                                        action: () =>
+                                                          handleCutPoint(
+                                                            selectedSidebarPointIds.includes(
+                                                              p.id,
+                                                            )
+                                                              ? currentTestPoints.filter(
+                                                                  (point) =>
+                                                                    selectedSidebarPointIds.includes(
+                                                                      point.id,
+                                                                    ),
+                                                                )
+                                                              : p,
+                                                          ),
+                                                        icon: faCut,
                                                       },
                                                       {
                                                         label: "Delete Point",
@@ -4166,6 +4396,9 @@ function App() {
                                   isSelected={selectedSidebarPointIds.includes(
                                     tp.id,
                                   )}
+                                  isActivePoint={
+                                    selectedTestPointId === tp.id
+                                  }
                                   isTableSelected={selectedTablePointIds.includes(
                                     tp.id,
                                   )}
@@ -4194,6 +4427,23 @@ function App() {
                                           label: "Copy Point",
                                           action: () => handleCopyPoint(p),
                                           icon: faCopy,
+                                        },
+                                        {
+                                          label: "Cut Point",
+                                          action: () =>
+                                            handleCutPoint(
+                                              selectedSidebarPointIds.includes(
+                                                p.id,
+                                              )
+                                                ? currentTestPoints.filter(
+                                                    (point) =>
+                                                      selectedSidebarPointIds.includes(
+                                                        point.id,
+                                                      ),
+                                                  )
+                                                : p,
+                                            ),
+                                          icon: faCut,
                                         },
                                         {
                                           label: "Delete Point",

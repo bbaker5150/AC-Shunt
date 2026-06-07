@@ -1256,9 +1256,10 @@ body:not(.dark-mode) .uncertainty-module .measurement-point-list {
   display: flex;
   align-items: center;
   justify-content: space-between;
-  padding: 8px 14px;
+  padding: 10px 14px;
   margin: 0;
   background-color: transparent;
+  border-bottom: 1px solid var(--border-color);
 }
 
 .sidebar-section-title {
@@ -1272,10 +1273,12 @@ body:not(.dark-mode) .uncertainty-module .measurement-point-list {
 }
 
 .sidebar-section-toggle {
-  display: inline-flex;
+  display: flex;
   align-items: center;
+  justify-content: space-between;
   gap: 8px;
   min-width: 0;
+  flex: 1;
   padding: 0;
   border: 0;
   background: transparent;
@@ -1315,6 +1318,7 @@ body:not(.dark-mode) .uncertainty-module .measurement-point-list {
   display: flex;
   align-items: center;
   gap: 2px;
+  margin-left: 10px;
 }
 
 /* Ensure the buttons feel organic/subtle */
@@ -7689,6 +7693,51 @@ body.dark-mode .bug-card {
   user-select: text;
 }
 
+.notification-window-field {
+  display: grid;
+  gap: 7px;
+  margin-top: 18px;
+  color: var(--text-color);
+  font-size: 0.78rem;
+  font-weight: 700;
+  letter-spacing: 0.035em;
+  text-transform: uppercase;
+}
+
+.notification-window-field input {
+  width: 100%;
+  box-sizing: border-box;
+  padding: 10px 12px;
+  border: 1px solid var(--border-color);
+  border-radius: 7px;
+  background: var(--input-bg);
+  color: var(--text-color);
+  font: inherit;
+  font-size: 0.92rem;
+  font-weight: 500;
+  letter-spacing: normal;
+  text-transform: none;
+  outline: none;
+}
+
+.notification-window-field input:focus {
+  border-color: var(--notification-accent);
+  box-shadow: 0 0 0 3px
+    color-mix(in srgb, var(--notification-accent) 14%, transparent);
+}
+
+.notification-window-field input[aria-invalid="true"] {
+  border-color: var(--status-bad);
+}
+
+.notification-window-field-error {
+  color: var(--status-bad);
+  font-size: 0.74rem;
+  font-weight: 600;
+  letter-spacing: normal;
+  text-transform: none;
+}
+
 .notification-window-actions {
   display: flex;
   justify-content: flex-end;
@@ -7839,6 +7888,55 @@ body.theme-cyberpunk .notification-window .window-header {
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
+}
+
+.uut-description-content {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  min-width: 0;
+}
+
+.active-uut-badge {
+  flex-shrink: 0;
+  padding: 2px 6px;
+  border: 1px solid color-mix(in srgb, var(--primary-color) 55%, transparent);
+  border-radius: 999px;
+  background: color-mix(in srgb, var(--primary-color) 12%, transparent);
+  color: var(--primary-color);
+  font-size: 0.62rem;
+  font-weight: 700;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+}
+
+.industry-table tbody tr.active-point-uut-row:not(.selected-row),
+.industry-table tbody tr.active-point-uut-spec-row:not(.selected-spec-row),
+.industry-table tbody tr.active-point-tmde-row:not(.selected-row),
+.industry-table tbody tr.active-point-tmde-spec-row:not(.selected-spec-row) {
+  background-color: color-mix(
+    in srgb,
+    var(--primary-color) 9%,
+    transparent
+  ) !important;
+  box-shadow: inset 3px 0 0 var(--primary-color) !important;
+}
+
+.industry-table tbody tr.active-point-uut-row:not(.selected-row):hover,
+.industry-table tbody tr.active-point-uut-row.row-hovered:not(.selected-row),
+.industry-table tbody tr.active-point-uut-spec-row.hovered-spec-row:not(
+    .selected-spec-row
+  ),
+.industry-table tbody tr.active-point-tmde-row:not(.selected-row):hover,
+.industry-table tbody tr.active-point-tmde-row.row-hovered:not(.selected-row),
+.industry-table tbody tr.active-point-tmde-spec-row.hovered-spec-row:not(
+    .selected-spec-row
+  ) {
+  background-color: color-mix(
+    in srgb,
+    var(--primary-color) 14%,
+    transparent
+  ) !important;
 }
 
 /* Rows highlight ONLY when the user has clicked (selected) them — see
@@ -9808,10 +9906,37 @@ body.theme-cyberpunk .uut-row::before {
 .industry-table tr.spec-row td {
   border-top: 1px dashed var(--border-color);
 }
-/* Selected: JOIN the rows visually by removing the separator */
-.industry-table tr.selected-row.spec-row td {
+
+/* Continue hover through every row belonging to the same instrument. */
+.industry-table tbody tr.hovered-spec-row:not(.selected-spec-row),
+.instrument-summary-table tbody tr.hovered-spec-row:not(.selected-spec-row) {
+  background-color: var(--table-hover-row-bg) !important;
+  border-left: 4px solid transparent !important;
+}
+
+.industry-table tr.hovered-spec-row:not(.selected-spec-row) td.col-hovered {
+  background-color: transparent !important;
+}
+
+/* Continue the selected instrument background through additional spec rows
+   without adding another selection border. */
+.industry-table tbody tr.selected-spec-row,
+.instrument-summary-table tbody tr.selected-spec-row,
+.industry-table tbody tr.selected-spec-row:hover,
+.instrument-summary-table tbody tr.selected-spec-row:hover {
+  background-color: var(--table-selected-row-bg) !important;
+  border-left: 4px solid transparent !important;
+  filter: none !important;
+}
+
+.industry-table tr.selected-spec-row td {
+  background-color: transparent !important;
   border-top: none !important;
-  border-bottom: none !important; /* Ensure seamless transition */
+  border-bottom: none !important;
+}
+
+.industry-table tr.selected-spec-row td.col-hovered {
+  background-color: transparent !important;
 }
 
 /* 8. Cyberpunk Specific Overrides - Handled by Variables, but ensure no legacy overrides exist */
@@ -10131,7 +10256,8 @@ body.theme-cyberpunk .area-header-sticky {
 
 /* Force Magenta for Cyberpunk Dark Mode Rows */
 body.theme-cyberpunk.dark-mode .industry-table tbody tr:not(.selected-row):hover,
-body.theme-cyberpunk.dark-mode .industry-table tbody tr.row-hovered:not(.selected-row) {
+body.theme-cyberpunk.dark-mode .industry-table tbody tr.row-hovered:not(.selected-row),
+body.theme-cyberpunk.dark-mode .industry-table tbody tr.hovered-spec-row:not(.selected-spec-row) {
     background-color: rgba(255, 0, 85, 0.2) !important;
 }
 
@@ -10268,6 +10394,50 @@ body.theme-cyberpunk .theme-selector-minimal {
   cursor: pointer;
   border-bottom: 1px solid var(--border-color);
   background-color: transparent;
+}
+
+.session-overview-button {
+  width: 100%;
+  display: flex;
+  align-items: center;
+  justify-content: flex-start;
+  gap: 8px;
+  padding: 6px 0;
+  border: 0;
+  border-radius: 5px;
+  background: transparent;
+  color: var(--text-color-muted);
+  cursor: pointer;
+  font-size: 0.68rem;
+  font-weight: 800;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+  box-shadow: none;
+  transform: none;
+  transition:
+    background-color 0.15s ease,
+    border-color 0.15s ease,
+    color 0.15s ease;
+}
+
+.session-overview-button:hover,
+.session-overview-button.active {
+  background-color: rgba(var(--primary-rgb), 0.07);
+  border-color: rgba(var(--primary-rgb), 0.18);
+  color: var(--primary-color);
+  box-shadow: none;
+  transform: none;
+}
+
+.session-overview-button:focus-visible {
+  outline: 2px solid rgba(var(--primary-rgb), 0.28);
+  outline-offset: 2px;
+}
+
+.session-overview-button + .session-info-block {
+  margin-top: 10px;
+  padding-top: 10px;
+  border-top: 1px solid var(--border-color);
 }
 
 /* SUBTLE HOVER */
@@ -10795,4 +10965,79 @@ body:not(.dark-mode)
   .uncertainty-module
   .point-grid-item.table-highlight:not(.active) {
   background-color: rgba(var(--primary-rgb), 0.045);
+}
+
+/* The point driving the open analysis uses the app's primary accent.
+   Additional Ctrl/Shift-selected points retain the standard selection state. */
+.uncertainty-module .point-grid-item.active-point,
+body.dark-mode .uncertainty-module .point-grid-item.active-point,
+body.theme-orbital .uncertainty-module .point-grid-item.active-point,
+body.theme-cyberpunk .uncertainty-module .point-grid-item.active-point {
+  background: color-mix(
+    in srgb,
+    var(--primary-color) 11%,
+    transparent
+  ) !important;
+  border-color: transparent !important;
+  border-left: 3px solid var(--primary-color) !important;
+  color: var(--primary-color) !important;
+  box-shadow: none !important;
+  text-shadow: none !important;
+}
+
+.uncertainty-module .point-grid-item.active-point .point-value,
+.uncertainty-module .point-grid-item.active-point .point-section {
+  color: var(--primary-color) !important;
+  text-shadow: none !important;
+}
+
+.uncertainty-module .point-grid-item.active-point:hover {
+  background: color-mix(
+    in srgb,
+    var(--primary-color) 17%,
+    transparent
+  ) !important;
+}
+
+/* A clicked instrument uses a stronger fill and a single selection rail. The
+   first cell spans every specification row, so the rail is continuous without
+   fragile borders at row boundaries. */
+.uncertainty-module
+  .industry-table
+  tbody
+  tr.selected-instrument-start,
+.uncertainty-module
+  .industry-table
+  tbody
+  tr.selected-instrument-continuation {
+  border-left: 0 !important;
+  background-color: color-mix(
+    in srgb,
+    var(--primary-color) 21%,
+    var(--content-background)
+  ) !important;
+  box-shadow: none !important;
+}
+
+.uncertainty-module
+  .industry-table
+  tbody
+  tr.selected-instrument-start
+  > td:first-child {
+  box-shadow: inset 4px 0 0 var(--primary-color) !important;
+}
+
+.uncertainty-module
+  .industry-table
+  tbody
+  tr.selected-instrument-start:hover,
+.uncertainty-module
+  .industry-table
+  tbody
+  tr.selected-instrument-continuation:hover {
+  background-color: color-mix(
+    in srgb,
+    var(--primary-color) 25%,
+    var(--content-background)
+  ) !important;
 }

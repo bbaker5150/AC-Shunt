@@ -24,6 +24,13 @@ import {
   faRulerCombined,
   faTools,
 } from "@fortawesome/free-solid-svg-icons";
+import { formatRangeLabel } from "../../../utils/rangeFormatting";
+import { getNextInstrumentSelection } from "../../../utils/instrumentSelection";
+import {
+  assessRangeCompatibility,
+  assessTmdeCompatibility,
+} from "../../../utils/tmdeCompatibility";
+import { resolvePointAreaId } from "../../../utils/areaWorkspace";
 
 // --- Constants ---
 const customUnitSelectStyles = {
@@ -129,16 +136,10 @@ const SymbolButton = ({ symbol, title, onSymbolClick }) => (
   </button>
 );
 
-const handleRowSelection = (e, id, currentSelected, setSelected) => {
-  if (e.ctrlKey || e.metaKey) {
-    // Toggle selection if modifier key is held
-    setSelected((prev) =>
-      prev.includes(id) ? prev.filter((x) => x !== id) : [...prev, id],
-    );
-  } else {
-    // Single select if simply clicked
-    setSelected([id]);
-  }
+const handleRowSelection = (e, id, setSelected) => {
+  setSelected((prev) =>
+    getNextInstrumentSelection(prev, id, e.ctrlKey || e.metaKey),
+  );
 };
 
 // --- HELPER: Decompose Tolerance into Rows (Intuitive Format) ---
@@ -300,53 +301,20 @@ const resolveUutRangeHelper = (
   }
   allRanges = allRanges.map((r, i) => ({ ...r, _index: i }));
 
-  // Helper: fit check
-  const doesRangeFit = (r) => {
-    const val = parseFloat(uutNominal?.value);
-    if (isNaN(val)) return false;
-    const min = parseFloat(r.min);
-    const max = parseFloat(r.max);
-
-    // Check unit
-    const unitMatch =
-      !r.unit ||
-      !uutNominal?.unit ||
-      r.unit.toLowerCase() === uutNominal.unit.toLowerCase();
-    if (!unitMatch) return false;
-
-    // Check value bounds
-    if (!isNaN(min) && !isNaN(max)) return val >= min && val <= max;
-
-    // If no bounds, assume fit
-    return true;
-  };
-
-  // 2. Identify Display Ranges
-  const userHasValue = uutNominal && !isNaN(parseFloat(uutNominal.value));
-  let displayRanges = allRanges;
-
-  // FILTER: Only show ranges that fit the value (if value exists)
-  if (userHasValue) {
-    const fittingRanges = allRanges.filter((r) => doesRangeFit(r));
-    if (fittingRanges.length > 0) {
-      displayRanges = fittingRanges;
-    }
-  }
-
-  // 3. Determine Active Index (in displayRanges)
+  // 2. Determine Active Index in the complete range list.
   let activeIndex = -1;
 
   // Priority A: Manual Selection (UI State)
   if (activeRangeIndices && activeRangeIndices[uut.id] !== undefined) {
     const uiIndex = activeRangeIndices[uut.id];
-    if (displayRanges[uiIndex]) {
+    if (allRanges[uiIndex]) {
       activeIndex = uiIndex;
     }
   }
 
   // Priority B: Saved Tolerance (Robust Match)
   if (activeIndex === -1 && savedTolerance) {
-    activeIndex = displayRanges.findIndex((r) => {
+    activeIndex = allRanges.findIndex((r) => {
       // ID Match (Best)
       if (r.id && savedTolerance.id && r.id === savedTolerance.id) return true;
 
@@ -370,15 +338,23 @@ const resolveUutRangeHelper = (
     });
   }
 
-  // Priority C: Default (First Item)
+  // Priority C: First compatible range for the current point.
+  if (activeIndex === -1 && uutNominal?.unit) {
+    activeIndex = allRanges.findIndex(
+      (range) =>
+        assessRangeCompatibility(range, uutNominal, "UUT range").compatible,
+    );
+  }
+
+  // Priority D: Default (First Item)
   if (activeIndex === -1) {
     activeIndex = 0;
   }
 
   return {
-    ranges: displayRanges,
+    ranges: allRanges,
     activeIndex: activeIndex,
-    activeRange: displayRanges[activeIndex] || {},
+    activeRange: allRanges[activeIndex] || {},
   };
 };
 
@@ -448,7 +424,9 @@ const calculateToleranceMetrics = (activeTolerance, nominalObj) => {
   }
 
   // Range (% of Full Scale) - FIX
-  const rangeComp = activeTolerance.range || activeTolerance.tolerances?.range;
+  const rangeComp =
+    activeTolerance.tolerances?.range ||
+    (typeof activeTolerance.range === "object" ? activeTolerance.range : null);
   if (rangeComp) {
     const rangePcn = getComponentValue(rangeComp);
 
@@ -981,6 +959,7 @@ const SummaryDashboard = ({
   } = useMemo(() => {
     let uuts = sessionData.uuts || [];
     let points = sessionData.testPoints || [];
+    let tmdes = sessionData.tmdes || [];
     let displayTitle = "Session Overview";
     let displaySubtitle = "All Measurement Areas";
 
@@ -999,6 +978,27 @@ const SummaryDashboard = ({
         return idMatch || nameMatch;
       });
       points = points.filter((tp) => tp.measurementAreaId === contextId);
+      tmdes = tmdes.filter((tmde) => {
+        if (tmde.measurementAreaId) {
+          return tmde.measurementAreaId === contextId;
+        }
+        if (area?.name && tmde.measurementArea === area.name) {
+          return true;
+        }
+
+        const inferredAreaIds = new Set(
+          (sessionData.testPoints || [])
+            .filter((point) =>
+              (point.tmdeTolerances || []).some(
+                (instance) =>
+                  instance.id === tmde.id || instance.sourceId === tmde.id,
+              ),
+            )
+            .map((point) => point.measurementAreaId)
+            .filter(Boolean),
+        );
+        return inferredAreaIds.size === 0 || inferredAreaIds.has(contextId);
+      });
     } else if (viewMode === "uut") {
       const uut = uuts.find((u) => u.id === contextId);
       displayTitle = uut?.description || "UUT Detail";
@@ -1033,7 +1033,7 @@ const SummaryDashboard = ({
     return {
       filteredUuts: uuts,
       filteredPoints: points,
-      filteredTmdes: sessionData.tmdes || [], // Always show all TMDEs
+      filteredTmdes: tmdes,
       title: displayTitle,
       subtitle: displaySubtitle,
       showAreaColumn: isSessionView,
@@ -1045,9 +1045,9 @@ const SummaryDashboard = ({
   // Selection Handlers (Wrapped)
   // Selection Handlers (Wrapped)
   const handleUutClick = (e, id) =>
-    handleRowSelection(e, id, selectedUutIds, setSelectedUutIds);
+    handleRowSelection(e, id, setSelectedUutIds);
   const handleTmdeClick = (e, id) =>
-    handleRowSelection(e, id, selectedTmdeIds, setSelectedTmdeIds);
+    handleRowSelection(e, id, setSelectedTmdeIds);
 
   // NEW: Batch Delete for UUTs
   const handleDeleteSelectedUuts = useCallback(() => {
@@ -1272,18 +1272,15 @@ const SummaryDashboard = ({
                             }
                           >
                             {ranges.map((range, idx) => {
-                              const rangeLabel =
-                                (typeof range.range === "string"
-                                  ? range.range
-                                  : null) ||
-                                (range.min !== undefined
-                                  ? `${range.min} to ${range.max}`
-                                  : "Full Range");
                               return (
                                 <option
                                   key={idx}
                                   value={idx}
-                                >{`${rangeLabel} ${range.unit || ""}`}</option>
+                                >
+                                  {formatRangeLabel(range, {
+                                    preferBounds: true,
+                                  })}
+                                </option>
                               );
                             })}
                           </select>
@@ -1313,7 +1310,7 @@ const SummaryDashboard = ({
                       {specRows.slice(1).map((specComp, sIdx) => (
                         <tr
                           key={`${uut.id}-spec-${sIdx}`}
-                          className={`${isSelected ? "selected-row spec-row" : "spec-row"} ${hoveredRowId === uut.id ? "row-hovered" : ""}`}
+                          className={`spec-row ${isSelected ? "selected-spec-row" : ""} ${hoveredRowId === uut.id ? "hovered-spec-row" : ""}`}
                           onMouseEnter={() => setHoveredRowId(uut.id)}
                           style={{ cursor: "pointer" }}
                           onClick={(e) => handleUutClick(e, uut.id)}
@@ -1460,18 +1457,15 @@ const SummaryDashboard = ({
                             }
                           >
                             {ranges.map((range, rIdx) => {
-                              const rangeLabel =
-                                (typeof range.range === "string"
-                                  ? range.range
-                                  : null) ||
-                                (range.min !== undefined
-                                  ? `${range.min} to ${range.max}`
-                                  : "Full Range");
                               return (
                                 <option
                                   key={rIdx}
                                   value={rIdx}
-                                >{`${rangeLabel} ${range.unit || ""}`}</option>
+                                >
+                                  {formatRangeLabel(range, {
+                                    preferBounds: true,
+                                  })}
+                                </option>
                               );
                             })}
                           </select>
@@ -1489,7 +1483,7 @@ const SummaryDashboard = ({
                       {specRows.slice(1).map((specComp, sIdx) => (
                         <tr
                           key={`${tmde.id}-spec-${sIdx}`}
-                          className={`${isSelected ? "selected-row spec-row" : "spec-row"} ${hoveredRowId === tmde.id ? "row-hovered" : ""}`}
+                          className={`spec-row ${isSelected ? "selected-spec-row" : ""} ${hoveredRowId === tmde.id ? "hovered-spec-row" : ""}`}
                           style={{ cursor: "pointer" }}
                           onClick={(e) => handleTmdeClick(e, tmde.id)}
                           onMouseEnter={() => setHoveredRowId(tmde.id)}
@@ -1579,20 +1573,10 @@ function DetailedView({
   const symbolButtonRef = useRef(null);
 
   // --- NEW: Row Selection Handlers ---
-  const handleRowSelectionLocal = (e, id, currentSelected, setSelected) => {
-    if (e.ctrlKey || e.metaKey) {
-      setSelected((prev) =>
-        prev.includes(id) ? prev.filter((x) => x !== id) : [...prev, id],
-      );
-    } else {
-      setSelected([id]);
-    }
-  };
-
   const handleUutClick = (e, id) =>
-    handleRowSelectionLocal(e, id, selectedUutIds, setSelectedUutIds);
+    handleRowSelection(e, id, setSelectedUutIds);
   const handleTmdeClick = (e, id) =>
-    handleRowSelectionLocal(e, id, selectedTmdeIds, setSelectedTmdeIds);
+    handleRowSelection(e, id, setSelectedTmdeIds);
 
   const handleDeleteSelectedUuts = () => {
     if (onDeleteUut && selectedUutIds.length > 0) {
@@ -1663,18 +1647,24 @@ function DetailedView({
     return propUutToleranceData || {};
   }, [propUutToleranceData, testPointData.associatedUutIds]);
 
-  // --- RESOLUTION HELPER WITH DEBUG LOGS ---
+  const associatedUutIds = testPointData.associatedUutIds || [];
+  const activePointUutId =
+    testPointData.activeUutId || associatedUutIds[0] || null;
+
   const resolveUutRange = useCallback(
     (uut) => {
+      const isActivePointUut =
+        activePointUutId !== null &&
+        String(activePointUutId) === String(uut.id);
       const resolution = resolveUutRangeHelper(
         uut,
         activeRangeIndices,
-        uutToleranceData,
+        isActivePointUut ? uutToleranceData : null,
         uutNominal,
       );
       return resolution;
     },
-    [activeRangeIndices, uutToleranceData, uutNominal],
+    [activePointUutId, activeRangeIndices, uutToleranceData, uutNominal],
   );
 
   const groupedUnitOptions = useMemo(() => {
@@ -1707,7 +1697,12 @@ function DetailedView({
     return options;
   }, []);
 
-  const activeMeasurementAreaId = testPointData.measurementAreaId;
+  const activeMeasurementAreaId = resolvePointAreaId(
+    testPointData,
+    sessionData.uuts,
+    sessionData.measurementAreas,
+    activePointUutId,
+  );
   const activeMeasurementArea = sessionData.measurementAreas?.find(
     (area) => area.id === activeMeasurementAreaId,
   );
@@ -1719,7 +1714,7 @@ function DetailedView({
     if (!activeMeasurementAreaId) return allUuts;
     return allUuts.filter(
       (uut) =>
-        uut.measurementAreaId === activeMeasurementAreaId ||
+        String(uut.measurementAreaId) === String(activeMeasurementAreaId) ||
         (!uut.measurementAreaId &&
           activeMeasurementArea?.name &&
           uut.measurementArea === activeMeasurementArea.name),
@@ -1766,7 +1761,6 @@ function DetailedView({
     activeMeasurementArea?.name,
   ]);
 
-  const associatedUutIds = testPointData.associatedUutIds || [];
   const isDerived = testPointData.measurementType === "derived";
   const isUnassigned = associatedUutIds.length === 0;
 
@@ -1789,9 +1783,28 @@ function DetailedView({
     onToggleUut(uutId);
   };
 
-  const handleRangeChange = (uutId, newIndex, ranges) => {
+  const handleRangeChange = (
+    uutId,
+    newIndex,
+    ranges,
+    isActivePointUut = false,
+  ) => {
+    const selectedRange = ranges[newIndex];
     if (onRangeSelectionChange) {
       onRangeSelectionChange((prev) => ({ ...prev, [uutId]: newIndex }));
+    }
+    if (isActivePointUut && selectedRange) {
+      const compatibility = assessRangeCompatibility(
+        selectedRange,
+        uutNominal,
+        "UUT range",
+      );
+      if (!compatibility.compatible) {
+        setNotification({
+          title: "UUT Range Warning",
+          message: `${compatibility.reason} The range was selected, but it does not cover this measurement point.`,
+        });
+      }
     }
   };
 
@@ -1811,23 +1824,6 @@ function DetailedView({
     }
 
     onDefineTestPoint(currentUutSelection, resolvedTolerance);
-  };
-
-  const handleActionRemove = () => {
-    if (!testPointData.id) {
-      if (onDeleteTestPoint) onDeleteTestPoint(null);
-      return;
-    }
-
-    setNotification({
-      title: "Delete Measurement Point",
-      message: "Are you sure you want to delete this measurement point?",
-      confirmText: "Delete",
-      isIconConfirm: true,
-      onConfirm: () => {
-        if (onDeleteTestPoint) onDeleteTestPoint(testPointData.id);
-      },
-    });
   };
 
   const handleEquationChange = (newEquationString) => {
@@ -2194,6 +2190,17 @@ function DetailedView({
           null,
         );
         const activeRange = resolution.activeRange || {};
+        const compatibility = assessTmdeCompatibility(
+          activeRange,
+          uutNominal,
+        );
+        if (!compatibility.compatible) {
+          setNotification({
+            title: "Incompatible TMDE",
+            message: compatibility.reason,
+          });
+          return;
+        }
         const { id: rangeId, ...rangeSpecs } = activeRange;
 
         const newInstance = {
@@ -2216,11 +2223,26 @@ function DetailedView({
   };
 
   const handleTmdeRangeChange = (tmde, newIndex, ranges) => {
+    const activeInstance = tmdeTolerancesData.find((t) => t.id === tmde.id);
+    const selectedRange = ranges[newIndex] || {};
+
+    if (activeInstance && !isDerived) {
+      const compatibility = assessTmdeCompatibility(
+        selectedRange,
+        uutNominal,
+      );
+      if (!compatibility.compatible) {
+        setNotification({
+          title: "Incompatible TMDE Range",
+          message: compatibility.reason,
+        });
+        return;
+      }
+    }
+
     setTmdeRangeIndices((prev) => ({ ...prev, [tmde.id]: newIndex }));
 
-    const activeInstance = tmdeTolerancesData.find((t) => t.id === tmde.id);
     if (activeInstance && onUpdateTestPoint) {
-      const selectedRange = ranges[newIndex] || {};
       const { id: rangeId, ...rangeSpecs } = selectedRange;
 
       const updatedInstance = {
@@ -2340,7 +2362,7 @@ function DetailedView({
     },
   }[calcStatus];
 
-  const primaryUutId = testPointData.associatedUutIds?.[0];
+  const primaryUutId = activePointUutId;
   const primaryUut = relevantUuts.find((u) => u.id === primaryUutId);
 
   const activeResolvedTolerance = useMemo(() => {
@@ -2367,11 +2389,13 @@ function DetailedView({
   }, [activeResolvedTolerance, uutToleranceData, onUpdateTestPoint]);
 
   const calculatedToleranceDisplay = useMemo(() => {
-    const result = calculateToleranceMetrics(
+    const summary = getToleranceErrorSummary(
       activeResolvedTolerance,
       uutNominal,
     );
-    return result.display;
+    return summary === "Not Set" || summary === "Not Calculated"
+      ? "No Range / Spec"
+      : summary;
   }, [activeResolvedTolerance, uutNominal]);
 
   return (
@@ -2396,7 +2420,12 @@ function DetailedView({
             )}
             <button
               className="btn-add-item"
-              onClick={() => onEditUut && onEditUut(null)}
+              onClick={() =>
+                onEditUut &&
+                onEditUut(null, {
+                  associateToPointId: testPointData.id,
+                })
+              }
               title="Add New UUT"
             >
               <FontAwesomeIcon icon={faPlus} size="xs" />
@@ -2413,8 +2442,8 @@ function DetailedView({
             style={{ tableLayout: "fixed" }}
           >
             <colgroup>
-              <col style={{ width: "40%" }} />
-              <col style={{ width: "30%" }} />
+              <col style={{ width: "28%" }} />
+              <col style={{ width: "42%" }} />
               <col style={{ width: "30%" }} />
             </colgroup>
             <thead>
@@ -2436,6 +2465,10 @@ function DetailedView({
                   const isLinked =
                     testPointData.associatedUutIds &&
                     testPointData.associatedUutIds.includes(uut.id);
+                  const isActivePointUut =
+                    testPointData.activeUutId === uut.id ||
+                    (!testPointData.activeUutId &&
+                      associatedUutIds[0] === uut.id);
                   const specRows = getSpecRows(activeRange);
                   const rowSpan = specRows.length > 0 ? specRows.length : 1;
                   const isSelected = selectedUutIds.includes(uut.id);
@@ -2443,14 +2476,9 @@ function DetailedView({
                   return (
                     <React.Fragment key={uut.id}>
                       <tr
-                        className={`${isSelected ? "selected-row" : ""} ${hoveredRowId === uut.id ? "row-hovered" : ""}`}
+                        className={`${isSelected ? `selected-row selected-instrument-start ${specRows.length <= 1 ? "selected-instrument-end" : ""}` : ""} ${isActivePointUut ? "active-point-uut-row" : ""} ${hoveredRowId === uut.id ? "row-hovered" : ""}`}
                         onMouseEnter={() => setHoveredRowId(uut.id)}
                         style={{
-                          // Highlight only the clicked (selected) row; the linked
-                          // UUT keeps a subtle accent-colored description instead.
-                          borderLeft: isSelected
-                            ? "4px solid var(--primary-color)"
-                            : "4px solid transparent",
                           cursor: "pointer",
                         }}
                         onClick={(e) => handleUutClick(e, uut.id)}
@@ -2464,12 +2492,21 @@ function DetailedView({
                             setHoveredCell({ tableId: "uut_det", colIndex: 0 })
                           }
                           style={{
-                            color: isLinked
+                            color: isActivePointUut
                               ? "var(--primary-color)"
-                              : undefined,
+                              : isLinked
+                                ? "var(--primary-color)"
+                                : undefined,
                           }}
                         >
-                          {uut.description}
+                          <div className="uut-description-content">
+                            <span>{uut.description}</span>
+                            {isActivePointUut && (
+                              <span className="active-uut-badge">
+                                Active UUT
+                              </span>
+                            )}
+                          </div>
                         </td>
 
                         <td
@@ -2488,28 +2525,16 @@ function DetailedView({
                                 uut.id,
                                 parseInt(e.target.value),
                                 ranges,
+                                isActivePointUut,
                               )
                             }
                           >
                             {ranges.map((range, idx) => {
-                              let rangeText =
-                                typeof range.range === "string"
-                                  ? range.range
-                                  : null;
-                              if (!rangeText) {
-                                if (
-                                  range.min !== undefined &&
-                                  range.max !== undefined
-                                ) {
-                                  rangeText = `${range.min} to ${range.max}`;
-                                } else {
-                                  rangeText = "Full Range";
-                                }
-                              }
-                              const label = `${rangeText} ${range.unit || ""}`;
                               return (
                                 <option key={idx} value={idx}>
-                                  {label}
+                                  {formatRangeLabel(range, {
+                                    preferBounds: true,
+                                  })}
                                 </option>
                               );
                             })}
@@ -2530,13 +2555,9 @@ function DetailedView({
                       {specRows.slice(1).map((specComp, sIdx) => (
                         <tr
                           key={`${uut.id}-spec-${sIdx}`}
-                          className={`${isSelected ? "selected-row spec-row" : "spec-row"} ${hoveredRowId === uut.id ? "row-hovered" : ""}`}
+                          className={`spec-row ${isSelected ? `selected-spec-row selected-instrument-continuation ${sIdx === specRows.length - 2 ? "selected-instrument-end" : ""}` : ""} ${isActivePointUut ? "active-point-uut-spec-row" : ""} ${hoveredRowId === uut.id ? "hovered-spec-row" : ""}`}
                           onMouseEnter={() => setHoveredRowId(uut.id)}
                           style={{
-                            borderLeft:
-                              isLinked || isSelected
-                                ? "4px solid var(--primary-color)"
-                                : "4px solid transparent",
                             cursor: "pointer",
                           }}
                         >
@@ -2591,11 +2612,10 @@ function DetailedView({
             style={{ width: "100%", tableLayout: "fixed" }}
           >
             <colgroup>
-              {showSectionColumn && <col style={{ width: "22%" }} />}
-              <col style={{ width: showSectionColumn ? "22%" : "28%" }} />
-              <col style={{ width: showSectionColumn ? "14%" : "16%" }} />
-              <col style={{ width: showSectionColumn ? "30%" : "44%" }} />
-              <col style={{ width: "12%" }} />
+              {showSectionColumn && <col style={{ width: "24%" }} />}
+              <col style={{ width: showSectionColumn ? "24%" : "30%" }} />
+              <col style={{ width: showSectionColumn ? "14%" : "18%" }} />
+              <col style={{ width: showSectionColumn ? "38%" : "52%" }} />
             </colgroup>
             <thead>
               <tr>
@@ -2603,7 +2623,6 @@ function DetailedView({
                 <th>Point</th>
                 <th>Unit</th>
                 <th>Tolerance</th>
-                <th style={{ textAlign: "center", paddingRight: "20px" }}></th>
               </tr>
             </thead>
             <tbody>
@@ -2689,26 +2708,10 @@ function DetailedView({
                     </div>
                   </td>
 
-                  <td className="action-cell" style={{ paddingRight: "20px" }}>
-                    <div style={{ display: "flex", justifyContent: "center" }}>
-                      <span
-                        className="action-icon"
-                        onClick={handleActionRemove}
-                        title="Delete or Unassign"
-                        style={{
-                          cursor: "pointer",
-                          color: "var(--status-bad)",
-                          fontSize: "0.9rem",
-                        }}
-                      >
-                        <FontAwesomeIcon icon={faTrashAlt} />
-                      </span>
-                    </div>
-                  </td>
                 </tr>
               ) : (
                 <tr className="panel-empty-row">
-                  <td colSpan={showSectionColumn ? 5 : 4}>
+                  <td colSpan={showSectionColumn ? 4 : 3}>
                     No active point. Select a UUT range on the left and define a
                     point.
                   </td>
@@ -2896,6 +2899,9 @@ function DetailedView({
                         null,
                       );
                       const { ranges, activeIndex, activeRange } = resolution;
+                      const compatibility = isDerived
+                        ? { compatible: true, reason: "" }
+                        : assessTmdeCompatibility(activeRange, uutNominal);
 
                       const effectiveTolerance = activeRange;
                       const specRows = getSpecRows(effectiveTolerance);
@@ -2911,13 +2917,9 @@ function DetailedView({
                       return (
                         <React.Fragment key={`${masterTmde.id}-${idx}`}>
                           <tr
-                            className={`tmde-row ${isSelectedRow ? "selected-row" : ""} ${hoveredRowId === masterTmde.id ? "row-hovered" : ""}`}
+                            className={`tmde-row ${isChecked ? "active-point-tmde-row" : ""} ${isSelectedRow ? `selected-row selected-instrument-start ${specRows.length <= 1 ? "selected-instrument-end" : ""}` : ""} ${hoveredRowId === masterTmde.id ? "row-hovered" : ""}`}
                             onMouseEnter={() => setHoveredRowId(masterTmde.id)}
                             style={{
-                              // Highlight only the clicked (selected) row.
-                              borderLeft: isSelectedRow
-                                ? "4px solid var(--primary-color)"
-                                : "4px solid transparent",
                               opacity: isChecked ? 1 : isSelectedRow ? 1 : 0.7,
                               cursor: "pointer",
                             }}
@@ -2973,13 +2975,26 @@ function DetailedView({
                                 <input
                                   type="checkbox"
                                   checked={isChecked}
+                                  disabled={
+                                    !isChecked && !compatibility.compatible
+                                  }
                                   onChange={(e) =>
                                     handleToggleTmdeUsage(
                                       masterTmde.id,
                                       e.target.checked,
                                     )
                                   }
-                                  style={{ cursor: "pointer" }}
+                                  title={
+                                    compatibility.compatible
+                                      ? "Use this TMDE"
+                                      : compatibility.reason
+                                  }
+                                  style={{
+                                    cursor:
+                                      !isChecked && !compatibility.compatible
+                                        ? "not-allowed"
+                                        : "pointer",
+                                  }}
                                 />
                               )}
                             </td>
@@ -2997,7 +3012,9 @@ function DetailedView({
                               <div
                                 style={{
                                   fontWeight: 600,
-                                  color: "var(--text-color)",
+                                  color: isChecked
+                                    ? "var(--primary-color)"
+                                    : "var(--text-color)",
                                 }}
                               >
                                 {safeDescription}
@@ -3084,23 +3101,11 @@ function DetailedView({
                                   // Show the actual measurement range (min–max),
                                   // not the spec string — the full spec already
                                   // lives in the Specification column.
-                                  const hasBounds =
-                                    range.min !== undefined &&
-                                    range.min !== null &&
-                                    range.min !== "" &&
-                                    range.max !== undefined &&
-                                    range.max !== null &&
-                                    range.max !== "";
-                                  const rangeText = hasBounds
-                                    ? `${range.min} to ${range.max}`
-                                    : typeof range.range === "string"
-                                      ? range.range
-                                      : "Full Range";
-                                  const label =
-                                    `${rangeText} ${range.unit || ""}`.trim();
                                   return (
                                     <option key={rIdx} value={rIdx}>
-                                      {label}
+                                      {formatRangeLabel(range, {
+                                        preferBounds: true,
+                                      })}
                                     </option>
                                   );
                                 })}
@@ -3124,11 +3129,11 @@ function DetailedView({
                           {specRows.slice(1).map((specComp, sIdx) => (
                             <tr
                               key={`${masterTmde.id}-${idx}-spec-${sIdx}`}
-                              className={`${isSelectedRow ? "selected-row spec-row" : "spec-row"} ${hoveredRowId === masterTmde.id ? "row-hovered" : ""}`}
+                              className={`spec-row ${isChecked ? "active-point-tmde-spec-row" : ""} ${isSelectedRow ? `selected-spec-row selected-instrument-continuation ${sIdx === specRows.length - 2 ? "selected-instrument-end" : ""}` : ""} ${hoveredRowId === masterTmde.id ? "hovered-spec-row" : ""}`}
+                              onMouseEnter={() =>
+                                setHoveredRowId(masterTmde.id)
+                              }
                               style={{
-                                borderLeft: isSelectedRow
-                                  ? "4px solid var(--primary-color)"
-                                  : "4px solid transparent",
                                 opacity: isChecked ? 1 : 0.7,
                               }}
                             >
