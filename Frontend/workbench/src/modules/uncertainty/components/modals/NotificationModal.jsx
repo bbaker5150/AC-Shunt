@@ -1,4 +1,4 @@
-import React from "react";
+import React, { useEffect, useState } from "react";
 import ReactDOM from "react-dom";
 import { useFloatingWindow } from "../../hooks/useFloatingWindow";
 import { FontAwesomeIcon } from "@fortawesome/react-fontawesome";
@@ -16,8 +16,21 @@ const NotificationModal = ({
   message, 
   onConfirm, 
   confirmText = "OK",
-  isIconConfirm = false
+  isIconConfirm = false,
+  inputLabel,
+  inputPlaceholder = "",
+  initialInputValue = "",
+  validateInput,
 }) => {
+  const [inputValue, setInputValue] = useState(initialInputValue);
+  const [inputError, setInputError] = useState("");
+
+  useEffect(() => {
+    if (!isOpen) return;
+    setInputValue(initialInputValue);
+    setInputError("");
+  }, [isOpen, initialInputValue, title]);
+
   const windowWidth = Math.min(420, window.innerWidth - 32);
   const safeInitialPosition = {
     x: Math.max(16, (window.innerWidth - windowWidth) / 2),
@@ -32,6 +45,15 @@ const NotificationModal = ({
   });
 
   if (!isOpen) return null;
+
+  const handleConfirm = () => {
+    if (inputLabel) {
+      const error = validateInput?.(inputValue) || "";
+      setInputError(error);
+      if (error) return;
+    }
+    onConfirm?.(inputLabel ? inputValue.trim() : undefined);
+  };
 
   // Determine Icon & Color based on Title keywords
   let icon = faInfoCircle;
@@ -87,11 +109,39 @@ const NotificationModal = ({
       <div className="window-body">
         <p>{message}</p>
 
+        {inputLabel && (
+          <label className="notification-window-field">
+            <span>{inputLabel}</span>
+            <input
+              autoFocus
+              type="text"
+              value={inputValue}
+              placeholder={inputPlaceholder}
+              onChange={(event) => {
+                setInputValue(event.target.value);
+                if (inputError) setInputError("");
+              }}
+              onKeyDown={(event) => {
+                if (event.key === "Enter") {
+                  event.preventDefault();
+                  handleConfirm();
+                }
+              }}
+              aria-invalid={Boolean(inputError)}
+            />
+            {inputError && (
+              <span className="notification-window-field-error">
+                {inputError}
+              </span>
+            )}
+          </label>
+        )}
+
         <div className="notification-window-actions">
           {onConfirm && (
             <button
               className={`notification-window-confirm notification-window-confirm--${tone}`}
-              onClick={onConfirm}
+              onClick={handleConfirm}
             >
               {confirmText}
               {isIconConfirm && <FontAwesomeIcon icon={faCheck} />}
