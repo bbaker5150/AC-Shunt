@@ -122,6 +122,7 @@ import {
   convertPpmToUnit,
   unitSystem,
   unitCategories,
+  errorDistributions,
 } from "../../../utils/uncertaintyMath";
 import { oldErrorDistributions } from "../utils/budgetUtils";
 
@@ -1968,11 +1969,19 @@ function DetailedView({
     divisor,
     compKeys = ["reading", "readings_iv", "range", "floor"],
   ) => {
+    // Preserve the instrument's originally-specced distribution the first time
+    // it is overridden, so the override warning can always reference the true
+    // spec value (and reverting to it is recognised as "back to spec").
+    const writeComp = (comp) => ({
+      ...comp,
+      specDistribution: comp.specDistribution ?? comp.distribution,
+      distribution: divisor,
+    });
     const writeOn = (obj) => {
       const next = { ...obj };
       compKeys.forEach((k) => {
         if (next[k] && typeof next[k] === "object") {
-          next[k] = { ...next[k], distribution: divisor };
+          next[k] = writeComp(next[k]);
         }
       });
       return next;
@@ -1991,7 +2000,7 @@ function DetailedView({
       // Flattened instance: sub-components live directly on the instance.
       compKeys.forEach((k) => {
         if (next[k] && typeof next[k] === "object") {
-          next[k] = { ...next[k], distribution: divisor };
+          next[k] = writeComp(next[k]);
         }
       });
     }
@@ -2026,18 +2035,75 @@ function DetailedView({
       // change there must not bleed into the accuracy band (and vice versa).
       const ident = String(component?.name || component?.id || "");
       const isDbRow = /-\s*dB$/i.test(ident.trim()) || /_db_/i.test(ident);
-      const updatedTmdes = tmdeTolerancesData.map((t) => {
-        if (t.id !== targetId && t.sourceId !== targetId) return t;
-        // A Resolution row targets the resolution's own divisor, not the
-        // accuracy sub-components (otherwise it would corrupt the accuracy
-        // distribution with this value).
-        if (component.isResolution)
-          return { ...t, measuringResolutionDistribution: divisor };
-        return isDbRow
-          ? applyDistributionToTmde(t, divisor, ["db"])
-          : applyDistributionToTmde(t, divisor);
-      });
-      onUpdateTestPoint({ tmdeTolerances: updatedTmdes });
+
+      const applyChange = () => {
+        const updatedTmdes = tmdeTolerancesData.map((t) => {
+          if (t.id !== targetId && t.sourceId !== targetId) return t;
+          // A Resolution row targets the resolution's own divisor, not the
+          // accuracy sub-components (otherwise it would corrupt the accuracy
+          // distribution with this value).
+          if (component.isResolution)
+            return { ...t, measuringResolutionDistribution: divisor };
+          return isDbRow
+            ? applyDistributionToTmde(t, divisor, ["db"])
+            : applyDistributionToTmde(t, divisor);
+        });
+        onUpdateTestPoint({ tmdeTolerances: updatedTmdes });
+      };
+
+      // The instrument's specced distribution lives on the budget row as
+      // `distributionDivisor`. Overriding it here (the accuracy band or dB term,
+      // not the resolution rounding model) deviates from how the instrument was
+      // specified, so make the user confirm. The spec form is where you *define*
+      // the distribution; this table is where you can *override* it.
+      const distLabel = (d) =>
+        errorDistributions.find((e) => e.value === String(d))?.label ||
+        `k=${d}`;
+      // Original specced value: the preserved snapshot if this point has been
+      // overridden before, otherwise the value currently on the spec.
+      const targetTmde = tmdeTolerancesData.find(
+        (t) => t.id === targetId || t.sourceId === targetId,
+      );
+      const specSrc =
+        targetTmde?.tolerance && typeof targetTmde.tolerance === "object"
+          ? targetTmde.tolerance
+          : targetTmde?.tolerances &&
+              typeof targetTmde.tolerances === "object" &&
+              !Array.isArray(targetTmde.tolerances)
+            ? targetTmde.tolerances
+            : targetTmde || {};
+      const specSub = isDbRow
+        ? specSrc.db
+        : ["reading", "readings_iv", "range", "floor"]
+            .map((k) => specSrc[k])
+            .find((c) => c && typeof c === "object");
+      const specDivisor =
+        specSub?.specDistribution ??
+        specSub?.distribution ??
+        component?.distributionDivisor;
+      const isSpecOverride =
+        !component.isResolution &&
+        specDivisor != null &&
+        String(specDivisor) !== String(divisor);
+
+      if (isSpecOverride) {
+        setNotification({
+          title: "Override Spec Distribution — Warning",
+          message: `This measurement is specced with a ${distLabel(
+            specDivisor,
+          )} distribution. Changing it to ${distLabel(
+            divisor,
+          )} here overrides the instrument's specified distribution for this uncertainty budget (the instrument spec itself is unchanged). Continue?`,
+          confirmText: "Override",
+          onConfirm: () => {
+            applyChange();
+            setNotification(null);
+          },
+        });
+        return;
+      }
+
+      applyChange();
       return;
     }
 
