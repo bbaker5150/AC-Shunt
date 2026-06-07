@@ -1963,8 +1963,11 @@ function DetailedView({
   // sub-component of a TMDE instance. getBudgetComponentsFromTolerance reads
   // `.distribution` off these sub-components, so this re-derives the budget and
   // (via the tmdeTolerances dependency) the risk metrics.
-  const applyDistributionToTmde = (tmdeInstance, divisor) => {
-    const compKeys = ["reading", "readings_iv", "range", "floor", "db"];
+  const applyDistributionToTmde = (
+    tmdeInstance,
+    divisor,
+    compKeys = ["reading", "readings_iv", "range", "floor"],
+  ) => {
     const writeOn = (obj) => {
       const next = { ...obj };
       compKeys.forEach((k) => {
@@ -2019,13 +2022,19 @@ function DetailedView({
     if (updates.distribution !== undefined && component?.sourceTmdeId) {
       const divisor = updates.distribution;
       const targetId = component.sourceTmdeId;
+      // The dB term is its own budget line item with its own distribution, so a
+      // change there must not bleed into the accuracy band (and vice versa).
+      const ident = String(component?.name || component?.id || "");
+      const isDbRow = /-\s*dB$/i.test(ident.trim()) || /_db_/i.test(ident);
       const updatedTmdes = tmdeTolerancesData.map((t) => {
         if (t.id !== targetId && t.sourceId !== targetId) return t;
         // A Resolution row targets the resolution's own divisor, not the
         // accuracy sub-components (otherwise it would corrupt the accuracy
         // distribution with this value).
-        return component.isResolution
-          ? { ...t, measuringResolutionDistribution: divisor }
+        if (component.isResolution)
+          return { ...t, measuringResolutionDistribution: divisor };
+        return isDbRow
+          ? applyDistributionToTmde(t, divisor, ["db"])
           : applyDistributionToTmde(t, divisor);
       });
       onUpdateTestPoint({ tmdeTolerances: updatedTmdes });

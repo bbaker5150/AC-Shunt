@@ -77,7 +77,7 @@ const componentDefinitions = {
       high: "",
       low: "",
       unit: "%",
-      distribution: "1.960",
+      distribution: "1.732",
       symmetric: true,
     },
   },
@@ -87,7 +87,7 @@ const componentDefinitions = {
       high: "",
       low: "",
       unit: "", 
-      distribution: "1.960",
+      distribution: "1.732",
       symmetric: true,
     },
   },
@@ -98,7 +98,7 @@ const componentDefinitions = {
       high: "",
       low: "",
       unit: "%",
-      distribution: "1.960",
+      distribution: "1.732",
       symmetric: true,
     },
   },
@@ -108,7 +108,7 @@ const componentDefinitions = {
       high: "",
       low: "",
       unit: "",
-      distribution: "1.960",
+      distribution: "1.732",
       symmetric: true,
     },
   },
@@ -119,7 +119,7 @@ const componentDefinitions = {
       low: "",
       multiplier: 20,
       ref: 1,
-      distribution: "1.960",
+      distribution: "1.732",
       symmetric: true,
     },
   },
@@ -419,7 +419,7 @@ const ToleranceForm = ({
           <select
             data-component-key={key}
             data-field="distribution"
-            value={componentData.distribution || "1.960"}
+            value={componentData.distribution || "1.732"}
             onChange={handleChange}
             style={{width: '100%'}}
           >
@@ -450,14 +450,7 @@ const ToleranceForm = ({
                 />
             </div>
             {limitsSection}
-            {hideDistribution ? (
-                 renderUnitSection(ratioUnitOptions)
-            ) : (
-                <div className="input-group-asymmetric">
-                    {renderUnitSection(ratioUnitOptions)}
-                    {distributionSection}
-                </div>
-            )}
+            {renderUnitSection(ratioUnitOptions)}
           </div>
         );
     } else if (key === "db") {
@@ -496,14 +489,7 @@ const ToleranceForm = ({
         content = (
           <div className="config-stack">
             {limitsSection}
-            {hideDistribution ? (
-                 renderUnitSection(unitOptions)
-            ) : (
-                <div className="input-group-asymmetric">
-                    {renderUnitSection(unitOptions)}
-                    {distributionSection}
-                </div>
-            )}
+            {renderUnitSection(unitOptions)}
           </div>
         );
     }
@@ -539,6 +525,33 @@ const ToleranceForm = ({
     (key) => !tolerance[key]
   );
 
+  // The reading / range / floor / readings-IV terms are pieces of ONE
+  // manufacturer accuracy statement (e.g. "% of reading + floor"), not
+  // independent error sources, so they share a single distribution shape. dB and
+  // resolution are separate budget line items and keep their own. This avoids the
+  // old behaviour where per-piece dropdowns were offered but only the first was
+  // ever honoured by the budget. See getBudgetComponentsFromTolerance.
+  const accuracyBandKeys = ["reading", "readings_iv", "range", "floor"];
+  const presentBandKeys = accuracyBandKeys.filter((key) => tolerance[key]);
+  const bandDistribution =
+    presentBandKeys.length > 0
+      ? tolerance[presentBandKeys[0]].distribution || "1.732"
+      : "1.732";
+  const bandDistributionOptions = errorDistributions.filter(
+    (d) => d.label !== "Std. Uncertainty"
+  );
+  const handleBandDistributionChange = (value) => {
+    setTolerance((prev) => {
+      const next = { ...prev };
+      accuracyBandKeys.forEach((key) => {
+        if (next[key] && typeof next[key] === "object") {
+          next[key] = { ...next[key], distribution: value };
+        }
+      });
+      return next;
+    });
+  };
+
   return (
     <>
       <div className="components-container">
@@ -557,6 +570,35 @@ const ToleranceForm = ({
           </div>
         )}
       </div>
+
+      {!hideDistribution && presentBandKeys.length > 0 && (
+        <div className="band-distribution-section" style={{ marginTop: "12px" }}>
+          <label>Spec Distribution</label>
+          <select
+            value={bandDistribution}
+            onChange={(e) => handleBandDistributionChange(e.target.value)}
+            style={{ width: "100%" }}
+          >
+            {bandDistributionOptions.map((dist) => (
+              <option key={dist.value} value={dist.value}>
+                {dist.label} (k={dist.value})
+              </option>
+            ))}
+          </select>
+          <small
+            style={{
+              display: "block",
+              marginTop: "4px",
+              color: "var(--text-color-muted)",
+              fontSize: "0.72rem",
+            }}
+          >
+            Applies to the whole accuracy spec (reading, range, floor). A
+            manufacturer limit is rectangular unless a confidence level or
+            coverage factor is stated.
+          </small>
+        </div>
+      )}
 
       <div className="add-component-wrapper"> 
         {availableComponents.length > 0 && (
