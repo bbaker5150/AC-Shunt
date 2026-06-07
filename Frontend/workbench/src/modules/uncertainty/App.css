@@ -10999,14 +10999,9 @@ body.theme-cyberpunk .uncertainty-module .point-grid-item.active-point {
   ) !important;
 }
 
-/* A clicked instrument gets a distinct perimeter while the blue fill continues
-   to communicate that it is active for the current measurement point. */
-@property --selected-outline-strength {
-  syntax: "<percentage>";
-  inherits: false;
-  initial-value: 72%;
-}
-
+/* A clicked instrument uses a stronger fill and a single selection rail. The
+   first cell spans every specification row, so the rail is continuous without
+   fragile borders at row boundaries. */
 .uncertainty-module
   .industry-table
   tbody
@@ -11016,24 +11011,12 @@ body.theme-cyberpunk .uncertainty-module .point-grid-item.active-point {
   tbody
   tr.selected-instrument-continuation {
   border-left: 0 !important;
+  background-color: color-mix(
+    in srgb,
+    var(--primary-color) 21%,
+    var(--content-background)
+  ) !important;
   box-shadow: none !important;
-}
-
-/* Use the table cells that physically occupy each outer edge. Unlike separate
-   row shadows, these borders share the table's geometry and cannot leave a
-   subpixel seam where row-spanned cells meet a continuation spec row. */
-.uncertainty-module
-  .industry-table
-  tbody
-  tr.selected-instrument-start
-  > td {
-  border-top: 2px solid
-    color-mix(
-      in srgb,
-      var(--primary-color) var(--selected-outline-strength),
-      white
-    ) !important;
-  animation: selectedInstrumentBorderPulse 1.8s ease-in-out infinite;
 }
 
 .uncertainty-module
@@ -11041,77 +11024,20 @@ body.theme-cyberpunk .uncertainty-module .point-grid-item.active-point {
   tbody
   tr.selected-instrument-start
   > td:first-child {
-  border-left: 3px solid var(--primary-color) !important;
-  animation: selectedInstrumentBorderPulse 1.8s ease-in-out infinite;
+  box-shadow: inset 4px 0 0 var(--primary-color) !important;
 }
 
 .uncertainty-module
   .industry-table
   tbody
-  tr.selected-instrument-start
-  > td:last-child,
+  tr.selected-instrument-start:hover,
 .uncertainty-module
   .industry-table
   tbody
-  tr.selected-instrument-continuation
-  > td:last-child {
-  border-right: 2px solid
-    color-mix(
-      in srgb,
-      var(--primary-color) var(--selected-outline-strength),
-      white
-    ) !important;
-  animation: selectedInstrumentBorderPulse 1.8s ease-in-out infinite;
-}
-
-.uncertainty-module
-  .industry-table
-  tbody
-  tr.selected-instrument-start:not(.selected-instrument-end)
-  > td:last-child {
-  border-top: 2px solid
-    color-mix(
-      in srgb,
-      var(--primary-color) var(--selected-outline-strength),
-      white
-    ) !important;
-}
-
-.uncertainty-module
-  .industry-table
-  tbody
-  tr.selected-instrument-start:not(.selected-instrument-end)
-  > td[rowspan],
-.uncertainty-module
-  .industry-table
-  tbody
-  tr.selected-instrument-end
-  > td {
-  border-bottom: 2px solid
-    color-mix(
-      in srgb,
-      var(--primary-color) var(--selected-outline-strength),
-      white
-    ) !important;
-  animation: selectedInstrumentBorderPulse 1.8s ease-in-out infinite;
-}
-
-@keyframes selectedInstrumentBorderPulse {
-  50% {
-    --selected-outline-strength: 100%;
-  }
-}
-
-@media (prefers-reduced-motion: reduce) {
-  .uncertainty-module
-    .industry-table
-    tbody
-    tr[class*="selected-instrument-"],
-  .uncertainty-module
-    .industry-table
-    tbody
-    tr[class*="selected-instrument-"]
-    > td {
-    animation: none !important;
-  }
+  tr.selected-instrument-continuation:hover {
+  background-color: color-mix(
+    in srgb,
+    var(--primary-color) 25%,
+    var(--content-background)
+  ) !important;
 }
