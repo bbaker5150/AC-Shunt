@@ -973,6 +973,10 @@ export function resolveResolutionNative(toleranceObject, nominalUnit) {
   const resRaw = parseFloat(toleranceObject?.measuringResolution);
   if (isNaN(resRaw) || resRaw <= 0) return 0;
   const resUnit = toleranceObject?.measuringResolutionUnit || nominalUnit;
+  // Same unit -> no conversion. Skipping the SI round-trip avoids introducing
+  // floating-point dust (e.g. (0.1 * 6894.76) / 6894.76 = 0.10000000000000002),
+  // which the grid-snapping would otherwise have to defend against.
+  if (resUnit === nominalUnit) return resRaw;
   const resUnitInfo = unitSystem.units[resUnit];
   const nominalUnitInfo = unitSystem.units[nominalUnit];
   if (resUnitInfo && nominalUnitInfo && !isNaN(nominalUnitInfo.to_si)) {
