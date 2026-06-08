@@ -967,6 +967,94 @@ export const getAbsoluteLimits = (toleranceObject, referencePoint) => {
   };
 };
 
+// Absolute low/high limits of the combined TMDE (standard) tolerance for a
+// point, expressed in the UUT nominal's unit. Mirrors the TMDE span that feeds
+// calcTAR (riskCompute / useRiskCalculation): each TMDE is evaluated at its own
+// measurement point (or the UUT nominal as a fallback), its deviations are
+// converted into the UUT's native unit and scaled by quantity, and the totals
+// are anchored on the UUT nominal. Unlike the UUT acceptance band these are NOT
+// snapped to resolution. Returns { high: "N/A", low: "N/A" } when no usable
+// TMDE tolerance or nominal is present.
+export const getTmdeAbsoluteLimits = (tmdeTolerances, uutNominal) => {
+  if (!Array.isArray(tmdeTolerances) || tmdeTolerances.length === 0) {
+    return { high: "N/A", low: "N/A" };
+  }
+  if (
+    !uutNominal ||
+    uutNominal.value === "" ||
+    uutNominal.value === null ||
+    uutNominal.value === undefined ||
+    !uutNominal.unit
+  ) {
+    return { high: "N/A", low: "N/A" };
+  }
+
+  const nominalValue = parseFloat(uutNominal.value);
+  const nominalUnit = uutNominal.unit;
+  const targetUnitInfo = unitSystem.units[nominalUnit];
+  if (isNaN(nominalValue) || !targetUnitInfo || isNaN(targetUnitInfo.to_si)) {
+    return { high: "N/A", low: "N/A" };
+  }
+
+  let totalHighDev = 0;
+  let totalLowDev = 0;
+  let hasAny = false;
+
+  for (const tmde of tmdeTolerances) {
+    const hasOwnPoint =
+      tmde.measurementPoint &&
+      tmde.measurementPoint.value &&
+      tmde.measurementPoint.unit;
+    const refPoint = hasOwnPoint ? tmde.measurementPoint : uutNominal;
+    if (!refPoint || !refPoint.value || !refPoint.unit) continue;
+
+    const tmdeUnitInfo = unitSystem.units[refPoint.unit];
+    if (!tmdeUnitInfo || isNaN(tmdeUnitInfo.to_si)) continue;
+
+    let breakdown;
+    try {
+      ({ breakdown } = calculateUncertaintyFromToleranceObject(
+        tmde.tolerance || tmde,
+        refPoint
+      ));
+    } catch {
+      continue;
+    }
+
+    const specs = (breakdown || []).filter(
+      (comp) =>
+        comp.absoluteHigh !== undefined && comp.absoluteLow !== undefined
+    );
+    if (specs.length === 0) continue;
+
+    const tmdeNominal = parseFloat(refPoint.value);
+    let highDev = 0;
+    let lowDev = 0;
+    specs.forEach((comp) => {
+      highDev +=
+        ((comp.absoluteHigh - tmdeNominal) * tmdeUnitInfo.to_si) /
+        targetUnitInfo.to_si;
+      lowDev +=
+        ((comp.absoluteLow - tmdeNominal) * tmdeUnitInfo.to_si) /
+        targetUnitInfo.to_si;
+    });
+
+    const quantity = parseInt(tmde.quantity, 10) || 1;
+    totalHighDev += highDev * quantity;
+    totalLowDev += lowDev * quantity;
+    hasAny = true;
+  }
+
+  if (!hasAny) return { high: "N/A", low: "N/A" };
+
+  const finalHigh = nominalValue + totalHighDev;
+  const finalLow = nominalValue + totalLowDev;
+  return {
+    high: `${finalHigh.toPrecision(7)} ${nominalUnit}`,
+    low: `${finalLow.toPrecision(7)} ${nominalUnit}`,
+  };
+};
+
 // Resolve a tolerance object's measuring resolution into the nominal unit's
 // grid spacing. Returns 0 when no usable resolution is present (snap is a no-op).
 export function resolveResolutionNative(toleranceObject, nominalUnit) {
