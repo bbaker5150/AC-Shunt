@@ -507,6 +507,11 @@ export const useRiskCalculation = (
       tmdeToleranceSpan: tmdeToleranceSpan_Native,
       tmdeToleranceHigh: tmdeToleranceHigh_Native,
       tmdeToleranceLow: tmdeToleranceLow_Native,
+      // Nominal anchor for the TMDE span (matches the value used by calcTAR
+      // above). The displayed TMDE absolute limits must be centered on this,
+      // NOT on the UUT acceptance-band midpoint, which can be off-nominal when
+      // the UUT tolerance is asymmetric or snapped to resolution.
+      nominalValue: parseFloat(uutNominal.value),
       uutBreakdownForTar: uutBreakdownForTar,
       tmdeBreakdownForTar: tmdeBreakdownForTar,
       nativeUnit: nominalUnit,
