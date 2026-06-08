@@ -973,6 +973,10 @@ export function resolveResolutionNative(toleranceObject, nominalUnit) {
   const resRaw = parseFloat(toleranceObject?.measuringResolution);
   if (isNaN(resRaw) || resRaw <= 0) return 0;
   const resUnit = toleranceObject?.measuringResolutionUnit || nominalUnit;
+  // Same unit -> no conversion. Skipping the SI round-trip avoids introducing
+  // floating-point dust (e.g. (0.1 * 6894.76) / 6894.76 = 0.10000000000000002),
+  // which the grid-snapping would otherwise have to defend against.
+  if (resUnit === nominalUnit) return resRaw;
   const resUnitInfo = unitSystem.units[resUnit];
   const nominalUnitInfo = unitSystem.units[nominalUnit];
   if (resUnitInfo && nominalUnitInfo && !isNaN(nominalUnitInfo.to_si)) {
@@ -2021,6 +2025,16 @@ export function resDwn(dVal, dRes) {
   if (!Number.isFinite(dVal)) return dVal;
   if (!Number.isFinite(dRes) || dRes <= 0) return dVal;
   if (dVal === 0) return dVal;
+  // Snap to the grid when the value is already within floating-point dust of a
+  // grid line. A resolution that round-trips through unit conversion (e.g.
+  // 0.1 psig -> SI -> psig = 0.10000000000000002) makes an on-grid limit like
+  // 10.5 divide to 104.9999...; floor() then drops it a full resolution count
+  // to 10.4, corrupting the acceptance band (and every TUR/TAR/PFA/PFR built on
+  // it). Correcting the dust here keeps a genuinely on-grid limit in place while
+  // still rounding truly off-grid values inward below.
+  const qd = dVal / dRes;
+  const qdNearest = Math.round(qd);
+  if (Math.abs(qd - qdNearest) < 1e-9) return qdNearest * dRes;
   let x = Math.floor(dVal / dRes) * dRes;
   const dZero = 0.000001;
   if (Math.abs(Math.trunc(dVal / dRes) - dVal / dRes) > dZero) {
@@ -2037,6 +2051,12 @@ export function resUp(dVal, dRes) {
   if (!Number.isFinite(dVal)) return dVal;
   if (!Number.isFinite(dRes) || dRes <= 0) return dVal;
   if (dVal === 0) return dVal;
+  // See resDwn: snap to the grid when within floating-point dust of a grid line
+  // so an on-grid upper limit (e.g. 10.5 with a round-tripped 0.1 resolution)
+  // isn't truncated a full resolution count down to 10.4.
+  const qu = dVal / dRes;
+  const quNearest = Math.round(qu);
+  if (Math.abs(qu - quNearest) < 1e-9) return quNearest * dRes;
   let x = Math.trunc(dVal / dRes) * dRes;
   const dZero = 0.000001;
   if (Math.abs(Math.trunc(dVal / dRes) - dVal / dRes) > dZero) {

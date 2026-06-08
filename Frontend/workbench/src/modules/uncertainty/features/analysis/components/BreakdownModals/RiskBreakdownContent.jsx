@@ -252,8 +252,16 @@ export const TarBreakdown = ({ results, inputs }) => {
   const tmdeToleranceHighDev = results.tmdeToleranceHigh || 0;
   const tmdeToleranceLowDev = results.tmdeToleranceLow || 0;
 
-  const tmdeToleranceHigh_Absolute = uutNominalMid + tmdeToleranceHighDev;
-  const tmdeToleranceLow_Absolute = uutNominalMid + tmdeToleranceLowDev;
+  // The TMDE tolerance band must be centered on the TMDE's nominal value (the
+  // same anchor calcTAR uses), not on the UUT acceptance-band midpoint. The
+  // midpoint can drift off-nominal when the UUT tolerance is asymmetric or
+  // snapped to resolution, which would shift the displayed span (e.g. showing
+  // 19.93–19.97 instead of 19.98–20.02 for a 0.1%-of-reading spec at 20).
+  const tmdeNominal = Number.isFinite(results.nominalValue)
+    ? results.nominalValue
+    : uutNominalMid;
+  const tmdeToleranceHigh_Absolute = tmdeNominal + tmdeToleranceHighDev;
+  const tmdeToleranceLow_Absolute = tmdeNominal + tmdeToleranceLowDev;
 
   const tmdeToleranceSpan = results.tmdeToleranceSpan;
 

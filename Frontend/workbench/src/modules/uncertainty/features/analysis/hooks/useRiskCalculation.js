@@ -320,17 +320,7 @@ export const useRiskCalculation = (
     // the unit the limits live in — mirroring Excel's FC, which is already in the
     // limit's unit. Without this the snap-to-resolution step would round on the
     // wrong grid (or be skipped) and the GB Mult would diverge from Excel.
-    const resRaw = parseFloat(uutToleranceData?.measuringResolution);
-    let safeRes = 0;
-    if (!isNaN(resRaw)) {
-      const resUnit = uutToleranceData?.measuringResolutionUnit || nominalUnit;
-      const resUnitInfo = unitSystem.units[resUnit];
-      if (resUnitInfo && !isNaN(resUnitInfo.to_si) && targetUnitInfo?.to_si) {
-        safeRes = (resRaw * resUnitInfo.to_si) / targetUnitInfo.to_si;
-      } else {
-        safeRes = resRaw;
-      }
-    }
+    const safeRes = resolveResolutionNative(uutToleranceData, nominalUnit);
 
     let gbLow = resDwn(
       gbLowMgr(
@@ -507,6 +497,11 @@ export const useRiskCalculation = (
       tmdeToleranceSpan: tmdeToleranceSpan_Native,
       tmdeToleranceHigh: tmdeToleranceHigh_Native,
       tmdeToleranceLow: tmdeToleranceLow_Native,
+      // Nominal anchor for the TMDE span (matches the value used by calcTAR
+      // above). The displayed TMDE absolute limits must be centered on this,
+      // NOT on the UUT acceptance-band midpoint, which can be off-nominal when
+      // the UUT tolerance is asymmetric or snapped to resolution.
+      nominalValue: parseFloat(uutNominal.value),
       uutBreakdownForTar: uutBreakdownForTar,
       tmdeBreakdownForTar: tmdeBreakdownForTar,
       nativeUnit: nominalUnit,
