@@ -614,9 +614,6 @@ const UncertaintyBudgetTable = ({
 
       {groups.map((group) => (
         <React.Fragment key={group.id}>
-          {group.kind === "final" && isDirect && (
-            <div className="budget-final-toolbar-row">{renderToolbar()}</div>
-          )}
           <section className="budget-section-row">
             <div
               className={`budget-stack-section ${group.kind === "final" ? "final" : ""}`}
