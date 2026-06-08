@@ -360,6 +360,7 @@ const EditUutModal = ({
                                 isUUT={true}
                                 referencePoint={{ unit: activeFunction?.unit }}
                                 resolutionInTable={true}
+                                showManualComponents={true}
                             />
                         </div>
                         

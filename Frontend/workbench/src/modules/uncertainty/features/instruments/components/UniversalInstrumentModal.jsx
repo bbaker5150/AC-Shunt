@@ -561,11 +561,12 @@ const UniversalInstrumentModal = ({
                                     <button onClick={() => setEditingRange(null)} className="icon-btn-ghost"><FontAwesomeIcon icon={faTimes} /></button>
                                 </div>
                                 <div className="slide-over-body">
-                                    <ToleranceForm 
-                                        tolerance={editingRange.tolerances || {}} 
-                                        setTolerance={handleToleranceUpdate} 
-                                        isUUT={effectiveMode === 'uut'} 
-                                        referencePoint={{ unit: activeFunction?.unit }} 
+                                    <ToleranceForm
+                                        tolerance={editingRange.tolerances || {}}
+                                        setTolerance={handleToleranceUpdate}
+                                        isUUT={effectiveMode === 'uut'}
+                                        referencePoint={{ unit: activeFunction?.unit }}
+                                        showManualComponents={true}
                                     />
                                 </div>
                                 <div className="slide-over-footer">

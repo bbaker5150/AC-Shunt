@@ -140,6 +140,10 @@ const ToleranceForm = ({
   // builder / UUT editor), hide the redundant value input here and show only
   // the opt-in checkbox.
   resolutionInTable = false,
+  // Show the "Manual Components (Type B)" authoring section (instrument builder
+  // / UUT-TMDE editors). The components are stored on tolerance.manualComponents
+  // and resolved into the budget by getBudgetComponentsFromTolerance.
+  showManualComponents = false,
 }) => {
   const [isAddComponentVisible, setAddComponentVisible] = useState(false);
   const [dropdownPosition, setDropdownPosition] = useState({ top: 0, left: 0 });
@@ -160,6 +164,56 @@ const ToleranceForm = ({
       { value: "ppb", label: "ppb" },
     ];
   }, []);
+
+  // Manual components may be relative (%/ppm/ppb) or absolute (a physical unit
+  // of the reference quantity), so offer both, ratios first.
+  const manualUnitOptions = useMemo(
+    () => [
+      { label: "Ratio", options: ratioUnitOptions },
+      ...physicalUnitOptions,
+    ],
+    [ratioUnitOptions, physicalUnitOptions],
+  );
+
+  const manualComponents = Array.isArray(tolerance.manualComponents)
+    ? tolerance.manualComponents
+    : [];
+
+  const handleAddManualComponent = () => {
+    setTolerance((prev) => ({
+      ...prev,
+      manualComponents: [
+        ...(Array.isArray(prev.manualComponents) ? prev.manualComponents : []),
+        {
+          id: `mc_${Date.now()}_${Math.floor(Math.random() * 1e6)}`,
+          name: "",
+          unit: referencePoint?.unit || "%",
+          inputMode: "tolerance",
+          toleranceLimit: "",
+          standardUncertainty: "",
+          distribution: "1.732",
+        },
+      ],
+    }));
+  };
+
+  const handleManualComponentChange = (id, field, value) => {
+    setTolerance((prev) => ({
+      ...prev,
+      manualComponents: (prev.manualComponents || []).map((mc) =>
+        mc.id === id ? { ...mc, [field]: value } : mc,
+      ),
+    }));
+  };
+
+  const handleRemoveManualComponent = (id) => {
+    setTolerance((prev) => ({
+      ...prev,
+      manualComponents: (prev.manualComponents || []).filter(
+        (mc) => mc.id !== id,
+      ),
+    }));
+  };
 
   // Handle click outside to close the portal
   useEffect(() => {
@@ -645,6 +699,192 @@ const ToleranceForm = ({
           document.body
         )}
       </div>
+
+      {showManualComponents && (
+        <div
+          className="form-section"
+          style={{
+            marginTop: "20px",
+            borderTop: "1px solid var(--border-color)",
+            paddingTop: "20px",
+          }}
+        >
+          <label style={{ display: "block", marginBottom: "6px" }}>
+            Manual Components (Type B)
+          </label>
+          <small
+            style={{
+              display: "block",
+              marginBottom: "10px",
+              color: "var(--text-color-muted)",
+              fontSize: "0.72rem",
+            }}
+          >
+            Extra Type B uncertainty sources carried with this spec (e.g.
+            cal-cert uncertainty, drift). Each is resolved against the
+            measurement point where the instrument is used.
+          </small>
+
+          <div className="components-container">
+            {manualComponents.map((mc) => {
+              const isStandard = mc.inputMode === "standard";
+              const selectedUnit =
+                manualUnitOptions
+                  .flatMap((g) => (g.options ? g.options : g))
+                  .find((o) => o.value === mc.unit) || null;
+              return (
+                <div className="component-card" key={mc.id}>
+                  <div className="component-header">
+                    <input
+                      type="text"
+                      value={mc.name || ""}
+                      onChange={(e) =>
+                        handleManualComponentChange(
+                          mc.id,
+                          "name",
+                          e.target.value,
+                        )
+                      }
+                      placeholder="Component name (e.g., Cal Uncertainty)"
+                      style={{ flex: 1, marginRight: "10px" }}
+                    />
+                    <button
+                      onClick={() => handleRemoveManualComponent(mc.id)}
+                      className="remove-component-btn"
+                      title="Remove component"
+                    >
+                      <FontAwesomeIcon icon={faTrashAlt} />
+                    </button>
+                  </div>
+                  <div className="component-body">
+                    <div className="config-stack">
+                      <div className="input-group-asymmetric">
+                        <div>
+                          <label>Entry Mode</label>
+                          <select
+                            value={mc.inputMode || "tolerance"}
+                            onChange={(e) =>
+                              handleManualComponentChange(
+                                mc.id,
+                                "inputMode",
+                                e.target.value,
+                              )
+                            }
+                            style={{ width: "100%" }}
+                          >
+                            <option value="tolerance">
+                              Tolerance limit (±)
+                            </option>
+                            <option value="standard">
+                              Standard uncertainty (uᵢ)
+                            </option>
+                          </select>
+                        </div>
+                        <div>
+                          <label>
+                            {isStandard
+                              ? "Standard Uncertainty (±)"
+                              : "Tolerance Limit (±)"}
+                          </label>
+                          <input
+                            type="number"
+                            step="any"
+                            value={
+                              isStandard
+                                ? mc.standardUncertainty || ""
+                                : mc.toleranceLimit || ""
+                            }
+                            onChange={(e) =>
+                              handleManualComponentChange(
+                                mc.id,
+                                isStandard
+                                  ? "standardUncertainty"
+                                  : "toleranceLimit",
+                                e.target.value,
+                              )
+                            }
+                            placeholder="e.g., 0.001"
+                          />
+                        </div>
+                      </div>
+                      <div
+                        className={isStandard ? "" : "input-group-asymmetric"}
+                      >
+                        <div>
+                          <label>Units</label>
+                          <Select
+                            value={selectedUnit}
+                            onChange={(opt) =>
+                              handleManualComponentChange(
+                                mc.id,
+                                "unit",
+                                opt ? opt.value : "",
+                              )
+                            }
+                            options={manualUnitOptions}
+                            className="react-select-container"
+                            classNamePrefix="react-select"
+                            placeholder="Select..."
+                            isSearchable={true}
+                            menuPortalTarget={document.body}
+                            menuPosition="fixed"
+                            styles={portalStyle}
+                          />
+                        </div>
+                        {!isStandard && (
+                          <div>
+                            <label>Distribution</label>
+                            <select
+                              value={mc.distribution || "1.732"}
+                              onChange={(e) =>
+                                handleManualComponentChange(
+                                  mc.id,
+                                  "distribution",
+                                  e.target.value,
+                                )
+                              }
+                              style={{ width: "100%" }}
+                            >
+                              {bandDistributionOptions.map((dist) => (
+                                <option key={dist.value} value={dist.value}>
+                                  {dist.label} (k={dist.value})
+                                </option>
+                              ))}
+                            </select>
+                          </div>
+                        )}
+                      </div>
+                    </div>
+                  </div>
+                </div>
+              );
+            })}
+            {manualComponents.length === 0 && (
+              <div
+                className="placeholder-content"
+                style={{
+                  minHeight: "60px",
+                  margin: "6px 0",
+                  backgroundColor: "transparent",
+                }}
+              >
+                <p>No manual components added.</p>
+              </div>
+            )}
+          </div>
+
+          <div className="add-component-wrapper">
+            <button
+              className="add-component-button"
+              onClick={handleAddManualComponent}
+              title="Add manual Type B component"
+            >
+              <FontAwesomeIcon icon={faPlus} />
+              <span>Add Manual Component</span>
+            </button>
+          </div>
+        </div>
+      )}
 
       {(isUUT || showResolution) && (
         <div

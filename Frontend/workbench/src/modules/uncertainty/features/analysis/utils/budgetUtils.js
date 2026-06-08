@@ -305,6 +305,88 @@ export const getBudgetComponentsFromTolerance = (
     }
   }
 
+  // --- 5. MANUAL TYPE B COMPONENTS ---
+  // User-authored Type B components attached to the instrument range/tolerance
+  // (added via the instrument builder's ToleranceForm). Stored as raw inputs so
+  // they resolve against whichever measurement point the range is used at, just
+  // like the accuracy components above. Each is either a tolerance limit (with a
+  // distribution divisor) or a directly-entered standard uncertainty.
+  const manualComponents = Array.isArray(toleranceObject.manualComponents)
+    ? toleranceObject.manualComponents
+    : [];
+  manualComponents.forEach((mc, idx) => {
+    if (!mc || typeof mc !== "object") return;
+
+    const isStandard = mc.inputMode === "standard";
+    const rawMagnitude = parseFloat(
+      isStandard ? mc.standardUncertainty : mc.toleranceLimit,
+    );
+    if (isNaN(rawMagnitude) || rawMagnitude <= 0) return;
+
+    const unit = mc.unit;
+
+    // A directly-entered standard uncertainty is already u_i (divisor 1); a
+    // tolerance limit is divided by the selected distribution's divisor.
+    let distRaw = "1.000";
+    let distLabel = "Standard Uncertainty (Input is uᵢ)";
+    let divisor = 1;
+    if (!isStandard) {
+      const distEntry = errorDistributions.find(
+        (d) => parseFloat(d.value) === parseFloat(mc.distribution),
+      );
+      distRaw = distEntry
+        ? distEntry.value
+        : mc.distribution != null
+          ? String(mc.distribution)
+          : "1.732";
+      divisor = parseFloat(distRaw) || 1.732;
+      distLabel = distEntry?.label || "Rectangular";
+    }
+
+    // Convert the raw magnitude into SI base units. Relative units (%/ppm/ppb)
+    // scale with the point's nominal; absolute units convert directly.
+    let magnitudeBase;
+    if (["%", "ppm", "ppb"].includes(unit)) {
+      const multiplier = unit === "%" ? 0.01 : unit === "ppm" ? 1e-6 : 1e-9;
+      if (isNaN(nominalValue)) return;
+      const inNominalUnit = rawMagnitude * multiplier * nominalValue;
+      magnitudeBase = unitSystem.toBaseUnit(inNominalUnit, nominalUnit);
+    } else {
+      magnitudeBase = unitSystem.toBaseUnit(rawMagnitude, unit);
+    }
+    if (isNaN(magnitudeBase)) return;
+
+    const u_i_base = Math.abs(magnitudeBase) / divisor;
+    const u_i_native = unitSystem.fromBaseUnit(u_i_base, nominalUnit);
+    const nominalBase = unitSystem.toBaseUnit(nominalValue, nominalUnit);
+
+    let finalValuePPM = NaN;
+    let isBaseUnitValue = false;
+    if (nominalBase !== 0 && !isNaN(nominalBase)) {
+      finalValuePPM = (u_i_base / Math.abs(nominalBase)) * 1e6;
+    } else {
+      finalValuePPM = u_i_base;
+      isBaseUnitValue = true;
+    }
+
+    const label = (mc.name && String(mc.name).trim()) || "Manual";
+
+    budgetComponents.push({
+      id: `${prefix}_manual_${mc.id || idx}${toleranceObject.id ? `_${toleranceObject.id}` : ""}`,
+      name: `${prefix} - ${label}`,
+      type: "B",
+      value: finalValuePPM,
+      isBaseUnitValue,
+      value_native: u_i_native,
+      unit_native: nominalUnit,
+      dof: Infinity,
+      isCore: true,
+      distribution: distLabel,
+      distributionDivisor: distRaw,
+      isManual: true,
+    });
+  });
+
   return budgetComponents;
 };
 
