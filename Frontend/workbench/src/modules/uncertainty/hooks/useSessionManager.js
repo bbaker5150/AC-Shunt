@@ -2,6 +2,38 @@ import { useState, useEffect, useMemo, useCallback, useRef } from "react";
 import axios from "axios";
 import { UNCERTAINTY_API } from "../constants/constants";
 
+export const prepareImportedSession = (
+  loadedSession,
+  existingSessions,
+  idSeed = Date.now(),
+) => {
+  const existingIds = new Set(
+    (existingSessions || []).map((session) => String(session.id)),
+  );
+  let importedId = Number(idSeed);
+  while (existingIds.has(String(importedId))) importedId += 1;
+
+  const baseName = loadedSession.name || "Imported Session";
+  const existingNames = new Set(
+    (existingSessions || []).map((session) => session.name),
+  );
+  let importedName = baseName;
+  if (existingNames.has(importedName)) {
+    importedName = `${baseName} (Imported)`;
+    let copyNumber = 2;
+    while (existingNames.has(importedName)) {
+      importedName = `${baseName} (Imported ${copyNumber})`;
+      copyNumber += 1;
+    }
+  }
+
+  return {
+    ...loadedSession,
+    id: importedId,
+    name: importedName,
+  };
+};
+
 // ---------------------------------------------------------------------------
 // useSessionManager — backend-backed session store for the Uncertainty module.
 //
@@ -371,24 +403,34 @@ const useSessionManager = () => {
   );
 
   const importSession = useCallback(
-    (loadedSession) => {
-      setSessions((prev) => {
-        const exists = prev.some((s) => s.id === loadedSession.id);
-        if (exists) {
-          return prev.map((s) => (s.id === loadedSession.id ? loadedSession : s));
-        }
-        return [loadedSession, ...prev];
-      });
-      setSelectedSessionId(loadedSession.id);
-      setSelectedTestPointId(loadedSession.testPoints?.[0]?.id || null);
+    async (loadedSession, importedImages = new Map()) => {
+      const saves = [];
+      const currentSession = sessions.find(
+        (session) => session.id === selectedSessionId,
+      );
+      if (currentSession) saves.push(persistSession(currentSession));
 
-      const imagesToSave = (loadedSession.noteImages || [])
-        .filter((img) => img.fileObject)
-        .map((img) => ({ id: img.id, fileObject: img.fileObject, fileName: img.fileName }));
+      const importedSession = prepareImportedSession(
+        loadedSession,
+        sessions,
+      );
+      setSessions((prev) => [importedSession, ...prev]);
+      setSelectedSessionId(importedSession.id);
+      setSelectedTestPointId(importedSession.testPoints?.[0]?.id || null);
 
-      persistSession(loadedSession, imagesToSave);
+      const imagesToSave = (importedSession.noteImages || [])
+        .filter((image) => importedImages.has(image.id))
+        .map((image) => ({
+          id: image.id,
+          fileObject: importedImages.get(image.id),
+          fileName: image.fileName,
+        }));
+
+      saves.push(persistSession(importedSession, imagesToSave));
+      await Promise.all(saves);
+      return importedSession;
     },
-    [persistSession]
+    [persistSession, selectedSessionId, sessions]
   );
 
   // --- 6. Workflow Redesign CRUD (Area, UUT, TMDE) ---

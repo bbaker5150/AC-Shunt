@@ -427,28 +427,6 @@ const UncertaintyBudgetTable = ({
     </>
   );
 
-  // Direct-measurement toolbar: the single budget table's Add Manual +
-  // Repeatability. (Derived points get these per-subbudget in the section
-  // headers, so this row is only rendered for direct measurements.)
-  const renderToolbar = () => (
-    <div className="budget-stack-toolbar">
-      <button
-        type="button"
-        onClick={() => onAddManualComponent?.(null)}
-        title="Add Manual Component"
-      >
-        <FontAwesomeIcon icon={faPlus} />
-      </button>
-      <button
-        type="button"
-        onClick={(e) => onOpenRepeatability?.(e)}
-        title="Repeatability Calculator"
-      >
-        <FontAwesomeIcon icon={faRedo} />
-      </button>
-    </div>
-  );
-
   const getPfaClass = (pfa) => {
     if (pfa > 5) return "status-bad";
     if (pfa > 2) return "status-warning";
@@ -644,24 +622,30 @@ const UncertaintyBudgetTable = ({
                       <FontAwesomeIcon icon={faPlus} />
                     </button>
                   )}
-                  {/* Repeatability for a derived subbudget — scoped to this
-                      variable so the Type A component lands in this table. */}
-                  {group.kind === "input" && (
+                  {/* Keep repeatability on the table it contributes to. */}
+                  {(group.kind === "input" ||
+                    (isDirect && group.kind === "final")) && (
                     <button
                       type="button"
-                      title={`Repeatability for ${group.label}`}
+                      title={
+                        group.kind === "input"
+                          ? `Repeatability for ${group.label}`
+                          : "Repeatability Calculator"
+                      }
                       onClick={(e) =>
-                        onOpenRepeatability?.(e, {
-                          variableType: group.variableType,
-                          label: group.label.replace(
-                            /\s+Uncertainty Budget$/i,
-                            "",
-                          ),
-                          nominalPoint: group.nominalPoint || {
-                            value: group.nominalValue,
-                            unit: group.unit,
-                          },
-                        })
+                        group.kind === "input"
+                          ? onOpenRepeatability?.(e, {
+                              variableType: group.variableType,
+                              label: group.label.replace(
+                                /\s+Uncertainty Budget$/i,
+                                "",
+                              ),
+                              nominalPoint: group.nominalPoint || {
+                                value: group.nominalValue,
+                                unit: group.unit,
+                              },
+                            })
+                          : onOpenRepeatability?.(e)
                       }
                     >
                       <FontAwesomeIcon icon={faRedo} />

@@ -2946,15 +2946,15 @@ function App() {
     if (!file) return;
     try {
       const { session, images } = await parseSessionPdf(file);
-      importSession(session);
+      const importedSession = await importSession(session, images);
       setSessionImageCache((prevCache) => {
         const newCache = new Map(prevCache);
-        newCache.set(session.id, images);
+        newCache.set(importedSession.id, images);
         return newCache;
       });
       setAppNotification({
         title: "Success",
-        message: `Session "${session.name}" loaded successfully.`,
+        message: `Session "${importedSession.name}" imported as a new saved session.`,
       });
     } catch (error) {
       console.error("PDF Load Error:", error);

@@ -1,295 +1,669 @@
-import * as PDFLib from 'pdf-lib';
-const { rgb } = PDFLib;
+import { rgb } from "pdf-lib";
 
-class PdfPageManager {
-  constructor(pdfDoc, font, boldFont, pageOptions) {
-    this.pdfDoc = pdfDoc;
-    this.font = font;
-    this.boldFont = boldFont;
-    this.pageOptions = pageOptions;
-    this.width = pageOptions.width;
-    this.height = pageOptions.height;
-    this.margins = pageOptions.margins;
-    this.lineHeight = pageOptions.lineHeight;
-    this.fontSize = pageOptions.fontSize;
-    this.page = null;
-    this.y = 0;
-    this.addNewPage();
+const PAGE = {
+  width: 841.89,
+  height: 595.28,
+  margin: 30,
+};
+
+const COLORS = {
+  ink: rgb(0.08, 0.12, 0.2),
+  muted: rgb(0.38, 0.43, 0.5),
+  line: rgb(0.82, 0.85, 0.89),
+  header: rgb(0.11, 0.22, 0.38),
+  headerFill: rgb(0.93, 0.95, 0.98),
+  areaFill: rgb(0.88, 0.93, 0.98),
+  uutFill: rgb(0.95, 0.97, 0.99),
+  white: rgb(1, 1, 1),
+};
+
+const COLUMN_DEFS = [
+  { key: "section", label: "Sect.", width: 36, align: "left" },
+  { key: "value", label: "Value", width: 62, align: "right" },
+  { key: "unit", label: "Unit", width: 32, align: "left" },
+  { key: "tolerance", label: "Tolerance", width: 104, align: "left" },
+  { key: "lowLimit", label: "Low", width: 54, align: "right" },
+  { key: "highLimit", label: "High", width: 54, align: "right" },
+  { key: "pfa", label: "PFA %", width: 40, align: "right" },
+  { key: "pfr", label: "PFR %", width: 40, align: "right" },
+  { key: "tur", label: "TUR", width: 36, align: "right" },
+  { key: "tar", label: "TAR", width: 36, align: "right" },
+  { key: "gbPfa", label: "PFA GB %", width: 48, align: "right" },
+  { key: "gbPfr", label: "PFR GB %", width: 48, align: "right" },
+  { key: "gbMult", label: "GB %", width: 40, align: "right" },
+  { key: "gbLow", label: "GB Low", width: 55, align: "right" },
+  { key: "gbHigh", label: "GB High", width: 55, align: "right" },
+];
+
+const TABLE_WIDTH = COLUMN_DEFS.reduce((sum, column) => sum + column.width, 0);
+
+const replaceUnicode = (value) =>
+  String(value ?? "")
+    .replace(/\u00b1/g, "+/-")
+    .replace(/[\u2013\u2014]/g, "-")
+    .replace(/\u00b7/g, "*")
+    .replace(/\u03c1/g, "rho")
+    .replace(/[^\x20-\x7e]/g, "");
+
+const finite = (value) => {
+  const number = Number(value);
+  return Number.isFinite(number) ? number : null;
+};
+
+const formatNumber = (value, digits = 4) => {
+  const number = finite(value);
+  if (number === null) return "-";
+  if (number === 0) return "0";
+  const abs = Math.abs(number);
+  return abs >= 10000 || abs < 0.001
+    ? number.toExponential(Math.max(1, digits - 1))
+    : Number(number.toPrecision(digits)).toString();
+};
+
+const formatPercent = (value) => {
+  const number = finite(value);
+  return number === null ? "-" : number.toFixed(2);
+};
+
+const formatRatio = (value) => {
+  const number = finite(value);
+  return number === null ? "-" : number.toFixed(2);
+};
+
+const getAllUutRanges = (uut) => {
+  let ranges = [];
+  if (Array.isArray(uut?.ranges) && uut.ranges.length) {
+    ranges = uut.ranges;
+  } else if (Array.isArray(uut?.instrument?.functions)) {
+    ranges = uut.instrument.functions.flatMap((fn) =>
+      (fn.ranges || []).map((range) => ({
+        ...range,
+        functionName: fn.name,
+        unit: fn.unit || range.unit,
+      })),
+    );
+  } else if (Array.isArray(uut?.instrument?.ranges)) {
+    ranges = uut.instrument.ranges;
+  } else if (uut?.tolerance) {
+    ranges = [uut.tolerance];
   }
 
-  addNewPage() {
-    this.page = this.pdfDoc.addPage([this.width, this.height]);
-    this.y = this.height - this.margins.top;
+  return ranges.map((range, index) => ({
+    ...range,
+    _reportId: range.id ?? range._id ?? index,
+    label:
+      range.min !== undefined && range.max !== undefined
+        ? `${formatNumber(range.min, 7)} to ${formatNumber(range.max, 7)}${range.unit ? ` ${range.unit}` : ""}`
+        : `${range.functionName ? `${range.functionName}: ` : ""}${range.range || "Range"}${range.unit ? ` ${range.unit}` : ""}`,
+  }));
+};
+
+const pointMatchesRange = (point, range) => {
+  const tolerance = point.uutTolerance;
+  if (tolerance && Object.keys(tolerance).length) {
+    return (
+      tolerance.min == range.min &&
+      tolerance.max == range.max &&
+      (tolerance.unit || "") === (range.unit || "") &&
+      (!range.functionName || tolerance.functionName === range.functionName)
+    );
   }
 
-  checkAddPage(spaceNeeded = this.lineHeight) {
-    if (this.y - spaceNeeded < this.margins.bottom) {
-      this.addNewPage();
-      return true; 
-    }
-    return false; 
-  }
+  const parameter = point.testPointInfo?.parameter;
+  const value = Number(parameter?.value);
+  const min = Number(range.min);
+  const max = Number(range.max);
+  const unitMatches =
+    !parameter?.unit ||
+    !range.unit ||
+    parameter.unit.toLowerCase() === range.unit.toLowerCase();
+  return (
+    Number.isFinite(value) &&
+    Number.isFinite(min) &&
+    Number.isFinite(max) &&
+    unitMatches &&
+    value >= min &&
+    value <= max
+  );
+};
 
-  addVerticalSpace(space) {
-    if (this.y - space < this.margins.bottom) {
-      this.addNewPage();
-    } else {
-      this.y -= space;
-    }
-  }
+const getPointRow = (point, risk, helpers) => {
+  const parameter = point.testPointInfo?.parameter || {};
+  const tolerance = point.uutTolerance || {};
+  const toleranceSummary = helpers.getToleranceErrorSummary(
+    tolerance,
+    parameter,
+  );
+  const limits = helpers.getAbsoluteLimits(tolerance, parameter);
+  const stripUnit = (value) =>
+    replaceUnicode(value)
+      .replace(new RegExp(`\\s*${replaceUnicode(parameter.unit)}\\s*$`), "")
+      .trim();
 
-  async drawText(text, options = {}) {
-    const {
-      font = this.font,
-      fontSize = this.fontSize,
-      indent = 0,
-      yOffset = 0,
-      color = rgb(0, 0, 0),
-      wrap = true,
-      align = 'left',
-    } = options;
+  return {
+    id: point.id,
+    section: point.section || "-",
+    value: formatNumber(parameter.value, 7),
+    unit: parameter.unit || "-",
+    tolerance:
+      toleranceSummary === "Not Set" || toleranceSummary === "Not Calculated"
+        ? "-"
+        : toleranceSummary,
+    lowLimit: limits?.low === "N/A" ? "-" : stripUnit(limits.low),
+    highLimit: limits?.high === "N/A" ? "-" : stripUnit(limits.high),
+    pfa: formatPercent(risk?.pfa),
+    pfr: formatPercent(risk?.pfr),
+    tur: formatRatio(risk?.tur),
+    tar: formatRatio(risk?.tar),
+    gbPfa: formatPercent(risk?.gbPfa),
+    gbPfr: formatPercent(risk?.gbPfr),
+    gbMult: formatPercent(risk?.gbMult),
+    gbLow: formatNumber(risk?.gbLow),
+    gbHigh: formatNumber(risk?.gbHigh),
+  };
+};
 
-    this.checkAddPage(fontSize);
-    this.y -= (yOffset + (options.lineHeight || this.lineHeight));
+export const buildSessionReportModel = (
+  session,
+  riskMetricsMap = {},
+  helpers,
+) => {
+  const areas = session.measurementAreas || [];
+  const uuts = session.uuts || [];
+  const points = session.testPoints || [];
+  const assignedPointIds = new Set();
 
-    const maxWidth = this.width - this.margins.left - this.margins.right - indent;
-    
-    // ---  Handle Newlines Manually ---
-    // 1. Split text by explicit newlines first to respect paragraphs
-    const paragraphs = String(text).split(/\r\n|\r|\n/g);
-    
-    let lines = [];
+  const areaModels = areas.map((area) => {
+    const areaUuts = uuts.filter(
+      (uut) =>
+        String(uut.measurementAreaId) === String(area.id) ||
+        (!uut.measurementAreaId && uut.measurementArea === area.name),
+    );
 
-    for (const paragraph of paragraphs) {
-      // If the paragraph is empty (double enter), we still need to push an empty line to advance Y
-      if (paragraph === '') {
-        lines.push('');
-        continue;
-      }
+    const uutModels = areaUuts.map((uut) => {
+      const uutPoints = points.filter((point) =>
+        (point.associatedUutIds || []).some(
+          (id) => String(id) === String(uut.id),
+        ),
+      );
+      const categorized = new Set();
+      const ranges = getAllUutRanges(uut)
+        .map((range) => {
+          const rangePoints = uutPoints.filter((point) => {
+            if (categorized.has(point.id) || !pointMatchesRange(point, range)) {
+              return false;
+            }
+            categorized.add(point.id);
+            assignedPointIds.add(point.id);
+            return true;
+          });
+          return {
+            id: range._reportId,
+            label: range.label,
+            rows: rangePoints.map((point) =>
+              getPointRow(point, riskMetricsMap[point.id], helpers),
+            ),
+          };
+        })
+        .filter((range) => range.rows.length);
 
-      if (wrap) {
-        let currentLine = '';
-        const words = paragraph.split(' '); 
-        
-        for (const word of words) {
-          // Check if adding the next word exceeds width
-          const testLine = currentLine ? currentLine + ' ' + word : word;
-          const testWidth = font.widthOfTextAtSize(testLine, fontSize);
-          
-          if (testWidth <= maxWidth) {
-            currentLine = testLine;
-          } else {
-            lines.push(currentLine);
-            currentLine = word;
-          }
-        }
-        // Push the remainder of the paragraph
-        if (currentLine) lines.push(currentLine);
-      } else {
-        // No wrapping requested, just push the paragraph as is
-        lines.push(paragraph);
-      }
-    }
-    // --- FIX END ---
-
-    for (const line of lines) {
-      if (this.checkAddPage(fontSize)) {
-         this.y -= (options.lineHeight || this.lineHeight);
-      }
-      
-      let x = this.margins.left + indent;
-      if (align === 'right') {
-        const textWidth = font.widthOfTextAtSize(line, fontSize);
-        x = this.width - this.margins.right - textWidth - indent;
-      }
-
-      // Only draw if line has content (otherwise just advance Y)
-      if (line && line.trim().length > 0) {
-        this.page.drawText(line, {
-          x: x, 
-          y: this.y,
-          size: fontSize,
-          font: font,
-          color: color,
+      const uncategorized = uutPoints.filter(
+        (point) => !categorized.has(point.id),
+      );
+      uncategorized.forEach((point) => assignedPointIds.add(point.id));
+      if (uncategorized.length) {
+        ranges.push({
+          id: "uncategorized",
+          label: "Uncategorized Points",
+          rows: uncategorized.map((point) =>
+            getPointRow(point, riskMetricsMap[point.id], helpers),
+          ),
         });
       }
-      
-      // Move Y down for the next line
-      if (lines.length > 0) {
-         this.y -= (options.lineHeight || this.lineHeight);
-      }
+
+      return {
+        id: uut.id,
+        name: uut.name || uut.description || "Unnamed UUT",
+        description:
+          uut.name && uut.description && uut.name !== uut.description
+            ? uut.description
+            : "",
+        ranges,
+      };
+    });
+
+    const unassigned = points.filter(
+      (point) =>
+        String(point.measurementAreaId) === String(area.id) &&
+        !assignedPointIds.has(point.id),
+    );
+    if (unassigned.length) {
+      uutModels.push({
+        id: "unassigned",
+        name: "Unassigned Points",
+        description: "",
+        ranges: [
+          {
+            id: "unassigned",
+            label: "No UUT / Range",
+            rows: unassigned.map((point) =>
+              getPointRow(point, riskMetricsMap[point.id], helpers),
+            ),
+          },
+        ],
+      });
+      unassigned.forEach((point) => assignedPointIds.add(point.id));
     }
+
+    return {
+      id: area.id,
+      name: area.name || "Measurement Area",
+      uuts: uutModels.filter((uut) => uut.ranges.length),
+    };
+  });
+
+  const outsideAreas = points.filter((point) => !assignedPointIds.has(point.id));
+  if (outsideAreas.length) {
+    areaModels.push({
+      id: "unassigned-area",
+      name: "Unassigned Measurement Area",
+      uuts: [
+        {
+          id: "unassigned-uut",
+          name: "Unassigned Points",
+          description: "",
+          ranges: [
+            {
+              id: "unassigned-range",
+              label: "No UUT / Range",
+              rows: outsideAreas.map((point) =>
+                getPointRow(point, riskMetricsMap[point.id], helpers),
+              ),
+            },
+          ],
+        },
+      ],
+    });
   }
 
-  async drawLine(yOffset = 5, indent = 0, color = rgb(0.8, 0.8, 0.8), thickness = 1) {
-    this.checkAddPage(yOffset * 2 + 2);
-    this.y -= yOffset;
-    this.page.drawLine({
-      start: { x: this.margins.left + indent, y: this.y },
-      end: { x: this.width - this.margins.right - indent, y: this.y },
-      thickness: thickness,
-      color: color,
-    });
-    this.y -= yOffset;
+  return {
+    title: session.name || session.uutDescription || "Uncertainty Session",
+    pointCount: points.length,
+    areas: areaModels.filter((area) => area.uuts.length),
+  };
+};
+
+class ReportRenderer {
+  constructor(pdfDoc, fonts, session) {
+    this.pdfDoc = pdfDoc;
+    this.font = fonts.regular;
+    this.bold = fonts.bold;
+    this.session = session;
+    this.page = null;
+    this.y = 0;
+    this.addPage();
   }
 
-  async drawSectionHeader(text) {
-    this.checkAddPage(this.lineHeight * 3);
-    this.y -= this.lineHeight; 
-    await this.drawText(text, {
-      font: this.boldFont,
-      fontSize: this.fontSize + 2,
-      color: rgb(0.1, 0.3, 0.7),
+  addPage() {
+    this.page = this.pdfDoc.addPage([PAGE.width, PAGE.height]);
+    this.y = PAGE.height - PAGE.margin;
+    this.page.drawText(replaceUnicode(this.session.name || "Session Report"), {
+      x: PAGE.margin,
+      y: PAGE.height - 19,
+      size: 7,
+      font: this.bold,
+      color: COLORS.muted,
     });
-    this.page.drawLine({
-      start: { x: this.margins.left, y: this.y - 3 },
-      end: { x: this.width - this.margins.right, y: this.y - 3 },
-      thickness: 1.5,
-      color: rgb(0.1, 0.3, 0.7),
-    });
-    this.y -= 5;
   }
-  
-  async drawSubheader(text, indent = 0) { 
-    this.checkAddPage(this.lineHeight * 2);
-    this.y -= this.lineHeight * 0.5; 
-    await this.drawText(text, {
-      font: this.boldFont,
-      fontSize: this.fontSize,
-      indent: indent, 
+
+  ensure(height, onNewPage) {
+    if (this.y - height >= PAGE.margin + 12) return;
+    this.addPage();
+    onNewPage?.();
+  }
+
+  text(value, x, y, size = 8, font = this.font, color = COLORS.ink) {
+    this.page.drawText(replaceUnicode(value), { x, y, size, font, color });
+  }
+
+  fit(value, maxWidth, size = 8, font = this.font) {
+    const text = replaceUnicode(value);
+    if (font.widthOfTextAtSize(text, size) <= maxWidth) return text;
+    let shortened = text;
+    while (
+      shortened.length > 1 &&
+      font.widthOfTextAtSize(`${shortened}...`, size) > maxWidth
+    ) {
+      shortened = shortened.slice(0, -1);
+    }
+    return `${shortened}...`;
+  }
+
+  banner(text, fill, size = 9) {
+    this.ensure(22);
+    this.page.drawRectangle({
+      x: PAGE.margin,
+      y: this.y - 17,
+      width: PAGE.width - PAGE.margin * 2,
+      height: 17,
+      color: fill,
     });
-    this.y -= this.lineHeight * 0.5;
+    this.text(
+      this.fit(text, PAGE.width - PAGE.margin * 2 - 14, size, this.bold),
+      PAGE.margin + 7,
+      this.y - 12,
+      size,
+      this.bold,
+    );
+    this.y -= 22;
+  }
+
+  alignedText(
+    value,
+    x,
+    width,
+    y,
+    align = "left",
+    size = 8,
+    font = this.font,
+    color = COLORS.ink,
+  ) {
+    const text = this.fit(value, width - 6, size, font);
+    const textWidth = font.widthOfTextAtSize(text, size);
+    const textX =
+      align === "right"
+        ? x + width - textWidth - 3
+        : align === "center"
+          ? x + (width - textWidth) / 2
+          : x + 3;
+    this.text(text, textX, y, size, font, color);
+  }
+
+  metadataGrid(items) {
+    const columns = 3;
+    const gap = 8;
+    const cellWidth =
+      (PAGE.width - PAGE.margin * 2 - gap * (columns - 1)) / columns;
+    const cellHeight = 29;
+    const rows = Math.ceil(items.length / columns);
+    this.ensure(rows * cellHeight + (rows - 1) * gap);
+
+    items.forEach(([label, value], index) => {
+      const column = index % columns;
+      const row = Math.floor(index / columns);
+      const x = PAGE.margin + column * (cellWidth + gap);
+      const y = this.y - row * (cellHeight + gap);
+      this.page.drawRectangle({
+        x,
+        y: y - cellHeight,
+        width: cellWidth,
+        height: cellHeight,
+        color: rgb(0.975, 0.982, 0.992),
+        borderColor: COLORS.line,
+        borderWidth: 0.45,
+      });
+      this.text(label.toUpperCase(), x + 7, y - 10, 5.8, this.bold, COLORS.muted);
+      this.text(
+        this.fit(value, cellWidth - 14, 8.5, this.bold),
+        x + 7,
+        y - 23,
+        8.5,
+        this.bold,
+      );
+    });
+
+    this.y -= rows * cellHeight + (rows - 1) * gap + 13;
+  }
+
+  requirementGrid(items) {
+    const gap = 6;
+    const cellWidth =
+      (PAGE.width - PAGE.margin * 2 - gap * (items.length - 1)) / items.length;
+    const cellHeight = 25;
+    this.ensure(cellHeight);
+
+    items.forEach(([label, value], index) => {
+      const x = PAGE.margin + index * (cellWidth + gap);
+      this.page.drawRectangle({
+        x,
+        y: this.y - cellHeight,
+        width: cellWidth,
+        height: cellHeight,
+        color: COLORS.headerFill,
+        borderColor: COLORS.line,
+        borderWidth: 0.4,
+      });
+      this.text(label.toUpperCase(), x + 6, this.y - 9, 5.5, this.bold, COLORS.muted);
+      this.text(
+        this.fit(value, cellWidth - 12, 8, this.bold),
+        x + 6,
+        this.y - 20,
+        8,
+        this.bold,
+      );
+    });
+    this.y -= cellHeight + 9;
+  }
+
+  tableHeader() {
+    const height = 18;
+    let x = PAGE.margin;
+    this.page.drawRectangle({
+      x,
+      y: this.y - height,
+      width: TABLE_WIDTH,
+      height,
+      color: COLORS.header,
+    });
+    COLUMN_DEFS.forEach((column) => {
+      this.alignedText(
+        column.label,
+        x,
+        column.width,
+        this.y - 12,
+        column.align,
+        6.2,
+        this.bold,
+        COLORS.white,
+      );
+      x += column.width;
+      this.page.drawLine({
+        start: { x, y: this.y - height },
+        end: { x, y: this.y },
+        thickness: 0.25,
+        color: rgb(0.35, 0.45, 0.58),
+      });
+    });
+    this.y -= height;
+  }
+
+  wrap(value, width, size = 6.5) {
+    const words = replaceUnicode(value).split(/\s+/).filter(Boolean);
+    if (!words.length) return [""];
+    const lines = [];
+    let current = "";
+    words.forEach((word) => {
+      const candidate = current ? `${current} ${word}` : word;
+      if (this.font.widthOfTextAtSize(candidate, size) <= width - 6) {
+        current = candidate;
+      } else {
+        if (current) lines.push(current);
+        current = word;
+      }
+    });
+    if (current) lines.push(current);
+    return lines.slice(0, 3);
+  }
+
+  row(row, index, repeatContext) {
+    const linesByColumn = Object.fromEntries(
+      COLUMN_DEFS.map((column) => [
+        column.key,
+        this.wrap(row[column.key], column.width),
+      ]),
+    );
+    const lineCount = Math.max(
+      1,
+      ...Object.values(linesByColumn).map((lines) => lines.length),
+    );
+    const height = Math.max(15, lineCount * 8 + 5);
+    this.ensure(height, repeatContext);
+
+    let x = PAGE.margin;
+    this.page.drawRectangle({
+      x,
+      y: this.y - height,
+      width: TABLE_WIDTH,
+      height,
+      color: index % 2 ? COLORS.white : rgb(0.985, 0.99, 1),
+      borderColor: COLORS.line,
+      borderWidth: 0.35,
+    });
+
+    COLUMN_DEFS.forEach((column) => {
+      const lines = linesByColumn[column.key];
+      lines.forEach((line, lineIndex) => {
+        this.alignedText(
+          line,
+          x,
+          column.width,
+          this.y - 10 - lineIndex * 8,
+          column.align,
+          6.5,
+        );
+      });
+      x += column.width;
+      this.page.drawLine({
+        start: { x, y: this.y - height },
+        end: { x, y: this.y },
+        thickness: 0.25,
+        color: COLORS.line,
+      });
+    });
+    this.y -= height;
+  }
+
+  finish() {
+    const pages = this.pdfDoc.getPages();
+    pages.forEach((page, index) => {
+      page.drawLine({
+        start: { x: PAGE.margin, y: 22 },
+        end: { x: PAGE.width - PAGE.margin, y: 22 },
+        thickness: 0.5,
+        color: COLORS.line,
+      });
+      page.drawText(
+        replaceUnicode(
+          `Uncertalytics session report | Page ${index + 1} of ${pages.length}`,
+        ),
+        {
+          x: PAGE.margin,
+          y: 11,
+          size: 6.5,
+          font: this.font,
+          color: COLORS.muted,
+        },
+      );
+    });
   }
 }
 
-export const generateOverviewReport = async (pdfDoc, session, fonts, helpers) => {
-  const { 
-    getToleranceSummary, 
-    calculateUncertaintyFromToleranceObject, 
-    convertPpmToUnit, 
-    getAbsoluteLimits 
-  } = helpers;
+export const generateOverviewReport = async (
+  pdfDoc,
+  session,
+  fonts,
+  helpers,
+  riskMetricsMap = {},
+) => {
+  const report = buildSessionReportModel(
+    session,
+    riskMetricsMap,
+    helpers,
+  );
+  const renderer = new ReportRenderer(pdfDoc, fonts, session);
+  const metadata = [
+    ["Analyst", session.analyst || "-"],
+    ["Organization", session.organization || "-"],
+    ["Document", session.document || "-"],
+    ["Document Date", session.documentDate || "-"],
+    ["Measurement Areas", report.areas.length],
+    ["Measurement Points", report.pointCount],
+  ];
 
-  const pageOptions = {
-    width: 595.28, 
-    height: 841.89, 
-    margins: { top: 50, bottom: 50, left: 50, right: 50 },
-    fontSize: 10,
-    lineHeight: 14,
-  };
-  const manager = new PdfPageManager(pdfDoc, fonts.regular, fonts.bold, pageOptions);
-
-  await manager.drawText(`${session.name || "N/A"}`, {
-    font: manager.boldFont,
-    fontSize: 16,
-    yOffset: -10, 
+  renderer.text(
+    renderer.fit(
+      report.title,
+      PAGE.width - PAGE.margin * 2,
+      18,
+      renderer.bold,
+    ),
+    PAGE.margin,
+    renderer.y - 18,
+    18,
+    renderer.bold,
+  );
+  renderer.y -= 29;
+  renderer.page.drawLine({
+    start: { x: PAGE.margin, y: renderer.y },
+    end: { x: PAGE.width - PAGE.margin, y: renderer.y },
+    thickness: 1.5,
+    color: COLORS.header,
   });
-  await manager.drawLine(10, 0, rgb(0.1, 0.1, 0.1), 1.5);
+  renderer.y -= 17;
 
-  const headerTopY = manager.y; 
+  renderer.metadataGrid(metadata);
 
-  await manager.drawText(`Analyst: ${session.analyst || "N/A"}`, {
-    align: 'right',
-    wrap: false 
-  });
-  await manager.drawText(`Date: ${session.documentDate || "N/A"}`, {
-    align: 'right',
-    wrap: false
-  });
-  const rightColumnBottomY = manager.y; 
+  const requirements = session.uncReq || {};
+  renderer.text(
+    "RISK AND GUARDBAND REQUIREMENTS",
+    PAGE.margin,
+    renderer.y - 3,
+    6.5,
+    renderer.bold,
+    COLORS.muted,
+  );
+  renderer.y -= 11;
+  renderer.requirementGrid([
+    ["Reliability", `${requirements.reliability ?? "-"}%`],
+    ["Required PFA", `${requirements.reqPFA ?? "-"}%`],
+    ["Required TUR", requirements.neededTUR ?? "-"],
+    ["Confidence", `${requirements.uncertaintyConfidence ?? "-"}%`],
+    ["Calibration Interval", requirements.calInt ?? "-"],
+  ]);
 
-  manager.y = headerTopY; 
-  await manager.drawText(`UUT Name: ${session.uutDescription || "N/A"}`); 
-  await manager.drawText(`Organization: ${session.organization || "N/A"}`); 
-  await manager.drawText(`Document: ${session.document || "N/A"}`); 
-  await manager.drawText(`UUT Tolerance: ${getToleranceSummary(session.uutTolerance)}`);
-  
-  manager.y = Math.min(manager.y, rightColumnBottomY); 
-  
-  if (session.notes) {
-    manager.addVerticalSpace(10);
-    await manager.drawText("Analysis Notes:", { font: manager.boldFont });
-    // This call previously failed on newlines
-    await manager.drawText(session.notes, {
-      indent: 10,
-      color: rgb(0.3, 0.3, 0.3),
-      wrap: true 
-    });
-  }
-
-  if (!session.testPoints || session.testPoints.length === 0) {
-    await manager.drawSectionHeader("No Measurement Points");
+  if (!report.areas.length) {
+    renderer.banner("No measurement points", COLORS.areaFill);
+    renderer.finish();
     return;
   }
 
-  const cardIndent = 15; 
-  const contentIndent = cardIndent + 10; 
-
-  for (const tp of session.testPoints) {
-    const tpParam = tp.testPointInfo?.parameter;
-    const pointTitle = tpParam
-      ? `${tpParam.name}: ${tpParam.value} ${tpParam.unit}`
-      : "Unknown Measurement Point";
-    
-    manager.addVerticalSpace(20);
-    await manager.drawLine(0, cardIndent); 
-    manager.addVerticalSpace(5); 
-
-    await manager.drawText(pointTitle, {
-      font: manager.boldFont,
-      fontSize: manager.fontSize + 2,
-      color: rgb(0.1, 0.3, 0.7),
-      indent: cardIndent,
+  report.areas.forEach((area) => {
+    renderer.banner(`Measurement Area: ${area.name}`, COLORS.areaFill, 10);
+    area.uuts.forEach((uut) => {
+      renderer.banner(
+        `UUT: ${uut.name}${uut.description ? ` | ${uut.description}` : ""}`,
+        COLORS.uutFill,
+        8.5,
+      );
+      uut.ranges.forEach((range) => {
+        renderer.ensure(42);
+        renderer.text(`Range: ${range.label}`, PAGE.margin + 5, renderer.y - 8, 8, renderer.bold);
+        renderer.y -= 14;
+        renderer.tableHeader();
+        const repeatContext = () => {
+          renderer.text(`Measurement Area: ${area.name}`, PAGE.margin, renderer.y - 8, 8, renderer.bold);
+          renderer.y -= 13;
+          renderer.text(`UUT: ${uut.name} | Range: ${range.label}`, PAGE.margin, renderer.y - 8, 7.5, renderer.bold);
+          renderer.y -= 14;
+          renderer.tableHeader();
+        };
+        range.rows.forEach((row, index) =>
+          renderer.row(row, index, repeatContext),
+        );
+        renderer.y -= 9;
+      });
     });
-    manager.addVerticalSpace(10);
-    
-    await manager.drawSubheader("Risk Metrics", cardIndent); 
+  });
 
-    if (tp.riskMetrics) {
-      const risk = tp.riskMetrics;
-      // Using optional chaining and null coalescing to be safe
-      await manager.drawText(`- Expanded Uncertainty: ${risk.expandedUncertainty?.toPrecision(4) ?? "N/A"} ${risk.nativeUnit}`, { indent: contentIndent });
-      await manager.drawText(`- UUT Tolerance Limits: ${risk.LLow ?? "N/A"} to ${risk.LUp ?? "N/A"} ${risk.nativeUnit}`, { indent: contentIndent });
-      await manager.drawText(`- PFA: ${risk.pfa?.toFixed(4) ?? "N/A"} %`, { indent: contentIndent });
-      await manager.drawText(`- PFR: ${risk.pfr?.toFixed(4) ?? "N/A"} %`, { indent: contentIndent });
-      await manager.drawText(`- TUR: ${risk.tur?.toFixed(2) ?? "N/A"} : 1`, { indent: contentIndent });
-      await manager.drawText(`- TAR: ${risk.tar?.toFixed(2) ?? "N/A"} : 1`, { indent: contentIndent });
-    } else {
-      await manager.drawText("- Not Calculated", { indent: contentIndent });
-    }
-    
-    manager.addVerticalSpace(10);
-
-    await manager.drawSubheader("TMDE Information", cardIndent); 
-
-    if (!tp.tmdeTolerances || tp.tmdeTolerances.length === 0) {
-      await manager.drawText("- None assigned", { indent: contentIndent });
-    } else {
-      for (const tmde of tp.tmdeTolerances) {
-        const refPoint = tmde.measurementPoint;
-        if (!refPoint) continue; 
-        
-        const { standardUncertainty: uPpm } = calculateUncertaintyFromToleranceObject(tmde, refPoint);
-        const stdUncAbs = convertPpmToUnit(uPpm, refPoint.unit, refPoint);
-        const stdUncDisplay = typeof stdUncAbs === "number"
-            ? `${stdUncAbs.toPrecision(3)} ${refPoint.unit}`
-            : "N/A";
-        const limits = getAbsoluteLimits(tmde, refPoint);
-
-        await manager.drawText(`- ${tmde.name || "TMDE"} (Qty: ${tmde.quantity || 1})`, { indent: contentIndent, font: manager.boldFont });
-        const subIndent = contentIndent + 10;
-        if (tp.measurementType === 'derived' && tmde.variableType) {
-          await manager.drawText(`- Equation Input: ${tmde.variableType}`, { indent: subIndent });
-        }
-        await manager.drawText(`- Nominal Point: ${refPoint.value} ${refPoint.unit}`, { indent: subIndent });
-        await manager.drawText(`- Tolerance Spec: ${getToleranceSummary(tmde)}`, { indent: subIndent });
-        await manager.drawText(`- Calculated Limits: ${limits.low} to ${limits.high}`, { indent: subIndent });
-        await manager.drawText(`- Std. Uncertainty (ui): ${stdUncDisplay}`, { indent: subIndent });
-        manager.addVerticalSpace(5); 
-      }
-    }
-
-    manager.addVerticalSpace(5); 
-    await manager.drawLine(0, cardIndent);
-  }
+  renderer.finish();
 };

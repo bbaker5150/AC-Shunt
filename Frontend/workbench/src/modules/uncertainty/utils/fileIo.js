@@ -1,11 +1,10 @@
 import * as PDFLib from "pdf-lib";
 import { generateOverviewReport } from "./pdfGenerator"; 
 import { 
-  getToleranceSummary,
-  calculateUncertaintyFromToleranceObject,
-  convertPpmToUnit,
+  getToleranceErrorSummary,
   getAbsoluteLimits, 
 } from "./uncertaintyMath";
+import { computeRiskMetricsMap } from "./riskCompute";
 
 const {
   PDFDocument,
@@ -51,6 +50,11 @@ const getImageBytes = async (fileObject) => {
   return new Uint8Array();
 };
 
+const encodeUtf8 = (value) => {
+  const encoded = unescape(encodeURIComponent(value));
+  return Uint8Array.from(encoded, (character) => character.charCodeAt(0));
+};
+
 // --- Helper: Extract Attachments ---
 const extractRawAttachments = (pdfDoc) => {
   if (!pdfDoc.catalog.has(PDFName.of("Names"))) return [];
@@ -86,7 +90,7 @@ const extractAttachments = (pdfDoc) => {
     if (fileName instanceof PDFHexString) {
       name = fileName.decodeText();
     } else if (fileName instanceof PDFString) {
-      name = fileName.toString();
+      name = fileName.decodeText();
     } else {
       name = "unknown_attachment";
     }
@@ -100,7 +104,12 @@ const extractAttachments = (pdfDoc) => {
     }
 
     let data;
-    if (stream instanceof PDFRawStream) {
+    // pdf-lib can be bundled through more than one module path, which makes
+    // instanceof unreliable even when the object is a PDFRawStream.
+    if (
+      stream instanceof PDFRawStream ||
+      stream?.constructor?.name === "PDFRawStream"
+    ) {
       // Decode raw stream to Uint8Array directly
       data = decodePDFRawStream(stream).decode();
     } else {
@@ -112,8 +121,10 @@ const extractAttachments = (pdfDoc) => {
 };
 
 // --- Exported: Save Session ---
-export const saveSessionToPdf = async (currentSession, sessionImagesMap) => {
-  const textEncoder = new TextEncoder();
+export const createSessionPdfBytes = async (
+  currentSession,
+  sessionImagesMap,
+) => {
   let now = new Date();
 
   const month = (now.getMonth() + 1).toString().padStart(2, "0");
@@ -121,11 +132,16 @@ export const saveSessionToPdf = async (currentSession, sessionImagesMap) => {
   const year = now.getFullYear();
   const hours = now.getHours().toString().padStart(2, "0");
   const minutes = now.getMinutes().toString().padStart(2, "0");
-  const fileName = `MUA_${currentSession.uutDescription || "Session"}_${year}${month}${day}_${hours}${minutes}.pdf`;
+  const safeSessionName = String(
+    currentSession.name || currentSession.uutDescription || "Session",
+  )
+    .replace(/[<>:"/\\|?*\x00-\x1f]/g, "_")
+    .trim();
+  const fileName = `Uncertalytics_${safeSessionName}_${year}${month}${day}_${hours}${minutes}.pdf`;
 
   // 1. Prepare JSON Data
   const jsonData = JSON.stringify(currentSession, null, 2);
-  const jsonDataBytes = textEncoder.encode(jsonData);
+  const jsonDataBytes = encodeUtf8(jsonData);
 
   // 2. Prepare Images
   const imagesToSave = [];
@@ -147,20 +163,26 @@ export const saveSessionToPdf = async (currentSession, sessionImagesMap) => {
   const fonts = { regular: helveticaFont, bold: helveticaBoldFont };
 
   pdfDoc.setTitle(fileName);
-  pdfDoc.setSubject("MUA Session Data and Overview");
-  pdfDoc.setProducer("MUA Tool");
+  pdfDoc.setSubject("Uncertalytics session report and restorable session data");
+  pdfDoc.setProducer("Uncertalytics");
   pdfDoc.setCreationDate(now);
   pdfDoc.setModificationDate(now);
 
   // 4. Generate Overview Pages
-  const helpers = {
-    getToleranceSummary,
-    calculateUncertaintyFromToleranceObject,
-    convertPpmToUnit,
-    getAbsoluteLimits,
-  };
+  const helpers = { getToleranceErrorSummary, getAbsoluteLimits };
+  const riskMetricsMap = computeRiskMetricsMap(
+    currentSession.testPoints || [],
+    currentSession,
+    true,
+  );
   
-  await generateOverviewReport(pdfDoc, currentSession, fonts, helpers);
+  await generateOverviewReport(
+    pdfDoc,
+    currentSession,
+    fonts,
+    helpers,
+    riskMetricsMap,
+  );
 
   // 5. Attach JSON
   await pdfDoc.attach(jsonDataBytes, "sessionData.json", {
@@ -192,7 +214,15 @@ export const saveSessionToPdf = async (currentSession, sessionImagesMap) => {
   }
 
   // 7. Save
-  const pdfBytes = await pdfDoc.save();
+  return { pdfBytes: await pdfDoc.save(), fileName };
+};
+
+// --- Exported: Save Session ---
+export const saveSessionToPdf = async (currentSession, sessionImagesMap) => {
+  const { pdfBytes, fileName } = await createSessionPdfBytes(
+    currentSession,
+    sessionImagesMap,
+  );
   const blob = new Blob([pdfBytes], { type: "application/pdf" });
   const href = URL.createObjectURL(blob);
   const link = document.createElement("a");
@@ -240,7 +270,11 @@ export const parseSessionPdf = async (file) => {
     throw new Error("Failed to parse session data. The JSON data is corrupt.");
   }
 
-  if (!loadedSession || !loadedSession.id) {
+  if (
+    !loadedSession ||
+    loadedSession.id === undefined ||
+    !Array.isArray(loadedSession.testPoints)
+  ) {
     throw new Error("Error: Attached data is not a valid session object.");
   }
 
