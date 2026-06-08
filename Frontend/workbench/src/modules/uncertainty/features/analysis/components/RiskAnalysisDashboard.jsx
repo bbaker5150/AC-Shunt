@@ -1,8 +1,9 @@
 import React from "react";
+import RiskGauge from "./RiskGauge";
 
 const RiskAnalysisDashboard = ({ results, onShowBreakdown, activeModals = [] }) => {
   if (!results) return null;
-  
+
   const getPfaClass = (pfa) => {
     if (pfa > 5) return "status-bad";
     if (pfa > 2) return "status-warning";
@@ -12,137 +13,103 @@ const RiskAnalysisDashboard = ({ results, onShowBreakdown, activeModals = [] }) 
   const isActive = (key) => activeModals.includes(key);
 
   const nativeUnit = results.nativeUnit || "units";
+  const fmt = (v, p = 6) =>
+    typeof v === "number" ? v.toPrecision(p) : "N/A";
+
+  const inputSpecs = [
+    {
+      label: (
+        <>
+          True Error (σ<sub>uut</sub>)
+        </>
+      ),
+      value: `${fmt(results.uUUT)} ${nativeUnit}`,
+    },
+    {
+      label: (
+        <>
+          Combined Uncertainty (u<sub>cal</sub>)
+        </>
+      ),
+      value: `${fmt(results.uCal)} ${nativeUnit}`,
+    },
+    {
+      label: (
+        <>
+          Observed Error (σ<sub>obs</sub>)
+        </>
+      ),
+      value: `${fmt(results.uDev)} ${nativeUnit}`,
+    },
+    { label: "UUT Lower Tolerance", value: `${fmt(results.LLow)} ${nativeUnit}` },
+    { label: "UUT Upper Tolerance", value: `${fmt(results.LUp)} ${nativeUnit}` },
+    { label: "Lower Acceptance", value: `${fmt(results.ALow)} ${nativeUnit}` },
+    { label: "Upper Acceptance", value: `${fmt(results.AUp)} ${nativeUnit}` },
+    { label: "Correlation (ρ)", value: fmt(results.correlation) },
+  ];
 
   return (
-    <div className="risk-analysis-container">
-      <div className="risk-analysis-dashboard">
-        <div
-          className={`risk-card clickable ${isActive("inputs") ? "active-card" : ""}`}
+    <div className="risk-dashboard">
+      <section className="risk-inputs-panel">
+        <button
+          type="button"
+          className={`risk-inputs-header ${isActive("inputs") ? "active" : ""}`}
           onClick={() => onShowBreakdown("inputs")}
         >
-          <div
-            className="risk-label"
-            style={{
-              fontWeight: "bold",
-              fontSize: "1.1rem",
-              marginBottom: "15px",
-            }}
-          >
-            Key Calculation Inputs
-          </div>
-          <ul className="result-breakdown" style={{ marginTop: 0 }}>
-            <li>
-              <span className="label">
-                True Error (σ<sub>uut</sub>)
-              </span>
-              <span className="value">
-                {results.uUUT.toPrecision(6)} {nativeUnit}
-              </span>
-            </li>
-            <li>
-              <span className="label">
-                Combined Uncertainty (u<sub>cal</sub>)
-              </span>
-              <span className="value">
-                {results.uCal.toPrecision(6)} {nativeUnit}
-              </span>
-            </li>
-            <li>
-              <span className="label">
-                Observed Error (σ<sub>obs</sub>)
-              </span>
-              <span className="value">
-                {results.uDev.toPrecision(6)} {nativeUnit}
-              </span>
-            </li>
-            <li>
-              <span className="label">UUT Lower Tolerance</span>
-              <span className="value">
-                {results.LLow.toPrecision(6)} {nativeUnit}
-              </span>
-            </li>
-            <li>
-              <span className="label">UUT Upper Tolerance</span>
-              <span className="value">
-                {results.LUp.toPrecision(6)} {nativeUnit}
-              </span>
-            </li>
-            <li>
-              <span className="label">Lower Acceptance</span>
-              <span className="value">
-                {results.ALow.toPrecision(6)} {nativeUnit}
-              </span>
-            </li>
-            <li>
-              <span className="label">Upper Acceptance</span>
-              <span className="value">
-                {results.AUp.toPrecision(6)} {nativeUnit}
-              </span>
-            </li>
-            <li>
-              <span className="label">Correlation (ρ)</span>
-              <span className="value">
-                {results.correlation.toPrecision(6)}
-              </span>
-            </li>
-          </ul>
+          <span>Key Calculation Inputs</span>
+          <span className="risk-inputs-hint">View breakdown</span>
+        </button>
+        <div className="risk-inputs-grid">
+          {inputSpecs.map((spec, i) => (
+            <div className="risk-spec" key={i}>
+              <span className="risk-spec-label">{spec.label}</span>
+              <span className="risk-spec-value">{spec.value}</span>
+            </div>
+          ))}
         </div>
-        <div
-          className={`risk-card tur-card clickable ${isActive("tur") ? "active-card" : ""}`}
-          onClick={() => onShowBreakdown("tur")}
-        >
-          <div className="risk-value">{results.tur.toFixed(2)} : 1</div>
-          <div className="risk-label">Test Uncertainty Ratio (TUR)</div>
-          <div className="risk-explanation">
-            A ratio of the UUT's tolerance to the measurement uncertainty.
-          </div>
-        </div>
-        <div
-          className={`risk-card tur-card clickable ${isActive("tar") ? "active-card" : ""}`}
-          onClick={() => onShowBreakdown("tar")}
-        >
-          <div className="risk-value">{results.tar.toFixed(2)} : 1</div>
-          <div className="risk-label">Test Acceptance Ratio (TAR)</div>
-          <div className="risk-explanation">
-            A ratio of the UUT's tolerance span to the TMDE's (Standard's)
-            tolerance span.
-          </div>
-        </div>
-        <div
-          className={`risk-card pfa-card ${getPfaClass(results.pfa)} clickable ${isActive("pfa") ? "active-card" : ""}`}
-          onClick={() => onShowBreakdown("pfa")}
-        >
-          <div className="risk-value">{results.pfa.toFixed(4)} %</div>
-          <div className="risk-label">Probability of False Accept (PFA)</div>
-          <ul className="result-breakdown" style={{ fontSize: "0.85rem" }}>
-            <li>
-              <span className="label">Lower Tail Risk</span>
-              <span className="value">{results.pfa_term1.toFixed(4)} %</span>
-            </li>
-            <li>
-              <span className="label">Upper Tail Risk</span>
-              <span className="value">{results.pfa_term2.toFixed(4)} %</span>
-            </li>
-          </ul>
-        </div>
-        <div
-          className={`risk-card pfr-card clickable ${isActive("pfr") ? "active-card" : ""}`}
-          onClick={() => onShowBreakdown("pfr")}
-        >
-          <div className="risk-value">{results.pfr.toFixed(4)} %</div>
-          <div className="risk-label">Probability of False Reject (PFR)</div>
-          <ul className="result-breakdown" style={{ fontSize: "0.85rem" }}>
-            <li>
-              <span className="label">Lower Side Risk</span>
-              <span className="value">{results.pfr_term1.toFixed(4)} %</span>
-            </li>
-            <li>
-              <span className="label">Upper Side Risk</span>
-              <span className="value">{results.pfr_term2.toFixed(4)} %</span>
-            </li>
-          </ul>
-        </div>
-      </div>
+      </section>
+
+      <RiskGauge
+        label="Test Uncertainty Ratio (TUR)"
+        value={`${results.tur.toFixed(2)} : 1`}
+        accent="accent-primary"
+        note="A ratio of the UUT's tolerance to the measurement uncertainty."
+        active={isActive("tur")}
+        onClick={() => onShowBreakdown("tur")}
+      />
+
+      <RiskGauge
+        label="Test Acceptance Ratio (TAR)"
+        value={`${results.tar.toFixed(2)} : 1`}
+        accent="accent-primary"
+        note="A ratio of the UUT's tolerance span to the TMDE's (Standard's) tolerance span."
+        active={isActive("tar")}
+        onClick={() => onShowBreakdown("tar")}
+      />
+
+      <RiskGauge
+        label="Probability of False Accept (PFA)"
+        value={`${results.pfa.toFixed(4)} %`}
+        status={getPfaClass(results.pfa)}
+        breakdown={[
+          { label: "Lower Tail Risk", value: `${results.pfa_term1.toFixed(4)} %` },
+          { label: "Upper Tail Risk", value: `${results.pfa_term2.toFixed(4)} %` },
+        ]}
+        active={isActive("pfa")}
+        onClick={() => onShowBreakdown("pfa")}
+      />
+
+      <RiskGauge
+        label="Probability of False Reject (PFR)"
+        value={`${results.pfr.toFixed(4)} %`}
+        status="neutral"
+        breakdown={[
+          { label: "Lower Side Risk", value: `${results.pfr_term1.toFixed(4)} %` },
+          { label: "Upper Side Risk", value: `${results.pfr_term2.toFixed(4)} %` },
+        ]}
+        active={isActive("pfr")}
+        onClick={() => onShowBreakdown("pfr")}
+      />
     </div>
   );
 };
