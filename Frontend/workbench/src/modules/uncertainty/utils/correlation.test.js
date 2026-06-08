@@ -101,6 +101,20 @@ describe("snapLimitsToResolution", () => {
     const r = snapLimitsToResolution(0.0372, 0.0378, 0.01);
     expect(r).toEqual({ low: 0.0372, high: 0.0378 });
   });
+
+  test("on-grid band survives a round-tripped resolution (no full-count drop)", () => {
+    // A 0.1 resolution that has been through a unit-conversion round-trip is
+    // 0.10000000000000002, not 0.1. An on-grid band (9.5 .. 10.5) must stay put
+    // rather than having the upper limit truncated a full count down to 10.4 --
+    // which corrupted the acceptance band and every TUR/TAR/PFA/PFR built on it.
+    const roundTrippedRes = (0.1 * 6894.76) / 6894.76; // 0.10000000000000002
+    expect(roundTrippedRes).not.toBe(0.1);
+    const r = snapLimitsToResolution(9.5, 10.5, roundTrippedRes);
+    expect(r.low).toBeCloseTo(9.5, 9);
+    expect(r.high).toBeCloseTo(10.5, 9);
+    expect(r.high - r.low).toBeCloseTo(1.0, 9); // span preserved
+    expect((r.high + r.low) / 2).toBeCloseTo(10.0, 9); // band stays centered
+  });
 });
 
 describe("BRG-3100 4.1.9 full Excel mirror (riskCompute)", () => {
