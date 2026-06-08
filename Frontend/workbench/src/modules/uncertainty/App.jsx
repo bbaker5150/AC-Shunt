@@ -80,6 +80,7 @@ import ThemeContext from "./context/ThemeContext";
 import {
   getToleranceErrorSummary,
   getAbsoluteLimits,
+  getTmdeAbsoluteLimits,
 } from "./utils/uncertaintyMath";
 import { computeRiskMetricsMap } from "./utils/riskCompute";
 import {
@@ -102,6 +103,10 @@ const getSidebarGridTemplate = (visibleColumns) => {
   // Split Limits Columns
   if (visibleColumns.lowLimit) parts.push("minmax(60px, 0.8fr)");
   if (visibleColumns.highLimit) parts.push("minmax(60px, 0.8fr)");
+
+  // TMDE (standard) limit columns
+  if (visibleColumns.tmdeLow) parts.push("minmax(60px, 0.8fr)");
+  if (visibleColumns.tmdeHigh) parts.push("minmax(60px, 0.8fr)");
 
   // Fixed widths for Risk Columns
   if (visibleColumns.pfa) parts.push("55px");
@@ -131,6 +136,8 @@ const getMinSidebarWidth = (visibleColumns) => {
   if (visibleColumns.tolerance) width += 90;
   if (visibleColumns.lowLimit) width += 70;
   if (visibleColumns.highLimit) width += 70;
+  if (visibleColumns.tmdeLow) width += 70;
+  if (visibleColumns.tmdeHigh) width += 70;
   if (visibleColumns.pfa) width += 60;
   if (visibleColumns.pfr) width += 60;
   if (visibleColumns.tur) width += 60;
@@ -164,6 +171,8 @@ const DEFAULT_SIDEBAR_COLUMNS = {
   tolerance: true,
   lowLimit: true,
   highLimit: true,
+  tmdeLow: false,
+  tmdeHigh: false,
   pfa: true,
   pfr: true,
   tur: false,
@@ -251,6 +260,15 @@ const getPointLimitSortValue = (point, key) => {
   );
   if (!limits || limits.low === "N/A") return null;
   return parseSortableNumber(key === "lowLimit" ? limits.low : limits.high);
+};
+
+const getPointTmdeLimitSortValue = (point, key) => {
+  const limits = getTmdeAbsoluteLimits(
+    point.tmdeTolerances,
+    point.testPointInfo?.parameter,
+  );
+  if (!limits || limits.low === "N/A") return null;
+  return parseSortableNumber(key === "tmdeLow" ? limits.low : limits.high);
 };
 
 // --- HELPER COMPONENT: Sidebar Point Item (Supports Inline Editing) ---
@@ -392,6 +410,15 @@ const SidebarPointItem = ({
     return { low: shortLow, high: shortHigh };
   }, [point.uutTolerance, point.testPointInfo]);
 
+  const tmdeLimitsData = React.useMemo(() => {
+    const ptParam = point.testPointInfo?.parameter;
+    const limits = getTmdeAbsoluteLimits(point.tmdeTolerances, ptParam);
+    if (!limits || limits.low === "N/A") return { low: "-", high: "-" };
+    const shortLow = limits.low.split(" ")[0];
+    const shortHigh = limits.high.split(" ")[0];
+    return { low: shortLow, high: shortHigh };
+  }, [point.tmdeTolerances, point.testPointInfo]);
+
   return (
     <div
       draggable={!editingField}
@@ -480,6 +507,23 @@ const SidebarPointItem = ({
       {visibleColumns.highLimit && (
         <span className="point-metric" title={`High: ${limitsData.high}`}>
           {limitsData.high}
+        </span>
+      )}
+
+      {/* TMDE Low Limit */}
+      {visibleColumns.tmdeLow && (
+        <span className="point-metric" title={`TMDE Low: ${tmdeLimitsData.low}`}>
+          {tmdeLimitsData.low}
+        </span>
+      )}
+
+      {/* TMDE High Limit */}
+      {visibleColumns.tmdeHigh && (
+        <span
+          className="point-metric"
+          title={`TMDE High: ${tmdeLimitsData.high}`}
+        >
+          {tmdeLimitsData.high}
         </span>
       )}
 
@@ -947,6 +991,8 @@ function App() {
     tolerance: true,
     lowLimit: true,
     highLimit: true,
+    tmdeLow: false,
+    tmdeHigh: false,
     pfa: true,
     pfr: true,
     tur: false,
@@ -1022,6 +1068,9 @@ function App() {
         case "lowLimit":
         case "highLimit":
           return getPointLimitSortValue(point, key);
+        case "tmdeLow":
+        case "tmdeHigh":
+          return getPointTmdeLimitSortValue(point, key);
         case "pfa":
         case "pfr":
         case "tur":
@@ -3638,6 +3687,8 @@ function App() {
                                 { key: "tolerance", label: "Tolerance" },
                                 { key: "lowLimit", label: "Low Limit" },
                                 { key: "highLimit", label: "High Limit" },
+                                { key: "tmdeLow", label: "TMDE Low Limit" },
+                                { key: "tmdeHigh", label: "TMDE High Limit" },
                               ],
                             },
                             {
@@ -4097,6 +4148,16 @@ function App() {
                                                       renderSidebarSortHeader(
                                                         "highLimit",
                                                         "High",
+                                                      )}
+                                                    {visibleSidebarColumns.tmdeLow &&
+                                                      renderSidebarSortHeader(
+                                                        "tmdeLow",
+                                                        "TMDE Low",
+                                                      )}
+                                                    {visibleSidebarColumns.tmdeHigh &&
+                                                      renderSidebarSortHeader(
+                                                        "tmdeHigh",
+                                                        "TMDE High",
                                                       )}
                                                     {visibleSidebarColumns.pfa &&
                                                       renderSidebarSortHeader(

@@ -502,6 +502,7 @@ const AddTmdeModal = ({
             setTolerance={setTmde}
             isUUT={false}
             referencePoint={tmde.measurementPoint}
+            showManualComponents={true}
           />
         </div>
 

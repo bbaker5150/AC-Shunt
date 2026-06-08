@@ -7,6 +7,7 @@ import {
   combineWithCorrelation,
   normalQuantile,
   snapLimitsToResolution,
+  getTmdeAbsoluteLimits,
 } from "./uncertaintyMath";
 import { computePointRiskMetrics } from "./riskCompute";
 
@@ -114,6 +115,51 @@ describe("snapLimitsToResolution", () => {
     expect(r.high).toBeCloseTo(10.5, 9);
     expect(r.high - r.low).toBeCloseTo(1.0, 9); // span preserved
     expect((r.high + r.low) / 2).toBeCloseTo(10.0, 9); // band stays centered
+  });
+});
+
+describe("getTmdeAbsoluteLimits", () => {
+  const uutNominal = { value: "10", unit: "psig" };
+  const num = (s) => parseFloat(String(s).split(" ")[0]);
+
+  test("percent-of-reading TMDE is anchored on the UUT nominal", () => {
+    const r = getTmdeAbsoluteLimits(
+      [{ reading: { high: "0.1", low: "-0.1", unit: "%" } }],
+      uutNominal,
+    );
+    expect(num(r.low)).toBeCloseTo(9.99, 6); // 10 - 0.1% of 10
+    expect(num(r.high)).toBeCloseTo(10.01, 6);
+  });
+
+  test("percent-of-full-scale TMDE uses the range FS, not the nominal", () => {
+    const r = getTmdeAbsoluteLimits(
+      [{ range: { value: 50, high: "1", low: "-1", unit: "%" } }],
+      uutNominal,
+    );
+    expect(num(r.low)).toBeCloseTo(9.5, 6); // 10 -+ 1% of 50
+    expect(num(r.high)).toBeCloseTo(10.5, 6);
+  });
+
+  test("quantity scales the combined span", () => {
+    const r = getTmdeAbsoluteLimits(
+      [{ quantity: 2, reading: { high: "0.1", low: "-0.1", unit: "%" } }],
+      uutNominal,
+    );
+    expect(num(r.low)).toBeCloseTo(9.98, 6);
+    expect(num(r.high)).toBeCloseTo(10.02, 6);
+  });
+
+  test("missing TMDE or nominal returns N/A", () => {
+    expect(getTmdeAbsoluteLimits([], uutNominal)).toEqual({
+      high: "N/A",
+      low: "N/A",
+    });
+    expect(
+      getTmdeAbsoluteLimits([{ reading: { high: "0.1", unit: "%" } }], {
+        value: "",
+        unit: "psig",
+      }),
+    ).toEqual({ high: "N/A", low: "N/A" });
   });
 });
 

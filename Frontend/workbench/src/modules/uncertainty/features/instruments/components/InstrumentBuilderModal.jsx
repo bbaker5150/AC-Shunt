@@ -359,6 +359,7 @@ const InstrumentBuilderModal = ({ isOpen, onClose, onSave, onDelete, initialData
                     referencePoint={{ unit: activeFunction.unit }}
                     showResolution={true}
                     resolutionInTable={true}
+                    showManualComponents={true}
                 />
               </div>
               
