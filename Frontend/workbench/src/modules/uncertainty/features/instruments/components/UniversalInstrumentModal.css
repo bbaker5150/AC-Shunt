@@ -569,13 +569,6 @@
     box-shadow: inset 3px 0 0 0 var(--primary-color);
 }
 
-.library-row-actions {
-    display: flex;
-    align-items: center;
-    justify-content: center;
-    gap: 8px;
-}
-
 .icon-btn-danger {
     color: var(--status-bad, #e0466b);
 }
@@ -619,52 +612,8 @@
     height: 42px;
     font-size: 1.05rem;
 }
-
-/* Delete confirmation card */
-.library-confirm-overlay {
-    position: absolute;
-    inset: 0;
-    background: rgba(0, 0, 0, 0.45);
-    display: flex;
+.library-selection-actions .button.small {
+    display: inline-flex;
     align-items: center;
-    justify-content: center;
-    z-index: 20;
-}
-.library-confirm-card {
-    width: 380px;
-    max-width: 90%;
-    background: var(--component-background, var(--input-background));
-    border: 1px solid var(--border-color);
-    border-radius: 10px;
-    padding: 20px;
-    box-shadow: 0 12px 32px rgba(0, 0, 0, 0.35);
-}
-.library-confirm-title {
-    display: flex;
-    align-items: center;
-    gap: 10px;
-    font-size: 1.05rem;
-    font-weight: 700;
-    color: var(--text-color);
-    margin-bottom: 10px;
-}
-.library-confirm-title svg { color: var(--status-bad, #e0466b); }
-.library-confirm-text {
-    color: var(--text-color-muted);
-    font-size: 0.9rem;
-    line-height: 1.5;
-    margin: 0 0 18px 0;
-}
-.library-confirm-actions {
-    display: flex;
-    justify-content: flex-end;
-    gap: 10px;
-}
-.button.danger {
-    background: var(--status-bad, #e0466b);
-    border-color: var(--status-bad, #e0466b);
-    color: #fff;
-}
-.button.danger:hover {
-    background: color-mix(in srgb, var(--status-bad, #e0466b) 85%, #000);
+    gap: 6px;
 }

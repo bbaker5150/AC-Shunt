@@ -28,6 +28,7 @@ import {
 import { v4 as uuidv4 } from "uuid";
 import { unitSystem, unitCategories } from "../../../utils/uncertaintyMath";
 import ToleranceForm from "../../../components/common/ToleranceForm";
+import NotificationModal from "../../../components/modals/NotificationModal";
 import { useFloatingWindow } from "../../../hooks/useFloatingWindow";
 
 import "./UniversalInstrumentModal.css";
@@ -331,26 +332,6 @@ const UniversalInstrumentModal = ({
         setViewMode("edit");
     };
 
-    const handleUseAs = (inst, targetMode) => {
-        const newDef = JSON.parse(JSON.stringify(inst));
-        newDef.id = uuidv4(); 
-        setInstrumentDef(newDef);
-        
-        const autoName = `${inst.manufacturer} ${inst.model}`;
-        
-        // --- FIX: Inherit Measurement Area/Color from library item instead of resetting ---
-        setMetaData(prev => ({ 
-            ...prev, 
-            name: autoName,
-            measurementArea: inst.measurementArea || "", 
-            measurementAreaColor: inst.measurementAreaColor || "#3498db"
-        }));
-
-        setEffectiveMode(targetMode); 
-        if (newDef.functions?.length > 0) setActiveFunctionId(newDef.functions[0].id);
-        setViewMode("edit");
-    };
-
     const handleCreateNew = () => {
         setInstrumentDef({ id: uuidv4(), manufacturer: "", model: "", description: "", functions: [] });
         setMetaData(prev => ({...prev, name: "", measurementArea: "", measurementAreaColor: "#3498db"}));
@@ -500,11 +481,6 @@ const UniversalInstrumentModal = ({
         }
     };
 
-    const actionOptions = [
-        { label: 'Use as UUT', value: 'uut', icon: faMicroscope },
-        { label: 'Use as TMDE', value: 'tmde', icon: faTools },
-    ];
-
     if (!isOpen) return null;
 
     return ReactDOM.createPortal(
@@ -595,11 +571,10 @@ const UniversalInstrumentModal = ({
                                                 onChange={toggleSelectAll}
                                             />
                                         </th>
-                                        <th style={{ width: '18%' }}>Manufacturer</th>
-                                        <th style={{ width: '18%' }}>Model</th>
-                                        <th style={{ width: '28%' }}>Description</th>
-                                        <th style={{ width: '15%' }}>Functions</th>
-                                        <th style={{ width: '15%', textAlign: 'center' }}>Actions</th>
+                                        <th style={{ width: '20%' }}>Manufacturer</th>
+                                        <th style={{ width: '20%' }}>Model</th>
+                                        <th style={{ width: '34%' }}>Description</th>
+                                        <th style={{ width: '22%' }}>Functions</th>
                                     </tr>
                                 </thead>
                                 <tbody>
@@ -638,43 +613,10 @@ const UniversalInstrumentModal = ({
                                                             ))}
                                                         </div>
                                                     </td>
-                                                    <td style={{ textAlign: 'center' }} onClick={e => e.stopPropagation()}>
-                                                        <div className="library-row-actions">
-                                                            {mode === 'library' ? (
-                                                                <div style={{ width: '140px' }}>
-                                                                    <Select
-                                                                        placeholder="Use as…"
-                                                                        options={actionOptions}
-                                                                        styles={portalStyle}
-                                                                        menuPortalTarget={document.body}
-                                                                        menuPlacement="auto"
-                                                                        value={null}
-                                                                        onChange={(opt) => handleUseAs(inst, opt.value)}
-                                                                    />
-                                                                </div>
-                                                            ) : (
-                                                                <button
-                                                                    className="button small primary"
-                                                                    onClick={(e) => { e.stopPropagation(); handleEditLibraryItem(inst); }}
-                                                                >
-                                                                    Open
-                                                                </button>
-                                                            )}
-                                                            {onDelete && (
-                                                                <button
-                                                                    className="icon-btn-ghost icon-btn-danger"
-                                                                    title="Delete from library"
-                                                                    onClick={(e) => { e.stopPropagation(); requestDelete(inst.id); }}
-                                                                >
-                                                                    <FontAwesomeIcon icon={faTrashAlt} />
-                                                                </button>
-                                                            )}
-                                                        </div>
-                                                    </td>
                                                 </tr>
                                                 {isExpanded && (
                                                     <tr className="detail-row">
-                                                        <td colSpan="6">
+                                                        <td colSpan="5">
                                                             <div style={{padding: '10px', background: 'var(--background-color-secondary)'}}>
                                                                 {(() => {
                                                                     const func = inst.functions.find(f => f.id === expandedDetail.funcId);
@@ -723,6 +665,23 @@ const UniversalInstrumentModal = ({
                                             <FontAwesomeIcon icon={faTrashAlt} />
                                         </button>
                                     )}
+                                    {/* Library manager: choose how to bring the selection into the session. */}
+                                    {mode === 'library' && (
+                                        <>
+                                            <button
+                                                className="button small"
+                                                onClick={() => handleBulkUseAs('uut')}
+                                            >
+                                                <FontAwesomeIcon icon={faMicroscope} /> Use as UUT
+                                            </button>
+                                            <button
+                                                className="button small"
+                                                onClick={() => handleBulkUseAs('tmde')}
+                                            >
+                                                <FontAwesomeIcon icon={faTools} /> Use as TMDE
+                                            </button>
+                                        </>
+                                    )}
                                     {(effectiveMode === 'tmde' || effectiveMode === 'uut') && (
                                         <button
                                             className="btn-large-icon"
@@ -735,32 +694,6 @@ const UniversalInstrumentModal = ({
                                 </div>
                             </div>
                         )}
-                    </div>
-                )}
-
-                {/* Delete confirmation (single choke-point for a future password gate). */}
-                {pendingDelete && (
-                    <div className="library-confirm-overlay" onClick={() => setPendingDelete(null)}>
-                        <div className="library-confirm-card" onClick={(e) => e.stopPropagation()}>
-                            <div className="library-confirm-title">
-                                <FontAwesomeIcon icon={faTrashAlt} />
-                                Delete {pendingDelete.ids.length} instrument
-                                {pendingDelete.ids.length > 1 ? 's' : ''}?
-                            </div>
-                            <p className="library-confirm-text">
-                                This permanently removes the selected instrument
-                                {pendingDelete.ids.length > 1 ? 's' : ''} from the library for all
-                                sessions. This cannot be undone.
-                            </p>
-                            <div className="library-confirm-actions">
-                                <button className="button" onClick={() => setPendingDelete(null)}>
-                                    Cancel
-                                </button>
-                                <button className="button danger" onClick={confirmDelete}>
-                                    <FontAwesomeIcon icon={faTrashAlt} /> Delete
-                                </button>
-                            </div>
-                        </div>
                     </div>
                 )}
 
@@ -971,6 +904,27 @@ const UniversalInstrumentModal = ({
                     </div>
                 )}
             </div>
+
+            {/* Delete confirmation — same warning modal as "Delete Measurement
+                Point". Single choke-point: a password gate can wrap confirmDelete
+                later without touching the call sites. */}
+            <NotificationModal
+                isOpen={!!pendingDelete}
+                onClose={() => setPendingDelete(null)}
+                title={
+                    pendingDelete && pendingDelete.ids.length > 1
+                        ? "Batch Delete"
+                        : "Delete Instrument"
+                }
+                message={
+                    pendingDelete && pendingDelete.ids.length > 1
+                        ? `Are you sure you want to delete these ${pendingDelete.ids.length} instruments from the library? This affects all sessions.`
+                        : "Are you sure you want to delete this instrument from the library? This affects all sessions."
+                }
+                confirmText="Delete"
+                isIconConfirm={true}
+                onConfirm={confirmDelete}
+            />
         </div>,
         document.body
     );
