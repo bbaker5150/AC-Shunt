@@ -569,16 +569,9 @@
     box-shadow: inset 3px 0 0 0 var(--primary-color);
 }
 
-.icon-btn-danger {
-    color: var(--status-bad, #e0466b);
-}
-.icon-btn-danger:hover {
-    background: color-mix(in srgb, var(--status-bad, #e0466b) 14%, transparent);
-    border-color: var(--status-bad, #e0466b);
-    color: var(--status-bad, #e0466b);
-}
-
-/* Selection action bar pinned to the bottom of the list view */
+/* Selection action bar pinned to the bottom of the list view. Mirrors the
+   AC-Shunt action-bar aesthetic: a quiet info cluster on the left, a tidy row
+   of equally-weighted controls on the right. */
 .library-selection-bar {
     display: flex;
     align-items: center;
@@ -587,9 +580,27 @@
     border-top: 1px solid var(--border-color);
     background: var(--component-header-bg);
 }
+.library-selection-info {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+}
 .library-selection-count {
-    font-weight: 600;
-    color: var(--text-color);
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    min-width: 24px;
+    height: 24px;
+    padding: 0 8px;
+    border-radius: 12px;
+    background: var(--primary-color);
+    color: #fff;
+    font-weight: 700;
+    font-size: 0.78rem;
+}
+.library-selection-label {
+    color: var(--text-color-muted);
+    font-size: 0.9rem;
 }
 .library-selection-clear {
     background: none;
@@ -604,16 +615,63 @@
     margin-left: auto;
     display: flex;
     align-items: center;
-    gap: 12px;
+    gap: 8px;
 }
-/* Slightly smaller than the editor's save button so it reads as a toolbar action */
-.library-selection-actions .btn-large-icon {
-    width: 42px;
-    height: 42px;
-    font-size: 1.05rem;
-}
-.library-selection-actions .button.small {
+
+/* Clean ghost icon button — transparent square, rounded, soft hover wash.
+   (Same language as AC-Shunt's .cal-results-excel-icon-btn.) */
+.lib-icon-btn {
     display: inline-flex;
     align-items: center;
-    gap: 6px;
+    justify-content: center;
+    width: 36px;
+    height: 36px;
+    border: none;
+    background: transparent;
+    color: var(--text-color-muted);
+    border-radius: 10px;
+    cursor: pointer;
+    font-size: 1rem;
+    transition: background-color 0.15s ease, color 0.15s ease;
+}
+.lib-icon-btn:hover {
+    background: var(--primary-color-light);
+    color: var(--text-color);
+}
+.lib-icon-btn--danger:hover {
+    background: color-mix(in srgb, var(--status-bad, #e0466b) 16%, transparent);
+    color: var(--status-bad, #e0466b);
+}
+
+/* Labeled action pill — outlined by default, filled for the primary action. */
+.lib-pill-btn {
+    display: inline-flex;
+    align-items: center;
+    gap: 7px;
+    height: 36px;
+    padding: 0 14px;
+    border: 1px solid var(--border-color);
+    background: transparent;
+    color: var(--text-color);
+    border-radius: 8px;
+    font-size: 0.88rem;
+    font-weight: 600;
+    cursor: pointer;
+    transition: background-color 0.15s ease, border-color 0.15s ease,
+        color 0.15s ease;
+}
+.lib-pill-btn svg { font-size: 0.85em; opacity: 0.8; }
+.lib-pill-btn:hover {
+    border-color: var(--primary-color);
+    background: var(--primary-color-light);
+}
+.lib-pill-btn--primary {
+    background: var(--primary-color);
+    border-color: var(--primary-color);
+    color: #fff;
+}
+.lib-pill-btn--primary svg { opacity: 1; }
+.lib-pill-btn--primary:hover {
+    background: var(--primary-color-dark);
+    border-color: var(--primary-color-dark);
 }

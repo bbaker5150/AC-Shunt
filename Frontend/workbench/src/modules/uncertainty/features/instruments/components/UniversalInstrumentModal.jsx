@@ -646,19 +646,24 @@ const UniversalInstrumentModal = ({
                         {/* Selection action bar — appears once rows are checked. */}
                         {selectedIds.length > 0 && (
                             <div className="library-selection-bar">
-                                <span className="library-selection-count">
-                                    {selectedIds.length} selected
-                                </span>
-                                <button
-                                    className="library-selection-clear"
-                                    onClick={() => { setSelectedIds([]); setSelectionAnchor(null); }}
-                                >
-                                    Clear
-                                </button>
+                                <div className="library-selection-info">
+                                    <span className="library-selection-count">
+                                        {selectedIds.length}
+                                    </span>
+                                    <span className="library-selection-label">
+                                        instrument{selectedIds.length > 1 ? 's' : ''} selected
+                                    </span>
+                                    <button
+                                        className="library-selection-clear"
+                                        onClick={() => { setSelectedIds([]); setSelectionAnchor(null); }}
+                                    >
+                                        Clear
+                                    </button>
+                                </div>
                                 <div className="library-selection-actions">
                                     {onDelete && (
                                         <button
-                                            className="icon-btn-ghost icon-btn-danger"
+                                            className="lib-icon-btn lib-icon-btn--danger"
                                             title={`Delete ${selectedIds.length} from library`}
                                             onClick={() => requestDelete(selectedIds)}
                                         >
@@ -666,29 +671,29 @@ const UniversalInstrumentModal = ({
                                         </button>
                                     )}
                                     {/* Library manager: choose how to bring the selection into the session. */}
-                                    {mode === 'library' && (
+                                    {mode === 'library' ? (
                                         <>
                                             <button
-                                                className="button small"
+                                                className="lib-pill-btn"
                                                 onClick={() => handleBulkUseAs('uut')}
                                             >
                                                 <FontAwesomeIcon icon={faMicroscope} /> Use as UUT
                                             </button>
                                             <button
-                                                className="button small"
+                                                className="lib-pill-btn lib-pill-btn--primary"
                                                 onClick={() => handleBulkUseAs('tmde')}
                                             >
                                                 <FontAwesomeIcon icon={faTools} /> Use as TMDE
                                             </button>
                                         </>
-                                    )}
-                                    {(effectiveMode === 'tmde' || effectiveMode === 'uut') && (
+                                    ) : (
                                         <button
-                                            className="btn-large-icon"
-                                            title={`Add ${selectedIds.length} as ${effectiveMode === 'uut' ? 'UUTs' : 'TMDEs'}`}
+                                            className="lib-pill-btn lib-pill-btn--primary"
                                             onClick={() => handleBulkUseAs(effectiveMode)}
                                         >
-                                            <FontAwesomeIcon icon={faCheck} />
+                                            <FontAwesomeIcon icon={faCheck} /> Add {selectedIds.length}{' '}
+                                            {effectiveMode === 'uut' ? 'UUT' : 'TMDE'}
+                                            {selectedIds.length > 1 ? 's' : ''}
                                         </button>
                                     )}
                                 </div>
