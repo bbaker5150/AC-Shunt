@@ -551,3 +551,120 @@
     font-size: 1rem;
     box-shadow: none;
 }
+
+/* =====================================================================
+   Library list: multi-select + delete (Select Instrument from Library)
+   ===================================================================== */
+.library-select-check {
+    width: 16px;
+    height: 16px;
+    accent-color: var(--primary-color);
+    cursor: pointer;
+}
+
+.library-table--selectable tr.row-selected > td {
+    background-color: var(--primary-color-light);
+}
+.library-table--selectable tr.row-selected > td:first-child {
+    box-shadow: inset 3px 0 0 0 var(--primary-color);
+}
+
+.library-row-actions {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    gap: 8px;
+}
+
+.icon-btn-danger {
+    color: var(--status-bad, #e0466b);
+}
+.icon-btn-danger:hover {
+    background: color-mix(in srgb, var(--status-bad, #e0466b) 14%, transparent);
+    border-color: var(--status-bad, #e0466b);
+    color: var(--status-bad, #e0466b);
+}
+
+/* Selection action bar pinned to the bottom of the list view */
+.library-selection-bar {
+    display: flex;
+    align-items: center;
+    gap: 14px;
+    padding: 10px 16px;
+    border-top: 1px solid var(--border-color);
+    background: var(--component-header-bg);
+}
+.library-selection-count {
+    font-weight: 600;
+    color: var(--text-color);
+}
+.library-selection-clear {
+    background: none;
+    border: none;
+    color: var(--primary-color);
+    cursor: pointer;
+    font-size: 0.85rem;
+    padding: 2px 4px;
+}
+.library-selection-clear:hover { text-decoration: underline; }
+.library-selection-actions {
+    margin-left: auto;
+    display: flex;
+    align-items: center;
+    gap: 12px;
+}
+/* Slightly smaller than the editor's save button so it reads as a toolbar action */
+.library-selection-actions .btn-large-icon {
+    width: 42px;
+    height: 42px;
+    font-size: 1.05rem;
+}
+
+/* Delete confirmation card */
+.library-confirm-overlay {
+    position: absolute;
+    inset: 0;
+    background: rgba(0, 0, 0, 0.45);
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    z-index: 20;
+}
+.library-confirm-card {
+    width: 380px;
+    max-width: 90%;
+    background: var(--component-background, var(--input-background));
+    border: 1px solid var(--border-color);
+    border-radius: 10px;
+    padding: 20px;
+    box-shadow: 0 12px 32px rgba(0, 0, 0, 0.35);
+}
+.library-confirm-title {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    font-size: 1.05rem;
+    font-weight: 700;
+    color: var(--text-color);
+    margin-bottom: 10px;
+}
+.library-confirm-title svg { color: var(--status-bad, #e0466b); }
+.library-confirm-text {
+    color: var(--text-color-muted);
+    font-size: 0.9rem;
+    line-height: 1.5;
+    margin: 0 0 18px 0;
+}
+.library-confirm-actions {
+    display: flex;
+    justify-content: flex-end;
+    gap: 10px;
+}
+.button.danger {
+    background: var(--status-bad, #e0466b);
+    border-color: var(--status-bad, #e0466b);
+    color: #fff;
+}
+.button.danger:hover {
+    background: color-mix(in srgb, var(--status-bad, #e0466b) 85%, #000);
+}

@@ -183,6 +183,9 @@ const FloatingImagesPanel = ({
           <div className="header-left">
             <FontAwesomeIcon icon={faImages} className="notepad-icon" />
             <span className="notepad-title">Session Images</span>
+            {images.length > 0 && (
+              <span className="floating-images-count">{images.length}</span>
+            )}
           </div>
           <div className="notepad-controls">
             <button onClick={() => setIsMinimized(true)} title="Minimize">
@@ -195,6 +198,13 @@ const FloatingImagesPanel = ({
         </div>
 
         <div className="floating-images-body">
+          {images.length === 0 && (
+            <div className="floating-images-empty">
+              <FontAwesomeIcon icon={faImages} />
+              <p>No images yet</p>
+              <span>Add screenshots or reference photos for this session.</span>
+            </div>
+          )}
           <div className="floating-images-grid">
             {images.map((imageRef) => {
               const src = getImageSrc(imageRef);

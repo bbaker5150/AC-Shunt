@@ -2706,6 +2706,71 @@ function App() {
     setIsInstrumentBuilderOpen(false);
   };
 
+  // Bulk-add several library instruments to the session at once (the library
+  // modal's multi-select). Done in a SINGLE updateSession pass so all items
+  // persist (calling the per-item save in a loop would hit a stale closure and
+  // only keep the last). Each item inherits its own measurement area, creating
+  // areas as needed.
+  const handleBatchAddInstruments = (instrumentList, useAs) => {
+    if (!currentSessionData || !instrumentList?.length) return;
+
+    const areas = [...(currentSessionData.measurementAreas || [])];
+    const ensureAreaId = (name, color) => {
+      const clean = String(name || "").trim();
+      if (!clean) return selectedAreaId || null;
+      let area = areas.find(
+        (a) => a.name.toLowerCase() === clean.toLowerCase(),
+      );
+      if (!area) {
+        area = { id: uuidv4(), name: clean, color: color || "#3498db" };
+        areas.push(area);
+      }
+      return area.id;
+    };
+
+    const tmdes = [...(currentSessionData.tmdes || [])];
+    const uuts = [...(currentSessionData.uuts || [])];
+
+    instrumentList.forEach((inst) => {
+      const areaId = ensureAreaId(inst.measurementArea, inst.measurementAreaColor);
+      const areaName = areas.find((a) => a.id === areaId)?.name || "";
+      const label =
+        `${inst.manufacturer || ""} ${inst.model || ""}`.trim() ||
+        inst.description ||
+        "Instrument";
+      const instrument = { ...inst };
+      delete instrument.useAs;
+      if (useAs === "uut") {
+        uuts.push({
+          id: uuidv4(),
+          description: inst.description || label,
+          measurementArea: areaName,
+          measurementAreaId: areaId,
+          instrument,
+        });
+      } else {
+        tmdes.push({
+          id: uuidv4(),
+          name: label,
+          quantity: 1,
+          assetId: "",
+          instrument,
+          isInstrumentBased: true,
+          measurementAreaId: areaId,
+          measurementArea: areaName,
+        });
+      }
+    });
+
+    updateSession({
+      ...currentSessionData,
+      measurementAreas: areas,
+      tmdes,
+      uuts,
+    });
+    setIsInstrumentBuilderOpen(false);
+  };
+
   const handleOpenSessionEditor = async () => {
     if (currentSessionData) {
       handleSelectSession(currentSessionData.id);
@@ -3416,6 +3481,7 @@ function App() {
           onClose={() => setIsInstrumentBuilderOpen(false)}
           onSave={handleUniversalModalSave}
           onDelete={deleteInstrument}
+          onBatchAdd={handleBatchAddInstruments}
           instruments={instruments}
           mode={instrumentModalConfig.mode}
           initialData={instrumentModalConfig.data}

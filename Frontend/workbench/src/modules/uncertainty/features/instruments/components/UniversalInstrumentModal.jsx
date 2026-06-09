@@ -107,20 +107,29 @@ const formatToleranceSummary = (tolerances) => {
     return parts.length > 0 ? <span className="tolerance-badge">{parts.join(" + ")}</span> : <span className="tolerance-badge">Custom Spec</span>;
 };
 
-const UniversalInstrumentModal = ({ 
-    isOpen, 
-    onClose, 
-    onSave, 
+const UniversalInstrumentModal = ({
+    isOpen,
+    onClose,
+    onSave,
+    onDelete,
+    onBatchAdd,
     mode = 'library', // 'uut', 'tmde', 'library'
-    initialData = null, 
+    initialData = null,
     instruments = [],
     defaultMeasurementArea = null
 }) => {
-    const [viewMode, setViewMode] = useState("edit"); 
+    const [viewMode, setViewMode] = useState("edit");
     const [effectiveMode, setEffectiveMode] = useState(mode);
 
     const [searchTerm, setSearchTerm] = useState("");
     const [expandedDetail, setExpandedDetail] = useState(null);
+
+    // Library list multi-select: ids of checked rows + the anchor for shift-range.
+    const [selectedIds, setSelectedIds] = useState([]);
+    const [selectionAnchor, setSelectionAnchor] = useState(null);
+    // Delete confirmation. Routed through one choke-point so a password gate can
+    // be added here later without touching the call sites.
+    const [pendingDelete, setPendingDelete] = useState(null); // { ids: [...] }
 
     const [metaData, setMetaData] = useState({
         name: "", 
@@ -153,6 +162,9 @@ const UniversalInstrumentModal = ({
             setSearchTerm("");
             setExpandedDetail(null);
             setEditingRange(null);
+            setSelectedIds([]);
+            setSelectionAnchor(null);
+            setPendingDelete(null);
 
             if (mode === 'library') {
                 setViewMode("list");
@@ -226,6 +238,72 @@ const UniversalInstrumentModal = ({
         if (!metaData.name?.trim()) return false;
         return true;
     }, [instrumentDef.manufacturer, instrumentDef.model, metaData.name]);
+
+    // --- Library list multi-select (ctrl = toggle, shift = range) ---
+    const handleRowSelect = (e, instId) => {
+        const visibleIds = filteredInstruments.map((i) => i.id);
+        const targetIdx = visibleIds.indexOf(instId);
+
+        if (e.shiftKey && selectionAnchor) {
+            const anchorIdx = visibleIds.indexOf(selectionAnchor);
+            if (anchorIdx !== -1 && targetIdx !== -1) {
+                const [lo, hi] =
+                    anchorIdx <= targetIdx ? [anchorIdx, targetIdx] : [targetIdx, anchorIdx];
+                const run = visibleIds.slice(lo, hi + 1);
+                setSelectedIds(
+                    e.ctrlKey || e.metaKey
+                        ? Array.from(new Set([...selectedIds, ...run]))
+                        : run,
+                );
+                return;
+            }
+        }
+        if (e.ctrlKey || e.metaKey) {
+            setSelectedIds((prev) =>
+                prev.includes(instId)
+                    ? prev.filter((x) => x !== instId)
+                    : [...prev, instId],
+            );
+            setSelectionAnchor(instId);
+            return;
+        }
+        // Plain click toggles a single selection (click again to clear).
+        setSelectedIds((prev) =>
+            prev.length === 1 && prev[0] === instId ? [] : [instId],
+        );
+        setSelectionAnchor(instId);
+    };
+
+    const toggleSelectAll = () => {
+        const visibleIds = filteredInstruments.map((i) => i.id);
+        const allSelected =
+            visibleIds.length > 0 && visibleIds.every((id) => selectedIds.includes(id));
+        setSelectedIds(allSelected ? [] : visibleIds);
+    };
+
+    // Single delete choke-point — a password gate can wrap confirmDelete later.
+    const requestDelete = (ids) => {
+        const list = (Array.isArray(ids) ? ids : [ids]).filter(Boolean);
+        if (list.length) setPendingDelete({ ids: list });
+    };
+
+    const confirmDelete = async () => {
+        const ids = pendingDelete?.ids || [];
+        // NOTE: insert password verification here when that feature lands.
+        for (const id of ids) {
+            // eslint-disable-next-line no-await-in-loop
+            await onDelete?.(id);
+        }
+        setSelectedIds((prev) => prev.filter((x) => !ids.includes(x)));
+        setPendingDelete(null);
+    };
+
+    const handleBulkUseAs = (useAs) => {
+        const chosen = instruments.filter((i) => selectedIds.includes(i.id));
+        if (!chosen.length) return;
+        onBatchAdd?.(chosen, useAs);
+        onClose();
+    };
 
     const handleEditLibraryItem = (inst) => {
         const newDef = JSON.parse(JSON.stringify(inst));
@@ -308,8 +386,34 @@ const UniversalInstrumentModal = ({
 
     const handleAddRange = () => {
         if (!activeFunction) return;
-        const newRange = { id: uuidv4(), min: 0, max: 0, resolution: 0, tolerances: {} };
-        const updatedRanges = [...activeFunction.ranges, newRange]; 
+        // Seed a sensible default tolerance so a new range isn't blank. The
+        // reading term is a unit-independent "% of reading"; the floor term is
+        // pre-unit'd to the function's base unit so the absolute term already
+        // matches what the range measures (auto-populate from the range unit).
+        const baseUnit = activeFunction.unit || "";
+        const newRange = {
+            id: uuidv4(),
+            min: 0,
+            max: 0,
+            resolution: 0,
+            tolerances: {
+                reading: {
+                    high: "",
+                    low: "",
+                    unit: "%",
+                    distribution: "1.732",
+                    symmetric: true,
+                },
+                floor: {
+                    high: "",
+                    low: "",
+                    unit: baseUnit,
+                    distribution: "1.732",
+                    symmetric: true,
+                },
+            },
+        };
+        const updatedRanges = [...activeFunction.ranges, newRange];
         setInstrumentDef(prev => ({
             ...prev,
             functions: prev.functions.map(f => f.id === activeFunctionId ? { ...f, ranges: updatedRanges } : f)
@@ -461,12 +565,39 @@ const UniversalInstrumentModal = ({
                         </div>
 
                         <div className="list-content">
-                            <table className="library-table">
+                            <table className="library-table library-table--selectable">
                                 <thead>
                                     <tr>
-                                        <th style={{ width: '20%' }}>Manufacturer</th>
-                                        <th style={{ width: '20%' }}>Model</th>
-                                        <th style={{ width: '30%' }}>Description</th>
+                                        <th style={{ width: '36px', textAlign: 'center' }}>
+                                            <input
+                                                type="checkbox"
+                                                className="library-select-check"
+                                                title="Select all"
+                                                checked={
+                                                    filteredInstruments.length > 0 &&
+                                                    filteredInstruments.every((i) =>
+                                                        selectedIds.includes(i.id),
+                                                    )
+                                                }
+                                                ref={(el) => {
+                                                    if (el) {
+                                                        const some = filteredInstruments.some((i) =>
+                                                            selectedIds.includes(i.id),
+                                                        );
+                                                        const all =
+                                                            filteredInstruments.length > 0 &&
+                                                            filteredInstruments.every((i) =>
+                                                                selectedIds.includes(i.id),
+                                                            );
+                                                        el.indeterminate = some && !all;
+                                                    }
+                                                }}
+                                                onChange={toggleSelectAll}
+                                            />
+                                        </th>
+                                        <th style={{ width: '18%' }}>Manufacturer</th>
+                                        <th style={{ width: '18%' }}>Model</th>
+                                        <th style={{ width: '28%' }}>Description</th>
                                         <th style={{ width: '15%' }}>Functions</th>
                                         <th style={{ width: '15%', textAlign: 'center' }}>Actions</th>
                                     </tr>
@@ -474,9 +605,23 @@ const UniversalInstrumentModal = ({
                                 <tbody>
                                     {filteredInstruments.map(inst => {
                                         const isExpanded = expandedDetail?.instId === inst.id;
+                                        const isRowSelected = selectedIds.includes(inst.id);
                                         return (
                                             <React.Fragment key={inst.id}>
-                                                <tr onClick={() => handleEditLibraryItem(inst)} className="hover-row">
+                                                <tr
+                                                    onClick={(e) => handleRowSelect(e, inst.id)}
+                                                    onDoubleClick={() => handleEditLibraryItem(inst)}
+                                                    className={`hover-row ${isRowSelected ? 'row-selected' : ''}`}
+                                                    title="Click to select (Ctrl/Shift for multi); double-click to open"
+                                                >
+                                                    <td style={{ textAlign: 'center' }} onClick={(e) => e.stopPropagation()}>
+                                                        <input
+                                                            type="checkbox"
+                                                            className="library-select-check"
+                                                            checked={isRowSelected}
+                                                            onChange={(e) => handleRowSelect(e, inst.id)}
+                                                        />
+                                                    </td>
                                                     <td style={{ fontWeight: '600' }}>{inst.manufacturer}</td>
                                                     <td style={{ color: 'var(--primary-color)', fontWeight: 'bold' }}>{inst.model}</td>
                                                     <td style={{ color: 'var(--text-color-muted)' }}>{inst.description}</td>
@@ -494,30 +639,42 @@ const UniversalInstrumentModal = ({
                                                         </div>
                                                     </td>
                                                     <td style={{ textAlign: 'center' }} onClick={e => e.stopPropagation()}>
-                                                        {mode === 'library' ? (
-                                                            <div style={{ width: '150px', margin: '0 auto' }}>
-                                                                <Select 
-                                                                    placeholder="Select"
-                                                                    options={actionOptions}
-                                                                    styles={portalStyle}
-                                                                    menuPortalTarget={document.body}
-                                                                    menuPlacement="auto"
-                                                                    onChange={(opt) => handleUseAs(inst, opt.value)}
-                                                                />
-                                                            </div>
-                                                        ) : (
-                                                            <button 
-                                                                className="button small primary" 
-                                                                onClick={(e) => { e.stopPropagation(); handleEditLibraryItem(inst); }}
-                                                            >
-                                                                Select
-                                                            </button>
-                                                        )}
+                                                        <div className="library-row-actions">
+                                                            {mode === 'library' ? (
+                                                                <div style={{ width: '140px' }}>
+                                                                    <Select
+                                                                        placeholder="Use as…"
+                                                                        options={actionOptions}
+                                                                        styles={portalStyle}
+                                                                        menuPortalTarget={document.body}
+                                                                        menuPlacement="auto"
+                                                                        value={null}
+                                                                        onChange={(opt) => handleUseAs(inst, opt.value)}
+                                                                    />
+                                                                </div>
+                                                            ) : (
+                                                                <button
+                                                                    className="button small primary"
+                                                                    onClick={(e) => { e.stopPropagation(); handleEditLibraryItem(inst); }}
+                                                                >
+                                                                    Open
+                                                                </button>
+                                                            )}
+                                                            {onDelete && (
+                                                                <button
+                                                                    className="icon-btn-ghost icon-btn-danger"
+                                                                    title="Delete from library"
+                                                                    onClick={(e) => { e.stopPropagation(); requestDelete(inst.id); }}
+                                                                >
+                                                                    <FontAwesomeIcon icon={faTrashAlt} />
+                                                                </button>
+                                                            )}
+                                                        </div>
                                                     </td>
                                                 </tr>
                                                 {isExpanded && (
                                                     <tr className="detail-row">
-                                                        <td colSpan="5">
+                                                        <td colSpan="6">
                                                             <div style={{padding: '10px', background: 'var(--background-color-secondary)'}}>
                                                                 {(() => {
                                                                     const func = inst.functions.find(f => f.id === expandedDetail.funcId);
@@ -542,6 +699,67 @@ const UniversalInstrumentModal = ({
                                     })}
                                 </tbody>
                             </table>
+                        </div>
+
+                        {/* Selection action bar — appears once rows are checked. */}
+                        {selectedIds.length > 0 && (
+                            <div className="library-selection-bar">
+                                <span className="library-selection-count">
+                                    {selectedIds.length} selected
+                                </span>
+                                <button
+                                    className="library-selection-clear"
+                                    onClick={() => { setSelectedIds([]); setSelectionAnchor(null); }}
+                                >
+                                    Clear
+                                </button>
+                                <div className="library-selection-actions">
+                                    {onDelete && (
+                                        <button
+                                            className="icon-btn-ghost icon-btn-danger"
+                                            title={`Delete ${selectedIds.length} from library`}
+                                            onClick={() => requestDelete(selectedIds)}
+                                        >
+                                            <FontAwesomeIcon icon={faTrashAlt} />
+                                        </button>
+                                    )}
+                                    {(effectiveMode === 'tmde' || effectiveMode === 'uut') && (
+                                        <button
+                                            className="btn-large-icon"
+                                            title={`Add ${selectedIds.length} as ${effectiveMode === 'uut' ? 'UUTs' : 'TMDEs'}`}
+                                            onClick={() => handleBulkUseAs(effectiveMode)}
+                                        >
+                                            <FontAwesomeIcon icon={faCheck} />
+                                        </button>
+                                    )}
+                                </div>
+                            </div>
+                        )}
+                    </div>
+                )}
+
+                {/* Delete confirmation (single choke-point for a future password gate). */}
+                {pendingDelete && (
+                    <div className="library-confirm-overlay" onClick={() => setPendingDelete(null)}>
+                        <div className="library-confirm-card" onClick={(e) => e.stopPropagation()}>
+                            <div className="library-confirm-title">
+                                <FontAwesomeIcon icon={faTrashAlt} />
+                                Delete {pendingDelete.ids.length} instrument
+                                {pendingDelete.ids.length > 1 ? 's' : ''}?
+                            </div>
+                            <p className="library-confirm-text">
+                                This permanently removes the selected instrument
+                                {pendingDelete.ids.length > 1 ? 's' : ''} from the library for all
+                                sessions. This cannot be undone.
+                            </p>
+                            <div className="library-confirm-actions">
+                                <button className="button" onClick={() => setPendingDelete(null)}>
+                                    Cancel
+                                </button>
+                                <button className="button danger" onClick={confirmDelete}>
+                                    <FontAwesomeIcon icon={faTrashAlt} /> Delete
+                                </button>
+                            </div>
                         </div>
                     </div>
                 )}
@@ -699,8 +917,12 @@ const UniversalInstrumentModal = ({
                                                 <table className="ranges-table">
                                                     <thead>
                                                         <tr>
-                                                            <th style={{width:'25%'}}>Min</th>
-                                                            <th style={{width:'25%'}}>Max</th>
+                                                            <th style={{width:'25%'}}>
+                                                                Min{activeFunction.unit ? ` (${activeFunction.unit})` : ''}
+                                                            </th>
+                                                            <th style={{width:'25%'}}>
+                                                                Max{activeFunction.unit ? ` (${activeFunction.unit})` : ''}
+                                                            </th>
                                                             {/* Resolution removed */}
                                                             <th style={{width:'40%'}}>Tolerance</th>
                                                             <th style={{width:'10%'}}></th>
