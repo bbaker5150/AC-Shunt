@@ -691,7 +691,7 @@ const UniversalInstrumentModal = ({
                                             className="lib-pill-btn lib-pill-btn--primary"
                                             onClick={() => handleBulkUseAs(effectiveMode)}
                                         >
-                                            <FontAwesomeIcon icon={faCheck} /> Add {selectedIds.length}{' '}
+                                            <FontAwesomeIcon icon={faPlus} /> Add {selectedIds.length}{' '}
                                             {effectiveMode === 'uut' ? 'UUT' : 'TMDE'}
                                             {selectedIds.length > 1 ? 's' : ''}
                                         </button>
