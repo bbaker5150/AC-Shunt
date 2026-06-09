@@ -1574,6 +1574,19 @@ function DetailedView({
   const symbolMenuRef = useRef(null);
   const symbolButtonRef = useRef(null);
 
+  // Remembers the friendly name last given to each equation symbol on the
+  // active point, so a variable that temporarily disappears while the user
+  // edits the equation (e.g. deleting "l" from "w*l" and retyping it) gets its
+  // name — and therefore its TMDE assignments — back when it reappears.
+  const rememberedVariableNamesRef = useRef({});
+  const rememberedPointIdRef = useRef(null);
+  if (rememberedPointIdRef.current !== (testPointData?.id ?? null)) {
+    rememberedPointIdRef.current = testPointData?.id ?? null;
+    rememberedVariableNamesRef.current = {
+      ...(testPointData?.variableMappings || {}),
+    };
+  }
+
   // --- NEW: Row Selection Handlers ---
   const handleUutClick = (e, id) =>
     handleRowSelection(e, id, setSelectedUutIds);
@@ -1838,17 +1851,20 @@ function DetailedView({
   };
 
   const handleEquationChange = (newEquationString) => {
-    let variables = [];
-    try {
-      if (newEquationString && newEquationString.trim()) {
-        let expressionToParse = newEquationString.trim();
-        const equalsIndex = expressionToParse.indexOf("=");
-        if (equalsIndex !== -1) {
-          expressionToParse = expressionToParse
-            .substring(equalsIndex + 1)
-            .trim();
-        }
+    let expressionToParse = (newEquationString || "").trim();
+    const equalsIndex = expressionToParse.indexOf("=");
+    if (equalsIndex !== -1) {
+      expressionToParse = expressionToParse.substring(equalsIndex + 1).trim();
+    }
 
+    // null = the expression doesn't parse (yet). Mid-edit states like "w*l+"
+    // land here; keep the existing mappings instead of wiping them so the
+    // user's variable names and TMDE assignments survive the edit.
+    let variables = null;
+    if (!expressionToParse) {
+      variables = [];
+    } else {
+      try {
         const node = math.parse(expressionToParse);
         const varsSet = new Set();
         node.traverse(function (node) {
@@ -1861,22 +1877,26 @@ function DetailedView({
           }
         });
         variables = Array.from(varsSet).sort();
+      } catch {
+        variables = null;
       }
-    } catch {
-      /* ignore */
     }
 
-    const currentMappings = testPointData.variableMappings || {};
-    const newMappings = {};
-    variables.forEach((v) => {
-      newMappings[v] = currentMappings[v] || "";
-    });
+    const patch = { equationString: newEquationString };
+    if (variables !== null) {
+      const currentMappings = testPointData.variableMappings || {};
+      const newMappings = {};
+      variables.forEach((v) => {
+        // Fall back to the remembered name so re-typed variables keep their
+        // identity (and any TMDEs assigned to that name reconnect).
+        newMappings[v] =
+          currentMappings[v] || rememberedVariableNamesRef.current[v] || "";
+      });
+      patch.variableMappings = newMappings;
+    }
 
     if (onUpdateTestPoint) {
-      onUpdateTestPoint({
-        equationString: newEquationString,
-        variableMappings: newMappings,
-      });
+      onUpdateTestPoint(patch);
     }
   };
 
@@ -1960,13 +1980,43 @@ function DetailedView({
     : null;
 
   const handleVariableMappingChange = (symbol, newName) => {
-    const cleanedName = newName ? newName.trim() : "";
-    const newMappings = {
-      ...testPointData.variableMappings,
-      [symbol]: cleanedName,
-    };
+    const currentMappings = testPointData.variableMappings || {};
+    // Fall back to the remembered name so clearing the field and retyping
+    // still counts as a rename of the same variable.
+    const oldName =
+      String(currentMappings[symbol] || "").trim() ||
+      String(rememberedVariableNamesRef.current[symbol] || "").trim();
+    const trimmedNewName = String(newName || "").trim();
+
+    // Store the raw text so multi-word names ("Applied Weight") can be typed;
+    // comparisons elsewhere always trim.
+    const newMappings = { ...currentMappings, [symbol]: newName };
+    if (trimmedNewName) {
+      rememberedVariableNamesRef.current[symbol] = trimmedNewName;
+    }
+
+    const patch = { variableMappings: newMappings };
+
+    // Renaming a variable should carry its TMDE assignments along. Only do so
+    // when this symbol exclusively owns the old name (another symbol mapped to
+    // the same name keeps its assignments).
+    const oldNameStillUsed = Object.entries(currentMappings).some(
+      ([otherSymbol, name]) =>
+        otherSymbol !== symbol && String(name || "").trim() === oldName,
+    );
+    if (oldName && trimmedNewName && oldName !== trimmedNewName && !oldNameStillUsed) {
+      const retargeted = tmdeTolerancesData.map((tmde) =>
+        String(tmde.variableType || "").trim() === oldName
+          ? { ...tmde, variableType: trimmedNewName }
+          : tmde,
+      );
+      if (retargeted.some((tmde, i) => tmde !== tmdeTolerancesData[i])) {
+        patch.tmdeTolerances = retargeted;
+      }
+    }
+
     if (onUpdateTestPoint) {
-      onUpdateTestPoint({ variableMappings: newMappings });
+      onUpdateTestPoint(patch);
     }
   };
 
@@ -2975,6 +3025,43 @@ function DetailedView({
                 </button>
               </div>
               {symbolMenu}
+
+              {equationDisplayData.variables.length > 0 && (
+                <div className="measurement-equation-variable-map">
+                  {equationDisplayData.variables.map((variable) => (
+                    <label key={variable.symbol}>
+                      <span className="measurement-equation-variable-symbol">
+                        {variable.symbol} =
+                      </span>
+                      <input
+                        type="text"
+                        value={variable.name || ""}
+                        placeholder="Display name"
+                        onChange={(e) =>
+                          handleVariableMappingChange(
+                            variable.symbol,
+                            e.target.value,
+                          )
+                        }
+                        aria-label={`Display name for equation variable ${variable.symbol}`}
+                      />
+                      <em
+                        className={`measurement-equation-variable-status ${
+                          variable.isAssigned ? "assigned" : "unassigned"
+                        }`}
+                      >
+                        {variable.isAssigned
+                          ? `${variable.assignedTmdes.length} TMDE${
+                              variable.assignedTmdes.length > 1 ? "s" : ""
+                            } assigned`
+                          : String(variable.name || "").trim()
+                            ? "No TMDE assigned"
+                            : "Name it to assign a TMDE"}
+                      </em>
+                    </label>
+                  ))}
+                </div>
+              )}
 
               {calcStatus !== "neutral" && (
                 <div

@@ -246,8 +246,8 @@ const AddTestPointModal = ({
         return { ...prev, variableMappings };
       });
     } catch {
-      setEquationVariables([]);
-      setFormData((prev) => ({ ...prev, variableMappings: {} }));
+      /* Mid-edit expressions (e.g. "w*l+") don't parse; keep the last good
+         variable list and mappings rather than wiping them. */
     }
   };
 
