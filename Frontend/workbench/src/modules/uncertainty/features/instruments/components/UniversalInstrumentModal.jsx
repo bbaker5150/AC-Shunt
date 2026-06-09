@@ -275,13 +275,6 @@ const UniversalInstrumentModal = ({
         setSelectionAnchor(instId);
     };
 
-    const toggleSelectAll = () => {
-        const visibleIds = filteredInstruments.map((i) => i.id);
-        const allSelected =
-            visibleIds.length > 0 && visibleIds.every((id) => selectedIds.includes(id));
-        setSelectedIds(allSelected ? [] : visibleIds);
-    };
-
     // Single delete choke-point — a password gate can wrap confirmDelete later.
     const requestDelete = (ids) => {
         const list = (Array.isArray(ids) ? ids : [ids]).filter(Boolean);
@@ -544,37 +537,10 @@ const UniversalInstrumentModal = ({
                             <table className="library-table library-table--selectable">
                                 <thead>
                                     <tr>
-                                        <th style={{ width: '36px', textAlign: 'center' }}>
-                                            <input
-                                                type="checkbox"
-                                                className="library-select-check"
-                                                title="Select all"
-                                                checked={
-                                                    filteredInstruments.length > 0 &&
-                                                    filteredInstruments.every((i) =>
-                                                        selectedIds.includes(i.id),
-                                                    )
-                                                }
-                                                ref={(el) => {
-                                                    if (el) {
-                                                        const some = filteredInstruments.some((i) =>
-                                                            selectedIds.includes(i.id),
-                                                        );
-                                                        const all =
-                                                            filteredInstruments.length > 0 &&
-                                                            filteredInstruments.every((i) =>
-                                                                selectedIds.includes(i.id),
-                                                            );
-                                                        el.indeterminate = some && !all;
-                                                    }
-                                                }}
-                                                onChange={toggleSelectAll}
-                                            />
-                                        </th>
                                         <th style={{ width: '20%' }}>Manufacturer</th>
                                         <th style={{ width: '20%' }}>Model</th>
-                                        <th style={{ width: '34%' }}>Description</th>
-                                        <th style={{ width: '22%' }}>Functions</th>
+                                        <th style={{ width: '36%' }}>Description</th>
+                                        <th style={{ width: '24%' }}>Functions</th>
                                     </tr>
                                 </thead>
                                 <tbody>
@@ -589,14 +555,6 @@ const UniversalInstrumentModal = ({
                                                     className={`hover-row ${isRowSelected ? 'row-selected' : ''}`}
                                                     title="Click to select (Ctrl/Shift for multi); double-click to open"
                                                 >
-                                                    <td style={{ textAlign: 'center' }} onClick={(e) => e.stopPropagation()}>
-                                                        <input
-                                                            type="checkbox"
-                                                            className="library-select-check"
-                                                            checked={isRowSelected}
-                                                            onChange={(e) => handleRowSelect(e, inst.id)}
-                                                        />
-                                                    </td>
                                                     <td style={{ fontWeight: '600' }}>{inst.manufacturer}</td>
                                                     <td style={{ color: 'var(--primary-color)', fontWeight: 'bold' }}>{inst.model}</td>
                                                     <td style={{ color: 'var(--text-color-muted)' }}>{inst.description}</td>
@@ -616,7 +574,7 @@ const UniversalInstrumentModal = ({
                                                 </tr>
                                                 {isExpanded && (
                                                     <tr className="detail-row">
-                                                        <td colSpan="5">
+                                                        <td colSpan="4">
                                                             <div style={{padding: '10px', background: 'var(--background-color-secondary)'}}>
                                                                 {(() => {
                                                                     const func = inst.functions.find(f => f.id === expandedDetail.funcId);

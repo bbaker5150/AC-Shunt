@@ -3151,9 +3151,18 @@ function DetailedView({
                             }}
                             // Click Handlers
                             onClick={(e) => handleTmdeClick(e, masterTmde.id)}
-                            onDoubleClick={() =>
-                              onEditTmde && onEditTmde(masterTmde)
-                            }
+                            onDoubleClick={(e) => {
+                              // Don't open the editor when the user is double-
+                              // clicking a value field (input/select) or an
+                              // inline-editable cell to edit it in place.
+                              if (
+                                e.target.closest(
+                                  'input, select, textarea, .editable-cell-display, .tmde-input-assignment',
+                                )
+                              )
+                                return;
+                              onEditTmde && onEditTmde(masterTmde);
+                            }}
                             title="Click to select, Double-click to edit TMDE details"
                           >
                             <td

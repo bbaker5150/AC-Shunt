@@ -555,13 +555,6 @@
 /* =====================================================================
    Library list: multi-select + delete (Select Instrument from Library)
    ===================================================================== */
-.library-select-check {
-    width: 16px;
-    height: 16px;
-    accent-color: var(--primary-color);
-    cursor: pointer;
-}
-
 .library-table--selectable tr.row-selected > td {
     background-color: var(--primary-color-light);
 }
