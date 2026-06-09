@@ -39,7 +39,7 @@ export default function HeaderEmblem() {
       <directionalLight position={[5, 5, 5]} intensity={1.5} />
       <Suspense fallback={null}>
         <Stage
-          environment="city"
+          environment={null}
           intensity={0.6}
           adjustCamera={false}
           shadows={false}

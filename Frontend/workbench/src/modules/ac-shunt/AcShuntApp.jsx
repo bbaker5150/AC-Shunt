@@ -1137,7 +1137,7 @@ function AppContent() {
                           horizontal cutoff under the coin. The CSS aura
                           provides the depth read instead. */}
                       <Stage
-                        environment="city"
+                        environment={null}
                         intensity={0.6}
                         adjustCamera={false}
                         shadows={false}
