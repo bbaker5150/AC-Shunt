@@ -1,5 +1,24 @@
 import React from "react";
-import RiskGauge from "./RiskGauge";
+import { pfaStatus } from "./RiskDistributionVisualizer";
+
+/**
+ * Guardband result card in the visualizer's outcome-card language: an accent
+ * icon chip, a small label, a monospace readout, and an optional muted note.
+ */
+const GuardbandCard = ({ icon, label, value, note, accent, active, onClick }) => (
+  <button
+    type="button"
+    className={`risk-viz-outcome ${accent} ${active ? "active" : ""}`}
+    onClick={onClick}
+  >
+    <span className="risk-viz-outcome-icon">{icon}</span>
+    <span>
+      <small>{label}</small>
+      <strong>{value}</strong>
+      {note && <em>{note}</em>}
+    </span>
+  </button>
+);
 
 const RiskMitigationDashboard = ({ results, onShowBreakdown, activeModals = [] }) => {
   if (!results) return null;
@@ -13,11 +32,12 @@ const RiskMitigationDashboard = ({ results, onShowBreakdown, activeModals = [] }
 
   // Formatters that gracefully degrade to "N/A" when the math engine could not
   // converge on guard-band limits.
-  const fmtPct = (v) => (typeof v === "number" ? `${v.toFixed(4)} %` : "N/A");
-  const fmtNum = (v, d = 4) => (typeof v === "number" ? v.toFixed(d) : "N/A");
+  const isNum = (v) => typeof v === "number" && Number.isFinite(v);
+  const fmtPct = (v) => (isNum(v) ? `${v.toFixed(4)} %` : "N/A");
+  const fmtNum = (v, d = 4) => (isNum(v) ? v.toFixed(d) : "N/A");
   const fmtLimit = (v) =>
-    typeof v === "number" ? v.toFixed(results.uutResolution + 1) : "N/A";
-  const fmt = (v, p = 6) => (typeof v === "number" ? v.toPrecision(p) : "N/A");
+    isNum(v) ? v.toFixed(results.uutResolution + 1) : "N/A";
+  const fmt = (v, p = 6) => (isNum(v) ? v.toPrecision(p) : "N/A");
 
   const inputSpecs = [
     { label: "Calibration Interval", value: `${guardBandInputs.calibrationInt} months` },
@@ -59,104 +79,130 @@ const RiskMitigationDashboard = ({ results, onShowBreakdown, activeModals = [] }
     },
   ];
 
+  const guardbandCards = [
+    {
+      key: "gblow",
+      icon: "GBL",
+      label: "GB limit low value",
+      value: `${fmtLimit(guardBand.GBLOW)} ${nativeUnit}`,
+      note: "Guardbanded UUT lower tolerance limit",
+      accent: "accent-guardband",
+    },
+    {
+      key: "gbhigh",
+      icon: "GBU",
+      label: "GB limit high value",
+      value: `${fmtLimit(guardBand.GBUP)} ${nativeUnit}`,
+      note: "Guardbanded UUT upper tolerance limit",
+      accent: "accent-guardband",
+    },
+    {
+      key: "gbpfa",
+      icon: "FA",
+      label: "False accept probability with guardbanding",
+      value: fmtPct(guardBand.GBPFA),
+      note: `Lower tail ${fmtPct(guardBand.GBPFAT1)} / upper tail ${fmtPct(guardBand.GBPFAT2)}`,
+      accent: `status-${pfaStatus(guardBand.GBPFA)}`,
+    },
+    {
+      key: "gbpfr",
+      icon: "FR",
+      label: "False reject probability with guardbanding",
+      value: fmtPct(guardBand.GBPFR),
+      note: `Lower side ${fmtPct(guardBand.GBPFRT1)} / upper side ${fmtPct(guardBand.GBPFRT2)}`,
+      accent: "status-muted",
+    },
+    {
+      key: "gbmult",
+      icon: "GBM",
+      label: "Guardband multiplier",
+      value: fmtPct(guardBand.GBMULT),
+      note: "Ratio between the guardband and UUT tolerance limits",
+      accent: "accent-guardband",
+    },
+    {
+      key: "gbcalint",
+      icon: "CIG",
+      label: "Calibration interval with guardbanding",
+      value: fmtNum(guardBand.GBCALINT),
+      note: "Recommended calibration interval using the guardband limits",
+      accent: "accent-primary",
+    },
+    {
+      key: "calint",
+      icon: "CI",
+      label: "Calibration interval without guardbanding",
+      value: fmtNum(guardBand.NOGBCALINT),
+      note: "Recommended calibration interval at the original limits",
+      accent: "accent-primary",
+    },
+    {
+      key: "measrel",
+      icon: "MR",
+      label: "Measurement reliability needed without guardbanding",
+      value: fmtPct(guardBand.NOGBMEASREL),
+      note: "Required measurement reliability if no guardband is applied",
+      accent: "accent-primary",
+    },
+  ];
+
   return (
     <div className="risk-dashboard">
-      <section className="risk-inputs-panel">
-        <button
-          type="button"
-          className={`risk-inputs-header ${isActive("gbinputs") ? "active" : ""}`}
-          onClick={() => onShowBreakdown("gbinputs")}
-        >
-          <span>Key Calculation Inputs</span>
-          <span className="risk-inputs-hint">View breakdown</span>
-        </button>
-        <div className="risk-inputs-grid">
+      <section className="risk-viz-shell">
+        <header className="risk-viz-header">
+          <div>
+            <span className="risk-viz-eyebrow">Risk mitigation</span>
+            <h3>Key Calculation Inputs</h3>
+            <p>
+              The targets, tolerances, and uncertainties driving the guardband
+              calculation.
+            </p>
+          </div>
+          <button
+            type="button"
+            className={`risk-viz-header-action ${isActive("gbinputs") ? "active" : ""}`}
+            onClick={() => onShowBreakdown("gbinputs")}
+          >
+            View breakdown
+          </button>
+        </header>
+        <div className="risk-viz-inputs-grid">
           {inputSpecs.map((spec, i) => (
-            <div className="risk-spec" key={i}>
-              <span className="risk-spec-label">{spec.label}</span>
-              <span className="risk-spec-value">{spec.value}</span>
+            <div className="risk-viz-metric" key={i}>
+              <span>{spec.label}</span>
+              <strong>{spec.value}</strong>
             </div>
           ))}
         </div>
       </section>
 
-      <RiskGauge
-        label="GB Limit Low Value"
-        value={fmtLimit(guardBand.GBLOW)}
-        accent="accent-guardband"
-        note="Guardbanded UUT Lower Tolerance Limit."
-        active={isActive("gblow")}
-        onClick={() => onShowBreakdown("gblow")}
-      />
-
-      <RiskGauge
-        label="GB Limit High Value"
-        value={fmtLimit(guardBand.GBUP)}
-        accent="accent-guardband"
-        note="Guardbanded UUT Upper Tolerance Limit."
-        active={isActive("gbhigh")}
-        onClick={() => onShowBreakdown("gbhigh")}
-      />
-
-      <RiskGauge
-        label="Probability of False Accept (PFA) with Guard Banding"
-        value={fmtPct(guardBand.GBPFA)}
-        accent="accent-guardband"
-        breakdown={[
-          { label: "Lower Tail Risk", value: fmtPct(guardBand.GBPFAT1) },
-          { label: "Upper Tail Risk", value: fmtPct(guardBand.GBPFAT2) },
-        ]}
-        active={isActive("gbpfa")}
-        onClick={() => onShowBreakdown("gbpfa")}
-      />
-
-      <RiskGauge
-        label="Probability of False Reject (PFR) with Guard Banding"
-        value={fmtPct(guardBand.GBPFR)}
-        accent="accent-guardband"
-        breakdown={[
-          { label: "Lower Side Risk", value: fmtPct(guardBand.GBPFRT1) },
-          { label: "Upper Side Risk", value: fmtPct(guardBand.GBPFRT2) },
-        ]}
-        active={isActive("gbpfr")}
-        onClick={() => onShowBreakdown("gbpfr")}
-      />
-
-      <RiskGauge
-        label="Guard Band Multiplier"
-        value={fmtPct(guardBand.GBMULT)}
-        accent="accent-guardband"
-        note="Ratio between the guardband tolerance limits and UUT tolerance limits."
-        active={isActive("gbmult")}
-        onClick={() => onShowBreakdown("gbmult")}
-      />
-
-      <RiskGauge
-        label="Calibration Interval with Guard Banding"
-        value={fmtNum(guardBand.GBCALINT)}
-        accent="accent-guardband"
-        note="Recommended Calibration Interval with Guard Band Tolerance Limits."
-        active={isActive("gbcalint")}
-        onClick={() => onShowBreakdown("gbcalint")}
-      />
-
-      <RiskGauge
-        label="Calibration without Guard Banding"
-        value={fmtNum(guardBand.NOGBCALINT)}
-        accent="accent-guardband"
-        note="Recommended Calibration Interval without Guard Band Tolerance Limits."
-        active={isActive("calint")}
-        onClick={() => onShowBreakdown("calint")}
-      />
-
-      <RiskGauge
-        label="Measurement Reliability Needed without Guard Banding"
-        value={fmtPct(guardBand.NOGBMEASREL)}
-        accent="accent-guardband"
-        note="Required Measurement Reliability without Guard Banding."
-        active={isActive("measrel")}
-        onClick={() => onShowBreakdown("measrel")}
-      />
+      <section className="risk-viz-shell">
+        <header className="risk-viz-header">
+          <div>
+            <span className="risk-viz-eyebrow">Guardband strategy</span>
+            <h3>Risk Mitigation Results</h3>
+            <p>
+              Acceptance limits tightened until the false-accept requirement is
+              met, and the calibration-interval trade-offs that follow. Click
+              any card for its calculation breakdown.
+            </p>
+          </div>
+        </header>
+        <div className="risk-viz-outcome-grid">
+          {guardbandCards.map((card) => (
+            <GuardbandCard
+              key={card.key}
+              icon={card.icon}
+              label={card.label}
+              value={card.value}
+              note={card.note}
+              accent={card.accent}
+              active={isActive(card.key)}
+              onClick={() => onShowBreakdown(card.key)}
+            />
+          ))}
+        </div>
+      </section>
     </div>
   );
 };

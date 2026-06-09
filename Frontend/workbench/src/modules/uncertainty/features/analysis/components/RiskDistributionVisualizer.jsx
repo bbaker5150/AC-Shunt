@@ -30,7 +30,7 @@ const formatNumber = (value, digits = 5) => {
 
 // Matches the PFA color thresholds used by the measurement point list
 // (getPfaColor in App.jsx): >5% bad, >2% warning, otherwise good.
-const pfaStatus = (value) => {
+export const pfaStatus = (value) => {
   const parsed = Number(value);
   if (!Number.isFinite(parsed)) return "muted";
   if (parsed > 5) return "bad";
