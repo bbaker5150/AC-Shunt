@@ -1155,8 +1155,8 @@ function App() {
 
       // --- CONFIGURATION ---
       const MIN_SIDEBAR_WIDTH = 300;
-      const MAX_SIDEBAR_WIDTH = 750; // 1. Hard Cap: Never wider than this
-      const MIN_CONTENT_WIDTH = 600; // 2. Safety Margin: Reserve this much space for the main panel
+      const MAX_SIDEBAR_WIDTH = 1200; // Let wide screens expose more measurement-point columns
+      const MIN_CONTENT_WIDTH = 480; // Keep the analysis pane usable at the widest sidebar setting
 
       // Measure against the container's own box, not the viewport. The sidebar
       // is laid out inside this padded element, so the desired width is the
