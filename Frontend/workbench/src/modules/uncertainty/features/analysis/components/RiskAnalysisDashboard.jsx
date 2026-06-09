@@ -13,7 +13,7 @@ const RiskAnalysisDashboard = ({
 
   const nativeUnit = results.nativeUnit || "units";
   const fmt = (v, p = 6) =>
-    typeof v === "number" && Number.isFinite(v) ? v.toPrecision(p) : "N/A";
+    typeof v === "number" ? v.toPrecision(p) : "N/A";
 
   const inputSpecs = [
     {
@@ -49,29 +49,20 @@ const RiskAnalysisDashboard = ({
 
   return (
     <div className="risk-dashboard">
-      <section className="risk-viz-shell">
-        <header className="risk-viz-header">
-          <div>
-            <span className="risk-viz-eyebrow">Risk analysis</span>
-            <h3>Key Calculation Inputs</h3>
-            <p>
-              The uncertainties, limits, and correlation feeding the PFA / PFR
-              calculation in the visualizer below.
-            </p>
-          </div>
-          <button
-            type="button"
-            className={`risk-viz-header-action ${isActive("inputs") ? "active" : ""}`}
-            onClick={() => onShowBreakdown("inputs")}
-          >
-            View breakdown
-          </button>
-        </header>
-        <div className="risk-viz-inputs-grid">
+      <section className="risk-inputs-panel">
+        <button
+          type="button"
+          className={`risk-inputs-header ${isActive("inputs") ? "active" : ""}`}
+          onClick={() => onShowBreakdown("inputs")}
+        >
+          <span>Key Calculation Inputs</span>
+          <span className="risk-inputs-hint">View breakdown</span>
+        </button>
+        <div className="risk-inputs-grid">
           {inputSpecs.map((spec, i) => (
-            <div className="risk-viz-metric" key={i}>
-              <span>{spec.label}</span>
-              <strong>{spec.value}</strong>
+            <div className="risk-spec" key={i}>
+              <span className="risk-spec-label">{spec.label}</span>
+              <span className="risk-spec-value">{spec.value}</span>
             </div>
           ))}
         </div>

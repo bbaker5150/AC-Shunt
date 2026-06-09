@@ -4861,10 +4861,12 @@ body.dark-mode .budget-results-dof-label .direction-toggle-switch input:checked 
 }
 
 /* =================================================================== */
-/* RISK DASHBOARD                                                      */
-/* The Risk Analysis & Risk Mitigation tabs share the visualizer's     */
-/* design language (.risk-viz-*): gradient-railed shells with eyebrow  */
-/* headers, metric pills for inputs, and outcome cards for results.    */
+/* RISK DASHBOARD — instrument-bench gauges                            */
+/* Brings the Risk Analysis & Risk Mitigation tabs into the same        */
+/* readout language as the budget panel's .metric-pod cards: matte      */
+/* faces, a tinted status rail, a soft-breathing status LED and a       */
+/* monospace tabular readout, with the accent driven by one class so    */
+/* rail, LED, hover ring and value stay in sync.                        */
 /* =================================================================== */
 .risk-dashboard {
   display: grid;
@@ -4876,6 +4878,252 @@ body.dark-mode .budget-results-dof-label .direction-toggle-switch input:checked 
 .risk-analysis-page {
   width: min(1440px, 100%);
   margin: 0 auto;
+}
+
+/* --- Key Calculation Inputs panel (spans the full row) --- */
+.risk-inputs-panel {
+  grid-column: 1 / -1;
+  overflow: hidden;
+  border: 1px solid var(--border-color);
+  border-radius: 14px;
+  background: linear-gradient(
+    180deg,
+    color-mix(in srgb, var(--content-background) 88%, #ffffff 12%),
+    var(--content-background)
+  );
+  box-shadow:
+    inset 0 1px 0 rgba(255, 255, 255, 0.55),
+    0 1px 2px rgba(15, 23, 42, 0.04),
+    0 8px 18px -12px rgba(15, 23, 42, 0.3);
+
+  /* GLASSMORPHISM SUPPORT */
+  backdrop-filter: var(--backdrop-filter);
+  -webkit-backdrop-filter: var(--backdrop-filter);
+}
+
+.risk-inputs-header {
+  width: 100%;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  padding: 14px 18px;
+  border: none;
+  border-bottom: 1px solid var(--border-color);
+  background: transparent;
+  text-align: left;
+  cursor: pointer;
+  font-size: 0.78rem;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0.1em;
+  color: var(--text-color);
+  transition:
+    background-color 0.15s ease,
+    color 0.15s ease;
+}
+
+.risk-inputs-header:hover,
+.risk-inputs-header.active {
+  background: color-mix(in srgb, var(--primary-color) 8%, transparent);
+  color: var(--primary-color-dark);
+}
+
+.risk-inputs-hint {
+  font-size: 0.66rem;
+  font-weight: 600;
+  letter-spacing: 0.03em;
+  text-transform: none;
+  color: var(--text-color-muted);
+}
+
+.risk-inputs-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(220px, 1fr));
+  gap: 0 28px;
+  padding: 6px 18px 12px;
+}
+
+.risk-spec {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 12px;
+  padding: 9px 0;
+  border-bottom: 1px solid
+    color-mix(in srgb, var(--border-color) 70%, transparent);
+}
+
+.risk-spec-label {
+  font-size: 0.85rem;
+  color: var(--text-color-muted);
+}
+
+.risk-spec-value {
+  font-family: var(--readout-font);
+  font-variant-numeric: tabular-nums;
+  font-size: 0.9rem;
+  font-weight: 600;
+  color: var(--text-color);
+  white-space: nowrap;
+}
+
+/* --- Metric gauges --- */
+.risk-gauge {
+  --gauge-accent: var(--text-color-muted);
+  position: relative;
+  isolation: isolate;
+  overflow: hidden;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  padding: 16px 18px 15px;
+  border: 1px solid var(--border-color);
+  border-radius: 14px;
+  text-align: left;
+  background: linear-gradient(
+    180deg,
+    color-mix(in srgb, var(--content-background) 88%, #ffffff 12%),
+    var(--content-background)
+  );
+  box-shadow:
+    inset 0 1px 0 rgba(255, 255, 255, 0.55),
+    0 1px 2px rgba(15, 23, 42, 0.04),
+    0 8px 18px -12px rgba(15, 23, 42, 0.3);
+  transition:
+    transform 0.18s ease,
+    box-shadow 0.18s ease,
+    border-color 0.18s ease;
+
+  /* GLASSMORPHISM SUPPORT */
+  backdrop-filter: var(--backdrop-filter);
+  -webkit-backdrop-filter: var(--backdrop-filter);
+}
+
+/* Tinted status rail across the top edge. */
+.risk-gauge::before {
+  content: "";
+  position: absolute;
+  inset: 0 0 auto 0;
+  height: 3px;
+  background: linear-gradient(
+    90deg,
+    transparent,
+    color-mix(in srgb, var(--gauge-accent) 85%, transparent),
+    transparent
+  );
+}
+
+/* Soft-breathing status LED in the top-right corner. */
+.risk-gauge::after {
+  content: "";
+  position: absolute;
+  top: 15px;
+  right: 16px;
+  width: 7px;
+  height: 7px;
+  border-radius: 50%;
+  background: var(--gauge-accent);
+  box-shadow:
+    0 0 0 2px color-mix(in srgb, var(--gauge-accent) 16%, transparent),
+    0 0 9px 1px color-mix(in srgb, var(--gauge-accent) 55%, transparent);
+  animation: pod-led-breath 4.5s ease-in-out infinite;
+}
+
+.risk-gauge.clickable {
+  cursor: pointer;
+}
+
+.risk-gauge.clickable:hover {
+  transform: translateY(-3px);
+  border-color: color-mix(in srgb, var(--gauge-accent) 50%, var(--border-color));
+  box-shadow:
+    inset 0 1px 0 rgba(255, 255, 255, 0.55),
+    0 10px 24px -12px color-mix(in srgb, var(--gauge-accent) 65%, transparent),
+    0 4px 10px rgba(15, 23, 42, 0.08);
+}
+
+.risk-gauge.active {
+  border-color: var(--gauge-accent);
+  box-shadow:
+    inset 0 1px 0 rgba(255, 255, 255, 0.55),
+    0 0 0 1px var(--gauge-accent),
+    0 10px 24px -12px color-mix(in srgb, var(--gauge-accent) 65%, transparent);
+}
+
+.risk-gauge-label {
+  font-size: 0.7rem;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0.08em;
+  color: var(--text-color-muted);
+  padding-right: 16px; /* clear the LED */
+}
+
+.risk-gauge-value {
+  font-family: var(--readout-font);
+  font-variant-numeric: tabular-nums;
+  font-size: 1.9rem;
+  font-weight: 700;
+  line-height: 1.05;
+  letter-spacing: -0.01em;
+  color: var(--gauge-accent);
+}
+
+.risk-gauge-note {
+  font-size: 0.82rem;
+  line-height: 1.5;
+  color: var(--text-color-muted);
+}
+
+.risk-gauge-breakdown {
+  list-style: none;
+  margin: 4px 0 0;
+  padding: 8px 0 0;
+  border-top: 1px solid
+    color-mix(in srgb, var(--border-color) 70%, transparent);
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+
+.risk-gauge-breakdown li {
+  display: flex;
+  justify-content: space-between;
+  gap: 10px;
+  font-size: 0.78rem;
+}
+
+.risk-gauge-breakdown li span:first-child {
+  color: var(--text-color-muted);
+}
+
+.risk-gauge-breakdown li span:last-child {
+  font-family: var(--readout-font);
+  font-variant-numeric: tabular-nums;
+  font-weight: 600;
+  color: var(--text-color);
+  white-space: nowrap;
+}
+
+/* --- Accent mapping (single var drives rail, LED, hover ring + value) --- */
+.risk-gauge.neutral {
+  --gauge-accent: var(--text-color-muted);
+}
+.risk-gauge.status-good {
+  --gauge-accent: var(--status-good);
+}
+.risk-gauge.status-warning {
+  --gauge-accent: var(--status-warning);
+}
+.risk-gauge.status-bad {
+  --gauge-accent: var(--status-bad);
+}
+.risk-gauge.accent-primary {
+  --gauge-accent: var(--primary-color);
+}
+.risk-gauge.accent-guardband {
+  --gauge-accent: var(--risk-value-color);
 }
 
 /* =================================================================== */
@@ -4957,31 +5205,6 @@ body.dark-mode .budget-results-dof-label .direction-toggle-switch input:checked 
   font-size: 0.87rem;
   line-height: 1.55;
   color: var(--text-color-muted);
-}
-
-/* Pill action in a shell header (e.g. "View breakdown"). */
-.risk-viz-header-action {
-  flex: 0 0 auto;
-  align-self: flex-start;
-  padding: 9px 16px;
-  border: 1px solid
-    color-mix(in srgb, var(--primary-color) 34%, var(--border-color));
-  border-radius: 999px;
-  background: transparent;
-  color: var(--primary-color);
-  font-size: 0.73rem;
-  font-weight: 700;
-  cursor: pointer;
-  transition:
-    background-color 0.16s ease,
-    box-shadow 0.16s ease;
-}
-
-.risk-viz-header-action:hover,
-.risk-viz-header-action.active {
-  background: color-mix(in srgb, var(--primary-color) 9%, transparent);
-  box-shadow: 0 4px 12px -9px
-    color-mix(in srgb, var(--primary-color) 60%, transparent);
 }
 
 .risk-viz-mode-switch {
@@ -5521,17 +5744,8 @@ body.dark-mode .budget-results-dof-label .direction-toggle-switch input:checked 
   --risk-viz-outcome-accent: var(--text-color-muted);
 }
 
-.risk-viz-outcome.accent-guardband {
-  --risk-viz-outcome-accent: var(--risk-viz-acceptance, #f59e0b);
-}
-
-.risk-viz-outcome.accent-primary {
-  --risk-viz-outcome-accent: var(--primary-color);
-}
-
 .risk-viz-outcome[class*="status-"],
-.risk-viz-outcome[class*="mc-"],
-.risk-viz-outcome[class*="accent-"] {
+.risk-viz-outcome[class*="mc-"] {
   --risk-viz-hover-accent: var(--risk-viz-outcome-accent);
 }
 
@@ -5582,8 +5796,7 @@ body.dark-mode .budget-results-dof-label .direction-toggle-switch input:checked 
 }
 
 .risk-viz-outcome[class*="status-"] strong,
-.risk-viz-outcome[class*="mc-"] strong,
-.risk-viz-outcome[class*="accent-"] strong {
+.risk-viz-outcome[class*="mc-"] strong {
   color: var(--risk-viz-outcome-accent);
 }
 
@@ -5637,26 +5850,6 @@ body.dark-mode .budget-results-dof-label .direction-toggle-switch input:checked 
   padding: 0 18px 18px;
 }
 
-/* Auto-fit pill grid for the Key Calculation Inputs panels. */
-.risk-viz-inputs-grid {
-  display: grid;
-  grid-template-columns: repeat(auto-fit, minmax(215px, 1fr));
-  gap: 10px;
-  padding: 16px 18px 18px;
-}
-
-.risk-viz-inputs-grid .risk-viz-metric span {
-  white-space: normal;
-}
-
-/* Auto-fit card grid for the Risk Mitigation guardband results. */
-.risk-viz-outcome-grid {
-  display: grid;
-  grid-template-columns: repeat(auto-fill, minmax(260px, 1fr));
-  gap: 12px;
-  padding: 16px 18px 18px;
-}
-
 .risk-viz-metric {
   --risk-viz-hover-accent: var(--primary-color);
   display: flex;
@@ -5684,7 +5877,7 @@ body.dark-mode .budget-results-dof-label .direction-toggle-switch input:checked 
   cursor: pointer;
 }
 
-.risk-viz-metric.clickable:hover {
+.risk-viz-metric:hover {
   border-color: color-mix(
     in srgb,
     var(--risk-viz-hover-accent) 28%,
