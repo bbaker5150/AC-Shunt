@@ -1128,8 +1128,9 @@ function AppContent() {
                 >
                   {/* gl={{ alpha: true }} ensures the Canvas background is perfectly transparent so the glow shows through */}
                   <Canvas camera={{ position: [0, 0, 4.5], fov: 45 }} gl={{ alpha: true }}>
-                    <ambientLight intensity={0.7} />
-                    <directionalLight position={[5, 5, 5]} intensity={1.5} />
+                    <ambientLight intensity={0.9} />
+                    <directionalLight position={[5, 5, 5]} intensity={2.1} />
+                    <directionalLight position={[-4, 2, 4]} intensity={0.8} />
 
                     <Suspense fallback={null}>
                       {/* shadows={false} disables Stage's default contact-shadow
@@ -1138,7 +1139,7 @@ function AppContent() {
                           provides the depth read instead. */}
                       <Stage
                         environment={null}
-                        intensity={0.6}
+                        intensity={0.75}
                         adjustCamera={false}
                         shadows={false}
                       >

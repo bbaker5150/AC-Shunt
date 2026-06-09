@@ -35,12 +35,13 @@ export default function HeaderEmblem() {
       gl={{ alpha: true }}
       dpr={[1, 2]}
     >
-      <ambientLight intensity={0.7} />
-      <directionalLight position={[5, 5, 5]} intensity={1.5} />
+      <ambientLight intensity={0.9} />
+      <directionalLight position={[5, 5, 5]} intensity={2.1} />
+      <directionalLight position={[-4, 2, 4]} intensity={0.8} />
       <Suspense fallback={null}>
         <Stage
           environment={null}
-          intensity={0.6}
+          intensity={0.75}
           adjustCamera={false}
           shadows={false}
         >
