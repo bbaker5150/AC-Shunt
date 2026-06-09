@@ -5261,57 +5261,6 @@ body.dark-mode .budget-results-dof-label .direction-toggle-switch input:checked 
   padding: 14px 26px 4px;
 }
 
-.risk-viz-toolbar-actions {
-  display: flex;
-  align-items: center;
-  gap: 14px;
-  flex: 0 0 auto;
-}
-
-.risk-viz-coverage-control {
-  display: inline-flex;
-  align-items: center;
-  gap: 3px;
-  padding: 3px;
-  border: 1px solid var(--border-color);
-  border-radius: 9px;
-  background: color-mix(
-    in srgb,
-    var(--background-color) 68%,
-    transparent
-  );
-}
-
-.risk-viz-coverage-control > span {
-  padding: 0 7px;
-  font-size: 0.65rem;
-  font-weight: 750;
-  color: var(--text-color-muted);
-}
-
-.risk-viz-coverage-control button {
-  min-width: 34px;
-  padding: 5px 7px;
-  border: none;
-  border-radius: 6px;
-  background: transparent;
-  color: var(--text-color-muted);
-  font-family: var(--readout-font);
-  font-size: 0.7rem;
-  font-weight: 750;
-  cursor: pointer;
-}
-
-.risk-viz-coverage-control button:hover {
-  color: var(--text-color);
-}
-
-.risk-viz-coverage-control button.active {
-  background: color-mix(in srgb, var(--risk-viz-observed) 14%, var(--content-background));
-  color: var(--risk-viz-observed);
-  box-shadow: 0 1px 4px rgba(15, 23, 42, 0.08);
-}
-
 .risk-viz-legend {
   display: flex;
   flex-wrap: wrap;
@@ -5426,104 +5375,13 @@ body.dark-mode .budget-results-dof-label .direction-toggle-switch input:checked 
 .risk-viz-chart-card {
   min-width: 0;
   overflow: hidden;
-  padding: 8px 10px 0;
-}
-
-.risk-viz-chart-topline {
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  gap: 12px;
-  min-height: 34px;
-  padding: 2px 7px 0;
-}
-
-.risk-viz-chart-topline > span {
-  font-size: 0.65rem;
-  color: var(--text-color-muted);
-}
-
-.risk-viz-zoom-controls {
-  display: inline-flex;
-  align-items: center;
-  gap: 3px;
-  padding: 3px;
-  border: 1px solid var(--border-color);
-  border-radius: 8px;
-  background: color-mix(
-    in srgb,
-    var(--content-background) 82%,
-    transparent
-  );
-}
-
-.risk-viz-zoom-controls button {
-  display: grid;
-  place-items: center;
-  min-width: 25px;
-  height: 24px;
-  padding: 0 6px;
-  border: 1px solid transparent;
-  border-radius: 5px;
-  background: transparent;
-  color: var(--text-color-muted);
-  font-size: 0.76rem;
-  font-weight: 750;
-  cursor: pointer;
-}
-
-.risk-viz-zoom-controls button.reset {
-  min-width: 44px;
-  font-size: 0.62rem;
-}
-
-.risk-viz-zoom-controls button:hover:not(:disabled) {
-  border-color: color-mix(
-    in srgb,
-    var(--primary-color) 28%,
-    var(--border-color)
-  );
-  background: color-mix(in srgb, var(--primary-color) 5%, transparent);
-  color: var(--primary-color);
-}
-
-.risk-viz-zoom-controls button:disabled {
-  opacity: 0.32;
-  cursor: default;
-}
-
-.risk-viz-zoom-controls > span {
-  min-width: 39px;
-  font-family: var(--readout-font);
-  font-size: 0.64rem;
-  text-align: center;
-  color: var(--text-color);
-}
-
-.risk-viz-canvas {
-  overflow-x: auto;
-  overflow-y: hidden;
-  scrollbar-color:
-    color-mix(in srgb, var(--primary-color) 24%, transparent)
-    transparent;
-  scrollbar-width: thin;
-}
-
-.risk-viz-canvas::-webkit-scrollbar {
-  height: 7px;
-}
-
-.risk-viz-canvas::-webkit-scrollbar-thumb {
-  border-radius: 999px;
-  background: color-mix(in srgb, var(--primary-color) 24%, transparent);
+  padding: 12px 10px 0;
 }
 
 .risk-viz-svg {
   display: block;
   width: 100%;
-  max-width: none;
   min-height: 270px;
-  transition: width 0.18s ease;
 }
 
 .risk-viz-axis {
@@ -5566,47 +5424,6 @@ body.dark-mode .budget-results-dof-label .direction-toggle-switch input:checked 
   stroke-width: 2.6;
 }
 
-.risk-viz-coverage-band {
-  opacity: 0.82;
-}
-
-.risk-viz-coverage-band.fits {
-  fill: var(--risk-viz-tolerance);
-}
-
-.risk-viz-coverage-band.crosses {
-  fill: var(--risk-viz-warning);
-}
-
-.risk-viz-coverage-line {
-  stroke-width: 1;
-  stroke-dasharray: 3 4;
-  vector-effect: non-scaling-stroke;
-  opacity: 0.72;
-}
-
-.risk-viz-coverage-line.fits {
-  stroke: var(--risk-viz-tolerance);
-}
-
-.risk-viz-coverage-line.crosses {
-  stroke: var(--risk-viz-warning);
-}
-
-.risk-viz-coverage-label {
-  font-family: var(--readout-font);
-  font-size: 10px;
-  font-weight: 800;
-}
-
-.risk-viz-coverage-label.fits {
-  fill: var(--risk-viz-tolerance);
-}
-
-.risk-viz-coverage-label.crosses {
-  fill: var(--risk-viz-warning);
-}
-
 .risk-viz-component-curve {
   stroke: var(--primary-color);
   stroke-width: 2.6;
@@ -5627,54 +5444,18 @@ body.dark-mode .budget-results-dof-label .direction-toggle-switch input:checked 
   stroke-dasharray: 2 4;
 }
 
-.risk-viz-limit-target {
-  cursor: help;
-}
-
-.risk-viz-limit-hitbox {
-  stroke: transparent;
-  stroke-width: 18;
-  vector-effect: non-scaling-stroke;
-}
-
-.risk-viz-limit-target:hover .risk-viz-limit-line {
-  stroke-width: 2.2;
-}
-
-.risk-viz-svg-tooltip rect {
-  fill: color-mix(in srgb, var(--content-background) 96%, #000 4%);
-  stroke-width: 1;
-  filter: drop-shadow(0 4px 8px rgba(15, 23, 42, 0.18));
-}
-
-.risk-viz-svg-tooltip.tolerance rect {
-  stroke: var(--risk-viz-tolerance);
-}
-
-.risk-viz-svg-tooltip.acceptance rect {
-  stroke: var(--risk-viz-acceptance);
-}
-
-.risk-viz-svg-tooltip text {
-  font-family: var(--readout-font);
-}
-
-.risk-viz-svg-tooltip .title {
-  fill: var(--text-color-muted);
-  font-size: 9px;
-  font-weight: 700;
-}
-
-.risk-viz-svg-tooltip .value {
-  fill: var(--text-color);
-  font-size: 11px;
-  font-weight: 800;
-}
-
 .risk-viz-limit-label,
+.risk-viz-limit-value,
 .risk-viz-axis-label,
 .risk-viz-nominal-label {
   font-family: var(--readout-font);
+}
+
+.risk-viz-limit-value {
+  fill: var(--text-color-muted);
+  font-size: 10px;
+  font-weight: 650;
+  font-variant-numeric: tabular-nums;
 }
 
 .risk-viz-limit-label {
@@ -5709,49 +5490,6 @@ body.dark-mode .budget-results-dof-label .direction-toggle-switch input:checked 
   padding: 0 14px 14px;
   font-size: 0.71rem;
   color: var(--text-color-muted);
-}
-
-.risk-viz-coverage-summary {
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  gap: 12px;
-  margin: -4px 14px 10px;
-  padding: 9px 11px;
-  border: 1px solid
-    color-mix(in srgb, var(--border-color) 76%, transparent);
-  border-radius: 9px;
-  background: color-mix(
-    in srgb,
-    var(--content-background) 84%,
-    transparent
-  );
-  font-size: 0.69rem;
-  color: var(--text-color-muted);
-}
-
-.risk-viz-coverage-summary strong {
-  margin-right: 7px;
-  color: var(--text-color);
-}
-
-.risk-viz-coverage-summary em {
-  flex: 0 0 auto;
-  padding: 4px 7px;
-  border-radius: 999px;
-  font-size: 0.63rem;
-  font-style: normal;
-  font-weight: 800;
-}
-
-.risk-viz-coverage-summary em.fits {
-  background: color-mix(in srgb, var(--risk-viz-tolerance) 13%, transparent);
-  color: var(--risk-viz-tolerance);
-}
-
-.risk-viz-coverage-summary em.crosses {
-  background: color-mix(in srgb, var(--risk-viz-warning) 14%, transparent);
-  color: var(--risk-viz-warning);
 }
 
 .risk-viz-chart-caption strong {
@@ -5889,28 +5627,8 @@ body.dark-mode .budget-results-dof-label .direction-toggle-switch input:checked 
   color: var(--text-color-muted);
 }
 
-.risk-viz-reading-guide span {
-  display: flex;
-  align-items: center;
-  gap: 7px;
-}
-
-.risk-viz-reading-guide i {
-  width: 7px;
-  height: 7px;
-  border-radius: 50%;
-}
-
-.risk-viz-reading-guide i.accept {
-  background: var(--risk-viz-tolerance);
-}
-
-.risk-viz-reading-guide i.reject {
-  background: var(--risk-viz-danger);
-}
-
 .risk-viz-reading-guide p {
-  margin: 4px 0 0;
+  margin: 0;
   line-height: 1.45;
 }
 
@@ -6034,37 +5752,6 @@ body.dark-mode .budget-results-dof-label .direction-toggle-switch input:checked 
   margin-top: 17px;
 }
 
-.risk-viz-selected-component {
-  display: flex;
-  flex-direction: column;
-  gap: 4px;
-  margin-top: 14px;
-  padding: 12px;
-  border: 1px solid
-    color-mix(in srgb, var(--primary-color) 24%, var(--border-color));
-  border-radius: 10px;
-  background: color-mix(in srgb, var(--primary-color) 7%, transparent);
-}
-
-.risk-viz-selected-component small {
-  font-size: 0.62rem;
-  font-weight: 800;
-  letter-spacing: 0.07em;
-  text-transform: uppercase;
-  color: var(--primary-color);
-}
-
-.risk-viz-selected-component strong {
-  font-size: 0.78rem;
-  line-height: 1.35;
-  color: var(--text-color);
-}
-
-.risk-viz-selected-component span {
-  font-size: 0.68rem;
-  color: var(--text-color-muted);
-}
-
 .risk-viz-component-meta span {
   display: flex;
   align-items: baseline;
@@ -6089,43 +5776,10 @@ body.dark-mode .budget-results-dof-label .direction-toggle-switch input:checked 
   white-space: nowrap;
 }
 
-.risk-viz-distribution-picker {
-  margin: 15px 0 0;
-  padding: 11px;
-  border: 1px solid var(--border-color);
-  border-radius: 10px;
-}
-
-.risk-viz-distribution-picker legend {
-  padding: 0 5px;
-  font-size: 0.63rem;
-  font-weight: 800;
-  letter-spacing: 0.06em;
-  text-transform: uppercase;
-  color: var(--text-color-muted);
-}
-
-.risk-viz-distribution-picker select {
-  width: 100%;
-  padding: 8px 9px;
-  border: 1px solid var(--border-color);
-  border-radius: 7px;
-  background: var(--input-background);
-  color: var(--text-color);
-  font-size: 0.72rem;
-}
-
-.risk-viz-distribution-picker p {
-  margin: 7px 1px 0;
-  font-size: 0.63rem;
-  line-height: 1.4;
-  color: var(--text-color-muted);
-}
-
 .risk-viz-component-chart {
   min-width: 0;
   overflow: hidden;
-  padding: 8px 10px 0;
+  padding: 12px 10px 0;
 }
 
 .risk-viz-component-limit-band {
@@ -6168,11 +5822,6 @@ body.dark-mode .budget-results-dof-label .direction-toggle-switch input:checked 
     align-self: flex-start;
   }
 
-  .risk-viz-toolbar-actions {
-    align-items: flex-start;
-    flex-wrap: wrap;
-  }
-
   .risk-viz-component-view {
     grid-template-columns: 1fr;
   }
@@ -6201,17 +5850,6 @@ body.dark-mode .budget-results-dof-label .direction-toggle-switch input:checked 
   .risk-viz-chart-caption {
     align-items: flex-start;
     flex-direction: column;
-  }
-
-  .risk-viz-coverage-summary {
-    align-items: flex-start;
-    flex-direction: column;
-  }
-
-  .risk-viz-chart-topline {
-    align-items: flex-start;
-    flex-direction: column;
-    padding-bottom: 5px;
   }
 }
 
