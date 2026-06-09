@@ -5375,13 +5375,98 @@ body.dark-mode .budget-results-dof-label .direction-toggle-switch input:checked 
 .risk-viz-chart-card {
   min-width: 0;
   overflow: hidden;
-  padding: 12px 10px 0;
+  padding: 8px 10px 0;
+}
+
+.risk-viz-chart-topline {
+  display: flex;
+  align-items: center;
+  justify-content: flex-end;
+  gap: 12px;
+  padding: 2px 7px 4px;
+}
+
+.risk-viz-zoom-controls {
+  display: inline-flex;
+  align-items: center;
+  gap: 3px;
+  padding: 3px;
+  border: 1px solid var(--border-color);
+  border-radius: 8px;
+  background: color-mix(
+    in srgb,
+    var(--content-background) 82%,
+    transparent
+  );
+}
+
+.risk-viz-zoom-controls button {
+  display: grid;
+  place-items: center;
+  min-width: 25px;
+  height: 24px;
+  padding: 0 6px;
+  border: 1px solid transparent;
+  border-radius: 5px;
+  background: transparent;
+  color: var(--text-color-muted);
+  font-size: 0.76rem;
+  font-weight: 750;
+  cursor: pointer;
+}
+
+.risk-viz-zoom-controls button.reset {
+  min-width: 44px;
+  font-size: 0.62rem;
+}
+
+.risk-viz-zoom-controls button:hover:not(:disabled) {
+  border-color: color-mix(
+    in srgb,
+    var(--primary-color) 28%,
+    var(--border-color)
+  );
+  background: color-mix(in srgb, var(--primary-color) 5%, transparent);
+  color: var(--primary-color);
+}
+
+.risk-viz-zoom-controls button:disabled {
+  opacity: 0.32;
+  cursor: default;
+}
+
+.risk-viz-zoom-controls > span {
+  min-width: 39px;
+  font-family: var(--readout-font);
+  font-size: 0.64rem;
+  text-align: center;
+  color: var(--text-color);
+}
+
+.risk-viz-canvas {
+  overflow-x: auto;
+  overflow-y: hidden;
+  scrollbar-color:
+    color-mix(in srgb, var(--primary-color) 24%, transparent)
+    transparent;
+  scrollbar-width: thin;
+}
+
+.risk-viz-canvas::-webkit-scrollbar {
+  height: 7px;
+}
+
+.risk-viz-canvas::-webkit-scrollbar-thumb {
+  border-radius: 999px;
+  background: color-mix(in srgb, var(--primary-color) 24%, transparent);
 }
 
 .risk-viz-svg {
   display: block;
   width: 100%;
-  min-height: 270px;
+  max-width: none;
+  min-height: 280px;
+  transition: width 0.18s ease;
 }
 
 .risk-viz-axis {
@@ -5429,6 +5514,85 @@ body.dark-mode .budget-results-dof-label .direction-toggle-switch input:checked 
   stroke-width: 2.6;
 }
 
+/* --- Monte Carlo (9-quadrant) view --- */
+
+.risk-viz-mc-intro {
+  margin: 0;
+  max-width: 560px;
+  font-size: 0.78rem;
+  line-height: 1.5;
+  color: var(--text-color-muted);
+}
+
+.risk-viz-mc-region.ca {
+  fill: color-mix(in srgb, var(--status-good) 9%, transparent);
+}
+
+.risk-viz-mc-region.fa {
+  fill: color-mix(in srgb, var(--status-bad) 11%, transparent);
+}
+
+.risk-viz-mc-region.fr {
+  fill: color-mix(in srgb, var(--status-warning) 11%, transparent);
+}
+
+.risk-viz-mc-region.cr {
+  fill: color-mix(in srgb, var(--text-color-muted) 8%, transparent);
+}
+
+.risk-viz-mc-region-label {
+  font-family: var(--readout-font);
+  font-size: 19px;
+  font-weight: 850;
+  opacity: 0.55;
+}
+
+.risk-viz-mc-region-label.ca {
+  fill: var(--status-good);
+}
+
+.risk-viz-mc-region-label.fa {
+  fill: var(--status-bad);
+}
+
+.risk-viz-mc-region-label.fr {
+  fill: var(--status-warning);
+}
+
+.risk-viz-mc-region-label.cr {
+  fill: var(--text-color-muted);
+}
+
+.risk-viz-mc-dot {
+  opacity: 0.55;
+}
+
+.risk-viz-mc-dot.ca {
+  fill: var(--status-good);
+}
+
+.risk-viz-mc-dot.fa {
+  fill: var(--status-bad);
+  opacity: 0.9;
+}
+
+.risk-viz-mc-dot.fr {
+  fill: var(--status-warning);
+  opacity: 0.9;
+}
+
+.risk-viz-mc-dot.cr {
+  fill: var(--text-color-muted);
+}
+
+.risk-viz-mc-axis-title {
+  fill: var(--text-color-muted);
+  font-size: 13px;
+  font-weight: 700;
+  letter-spacing: 0.05em;
+  text-transform: uppercase;
+}
+
 .risk-viz-limit-line {
   vector-effect: non-scaling-stroke;
   stroke-width: 1.4;
@@ -5447,19 +5611,20 @@ body.dark-mode .budget-results-dof-label .direction-toggle-switch input:checked 
 .risk-viz-limit-label,
 .risk-viz-limit-value,
 .risk-viz-axis-label,
-.risk-viz-nominal-label {
+.risk-viz-nominal-label,
+.risk-viz-mc-axis-title {
   font-family: var(--readout-font);
 }
 
 .risk-viz-limit-value {
-  fill: var(--text-color-muted);
-  font-size: 10px;
+  fill: var(--text-color);
+  font-size: 13px;
   font-weight: 650;
   font-variant-numeric: tabular-nums;
 }
 
 .risk-viz-limit-label {
-  font-size: 11px;
+  font-size: 14px;
   font-weight: 800;
 }
 
@@ -5473,22 +5638,24 @@ body.dark-mode .budget-results-dof-label .direction-toggle-switch input:checked 
 
 .risk-viz-axis-label {
   fill: var(--text-color-muted);
-  font-size: 11px;
+  font-size: 13px;
+  font-variant-numeric: tabular-nums;
 }
 
 .risk-viz-nominal-label {
   fill: color-mix(in srgb, var(--text-color-muted) 86%, transparent);
-  font-size: 10px;
+  font-size: 12px;
   letter-spacing: 0.04em;
   text-transform: uppercase;
 }
 
 .risk-viz-chart-caption {
   display: flex;
+  flex-wrap: wrap;
   justify-content: center;
   gap: 12px 32px;
-  padding: 0 14px 14px;
-  font-size: 0.71rem;
+  padding: 6px 14px 14px;
+  font-size: 0.76rem;
   color: var(--text-color-muted);
 }
 
@@ -5543,12 +5710,53 @@ body.dark-mode .budget-results-dof-label .direction-toggle-switch input:checked 
     box-shadow 0.16s ease;
 }
 
-.risk-viz-outcome.false-accept {
-  --risk-viz-hover-accent: var(--risk-viz-danger);
+/* Status colors mirror the measurement point list: PFA is graded
+   good / warning / bad by its thresholds, PFR stays muted. */
+.risk-viz-outcome.status-good {
+  --risk-viz-outcome-accent: var(--status-good);
 }
 
-.risk-viz-outcome.false-reject {
-  --risk-viz-hover-accent: var(--risk-viz-warning);
+.risk-viz-outcome.status-warning {
+  --risk-viz-outcome-accent: var(--status-warning);
+}
+
+.risk-viz-outcome.status-bad {
+  --risk-viz-outcome-accent: var(--status-bad);
+}
+
+.risk-viz-outcome.status-muted {
+  --risk-viz-outcome-accent: var(--text-color-muted);
+}
+
+.risk-viz-outcome.mc-ca {
+  --risk-viz-outcome-accent: var(--status-good);
+}
+
+.risk-viz-outcome.mc-fa {
+  --risk-viz-outcome-accent: var(--status-bad);
+}
+
+.risk-viz-outcome.mc-fr {
+  --risk-viz-outcome-accent: var(--status-warning);
+}
+
+.risk-viz-outcome.mc-cr {
+  --risk-viz-outcome-accent: var(--text-color-muted);
+}
+
+.risk-viz-outcome[class*="status-"],
+.risk-viz-outcome[class*="mc-"] {
+  --risk-viz-hover-accent: var(--risk-viz-outcome-accent);
+}
+
+.risk-viz-outcome.static {
+  cursor: default;
+}
+
+.risk-viz-outcome.static:hover {
+  border-color: var(--border-color);
+  background: color-mix(in srgb, var(--content-background) 90%, transparent);
+  box-shadow: none;
 }
 
 .risk-viz-outcome:hover,
@@ -5578,14 +5786,18 @@ body.dark-mode .budget-results-dof-label .direction-toggle-switch input:checked 
   font-weight: 850;
 }
 
-.false-accept .risk-viz-outcome-icon {
-  color: var(--risk-viz-danger);
-  background: color-mix(in srgb, var(--risk-viz-danger) 13%, transparent);
+.risk-viz-outcome .risk-viz-outcome-icon {
+  color: var(--risk-viz-outcome-accent, var(--text-color-muted));
+  background: color-mix(
+    in srgb,
+    var(--risk-viz-outcome-accent, var(--text-color-muted)) 13%,
+    transparent
+  );
 }
 
-.false-reject .risk-viz-outcome-icon {
-  color: var(--risk-viz-warning);
-  background: color-mix(in srgb, var(--risk-viz-warning) 14%, transparent);
+.risk-viz-outcome[class*="status-"] strong,
+.risk-viz-outcome[class*="mc-"] strong {
+  color: var(--risk-viz-outcome-accent);
 }
 
 .risk-viz-outcome small,
@@ -5608,12 +5820,10 @@ body.dark-mode .budget-results-dof-label .direction-toggle-switch input:checked 
 }
 
 .risk-viz-outcome em {
-  overflow: hidden;
   font-size: 0.66rem;
   font-style: normal;
+  line-height: 1.35;
   color: var(--text-color-muted);
-  text-overflow: ellipsis;
-  white-space: nowrap;
 }
 
 .risk-viz-reading-guide {
@@ -5700,6 +5910,14 @@ body.dark-mode .budget-results-dof-label .direction-toggle-switch input:checked 
   font-variant-numeric: tabular-nums;
   text-overflow: ellipsis;
   white-space: nowrap;
+}
+
+/* Explains how the metric appears in the chart above. */
+.risk-viz-metric em {
+  font-size: 0.63rem;
+  font-style: normal;
+  line-height: 1.4;
+  color: var(--text-color-muted);
 }
 
 .risk-viz-metric.guardband strong {
