@@ -6,6 +6,14 @@ const PLOT_LEFT = 56;
 const PLOT_RIGHT = 892;
 const BASELINE = 252;
 const CURVE_HEIGHT = 154;
+const ZOOM_STEPS = [1, 1.35, 1.7, 2.2];
+const DISTRIBUTION_PROFILES = [
+  { id: "rectangular", label: "Rectangular", divisor: Math.sqrt(3) },
+  { id: "triangular", label: "Triangular", divisor: Math.sqrt(6) },
+  { id: "ushaped", label: "U-Shaped", divisor: Math.sqrt(2) },
+  { id: "normal95", label: "Normal (95%, k=1.960)", divisor: 1.96 },
+  { id: "normal99", label: "Normal (99%, k=2.576)", divisor: 2.576 },
+];
 
 const finite = (value, fallback = 0) => {
   const parsed = Number(value);
@@ -151,6 +159,57 @@ const MetricPill = ({ label, value, tone = "neutral", onClick }) => (
   </button>
 );
 
+const ZoomControls = ({ zoom, onChange }) => {
+  const index = ZOOM_STEPS.indexOf(zoom);
+  return (
+    <div className="risk-viz-zoom-controls" aria-label="Chart zoom controls">
+      <button
+        type="button"
+        aria-label="Zoom out"
+        disabled={index <= 0}
+        onClick={() => onChange(ZOOM_STEPS[Math.max(0, index - 1)])}
+      >
+        -
+      </button>
+      <span>{Math.round(zoom * 100)}%</span>
+      <button
+        type="button"
+        aria-label="Zoom in"
+        disabled={index >= ZOOM_STEPS.length - 1}
+        onClick={() =>
+          onChange(ZOOM_STEPS[Math.min(ZOOM_STEPS.length - 1, index + 1)])
+        }
+      >
+        +
+      </button>
+      <button
+        type="button"
+        className="reset"
+        disabled={zoom === 1}
+        onClick={() => onChange(1)}
+      >
+        Reset
+      </button>
+    </div>
+  );
+};
+
+const LimitTooltip = ({ x, y, label, value, unit, tone }) => {
+  const width = 170;
+  const clampedX = Math.min(Math.max(x, PLOT_LEFT + width / 2), PLOT_RIGHT - width / 2);
+  return (
+    <g className={`risk-viz-svg-tooltip ${tone}`} pointerEvents="none">
+      <rect x={clampedX - width / 2} y={y} width={width} height="43" rx="8" />
+      <text x={clampedX} y={y + 16} textAnchor="middle" className="title">
+        {label}
+      </text>
+      <text x={clampedX} y={y + 33} textAnchor="middle" className="value">
+        {formatNumber(value, 7)} {unit}
+      </text>
+    </g>
+  );
+};
+
 const RiskDistributionVisualizer = ({
   results,
   calcResults,
@@ -161,6 +220,10 @@ const RiskDistributionVisualizer = ({
   const [mode, setMode] = useState("decision");
   const [showGuardband, setShowGuardband] = useState(false);
   const [coverageSigma, setCoverageSigma] = useState(2);
+  const [riskZoom, setRiskZoom] = useState(1);
+  const [componentZoom, setComponentZoom] = useState(1);
+  const [hoveredLimit, setHoveredLimit] = useState(null);
+  const [componentDistributionId, setComponentDistributionId] = useState("");
   const componentOptions = useMemo(
     () => flattenComponents(calcResults, results.nativeUnit),
     [calcResults, results.nativeUnit],
@@ -169,6 +232,26 @@ const RiskDistributionVisualizer = ({
   const selectedComponent =
     componentOptions.find((component) => component.id === selectedComponentId) ||
     componentOptions[0];
+  const originalDistributionProfile = useMemo(() => {
+    if (!selectedComponent) return DISTRIBUTION_PROFILES[0];
+    const kind = distributionKind(selectedComponent.distribution);
+    const exact = DISTRIBUTION_PROFILES.find(
+      (profile) =>
+        distributionKind(profile.label) === kind &&
+        Math.abs(profile.divisor - selectedComponent.divisor) < 0.02,
+    );
+    return (
+      exact || {
+        id: "original",
+        label: selectedComponent.distribution,
+        divisor: selectedComponent.divisor,
+      }
+    );
+  }, [selectedComponent]);
+  const comparisonDistribution =
+    DISTRIBUTION_PROFILES.find(
+      (profile) => profile.id === componentDistributionId,
+    ) || originalDistributionProfile;
 
   const guardbandAvailable =
     Number.isFinite(Number(results.gbResults?.GBLOW)) &&
@@ -232,9 +315,10 @@ const RiskDistributionVisualizer = ({
 
   const componentChart = useMemo(() => {
     if (!selectedComponent) return null;
-    const kind = distributionKind(selectedComponent.distribution);
-    const standard = selectedComponent.standardUncertainty;
-    const limit = standard * selectedComponent.divisor;
+    const kind = distributionKind(comparisonDistribution.label);
+    const limit =
+      selectedComponent.standardUncertainty * selectedComponent.divisor;
+    const standard = limit / comparisonDistribution.divisor;
     const shapeSpread = kind === "normal" ? standard : limit;
     const domainLimit = kind === "normal" ? Math.max(limit, standard * 4) : limit * 1.22;
     const low = -domainLimit;
@@ -244,6 +328,9 @@ const RiskDistributionVisualizer = ({
     return {
       kind,
       limit,
+      standard,
+      distribution: comparisonDistribution.label,
+      divisor: comparisonDistribution.divisor,
       low,
       high,
       toX,
@@ -258,7 +345,7 @@ const RiskDistributionVisualizer = ({
         toX,
       ),
     };
-  }, [selectedComponent]);
+  }, [comparisonDistribution, selectedComponent]);
 
   const pfa = guardbandEnabled ? results.gbResults.GBPFA : results.pfa;
   const pfr = guardbandEnabled ? results.gbResults.GBPFR : results.pfr;
@@ -348,12 +435,19 @@ const RiskDistributionVisualizer = ({
 
           <div className="risk-viz-main-grid">
             <div className="risk-viz-chart-card">
-              <svg
-                className="risk-viz-svg"
-                viewBox={`0 0 ${WIDTH} ${HEIGHT}`}
-                role="img"
-                aria-label="Tolerance, acceptance, true error, and observed result distributions"
-              >
+              <div className="risk-viz-chart-topline">
+                <span>Hover limit markers for exact values</span>
+                <ZoomControls zoom={riskZoom} onChange={setRiskZoom} />
+              </div>
+              <div className="risk-viz-canvas">
+                <svg
+                  className="risk-viz-svg"
+                  style={{ width: `${riskZoom * 100}%` }}
+                  viewBox={`0 0 ${WIDTH} ${HEIGHT}`}
+                  role="img"
+                  aria-label="Tolerance, acceptance, true error, and observed result distributions"
+                  onMouseLeave={() => setHoveredLimit(null)}
+                >
                 <defs>
                   <linearGradient id={`${gradientId}-observed`} x1="0" x2="0" y1="0" y2="1">
                     <stop offset="0%" stopColor="#0ea5e9" stopOpacity="0.52" />
@@ -441,12 +535,46 @@ const RiskDistributionVisualizer = ({
                 ))}
 
                 {[
-                  [decisionChart.toleranceLow, "LTL", "tolerance"],
-                  [decisionChart.toleranceHigh, "UTL", "tolerance"],
-                  [acceptanceLow, guardbandEnabled ? "GBL" : "LAL", "acceptance"],
-                  [acceptanceHigh, guardbandEnabled ? "GBU" : "UAL", "acceptance"],
-                ].map(([value, label, kind], index) => (
-                  <g key={`${label}-${index}`}>
+                  [decisionChart.toleranceLow, "Lower tolerance limit", "LTL", "tolerance"],
+                  [decisionChart.toleranceHigh, "Upper tolerance limit", "UTL", "tolerance"],
+                  [
+                    acceptanceLow,
+                    guardbandEnabled
+                      ? "Lower guardband acceptance limit"
+                      : "Lower acceptance limit",
+                    guardbandEnabled ? "GBL" : "LAL",
+                    "acceptance",
+                  ],
+                  [
+                    acceptanceHigh,
+                    guardbandEnabled
+                      ? "Upper guardband acceptance limit"
+                      : "Upper acceptance limit",
+                    guardbandEnabled ? "GBU" : "UAL",
+                    "acceptance",
+                  ],
+                ].map(([value, fullLabel, label, kind], index) => (
+                  <g
+                    key={`${label}-${index}`}
+                    className="risk-viz-limit-target"
+                    data-testid={`risk-limit-${kind}-${label.toLowerCase()}`}
+                    onMouseEnter={() =>
+                      setHoveredLimit({
+                        id: `${label}-${index}`,
+                        x: decisionChart.toX(value),
+                        label: fullLabel,
+                        value,
+                        tone: kind,
+                      })
+                    }
+                  >
+                    <line
+                      x1={decisionChart.toX(value)}
+                      x2={decisionChart.toX(value)}
+                      y1="24"
+                      y2={BASELINE + 12}
+                      className="risk-viz-limit-hitbox"
+                    />
                     <line
                       x1={decisionChart.toX(value)}
                       x2={decisionChart.toX(value)}
@@ -465,6 +593,17 @@ const RiskDistributionVisualizer = ({
                   </g>
                 ))}
 
+                {hoveredLimit && !hoveredLimit.id.startsWith("component-") && (
+                  <LimitTooltip
+                    x={hoveredLimit.x}
+                    y="8"
+                    label={hoveredLimit.label}
+                    value={hoveredLimit.value}
+                    unit={results.nativeUnit}
+                    tone={hoveredLimit.tone}
+                  />
+                )}
+
                 {[decisionChart.low, nominal, decisionChart.high].map((value, index) => (
                   <text
                     key={value}
@@ -479,7 +618,8 @@ const RiskDistributionVisualizer = ({
                 <text x={decisionChart.toX(nominal)} y="307" className="risk-viz-nominal-label" textAnchor="middle">
                   Nominal / calculated mean
                 </text>
-              </svg>
+                </svg>
+              </div>
               <div className="risk-viz-coverage-summary">
                 <span>
                   <strong>{coverageSigma}σ observed interval</strong>
@@ -595,18 +735,53 @@ const RiskDistributionVisualizer = ({
                   <span><small>Type</small><strong>Type {selectedComponent.type}</strong></span>
                   <span><small>Quantity</small><strong>{selectedComponent.quantity}</strong></span>
                 </div>
+                <fieldset className="risk-viz-distribution-picker">
+                  <legend>Compare distribution shape</legend>
+                  <select
+                    aria-label="Comparison distribution"
+                    value={componentDistributionId || originalDistributionProfile.id}
+                    onChange={(event) =>
+                      setComponentDistributionId(event.target.value)
+                    }
+                  >
+                    {originalDistributionProfile.id === "original" && (
+                      <option value="original">
+                        {originalDistributionProfile.label} (original)
+                      </option>
+                    )}
+                    {DISTRIBUTION_PROFILES.map((profile) => (
+                      <option key={profile.id} value={profile.id}>
+                        {profile.label}
+                      </option>
+                    ))}
+                  </select>
+                  <p>
+                    Preview only. The tolerance limit stays fixed while the
+                    divisor and standard uncertainty change.
+                  </p>
+                </fieldset>
               </>
             )}
           </div>
 
           {selectedComponent && componentChart && (
             <div className="risk-viz-component-chart">
-              <svg
-                className="risk-viz-svg component"
-                viewBox={`0 0 ${WIDTH} ${HEIGHT}`}
-                role="img"
-                aria-label={`${selectedComponent.name} uncertainty distribution`}
-              >
+              <div className="risk-viz-chart-topline">
+                <span>Hover limits for exact values</span>
+                <ZoomControls
+                  zoom={componentZoom}
+                  onChange={setComponentZoom}
+                />
+              </div>
+              <div className="risk-viz-canvas">
+                <svg
+                  className="risk-viz-svg component"
+                  style={{ width: `${componentZoom * 100}%` }}
+                  viewBox={`0 0 ${WIDTH} ${HEIGHT}`}
+                  role="img"
+                  aria-label={`${selectedComponent.name} uncertainty distribution`}
+                  onMouseLeave={() => setHoveredLimit(null)}
+                >
                 <defs>
                   <linearGradient id={`${gradientId}-component`} x1="0" x2="0" y1="0" y2="1">
                     <stop offset="0%" stopColor="#0ea5e9" stopOpacity="0.48" />
@@ -637,7 +812,30 @@ const RiskDistributionVisualizer = ({
                   className="risk-viz-component-curve"
                 />
                 {[-componentChart.limit, componentChart.limit].map((value, index) => (
-                  <g key={value}>
+                  <g
+                    key={value}
+                    className="risk-viz-limit-target"
+                    data-testid={`component-limit-${index === 0 ? "lower" : "upper"}`}
+                    onMouseEnter={() =>
+                      setHoveredLimit({
+                        id: `component-${index}`,
+                        x: componentChart.toX(value),
+                        label:
+                          index === 0
+                            ? "Lower component error limit"
+                            : "Upper component error limit",
+                        value,
+                        tone: "tolerance",
+                      })
+                    }
+                  >
+                    <line
+                      x1={componentChart.toX(value)}
+                      x2={componentChart.toX(value)}
+                      y1="24"
+                      y2={BASELINE + 12}
+                      className="risk-viz-limit-hitbox"
+                    />
                     <line
                       x1={componentChart.toX(value)}
                       x2={componentChart.toX(value)}
@@ -655,6 +853,16 @@ const RiskDistributionVisualizer = ({
                     </text>
                   </g>
                 ))}
+                {hoveredLimit?.id?.startsWith("component-") && (
+                  <LimitTooltip
+                    x={hoveredLimit.x}
+                    y="8"
+                    label={hoveredLimit.label}
+                    value={hoveredLimit.value}
+                    unit={selectedComponent.unit}
+                    tone="tolerance"
+                  />
+                )}
                 <text x={componentChart.toX(-componentChart.limit)} y="282" className="risk-viz-axis-label" textAnchor="middle">
                   -{formatNumber(componentChart.limit)} {selectedComponent.unit}
                 </text>
@@ -665,7 +873,8 @@ const RiskDistributionVisualizer = ({
                 <text x={componentChart.toX(0)} y="307" className="risk-viz-nominal-label" textAnchor="middle">
                   Error relative to nominal
                 </text>
-              </svg>
+                </svg>
+              </div>
               <div className="risk-viz-component-readouts">
                 <MetricPill
                   label="Tolerance / error limit"
@@ -674,13 +883,13 @@ const RiskDistributionVisualizer = ({
                 <MetricPill
                   label="Distribution divisor"
                   value={divisorDescription(
-                    selectedComponent.distribution,
-                    selectedComponent.divisor,
+                    componentChart.distribution,
+                    componentChart.divisor,
                   )}
                 />
                 <MetricPill
                   label="Standard uncertainty"
-                  value={`${formatNumber(selectedComponent.standardUncertainty)} ${selectedComponent.unit}`}
+                  value={`${formatNumber(componentChart.standard)} ${selectedComponent.unit}`}
                   tone="primary"
                 />
               </div>

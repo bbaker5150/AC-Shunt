@@ -5429,10 +5429,101 @@ body.dark-mode .budget-results-dof-label .direction-toggle-switch input:checked 
   padding: 8px 10px 0;
 }
 
+.risk-viz-chart-topline {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  min-height: 34px;
+  padding: 2px 7px 0;
+}
+
+.risk-viz-chart-topline > span {
+  font-size: 0.65rem;
+  color: var(--text-color-muted);
+}
+
+.risk-viz-zoom-controls {
+  display: inline-flex;
+  align-items: center;
+  gap: 3px;
+  padding: 3px;
+  border: 1px solid var(--border-color);
+  border-radius: 8px;
+  background: color-mix(
+    in srgb,
+    var(--content-background) 82%,
+    transparent
+  );
+}
+
+.risk-viz-zoom-controls button {
+  display: grid;
+  place-items: center;
+  min-width: 25px;
+  height: 24px;
+  padding: 0 6px;
+  border: 1px solid transparent;
+  border-radius: 5px;
+  background: transparent;
+  color: var(--text-color-muted);
+  font-size: 0.76rem;
+  font-weight: 750;
+  cursor: pointer;
+}
+
+.risk-viz-zoom-controls button.reset {
+  min-width: 44px;
+  font-size: 0.62rem;
+}
+
+.risk-viz-zoom-controls button:hover:not(:disabled) {
+  border-color: color-mix(
+    in srgb,
+    var(--primary-color) 28%,
+    var(--border-color)
+  );
+  background: color-mix(in srgb, var(--primary-color) 5%, transparent);
+  color: var(--primary-color);
+}
+
+.risk-viz-zoom-controls button:disabled {
+  opacity: 0.32;
+  cursor: default;
+}
+
+.risk-viz-zoom-controls > span {
+  min-width: 39px;
+  font-family: var(--readout-font);
+  font-size: 0.64rem;
+  text-align: center;
+  color: var(--text-color);
+}
+
+.risk-viz-canvas {
+  overflow-x: auto;
+  overflow-y: hidden;
+  scrollbar-color:
+    color-mix(in srgb, var(--primary-color) 24%, transparent)
+    transparent;
+  scrollbar-width: thin;
+}
+
+.risk-viz-canvas::-webkit-scrollbar {
+  height: 7px;
+}
+
+.risk-viz-canvas::-webkit-scrollbar-thumb {
+  border-radius: 999px;
+  background: color-mix(in srgb, var(--primary-color) 24%, transparent);
+}
+
 .risk-viz-svg {
   display: block;
   width: 100%;
+  max-width: none;
   min-height: 270px;
+  transition: width 0.18s ease;
 }
 
 .risk-viz-axis {
@@ -5534,6 +5625,50 @@ body.dark-mode .budget-results-dof-label .direction-toggle-switch input:checked 
 .risk-viz-limit-line.acceptance {
   stroke: var(--risk-viz-acceptance);
   stroke-dasharray: 2 4;
+}
+
+.risk-viz-limit-target {
+  cursor: help;
+}
+
+.risk-viz-limit-hitbox {
+  stroke: transparent;
+  stroke-width: 18;
+  vector-effect: non-scaling-stroke;
+}
+
+.risk-viz-limit-target:hover .risk-viz-limit-line {
+  stroke-width: 2.2;
+}
+
+.risk-viz-svg-tooltip rect {
+  fill: color-mix(in srgb, var(--content-background) 96%, #000 4%);
+  stroke-width: 1;
+  filter: drop-shadow(0 4px 8px rgba(15, 23, 42, 0.18));
+}
+
+.risk-viz-svg-tooltip.tolerance rect {
+  stroke: var(--risk-viz-tolerance);
+}
+
+.risk-viz-svg-tooltip.acceptance rect {
+  stroke: var(--risk-viz-acceptance);
+}
+
+.risk-viz-svg-tooltip text {
+  font-family: var(--readout-font);
+}
+
+.risk-viz-svg-tooltip .title {
+  fill: var(--text-color-muted);
+  font-size: 9px;
+  font-weight: 700;
+}
+
+.risk-viz-svg-tooltip .value {
+  fill: var(--text-color);
+  font-size: 11px;
+  font-weight: 800;
 }
 
 .risk-viz-limit-label,
@@ -5651,6 +5786,7 @@ body.dark-mode .budget-results-dof-label .direction-toggle-switch input:checked 
 }
 
 .risk-viz-outcome {
+  --risk-viz-hover-accent: var(--primary-color);
   display: grid;
   grid-template-columns: 38px minmax(0, 1fr);
   gap: 11px;
@@ -5664,25 +5800,33 @@ body.dark-mode .budget-results-dof-label .direction-toggle-switch input:checked 
   text-align: left;
   cursor: pointer;
   transition:
-    transform 0.16s ease,
+    background-color 0.16s ease,
     border-color 0.16s ease,
     box-shadow 0.16s ease;
 }
 
-.risk-viz-outcome:hover {
-  transform: translateY(-2px);
+.risk-viz-outcome.false-accept {
+  --risk-viz-hover-accent: var(--risk-viz-danger);
 }
 
-.risk-viz-outcome.false-accept:hover,
-.risk-viz-outcome.false-accept.active {
-  border-color: color-mix(in srgb, var(--risk-viz-danger) 60%, var(--border-color));
-  box-shadow: 0 10px 22px -17px var(--risk-viz-danger);
+.risk-viz-outcome.false-reject {
+  --risk-viz-hover-accent: var(--risk-viz-warning);
 }
 
-.risk-viz-outcome.false-reject:hover,
-.risk-viz-outcome.false-reject.active {
-  border-color: color-mix(in srgb, var(--risk-viz-warning) 65%, var(--border-color));
-  box-shadow: 0 10px 22px -17px var(--risk-viz-warning);
+.risk-viz-outcome:hover,
+.risk-viz-outcome.active {
+  border-color: color-mix(
+    in srgb,
+    var(--risk-viz-hover-accent) 30%,
+    var(--border-color)
+  );
+  background: color-mix(
+    in srgb,
+    var(--risk-viz-hover-accent) 4%,
+    var(--content-background)
+  );
+  box-shadow: 0 5px 14px -12px
+    color-mix(in srgb, var(--risk-viz-hover-accent) 55%, transparent);
 }
 
 .risk-viz-outcome-icon {
@@ -5779,6 +5923,7 @@ body.dark-mode .budget-results-dof-label .direction-toggle-switch input:checked 
 }
 
 .risk-viz-metric {
+  --risk-viz-hover-accent: var(--primary-color);
   display: flex;
   flex-direction: column;
   align-items: flex-start;
@@ -5794,14 +5939,29 @@ body.dark-mode .budget-results-dof-label .direction-toggle-switch input:checked 
   );
   text-align: left;
   color: var(--text-color);
+  transition:
+    background-color 0.16s ease,
+    border-color 0.16s ease,
+    box-shadow 0.16s ease;
 }
 
 .risk-viz-metric.clickable {
   cursor: pointer;
 }
 
-.risk-viz-metric.clickable:hover {
-  border-color: color-mix(in srgb, var(--primary-color) 55%, var(--border-color));
+.risk-viz-metric:hover {
+  border-color: color-mix(
+    in srgb,
+    var(--risk-viz-hover-accent) 28%,
+    var(--border-color)
+  );
+  background: color-mix(
+    in srgb,
+    var(--risk-viz-hover-accent) 3.5%,
+    var(--content-background)
+  );
+  box-shadow: 0 4px 12px -11px
+    color-mix(in srgb, var(--risk-viz-hover-accent) 48%, transparent);
 }
 
 .risk-viz-metric span {
@@ -5826,6 +5986,10 @@ body.dark-mode .budget-results-dof-label .direction-toggle-switch input:checked 
 
 .risk-viz-metric.guardband strong {
   color: var(--risk-viz-acceptance);
+}
+
+.risk-viz-metric.guardband {
+  --risk-viz-hover-accent: var(--risk-viz-acceptance);
 }
 
 .risk-viz-metric.primary strong {
@@ -5925,6 +6089,39 @@ body.dark-mode .budget-results-dof-label .direction-toggle-switch input:checked 
   white-space: nowrap;
 }
 
+.risk-viz-distribution-picker {
+  margin: 15px 0 0;
+  padding: 11px;
+  border: 1px solid var(--border-color);
+  border-radius: 10px;
+}
+
+.risk-viz-distribution-picker legend {
+  padding: 0 5px;
+  font-size: 0.63rem;
+  font-weight: 800;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  color: var(--text-color-muted);
+}
+
+.risk-viz-distribution-picker select {
+  width: 100%;
+  padding: 8px 9px;
+  border: 1px solid var(--border-color);
+  border-radius: 7px;
+  background: var(--input-background);
+  color: var(--text-color);
+  font-size: 0.72rem;
+}
+
+.risk-viz-distribution-picker p {
+  margin: 7px 1px 0;
+  font-size: 0.63rem;
+  line-height: 1.4;
+  color: var(--text-color-muted);
+}
+
 .risk-viz-component-chart {
   min-width: 0;
   overflow: hidden;
@@ -6009,6 +6206,12 @@ body.dark-mode .budget-results-dof-label .direction-toggle-switch input:checked 
   .risk-viz-coverage-summary {
     align-items: flex-start;
     flex-direction: column;
+  }
+
+  .risk-viz-chart-topline {
+    align-items: flex-start;
+    flex-direction: column;
+    padding-bottom: 5px;
   }
 }
 

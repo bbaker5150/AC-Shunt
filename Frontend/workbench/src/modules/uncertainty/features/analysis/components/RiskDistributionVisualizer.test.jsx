@@ -71,11 +71,26 @@ test("switches between decision, guardband, and component views", () => {
   expect(screen.getByText(/99.73% expected coverage/)).toBeInTheDocument();
   expect(screen.getByText("Extends beyond acceptance")).toBeInTheDocument();
 
+  fireEvent.click(screen.getByRole("button", { name: "Zoom in" }));
+  expect(screen.getByText("135%")).toBeInTheDocument();
+
+  fireEvent.mouseEnter(screen.getByTestId("risk-limit-tolerance-ltl"));
+  expect(screen.getByText("9.8 V")).toBeInTheDocument();
+
   fireEvent.click(screen.getByRole("button", { name: "Component View" }));
   expect(screen.getByLabelText("Budget component")).toHaveValue("final-reading");
-  expect(screen.getByText("Rectangular")).toBeInTheDocument();
+  expect(screen.getAllByText("Rectangular")).toHaveLength(2);
   expect(screen.getByText("Standard uncertainty")).toBeInTheDocument();
   expect(
     screen.getByText("Rectangular (sqrt 3) - 1.7321"),
   ).toBeInTheDocument();
+
+  fireEvent.change(screen.getByLabelText("Comparison distribution"), {
+    target: { value: "triangular" },
+  });
+  expect(screen.getByText("Triangular (sqrt 6) - 2.4495")).toBeInTheDocument();
+  expect(screen.getByText("0.0084853 V")).toBeInTheDocument();
+
+  fireEvent.mouseEnter(screen.getByTestId("component-limit-lower"));
+  expect(screen.getByText("-0.02078461 V")).toBeInTheDocument();
 });
