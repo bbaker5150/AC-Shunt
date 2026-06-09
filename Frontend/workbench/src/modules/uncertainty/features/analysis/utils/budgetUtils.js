@@ -72,6 +72,9 @@ export const getBudgetComponentsFromTolerance = (
   // Canonical divisor string (matches an errorDistributions value, e.g.
   // "1.960"). The budget-table dropdown round-trips on this exact string.
   let activeDistributionRaw = "1.732";
+  // Preserved (instrument-specced) distribution of the accuracy band, captured
+  // alongside the active one so the budget table can flag an override.
+  let activeSpecDistributionRaw = null;
   let hasAccuracyComponents = false;
 
   const calculateComponentSpan = (
@@ -97,6 +100,10 @@ export const getBudgetComponentsFromTolerance = (
           : "1.732";
         activeDistributionDivisor = parseFloat(activeDistributionRaw) || 1.732;
         activeDistributionLabel = distEntry?.label || "Rectangular";
+        activeSpecDistributionRaw =
+          tolComp.specDistribution != null
+            ? String(tolComp.specDistribution)
+            : null;
     }
 
     const high = parseFloat(tolComp?.high || 0);
@@ -198,6 +205,18 @@ export const getBudgetComponentsFromTolerance = (
         isCore: true,
         distribution: activeDistributionLabel,
         distributionDivisor: activeDistributionRaw,
+        specOverride:
+          activeSpecDistributionRaw != null &&
+          activeSpecDistributionRaw !== activeDistributionRaw,
+        specBaseline: {
+          distributionOverridden:
+            activeSpecDistributionRaw != null &&
+            activeSpecDistributionRaw !== activeDistributionRaw,
+          distributionLabel:
+            errorDistributions.find(
+              (d) => d.value === activeSpecDistributionRaw,
+            )?.label || activeSpecDistributionRaw,
+        },
       });
   }
 
@@ -371,6 +390,25 @@ export const getBudgetComponentsFromTolerance = (
 
     const label = (mc.name && String(mc.name).trim()) || "Manual";
 
+    // Deviation tracking for the budget-table "!" indicator. When the user
+    // tweaks the value or distribution away from the instrument spec, the
+    // originally-specced figures are preserved on the component as `spec*`
+    // snapshots (see handleComponentUpdate). Compare against them so the row can
+    // flag that it no longer matches the found spec.
+    const specMagnitude = isStandard
+      ? mc.specStandardUncertainty
+      : mc.specToleranceLimit;
+    const valueOverridden =
+      specMagnitude != null &&
+      Number(specMagnitude) !== Number(isStandard ? mc.standardUncertainty : mc.toleranceLimit);
+    const distributionOverridden =
+      !isStandard &&
+      mc.specDistribution != null &&
+      String(mc.specDistribution) !== String(mc.distribution);
+    const specDistLabel =
+      errorDistributions.find((d) => parseFloat(d.value) === parseFloat(mc.specDistribution))
+        ?.label || mc.specDistribution;
+
     budgetComponents.push({
       id: `${prefix}_manual_${mc.id || idx}${toleranceObject.id ? `_${toleranceObject.id}` : ""}`,
       name: `${prefix} - ${label}`,
@@ -384,6 +422,20 @@ export const getBudgetComponentsFromTolerance = (
       distribution: distLabel,
       distributionDivisor: distRaw,
       isManual: true,
+      // Source linkage + raw spec inputs so the budget table can show/edit the
+      // entered value and route changes back to this exact manual component.
+      manualSourceId: mc.id ?? idx,
+      manualInputMode: isStandard ? "standard" : "tolerance",
+      manualRawValue: isStandard ? mc.standardUncertainty : mc.toleranceLimit,
+      manualUnit: unit,
+      specOverride: valueOverridden || distributionOverridden,
+      specBaseline: {
+        value: specMagnitude,
+        unit,
+        distributionLabel: specDistLabel,
+        valueOverridden,
+        distributionOverridden,
+      },
     });
   });
 

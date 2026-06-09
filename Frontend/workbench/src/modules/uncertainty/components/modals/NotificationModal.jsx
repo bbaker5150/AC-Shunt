@@ -14,9 +14,11 @@ const NotificationModal = ({
   onClose, 
   title = "Notification", 
   message, 
-  onConfirm, 
+  onConfirm,
   confirmText = "OK",
   isIconConfirm = false,
+  secondaryText,
+  onSecondary,
   inputLabel,
   inputPlaceholder = "",
   initialInputValue = "",
@@ -147,7 +149,16 @@ const NotificationModal = ({
               {isIconConfirm && <FontAwesomeIcon icon={faCheck} />}
             </button>
           )}
-          
+
+          {onSecondary && (
+            <button
+              className="notification-window-confirm notification-window-confirm--secondary"
+              onClick={() => onSecondary?.()}
+            >
+              {secondaryText || "Apply to Session"}
+            </button>
+          )}
+
           {!onConfirm && (
             <button className="notification-window-confirm" onClick={onClose}>
               Close

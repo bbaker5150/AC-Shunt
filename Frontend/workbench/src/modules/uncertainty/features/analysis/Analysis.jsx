@@ -10,7 +10,7 @@
  * 4. Handles instrument (UUT/TMDE) selection and editing logic.
  */
 
-import { useState, useMemo, useCallback, useEffect } from "react";
+import { useState, useMemo, useCallback, useEffect, useRef } from "react";
 import { v4 as uuidv4 } from "uuid";
 
 // --- Custom Hooks ---
@@ -35,6 +35,7 @@ import AddTestPointModal from "../testPoints/components/AddTestPointModal";
 
 // --- Utilities ---
 import { convertToPPM } from "../../utils/uncertaintyMath";
+import { reconcileTmdeInstances } from "../../utils/tmdeReconcile";
 
 /**
  * Analysis Component
@@ -55,6 +56,7 @@ function Analysis({
   onDataSave,
   onSessionSave,
   onSaveTestPoint,
+  onApplyToSessionPoints,
 
   // Navigation & Actions
   handleOpenSessionEditor,
@@ -152,9 +154,19 @@ function Analysis({
     [isPointView, testPointData.uutTolerance, sessionData.uutTolerance],
   );
 
+  // Referential-integrity guard: only count per-point TMDE instances that still
+  // map to a live session master, with no duplicate of the same master. This is
+  // the single read-boundary feeding both the table and every calculation, so
+  // orphaned/stacked instances can never silently multiply a derived variable.
   const tmdeTolerancesData = useMemo(
-    () => (isPointView ? testPointData.tmdeTolerances || [] : []),
-    [isPointView, testPointData.tmdeTolerances],
+    () =>
+      isPointView
+        ? reconcileTmdeInstances(
+            testPointData.tmdeTolerances || [],
+            sessionData.tmdes || [],
+          )
+        : [],
+    [isPointView, testPointData.tmdeTolerances, sessionData.tmdes],
   );
 
   const manualComponents = useMemo(() => {
@@ -172,6 +184,27 @@ function Analysis({
     setPrevTestPointId(testPointData.id);
     setSelectedTmdeIds([]);
   }
+
+  // Self-heal: if the loaded point still carries orphaned/stacked TMDE instances
+  // in storage (e.g. data created before integrity was enforced), persist the
+  // reconciled set once so it is truly removed — not just ignored at read time.
+  // Guarded by length + a per-point ref so it fires at most once per point and
+  // never loops (the save updates the prop, after which lengths match).
+  const healedPointRef = useRef(null);
+  useEffect(() => {
+    if (!isPointView) return;
+    const stored = testPointData.tmdeTolerances || [];
+    if (stored.length === tmdeTolerancesData.length) return; // already clean
+    if (healedPointRef.current === testPointData.id) return;
+    healedPointRef.current = testPointData.id;
+    onDataSave({ tmdeTolerances: tmdeTolerancesData });
+  }, [
+    isPointView,
+    testPointData.id,
+    testPointData.tmdeTolerances,
+    tmdeTolerancesData,
+    onDataSave,
+  ]);
 
   // =========================================================================
   // 4. CALCULATION HOOKS
@@ -792,6 +825,7 @@ function Analysis({
                 // Handlers: General
                 handleOpenSessionEditor={handleOpenSessionEditor}
                 onUpdateTestPoint={onDataSave}
+                onApplyToSessionPoints={onApplyToSessionPoints}
                 onOpenCorrelation={() => setCorrelationModalOpen(true)}
                 onDefineTestPoint={handleDefineTestPoint}
                 onDeleteTestPoint={onDeleteTestPoint}

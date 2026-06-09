@@ -9,6 +9,7 @@ import {
   faPencilAlt,
   faRedo,
   faProjectDiagram,
+  faExclamationTriangle,
 } from "@fortawesome/free-solid-svg-icons";
 
 const DIST_OPTIONS = [
@@ -91,6 +92,104 @@ const getComponentStdUncertainty = (component, fallbackUnit) => {
     value: component.value,
     unit: component.unit_native || component.unit || fallbackUnit || "ppm",
   };
+};
+
+// Human-readable tooltip describing how a row deviates from the found spec.
+const buildDeviationTitle = (component) => {
+  const base = component.specBaseline || {};
+  const parts = [];
+  if (base.valueOverridden && base.value != null) {
+    parts.push(`value (spec: ${base.value}${base.unit ? ` ${base.unit}` : ""})`);
+  }
+  if (base.distributionOverridden && base.distributionLabel) {
+    parts.push(`distribution (spec: ${base.distributionLabel})`);
+  }
+  if (parts.length === 0) return "Modified from the instrument's found spec.";
+  return `Modified from the instrument's found spec — ${parts.join(
+    " and ",
+  )}.`;
+};
+
+// Subtle amber warning-triangle shown beside a source name when the row has
+// been tweaked away from the instrument's specified value/distribution.
+const DeviationFlag = ({ component }) => {
+  if (!component.specOverride) return null;
+  return (
+    <FontAwesomeIcon
+      icon={faExclamationTriangle}
+      className="budget-deviation-flag"
+      title={buildDeviationTitle(component)}
+      style={{
+        marginLeft: 6,
+        fontSize: "0.78em",
+        color: "var(--status-warning, #e0a106)",
+        cursor: "help",
+        verticalAlign: "middle",
+      }}
+    />
+  );
+};
+
+// Inline editor for a manual Type-B component's entered magnitude. Commits the
+// raw value (in its own unit) back through onComponentUpdate, which prompts the
+// user to keep the change for this point or the whole session.
+const ManualValueCell = ({ component, onCommit, suffix }) => {
+  const [editing, setEditing] = useState(false);
+  const [draft, setDraft] = useState("");
+  const original =
+    component.manualRawValue != null ? String(component.manualRawValue) : "";
+
+  const begin = () => {
+    setDraft(original);
+    setEditing(true);
+  };
+  const commit = () => {
+    setEditing(false);
+    const parsed = parseFloat(draft);
+    if (!isNaN(parsed) && String(parsed) !== String(component.manualRawValue)) {
+      onCommit?.(parsed);
+    }
+  };
+
+  if (!editing) {
+    return (
+      <span
+        className="budget-editable-value"
+        title="Click to edit the entered value"
+        onClick={begin}
+        style={{
+          cursor: "pointer",
+          borderBottom: "1px dotted var(--border-color)",
+        }}
+      >
+        {original || "—"}
+        {suffix ? ` ${suffix}` : ""}
+      </span>
+    );
+  }
+
+  return (
+    <input
+      autoFocus
+      type="number"
+      className="mini-input"
+      value={draft}
+      onChange={(e) => setDraft(e.target.value)}
+      onBlur={commit}
+      onKeyDown={(e) => {
+        if (e.key === "Enter") commit();
+        if (e.key === "Escape") setEditing(false);
+      }}
+      style={{
+        width: "80px",
+        padding: "2px 4px",
+        background: "transparent",
+        color: "inherit",
+        border: "1px solid var(--primary-color)",
+        borderRadius: 4,
+      }}
+    />
+  );
 };
 
 const ResultsCard = ({
@@ -361,23 +460,50 @@ const UncertaintyBudgetTable = ({
           const quantity = component.quantity || 1;
           const displayName =
             quantity > 1 ? `${component.name} (Qty: ${quantity})` : component.name;
+          const isStdEntry = isStandardUncertaintyEntry(component);
+          // The entered magnitude of a manual Type-B is editable inline. A
+          // tolerance-mode entry edits the Tolerance Limit cell; a directly-
+          // entered standard uncertainty edits the Standard Uncertainty cell.
+          const editableTolerance = component.isManual && !isStdEntry;
+          const editableStd = component.isManual && isStdEntry;
+          const commitManualValue = (value) =>
+            onComponentUpdate?.(component.id, { manualValue: value }, component);
           return (
             <tr
               key={component.id}
               onContextMenu={(e) => onRowContextMenu?.(e, component)}
             >
-              <td>{displayName}</td>
+              <td>
+                {displayName}
+                <DeviationFlag component={component} />
+              </td>
               <td>{component.sourcePointLabel || "N/A"}</td>
               <td>
-                {isStandardUncertaintyEntry(component)
-                  ? ""
-                  : `${formatNumber(tolLimit.value, uiSigFigs)} ${tolLimit.unit}`}
+                {editableTolerance ? (
+                  <ManualValueCell
+                    component={component}
+                    onCommit={commitManualValue}
+                    suffix={component.manualUnit || tolLimit.unit}
+                  />
+                ) : isStdEntry ? (
+                  ""
+                ) : (
+                  `${formatNumber(tolLimit.value, uiSigFigs)} ${tolLimit.unit}`
+                )}
               </td>
               <td>{renderDistributionCell(component)}</td>
               <td>{component.type || "B"}</td>
               <td>{formatDof(component.dof)}</td>
               <td>
-                {formatNumber(std.value, uiSigFigs)} {std.unit}
+                {editableStd ? (
+                  <ManualValueCell
+                    component={component}
+                    onCommit={commitManualValue}
+                    suffix={component.manualUnit || std.unit}
+                  />
+                ) : (
+                  `${formatNumber(std.value, uiSigFigs)} ${std.unit}`
+                )}
               </td>
               <td className="action-cell">{renderActions(component)}</td>
             </tr>

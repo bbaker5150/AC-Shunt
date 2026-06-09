@@ -1549,6 +1549,7 @@ function DetailedView({
   onEditTmde,
   onDeleteUut,
   onDeleteTmdeDefinition,
+  onApplyToSessionPoints,
 }) {
   const [isSymbolMenuOpen, setIsSymbolMenuOpen] = useState(false);
   const [symbolMenuPosition, setSymbolMenuPosition] = useState({
@@ -1657,9 +1658,12 @@ function DetailedView({
       const isActivePointUut =
         activePointUutId !== null &&
         String(activePointUutId) === String(uut.id);
+      // For the active point, its own saved tolerance governs the range — the
+      // UUT-keyed activeRangeIndices map is deliberately ignored so a range
+      // change on one point never leaks onto sibling points sharing the UUT.
       const resolution = resolveUutRangeHelper(
         uut,
-        activeRangeIndices,
+        isActivePointUut ? {} : activeRangeIndices,
         isActivePointUut ? uutToleranceData : null,
         uutNominal,
       );
@@ -1791,10 +1795,13 @@ function DetailedView({
     isActivePointUut = false,
   ) => {
     const selectedRange = ranges[newIndex];
-    if (onRangeSelectionChange) {
-      onRangeSelectionChange((prev) => ({ ...prev, [uutId]: newIndex }));
-    }
     if (isActivePointUut && selectedRange) {
+      // Persist the chosen range on THIS point only. Writing the tolerance
+      // directly (rather than the UUT-keyed activeRangeIndices map) keeps the
+      // selection point-specific — sibling points sharing the UUT are untouched.
+      if (onUpdateTestPoint) {
+        onUpdateTestPoint({ uutTolerance: selectedRange });
+      }
       const compatibility = assessRangeCompatibility(
         selectedRange,
         uutNominal,
@@ -1806,6 +1813,9 @@ function DetailedView({
           message: `${compatibility.reason} The range was selected, but it does not cover this measurement point.`,
         });
       }
+    } else if (onRangeSelectionChange) {
+      // Non-active UUTs only set the shared default used when defining new points.
+      onRangeSelectionChange((prev) => ({ ...prev, [uutId]: newIndex }));
     }
   };
 
@@ -2007,7 +2017,153 @@ function DetailedView({
     return next;
   };
 
+  // Apply a transform to one TMDE instance, scoped either to the active point
+  // or to every session point that carries that TMDE. "session" leaves the
+  // saved instrument/library spec untouched — it only patches existing points.
+  const applyTmdeInstanceChange = (targetId, transformInstance, scope) => {
+    const matches = (t) => t.id === targetId || t.sourceId === targetId;
+    if (scope === "session" && onApplyToSessionPoints) {
+      onApplyToSessionPoints((tp) => {
+        const tols = tp.tmdeTolerances || [];
+        if (!tols.some(matches)) return tp;
+        return {
+          ...tp,
+          tmdeTolerances: tols.map((t) => (matches(t) ? transformInstance(t) : t)),
+        };
+      });
+      return;
+    }
+    onUpdateTestPoint({
+      tmdeTolerances: tmdeTolerancesData.map((t) =>
+        matches(t) ? transformInstance(t) : t,
+      ),
+    });
+  };
+
+  // Two-choice override prompt: keep the change for this point or push it to the
+  // whole session. Both leave the instrument's found spec on file (the row's
+  // deviation flag is what surfaces the difference).
+  const promptSpecOverride = ({ title, message, targetId, transformInstance }) => {
+    setNotification({
+      title,
+      message,
+      confirmText: "This Point",
+      secondaryText: "Whole Session",
+      onConfirm: () => {
+        applyTmdeInstanceChange(targetId, transformInstance, "point");
+        setNotification(null);
+      },
+      onSecondary: () => {
+        applyTmdeInstanceChange(targetId, transformInstance, "session");
+        setNotification(null);
+      },
+    });
+  };
+
+  // Patch the manual Type-B entry inside a TMDE instance, mirroring the
+  // normalization getBudgetComponentsFromTolerance uses to locate
+  // manualComponents (top-level, `.tolerance`, or `.tolerances`).
+  const patchInstanceManualComponent = (instance, manualId, patchMc) => {
+    const patchList = (obj) => {
+      if (!obj || !Array.isArray(obj.manualComponents)) return obj;
+      return {
+        ...obj,
+        manualComponents: obj.manualComponents.map((mc, i) =>
+          String(mc.id ?? i) === String(manualId) ? patchMc(mc) : mc,
+        ),
+      };
+    };
+    const next = { ...instance };
+    if (next.tolerance && Array.isArray(next.tolerance.manualComponents)) {
+      next.tolerance = patchList(next.tolerance);
+    } else if (
+      next.tolerances &&
+      typeof next.tolerances === "object" &&
+      !Array.isArray(next.tolerances) &&
+      Array.isArray(next.tolerances.manualComponents)
+    ) {
+      next.tolerances = patchList(next.tolerances);
+    } else {
+      return patchList(next);
+    }
+    return next;
+  };
+
   const handleComponentUpdate = (id, updates, component) => {
+    // Manual Type-B value edit from the budget table. The entered magnitude
+    // (toleranceLimit / standardUncertainty) deviates from the instrument's
+    // found spec, so warn and let the user keep it on this point or the whole
+    // session. The original spec figure is snapshotted the first time so the
+    // deviation flag and tooltip can always reference it.
+    if (
+      updates.manualValue !== undefined &&
+      component?.isManual &&
+      component?.sourceTmdeId
+    ) {
+      const targetId = component.sourceTmdeId;
+      const manualId = component.manualSourceId;
+      const isStandard = component.manualInputMode === "standard";
+      const valueKey = isStandard ? "standardUncertainty" : "toleranceLimit";
+      const specKey = isStandard
+        ? "specStandardUncertainty"
+        : "specToleranceLimit";
+      const newValue = updates.manualValue;
+      const transformInstance = (t) =>
+        patchInstanceManualComponent(t, manualId, (mc) => ({
+          ...mc,
+          [specKey]: mc[specKey] ?? mc[valueKey],
+          [valueKey]: newValue,
+        }));
+      const specRef =
+        component.specBaseline?.value ?? component.manualRawValue;
+      promptSpecOverride({
+        title: "Override Component Value — Warning",
+        message: `This component is specced at ${specRef}${
+          component.manualUnit ? ` ${component.manualUnit}` : ""
+        } from the instrument's found spec. Changing it to ${newValue}${
+          component.manualUnit ? ` ${component.manualUnit}` : ""
+        } overrides that value (the instrument spec itself is unchanged). Apply this override to just this point, or to every point in the session that uses this device?`,
+        targetId,
+        transformInstance,
+      });
+      return;
+    }
+
+    // Distribution change on an instrument-attached manual Type-B component.
+    // Route it to that component (NOT the accuracy band, which the generic
+    // sourceTmdeId branch below would otherwise corrupt) and prompt the same
+    // point/session override choice as the value edit.
+    if (
+      updates.distribution !== undefined &&
+      component?.isManual &&
+      component?.sourceTmdeId
+    ) {
+      const targetId = component.sourceTmdeId;
+      const manualId = component.manualSourceId;
+      const newDist = String(updates.distribution);
+      const distLabel = (d) =>
+        errorDistributions.find((e) => e.value === String(d))?.label ||
+        `k=${d}`;
+      const transformInstance = (t) =>
+        patchInstanceManualComponent(t, manualId, (mc) => ({
+          ...mc,
+          specDistribution: mc.specDistribution ?? mc.distribution,
+          distribution: newDist,
+        }));
+      promptSpecOverride({
+        title: "Override Component Distribution — Warning",
+        message: `This component is specced with a ${
+          component.specBaseline?.distributionLabel ||
+          distLabel(component.distributionDivisor)
+        } distribution. Changing it to ${distLabel(
+          newDist,
+        )} overrides that (the instrument spec itself is unchanged). Apply this override to just this point, or to every point in the session that uses this device?`,
+        targetId,
+        transformInstance,
+      });
+      return;
+    }
+
     // Distribution change on the UUT's own resolution row. This component is
     // synthesized from the UUT tolerance (it has no sourceTmdeId and isn't a
     // manual or TMDE component), so without this branch the change fell through
@@ -2036,20 +2192,18 @@ function DetailedView({
       const ident = String(component?.name || component?.id || "");
       const isDbRow = /-\s*dB$/i.test(ident.trim()) || /_db_/i.test(ident);
 
-      const applyChange = () => {
-        const updatedTmdes = tmdeTolerancesData.map((t) => {
-          if (t.id !== targetId && t.sourceId !== targetId) return t;
-          // A Resolution row targets the resolution's own divisor, not the
-          // accuracy sub-components (otherwise it would corrupt the accuracy
-          // distribution with this value).
-          if (component.isResolution)
-            return { ...t, measuringResolutionDistribution: divisor };
-          return isDbRow
-            ? applyDistributionToTmde(t, divisor, ["db"])
-            : applyDistributionToTmde(t, divisor);
-        });
-        onUpdateTestPoint({ tmdeTolerances: updatedTmdes });
+      const transformInstance = (t) => {
+        // A Resolution row targets the resolution's own divisor, not the
+        // accuracy sub-components (otherwise it would corrupt the accuracy
+        // distribution with this value).
+        if (component.isResolution)
+          return { ...t, measuringResolutionDistribution: divisor };
+        return isDbRow
+          ? applyDistributionToTmde(t, divisor, ["db"])
+          : applyDistributionToTmde(t, divisor);
       };
+      const applyChange = () =>
+        applyTmdeInstanceChange(targetId, transformInstance, "point");
 
       // The instrument's specced distribution lives on the budget row as
       // `distributionDivisor`. Overriding it here (the accuracy band or dB term,
@@ -2087,18 +2241,15 @@ function DetailedView({
         String(specDivisor) !== String(divisor);
 
       if (isSpecOverride) {
-        setNotification({
+        promptSpecOverride({
           title: "Override Spec Distribution — Warning",
           message: `This measurement is specced with a ${distLabel(
             specDivisor,
           )} distribution. Changing it to ${distLabel(
             divisor,
-          )} here overrides the instrument's specified distribution for this uncertainty budget (the instrument spec itself is unchanged). Continue?`,
-          confirmText: "Override",
-          onConfirm: () => {
-            applyChange();
-            setNotification(null);
-          },
+          )} overrides the instrument's specified distribution (the instrument spec itself is unchanged). Apply this override to just this point, or to every point in the session that uses this device?`,
+          targetId,
+          transformInstance,
         });
         return;
       }

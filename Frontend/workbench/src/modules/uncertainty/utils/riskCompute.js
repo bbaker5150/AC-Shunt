@@ -40,6 +40,7 @@ import {
   getBudgetComponentsFromTolerance,
   getUutResolutionComponent,
 } from "../features/analysis/utils/budgetUtils";
+import { reconcileTmdeInstances } from "./tmdeReconcile";
 
 const isFilledNumber = (v) =>
   v !== "" && v !== null && v !== undefined && !isNaN(parseFloat(v));
@@ -53,7 +54,12 @@ function computeUncertaintyForPoint(point, sessionData) {
     return null;
   }
 
-  const tmdeTolerancesData = point.tmdeTolerances || [];
+  // Reconcile against the session masters so the sidebar's per-point metrics use
+  // the same orphan-/duplicate-free instance set the open point's budget does.
+  const tmdeTolerancesData = reconcileTmdeInstances(
+    point.tmdeTolerances || [],
+    sessionData?.tmdes || [],
+  );
   const manualComponents = point.components || [];
   const derivedNominalValue = parseFloat(uutNominal.value);
   const derivedNominalUnit = uutNominal.unit;
@@ -310,7 +316,10 @@ export function computePointRiskMetrics(point, sessionData, includeGuardband = f
   // TMDE tolerance span (for TAR), mirroring useRiskCalculation.
   let tmdeToleranceHigh_Native = 0;
   let tmdeToleranceLow_Native = 0;
-  const tmdeTolerancesData = point.tmdeTolerances || [];
+  const tmdeTolerancesData = reconcileTmdeInstances(
+    point.tmdeTolerances || [],
+    sessionData?.tmdes || [],
+  );
   if (tmdeTolerancesData.length > 0) {
     const totals = tmdeTolerancesData.reduce(
       (acc, tmde) => {

@@ -2775,6 +2775,19 @@ function App() {
     }
   }, [selectedTestPointId, updateTestPointData]);
 
+  // Apply a per-point transform to every point in the active session. Used by
+  // the budget table's "Whole Session" override choice so a spec deviation on a
+  // shared TMDE propagates to all points that use it (the saved instrument spec
+  // in the library is intentionally left untouched).
+  const handleApplyToSessionPoints = useCallback(
+    (mapFn) => {
+      if (!currentSessionData) return;
+      const updatedTestPoints = (currentSessionData.testPoints || []).map(mapFn);
+      updateSession({ ...currentSessionData, testPoints: updatedTestPoints });
+    },
+    [currentSessionData, updateSession],
+  );
+
   const handleDeleteTmdeDefinition = (idOrIds) => {
     const ids = Array.isArray(idOrIds) ? idOrIds : [idOrIds];
     setAppNotification({
@@ -2831,15 +2844,32 @@ function App() {
       isIconConfirm: true,
       onConfirm: () => {
         if (currentSessionData) {
-          const idsSet = new Set(ids);
+          const idsSet = new Set(ids.map((id) => String(id)));
           const updatedUuts = (currentSessionData.uuts || []).filter(
-            (u) => !idsSet.has(u.id),
+            (u) => !idsSet.has(String(u.id)),
+          );
+          // Deleting a UUT must also scrub it from every point that referenced
+          // it — otherwise points keep a dangling associatedUutId (and a stale
+          // resolved uutTolerance) pointing at a standard that no longer exists.
+          const updatedTestPoints = (currentSessionData.testPoints || []).map(
+            (tp) => {
+              const assoc = tp.associatedUutIds || [];
+              const nextAssoc = assoc.filter(
+                (aid) => !idsSet.has(String(aid)),
+              );
+              if (nextAssoc.length === assoc.length) return tp;
+              const patch = { ...tp, associatedUutIds: nextAssoc };
+              // No UUT left on the point → its resolved tolerance is orphaned.
+              if (nextAssoc.length === 0) patch.uutTolerance = null;
+              return patch;
+            },
           );
           updateSession({
             ...currentSessionData,
             uuts: updatedUuts,
+            testPoints: updatedTestPoints,
             // Clear legacy if the 'current' legacy UI matches one of the deleted
-            ...(idsSet.has(currentSessionData.id)
+            ...(idsSet.has(String(currentSessionData.id))
               ? {
                   uutDescription: "",
                   uutTolerance: {},
@@ -3036,49 +3066,84 @@ function App() {
 
         const availableRanges = getAllUutRanges(uut);
 
+        // Resolve every associated point to a single range up front so the
+        // sidebar re-homes points automatically whenever the UUT's ranges or a
+        // point's value changes — without the user having to click the point.
+        // An explicit uutTolerance only pins a point while its value still sits
+        // inside that tolerance; otherwise we fall back to value-based homing,
+        // and anything that matches no range drops into "Not Used".
         const categorizedPoints = new Set();
-        const rangesWithPoints = availableRanges.map((range) => {
-          const pointsInRange = associatedPoints.filter((tp) => {
-            if (categorizedPoints.has(tp.id)) return false;
+        const rangeIndexForPoint = new Map();
 
-            // 1. Explicit Assignment: Check if tolerance is set
-            if (tp.uutTolerance && Object.keys(tp.uutTolerance).length > 0) {
-              const t = tp.uutTolerance;
-              const minMatch = t.min == range.min;
-              const maxMatch = t.max == range.max;
-              const unitMatch = (t.unit || "") === (range.unit || "");
-              const funcMatch = range.functionName
-                ? t.functionName === range.functionName
-                : true;
+        associatedPoints.forEach((tp) => {
+          const t = tp.uutTolerance;
+          const hasExplicit = t && Object.keys(t).length > 0;
+          const val = parseFloat(tp.testPointInfo?.parameter?.value);
+          const unit = tp.testPointInfo?.parameter?.unit;
+          const hasNumericVal = !isNaN(val);
 
-              if (minMatch && maxMatch && unitMatch && funcMatch) {
-                categorizedPoints.add(tp.id);
-                return true;
-              }
-              return false;
-            }
+          const toleranceMatchesRange = (range) => {
+            const minMatch = t.min == range.min;
+            const maxMatch = t.max == range.max;
+            const unitMatch = (t.unit || "") === (range.unit || "");
+            const funcMatch = range.functionName
+              ? t.functionName === range.functionName
+              : true;
+            return minMatch && maxMatch && unitMatch && funcMatch;
+          };
 
-            // 2. Implicit Assignment: Value Check
-            const val = parseFloat(tp.testPointInfo?.parameter?.value);
-            const unit = tp.testPointInfo?.parameter?.unit;
-            if (isNaN(val)) return false;
+          const rangeContainsVal = (range) => {
+            if (!hasNumericVal) return false;
             const min = parseFloat(range.min);
             const max = parseFloat(range.max);
             const unitMatch =
               !unit ||
               !range.unit ||
               unit.toLowerCase() === range.unit.toLowerCase();
-            const inRange =
+            return (
               !isNaN(min) &&
               !isNaN(max) &&
               unitMatch &&
               val >= min &&
-              val <= max;
-            if (inRange) categorizedPoints.add(tp.id);
-            return inRange;
-          });
-          return { ...range, points: pointsInRange };
+              val <= max
+            );
+          };
+
+          let matchIndex = -1;
+
+          // 1. Honor an explicit/manual range pin, but only while the point's
+          //    value still falls within that tolerance. A bounded tolerance the
+          //    value has moved outside of is treated as stale.
+          if (hasExplicit) {
+            const tMin = parseFloat(t.min);
+            const tMax = parseFloat(t.max);
+            const toleranceHasBounds = !isNaN(tMin) && !isNaN(tMax);
+            const valWithinTolerance = toleranceHasBounds
+              ? hasNumericVal && val >= tMin && val <= tMax
+              : true; // unbounded spec (e.g. %-only): can't value-check, keep pin
+            if (valWithinTolerance) {
+              matchIndex = availableRanges.findIndex(toleranceMatchesRange);
+            }
+          }
+
+          // 2. Value-based homing: drop the point into whichever range now
+          //    contains its value.
+          if (matchIndex === -1) {
+            matchIndex = availableRanges.findIndex(rangeContainsVal);
+          }
+
+          if (matchIndex !== -1) {
+            rangeIndexForPoint.set(tp.id, matchIndex);
+            categorizedPoints.add(tp.id);
+          }
         });
+
+        const rangesWithPoints = availableRanges.map((range, idx) => ({
+          ...range,
+          points: associatedPoints.filter(
+            (tp) => rangeIndexForPoint.get(tp.id) === idx,
+          ),
+        }));
 
         const uncategorizedPoints = associatedPoints.filter(
           (tp) => !categorizedPoints.has(tp.id),
@@ -4539,6 +4604,7 @@ function App() {
                     sessionData={currentSessionData}
                     testPointData={displayData}
                     onDataSave={handleAnalysisDataSave}
+                    onApplyToSessionPoints={handleApplyToSessionPoints}
                     onSessionSave={updateSession}
                     onSaveTestPoint={handleSaveTestPoint}
                     onEditUut={handleEditUut}

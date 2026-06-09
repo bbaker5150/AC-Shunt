@@ -8037,6 +8037,20 @@ body.dark-mode .bug-card {
   margin-left: 8px;
 }
 
+/* Secondary action (e.g. "Whole Session") sits beside the primary choice as a
+   quieter, outlined button so the two override scopes read as peers. */
+.notification-window-confirm--secondary {
+  background: transparent;
+  color: var(--primary-color);
+  border-color: var(--primary-color);
+}
+
+.notification-window-confirm--secondary:hover {
+  background: color-mix(in srgb, var(--primary-color) 12%, transparent);
+  border-color: var(--primary-color-dark);
+  box-shadow: none;
+}
+
 .notification-window--danger {
   --notification-accent: var(--status-bad);
 }
