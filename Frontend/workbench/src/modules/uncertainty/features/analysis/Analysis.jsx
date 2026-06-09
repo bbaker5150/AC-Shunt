@@ -21,7 +21,6 @@ import { useRiskCalculation } from "./hooks/useRiskCalculation";
 import UncertaintyPanel from "./components/UncertaintyPanel";
 import RiskAnalysisDashboard from "./components/RiskAnalysisDashboard";
 import RiskMitigationDashboard from "./components/RiskMitigationDashboard";
-import RiskScatterplot from "./components/RiskScatterplot";
 
 // --- Modals ---
 import NotificationModal from "../../components/modals/NotificationModal";
@@ -858,13 +857,7 @@ function Analysis({
             )}
 
             {analysisMode === "risk" && (
-              <div
-                style={{
-                  display: "grid",
-                  gridTemplateColumns: "1fr 1fr",
-                  gap: "20px",
-                }}
-              >
+              <div className="risk-analysis-page">
                 {!calcResults ? (
                   <div
                     className="form-section-warning"
@@ -876,15 +869,9 @@ function Analysis({
                   <>
                     <RiskAnalysisDashboard
                       results={riskResults}
+                      calcResults={calcResults}
                       onShowBreakdown={handleShowRiskBreakdown}
                       activeModals={activeRiskModals}
-                    />
-                    <RiskScatterplot
-                      results={riskResults}
-                      inputs={{
-                        LLow: parseFloat(riskInputs.LLow),
-                        LUp: parseFloat(riskInputs.LUp),
-                      }}
                     />
                   </>
                 ) : (

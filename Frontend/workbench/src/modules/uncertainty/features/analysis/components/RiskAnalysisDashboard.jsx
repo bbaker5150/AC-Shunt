@@ -1,14 +1,13 @@
 import React from "react";
-import RiskGauge from "./RiskGauge";
+import RiskDistributionVisualizer from "./RiskDistributionVisualizer";
 
-const RiskAnalysisDashboard = ({ results, onShowBreakdown, activeModals = [] }) => {
+const RiskAnalysisDashboard = ({
+  results,
+  calcResults,
+  onShowBreakdown,
+  activeModals = [],
+}) => {
   if (!results) return null;
-
-  const getPfaClass = (pfa) => {
-    if (pfa > 5) return "status-bad";
-    if (pfa > 2) return "status-warning";
-    return "status-good";
-  };
 
   const isActive = (key) => activeModals.includes(key);
 
@@ -69,46 +68,11 @@ const RiskAnalysisDashboard = ({ results, onShowBreakdown, activeModals = [] }) 
         </div>
       </section>
 
-      <RiskGauge
-        label="Test Uncertainty Ratio (TUR)"
-        value={`${results.tur.toFixed(2)} : 1`}
-        accent="accent-primary"
-        note="A ratio of the UUT's tolerance to the measurement uncertainty."
-        active={isActive("tur")}
-        onClick={() => onShowBreakdown("tur")}
-      />
-
-      <RiskGauge
-        label="Test Acceptance Ratio (TAR)"
-        value={`${results.tar.toFixed(2)} : 1`}
-        accent="accent-primary"
-        note="A ratio of the UUT's tolerance span to the TMDE's (Standard's) tolerance span."
-        active={isActive("tar")}
-        onClick={() => onShowBreakdown("tar")}
-      />
-
-      <RiskGauge
-        label="Probability of False Accept (PFA)"
-        value={`${results.pfa.toFixed(4)} %`}
-        status={getPfaClass(results.pfa)}
-        breakdown={[
-          { label: "Lower Tail Risk", value: `${results.pfa_term1.toFixed(4)} %` },
-          { label: "Upper Tail Risk", value: `${results.pfa_term2.toFixed(4)} %` },
-        ]}
-        active={isActive("pfa")}
-        onClick={() => onShowBreakdown("pfa")}
-      />
-
-      <RiskGauge
-        label="Probability of False Reject (PFR)"
-        value={`${results.pfr.toFixed(4)} %`}
-        status="neutral"
-        breakdown={[
-          { label: "Lower Side Risk", value: `${results.pfr_term1.toFixed(4)} %` },
-          { label: "Upper Side Risk", value: `${results.pfr_term2.toFixed(4)} %` },
-        ]}
-        active={isActive("pfr")}
-        onClick={() => onShowBreakdown("pfr")}
+      <RiskDistributionVisualizer
+        results={results}
+        calcResults={calcResults}
+        onShowBreakdown={onShowBreakdown}
+        activeModals={activeModals}
       />
     </div>
   );
