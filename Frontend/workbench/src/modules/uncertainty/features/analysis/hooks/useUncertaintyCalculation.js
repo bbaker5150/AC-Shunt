@@ -13,6 +13,50 @@ const normalizeDof = (dof) => {
   return dof === Infinity || dof == null || isNaN(parsed) ? Infinity : parsed;
 };
 
+const getTmdeIdentity = (tmde, fallbackIndex = 0) => {
+  const instanceName = String(tmde?.name || "").trim();
+  const instrumentName = [
+    tmde?.instrument?.manufacturer || tmde?.manufacturer,
+    tmde?.instrument?.model || tmde?.model,
+  ]
+    .filter(Boolean)
+    .join(" ")
+    .trim();
+
+  if (
+    instanceName &&
+    instrumentName &&
+    !instanceName.toLowerCase().includes(instrumentName.toLowerCase())
+  ) {
+    return `${instanceName} (${instrumentName})`;
+  }
+  return instanceName || instrumentName || `TMDE ${fallbackIndex + 1}`;
+};
+
+const qualifyTmdeComponent = (component, tmde, fallbackIndex = 0) => {
+  const identity = getTmdeIdentity(tmde, fallbackIndex);
+  const rawName = String(component?.name || "Uncertainty component");
+  const separatorIndex = rawName.lastIndexOf(" - ");
+  const componentType =
+    separatorIndex >= 0 ? rawName.slice(separatorIndex + 3) : rawName;
+  const point = `${tmde?.measurementPoint?.value ?? ""} ${
+    tmde?.measurementPoint?.unit ?? ""
+  }`.trim();
+  const rangeContext = [
+    tmde?.functionName,
+    tmde?.range && typeof tmde.range !== "object" ? tmde.range : null,
+  ]
+    .filter(Boolean)
+    .join(" / ");
+
+  return {
+    ...component,
+    name: `${identity} - ${componentType}`,
+    tmdeIdentity: identity,
+    sourcePointLabel: [point, rangeContext].filter(Boolean).join(" - "),
+  };
+};
+
 const calculateBudgetResults = (
   components,
   confidencePercent,
@@ -314,10 +358,9 @@ export const useUncertaintyCalculation = (
                         tmde,
                         tmde.measurementPoint
                     ).map((component, compIndex) => ({
-                        ...component,
+                        ...qualifyTmdeComponent(component, tmde, tmdeIndex),
                         id: `${component.id}_${item.variable}_${tmdeIndex}_${compIndex}`,
                         sourceTmdeId: tmde.id,
-                        sourcePointLabel: `${tmde.measurementPoint?.value ?? ""} ${tmde.measurementPoint?.unit ?? ""}`.trim(),
                         quantity: tmde.quantity || 1,
                     }))
             );
@@ -605,13 +648,18 @@ export const useUncertaintyCalculation = (
               toleranceSource,
               uutNominal 
             ).map((c, compIndex) => ({
-              ...c,
+              ...qualifyTmdeComponent(c, tmde, tmdeIndex),
               id: `${c.id}_${tmdeIndex}_${compIndex}`,
               // Keep a link back to the originating TMDE instance so the budget
               // table's distribution dropdown can write the divisor back to the
               // tolerance and trigger a recalculation (#6).
               sourceTmdeId: tmde.id,
-              sourcePointLabel: `${uutNominal.value} ${uutNominal.unit}`,
+              sourcePointLabel: [
+                `${uutNominal.value} ${uutNominal.unit}`,
+                tmde.functionName,
+              ]
+                .filter(Boolean)
+                .join(" - "),
               quantity: quantity,
             }));
 

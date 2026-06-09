@@ -45,6 +45,21 @@ const distributionDivisor = (component) => {
   return component?.type === "A" ? 1 : 2;
 };
 
+const divisorDescription = (distribution, divisor) => {
+  const label = distribution || "Normal";
+  const normalized = String(label).toLowerCase();
+  const value = formatNumber(divisor);
+  if (normalized.includes("rect") || normalized.includes("uniform")) {
+    return `${label} (sqrt 3) - ${value}`;
+  }
+  if (normalized.includes("triang")) return `${label} (sqrt 6) - ${value}`;
+  if (normalized.includes("u-shaped") || normalized.includes("ushaped")) {
+    return `${label} (sqrt 2) - ${value}`;
+  }
+  if (normalized.includes("normal")) return `${label} - k=${value}`;
+  return `${label} - divisor ${value}`;
+};
+
 const densityAt = (kind, normalizedX) => {
   if (kind === "uniform") return Math.abs(normalizedX) <= 1 ? 0.64 : 0;
   if (kind === "triangular") return Math.max(0, 1 - Math.abs(normalizedX));
@@ -109,6 +124,9 @@ const flattenComponents = (calcResults, nativeUnit) => {
         id,
         name: component.name || "Uncertainty component",
         source: component.sourcePointLabel || group.label || "Budget component",
+        optionLabel: `${component.name || "Uncertainty component"} - ${
+          component.sourcePointLabel || group.label || "Budget component"
+        }`,
         distribution: component.distribution || "Normal",
         divisor: distributionDivisor(component),
         standardUncertainty,
@@ -142,6 +160,7 @@ const RiskDistributionVisualizer = ({
   const gradientId = useId().replace(/:/g, "");
   const [mode, setMode] = useState("decision");
   const [showGuardband, setShowGuardband] = useState(false);
+  const [coverageSigma, setCoverageSigma] = useState(2);
   const componentOptions = useMemo(
     () => flattenComponents(calcResults, results.nativeUnit),
     [calcResults, results.nativeUnit],
@@ -247,6 +266,12 @@ const RiskDistributionVisualizer = ({
   const pfaUpper = guardbandEnabled ? results.gbResults.GBPFAT2 : results.pfa_term2;
   const pfrLower = guardbandEnabled ? results.gbResults.GBPFRT1 : results.pfr_term1;
   const pfrUpper = guardbandEnabled ? results.gbResults.GBPFRT2 : results.pfr_term2;
+  const coveragePercent = { 1: 68.27, 2: 95.45, 3: 99.73 }[coverageSigma];
+  const coverageHalfWidth = Math.abs(finite(results.uDev)) * coverageSigma;
+  const coverageLow = nominal - coverageHalfWidth;
+  const coverageHigh = nominal + coverageHalfWidth;
+  const coverageFits =
+    coverageLow >= acceptanceLow && coverageHigh <= acceptanceHigh;
 
   return (
     <section className="risk-viz-shell">
@@ -265,7 +290,7 @@ const RiskDistributionVisualizer = ({
             className={mode === "decision" ? "active" : ""}
             onClick={() => setMode("decision")}
           >
-            Decision view
+            Risk View
           </button>
           <button
             type="button"
@@ -273,7 +298,7 @@ const RiskDistributionVisualizer = ({
             onClick={() => setMode("component")}
             disabled={!componentOptions.length}
           >
-            Components
+            Component View
           </button>
         </div>
       </header>
@@ -287,23 +312,38 @@ const RiskDistributionVisualizer = ({
               <span className="tolerance"><i /> Tolerance</span>
               <span className="acceptance"><i /> Acceptance</span>
             </div>
-            <label
-              className={`risk-viz-guardband ${!guardbandAvailable ? "disabled" : ""}`}
-              title={
-                guardbandAvailable
-                  ? "Compare calculated guardband limits"
-                  : "No converged guardband limits are available"
-              }
-            >
-              <input
-                type="checkbox"
-                checked={guardbandEnabled}
-                disabled={!guardbandAvailable}
-                onChange={(event) => setShowGuardband(event.target.checked)}
-              />
-              <span className="risk-viz-toggle-track"><span /></span>
-              Apply guardband
-            </label>
+            <div className="risk-viz-toolbar-actions">
+              <div className="risk-viz-coverage-control" aria-label="Observed coverage interval">
+                <span>Coverage lens</span>
+                {[1, 2, 3].map((sigma) => (
+                  <button
+                    type="button"
+                    key={sigma}
+                    className={coverageSigma === sigma ? "active" : ""}
+                    onClick={() => setCoverageSigma(sigma)}
+                  >
+                    {sigma}σ
+                  </button>
+                ))}
+              </div>
+              <label
+                className={`risk-viz-guardband ${!guardbandAvailable ? "disabled" : ""}`}
+                title={
+                  guardbandAvailable
+                    ? "Compare calculated guardband limits"
+                    : "No converged guardband limits are available"
+                }
+              >
+                <input
+                  type="checkbox"
+                  checked={guardbandEnabled}
+                  disabled={!guardbandAvailable}
+                  onChange={(event) => setShowGuardband(event.target.checked)}
+                />
+                <span className="risk-viz-toggle-track"><span /></span>
+                Apply guardband
+              </label>
+            </div>
           </div>
 
           <div className="risk-viz-main-grid">
@@ -368,6 +408,38 @@ const RiskDistributionVisualizer = ({
                   className="risk-viz-observed-curve"
                 />
 
+                <rect
+                  x={decisionChart.toX(coverageLow)}
+                  y="224"
+                  width={Math.max(
+                    0,
+                    decisionChart.toX(coverageHigh) -
+                      decisionChart.toX(coverageLow),
+                  )}
+                  height="9"
+                  rx="4.5"
+                  className={`risk-viz-coverage-band ${coverageFits ? "fits" : "crosses"}`}
+                />
+                {[coverageLow, coverageHigh].map((value, index) => (
+                  <g key={`coverage-${index}`}>
+                    <line
+                      x1={decisionChart.toX(value)}
+                      x2={decisionChart.toX(value)}
+                      y1="110"
+                      y2="238"
+                      className={`risk-viz-coverage-line ${coverageFits ? "fits" : "crosses"}`}
+                    />
+                    <text
+                      x={decisionChart.toX(value)}
+                      y="105"
+                      textAnchor="middle"
+                      className={`risk-viz-coverage-label ${coverageFits ? "fits" : "crosses"}`}
+                    >
+                      {index === 0 ? "-" : "+"}{coverageSigma}σ
+                    </text>
+                  </g>
+                ))}
+
                 {[
                   [decisionChart.toleranceLow, "LTL", "tolerance"],
                   [decisionChart.toleranceHigh, "UTL", "tolerance"],
@@ -408,6 +480,18 @@ const RiskDistributionVisualizer = ({
                   Nominal / calculated mean
                 </text>
               </svg>
+              <div className="risk-viz-coverage-summary">
+                <span>
+                  <strong>{coverageSigma}σ observed interval</strong>
+                  {coveragePercent}% expected coverage, +/-{" "}
+                  {formatNumber(coverageHalfWidth)} {results.nativeUnit}
+                </span>
+                <em className={coverageFits ? "fits" : "crosses"}>
+                  {coverageFits
+                    ? "Fully inside acceptance"
+                    : "Extends beyond acceptance"}
+                </em>
+              </div>
               <div className="risk-viz-chart-caption">
                 <span>
                   <strong>True error</strong> models expected UUT population spread.
@@ -495,17 +579,23 @@ const RiskDistributionVisualizer = ({
             >
               {componentOptions.map((component) => (
                 <option key={component.id} value={component.id}>
-                  {component.name}
+                  {component.optionLabel}
                 </option>
               ))}
             </select>
             {selectedComponent && (
-              <div className="risk-viz-component-meta">
-                <span><small>Source</small><strong>{selectedComponent.source}</strong></span>
-                <span><small>Distribution</small><strong>{selectedComponent.distribution}</strong></span>
-                <span><small>Type</small><strong>Type {selectedComponent.type}</strong></span>
-                <span><small>Quantity</small><strong>{selectedComponent.quantity}</strong></span>
-              </div>
+              <>
+                <div className="risk-viz-selected-component">
+                  <small>Currently visualizing</small>
+                  <strong>{selectedComponent.name}</strong>
+                  <span>{selectedComponent.source}</span>
+                </div>
+                <div className="risk-viz-component-meta">
+                  <span><small>Distribution</small><strong>{selectedComponent.distribution}</strong></span>
+                  <span><small>Type</small><strong>Type {selectedComponent.type}</strong></span>
+                  <span><small>Quantity</small><strong>{selectedComponent.quantity}</strong></span>
+                </div>
+              </>
             )}
           </div>
 
@@ -582,8 +672,11 @@ const RiskDistributionVisualizer = ({
                   value={`+/- ${formatNumber(componentChart.limit)} ${selectedComponent.unit}`}
                 />
                 <MetricPill
-                  label="Divisor"
-                  value={formatNumber(selectedComponent.divisor)}
+                  label="Distribution divisor"
+                  value={divisorDescription(
+                    selectedComponent.distribution,
+                    selectedComponent.divisor,
+                  )}
                 />
                 <MetricPill
                   label="Standard uncertainty"

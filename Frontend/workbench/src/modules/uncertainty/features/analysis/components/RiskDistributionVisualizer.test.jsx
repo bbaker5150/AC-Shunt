@@ -67,8 +67,15 @@ test("switches between decision, guardband, and component views", () => {
   expect(screen.getByText("0.48%")).toBeInTheDocument();
   expect(screen.getByText("Guardband acceptance width")).toBeInTheDocument();
 
-  fireEvent.click(screen.getByRole("button", { name: "Components" }));
+  fireEvent.click(screen.getByRole("button", { name: "3σ" }));
+  expect(screen.getByText(/99.73% expected coverage/)).toBeInTheDocument();
+  expect(screen.getByText("Extends beyond acceptance")).toBeInTheDocument();
+
+  fireEvent.click(screen.getByRole("button", { name: "Component View" }));
   expect(screen.getByLabelText("Budget component")).toHaveValue("final-reading");
   expect(screen.getByText("Rectangular")).toBeInTheDocument();
   expect(screen.getByText("Standard uncertainty")).toBeInTheDocument();
+  expect(
+    screen.getByText("Rectangular (sqrt 3) - 1.7321"),
+  ).toBeInTheDocument();
 });
