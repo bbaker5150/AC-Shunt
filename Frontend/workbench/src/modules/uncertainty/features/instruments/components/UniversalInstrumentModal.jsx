@@ -680,7 +680,7 @@ const UniversalInstrumentModal = ({
                                                 <FontAwesomeIcon icon={faMicroscope} /> Use as UUT
                                             </button>
                                             <button
-                                                className="lib-pill-btn lib-pill-btn--primary"
+                                                className="lib-pill-btn"
                                                 onClick={() => handleBulkUseAs('tmde')}
                                             >
                                                 <FontAwesomeIcon icon={faTools} /> Use as TMDE
@@ -688,7 +688,7 @@ const UniversalInstrumentModal = ({
                                         </>
                                     ) : (
                                         <button
-                                            className="lib-pill-btn lib-pill-btn--primary"
+                                            className="lib-pill-btn"
                                             onClick={() => handleBulkUseAs(effectiveMode)}
                                         >
                                             <FontAwesomeIcon icon={faPlus} /> Add {selectedIds.length}{' '}

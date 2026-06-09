@@ -665,13 +665,3 @@
     border-color: var(--primary-color);
     background: var(--primary-color-light);
 }
-.lib-pill-btn--primary {
-    background: var(--primary-color);
-    border-color: var(--primary-color);
-    color: #fff;
-}
-.lib-pill-btn--primary svg { opacity: 1; }
-.lib-pill-btn--primary:hover {
-    background: var(--primary-color-dark);
-    border-color: var(--primary-color-dark);
-}
