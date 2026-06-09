@@ -1292,6 +1292,8 @@ function App() {
 
   // --- NEW: Sidebar Multi-Select State ---
   const [selectedSidebarPointIds, setSelectedSidebarPointIds] = useState([]);
+  // Anchor for shift-click range selection (the last point clicked without shift).
+  const [sidebarSelectionAnchorId, setSidebarSelectionAnchorId] = useState(null);
 
   // --- Global UUT Selection State ---
   const [currentUutSelection, setCurrentUutSelection] = useState([]);
@@ -2115,24 +2117,34 @@ function App() {
     setRiskResults(null);
     // Multi-Select Logic
     let newSelection = [];
-    if (e && (e.ctrlKey || e.metaKey)) {
+    const anchorId = sidebarSelectionAnchorId;
+    const anchorIdx = anchorId ? flatSidebarPointIds.indexOf(anchorId) : -1;
+    const targetIdx = flatSidebarPointIds.indexOf(tpId);
+
+    if (e && e.shiftKey && anchorIdx !== -1 && targetIdx !== -1) {
+      // Shift-click: select the contiguous run between the anchor (last plain
+      // click) and this point, in visual order — up or down. Ctrl+Shift unions
+      // the run with the existing selection; plain Shift replaces it.
+      const [lo, hi] =
+        anchorIdx <= targetIdx
+          ? [anchorIdx, targetIdx]
+          : [targetIdx, anchorIdx];
+      const runIds = flatSidebarPointIds.slice(lo, hi + 1);
+      newSelection =
+        e.ctrlKey || e.metaKey
+          ? Array.from(new Set([...selectedSidebarPointIds, ...runIds]))
+          : runIds;
+      // Anchor stays put so the user can re-shift to a different extent.
+    } else if (e && (e.ctrlKey || e.metaKey)) {
       if (selectedSidebarPointIds.includes(tpId)) {
         newSelection = selectedSidebarPointIds.filter((id) => id !== tpId);
       } else {
         newSelection = [...selectedSidebarPointIds, tpId];
       }
-    } else if (e && e.shiftKey && selectedSidebarPointIds.length > 0) {
-      // Shift Select (Simple range logic within visual list is hard without flat index,
-      // but we can try basic or just fallback to additive).
-      // For now, implementing additive or last-selected.
-      // User asked "similar to UUT / TMDE tables". Table usually does range.
-      // Since the tree is nested, linear index is tricky.
-      // We'll treat shift as "add to selection" for simplicity unless we flat map the tree.
-      // A better shift would be: if we have a lastSelectedId, find range.
-      // Giving the complexity of tree, let's stick to Ctrl toggle first, or simple append.
-      newSelection = [...selectedSidebarPointIds, tpId];
+      setSidebarSelectionAnchorId(tpId);
     } else {
       newSelection = [tpId];
+      setSidebarSelectionAnchorId(tpId);
     }
 
     setSelectedSidebarPointIds(newSelection);
@@ -3170,6 +3182,24 @@ function App() {
       return { ...area, uutGroups, unassignedPoints };
     });
   }, [currentSessionData, currentTestPoints]);
+
+  // Flat, top-to-bottom order of every point id as it visually appears in the
+  // sidebar. Drives shift-click range selection (slice between anchor & target).
+  // Mirrors the JSX render order: area → UUT → range points → uncategorized →
+  // area-level unassigned points.
+  const flatSidebarPointIds = useMemo(() => {
+    const ids = [];
+    (sidebarData || []).forEach((area) => {
+      (area.uutGroups || []).forEach((group) => {
+        (group.rangeGroups || []).forEach((range) => {
+          (range.points || []).forEach((p) => ids.push(p.id));
+        });
+        (group.uncategorizedPoints || []).forEach((p) => ids.push(p.id));
+      });
+      (area.unassignedPoints || []).forEach((p) => ids.push(p.id));
+    });
+    return ids;
+  }, [sidebarData]);
 
   // --- LOGIC: Compute Data to Display ---
   const displayData = useMemo(() => {

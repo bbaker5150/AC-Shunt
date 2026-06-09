@@ -3201,25 +3201,40 @@ function DetailedView({
                                 <input
                                   type="checkbox"
                                   checked={isChecked}
-                                  disabled={
-                                    !isChecked && !compatibility.compatible
-                                  }
-                                  onChange={(e) =>
+                                  // Intentionally NOT disabled when incompatible:
+                                  // a disabled checkbox swallows the click, so the
+                                  // user gets no explanation. We keep it clickable
+                                  // and explain why on attempt (see below).
+                                  onChange={(e) => {
+                                    if (
+                                      !isChecked &&
+                                      !compatibility.compatible
+                                    ) {
+                                      setNotification({
+                                        title: "Can't Use This TMDE",
+                                        message: `${compatibility.reason} Adjust the TMDE's range/unit (or the measurement point) so it covers this point, then try again.`,
+                                      });
+                                      return;
+                                    }
                                     handleToggleTmdeUsage(
                                       masterTmde.id,
                                       e.target.checked,
-                                    )
-                                  }
+                                    );
+                                  }}
                                   title={
                                     compatibility.compatible
                                       ? "Use this TMDE"
-                                      : compatibility.reason
+                                      : `Can't use: ${compatibility.reason}`
                                   }
                                   style={{
                                     cursor:
                                       !isChecked && !compatibility.compatible
                                         ? "not-allowed"
                                         : "pointer",
+                                    opacity:
+                                      !isChecked && !compatibility.compatible
+                                        ? 0.5
+                                        : 1,
                                   }}
                                 />
                               )}
