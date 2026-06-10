@@ -112,6 +112,7 @@ const UniversalInstrumentModal = ({
     isOpen,
     onClose,
     onSave,
+    onSaveToLibrary,
     onDelete,
     onBatchAdd,
     mode = 'library', // 'uut', 'tmde', 'library'
@@ -131,6 +132,7 @@ const UniversalInstrumentModal = ({
     // Delete confirmation. Routed through one choke-point so a password gate can
     // be added here later without touching the call sites.
     const [pendingDelete, setPendingDelete] = useState(null); // { ids: [...] }
+    const [pendingInstrumentSave, setPendingInstrumentSave] = useState(false);
 
     const [metaData, setMetaData] = useState({
         name: "", 
@@ -166,6 +168,7 @@ const UniversalInstrumentModal = ({
             setSelectedIds([]);
             setSelectionAnchor(null);
             setPendingDelete(null);
+            setPendingInstrumentSave(false);
 
             if (mode === 'library') {
                 setViewMode("list");
@@ -434,9 +437,7 @@ const UniversalInstrumentModal = ({
         setEditingRange(null);
     };
 
-    const handleSave = () => {
-        if (!isFormValid) return; 
-
+    const buildSaveData = () => {
         let finalData = {};
         if (effectiveMode === 'uut' || effectiveMode === 'tmde') {
             finalData = {
@@ -460,9 +461,40 @@ const UniversalInstrumentModal = ({
             };
         }
 
+        return finalData;
+    };
+
+    const completeSave = (saveToLibrary = false) => {
+        const finalData = buildSaveData();
         console.log("[UniversalInstrumentModal] Saving Data:", finalData);
         onSave(finalData);
+
+        if (saveToLibrary && onSaveToLibrary) {
+            onSaveToLibrary({
+                ...instrumentDef,
+                description: metaData.name,
+                measurementArea: metaData.measurementArea,
+                measurementAreaColor: metaData.measurementAreaColor,
+                type: 'library'
+            });
+        }
+
+        setPendingInstrumentSave(false);
         onClose();
+    };
+
+    const handleSave = () => {
+        if (!isFormValid) return;
+
+        if (
+            (effectiveMode === 'uut' || effectiveMode === 'tmde') &&
+            onSaveToLibrary
+        ) {
+            setPendingInstrumentSave(true);
+            return;
+        }
+
+        completeSave(false);
     };
 
     const toggleFunctionDetails = (e, instId, funcId) => {
@@ -856,10 +888,11 @@ const UniversalInstrumentModal = ({
                         {/* Footer */}
                         <div className="editor-actions">
                             <button 
-                                className="btn-large-icon" 
+                                className="icon-btn-ghost editor-save-button"
                                 onClick={handleSave} 
                                 disabled={!isFormValid}
                                 title={!isFormValid ? "Fill Manufacturer, Model, and Description" : "Save Configuration"}
+                                aria-label="Save configuration"
                             >
                                 <FontAwesomeIcon icon={faCheck} />
                             </button>
@@ -887,6 +920,17 @@ const UniversalInstrumentModal = ({
                 confirmText="Delete"
                 isIconConfirm={true}
                 onConfirm={confirmDelete}
+            />
+            <NotificationModal
+                isOpen={pendingInstrumentSave}
+                onClose={() => setPendingInstrumentSave(false)}
+                title="Save Instrument"
+                message={`Do you want to save this ${effectiveMode === 'uut' ? 'UUT' : 'TMDE'} to the instrument library for future use?`}
+                confirmText="Save to Library"
+                isIconConfirm={true}
+                onConfirm={() => completeSave(true)}
+                secondaryText="Session Only"
+                onSecondary={() => completeSave(false)}
             />
         </div>,
         document.body

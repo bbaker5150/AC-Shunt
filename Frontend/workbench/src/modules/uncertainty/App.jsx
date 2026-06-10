@@ -3512,6 +3512,7 @@ function App() {
           isOpen={isInstrumentBuilderOpen}
           onClose={() => setIsInstrumentBuilderOpen(false)}
           onSave={handleUniversalModalSave}
+          onSaveToLibrary={saveInstrument}
           onDelete={deleteInstrument}
           onBatchAdd={handleBatchAddInstruments}
           instruments={instruments}

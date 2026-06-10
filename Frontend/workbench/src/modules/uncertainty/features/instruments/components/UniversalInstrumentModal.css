@@ -552,6 +552,19 @@
     box-shadow: none;
 }
 
+.instrument-builder-wrapper .editor-actions .editor-save-button {
+    flex: 0 0 32px;
+    color: var(--text-color-muted);
+}
+
+.instrument-builder-wrapper .editor-actions .editor-save-button:disabled {
+    background: transparent;
+    color: var(--text-color-muted);
+    border-color: transparent;
+    cursor: not-allowed;
+    opacity: 0.45;
+}
+
 /* =====================================================================
    Library list: multi-select + delete (Select Instrument from Library)
    ===================================================================== */
