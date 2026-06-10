@@ -372,14 +372,14 @@ const SidebarPointItem = ({
   // showing first-order values.
   const riskMethodMark = risk.mcStale
     ? {
-        label: "↻",
-        color: "var(--status-warning)",
+        label: "MC stale",
+        className: "stale",
         note: "Monte Carlo results out of date — open the point to re-simulate (showing first-order values)",
       }
     : risk.riskMethod === "empirical"
       ? {
           label: "MC",
-          color: "var(--accent-color, #4a90d9)",
+          className: "",
           note: "Empirical risk from this point's Monte Carlo distribution",
         }
       : null;
@@ -559,16 +559,11 @@ const SidebarPointItem = ({
         >
           {risk.pfa !== undefined ? `${Number(risk.pfa).toFixed(2)}%` : "-"}
           {riskMethodMark && (
-            <sup
-              style={{
-                color: riskMethodMark.color,
-                fontSize: "0.62rem",
-                fontWeight: 700,
-                marginLeft: "2px",
-              }}
+            <span
+              className={`point-method-badge ${riskMethodMark.className}`}
             >
               {riskMethodMark.label}
-            </sup>
+            </span>
           )}
         </span>
       )}

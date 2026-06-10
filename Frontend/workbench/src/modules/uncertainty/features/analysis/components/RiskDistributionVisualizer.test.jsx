@@ -97,18 +97,25 @@ test("switches between risk, guardband, and component views", () => {
   );
 });
 
-test("monte carlo view simulates decision outcomes", () => {
+test("monte carlo view simulates decision outcomes", async () => {
+  const monteCarloResults = {
+    ...results,
+    riskMethod: "empirical",
+    errorQuantiles: [-0.04, -0.02, 0, 0.02, 0.04],
+  };
+
   render(
     <RiskDistributionVisualizer
-      results={results}
+      results={monteCarloResults}
       calcResults={calcResults}
       onShowBreakdown={() => {}}
     />,
   );
 
-  fireEvent.click(screen.getByRole("button", { name: "Monte Carlo" }));
-
-  expect(screen.getByText("3,000 trials")).toBeInTheDocument();
+  expect(await screen.findByText("3,000 trials")).toBeInTheDocument();
+  expect(
+    screen.getByText("Monte Carlo", { selector: ".method-chip" }),
+  ).toBeInTheDocument();
   expect(screen.getByText("Correct accept")).toBeInTheDocument();
   expect(screen.getByText("False accept")).toBeInTheDocument();
   expect(screen.getByText("False reject")).toBeInTheDocument();
@@ -130,4 +137,16 @@ test("monte carlo view simulates decision outcomes", () => {
   expect(
     screen.getByText(/Out of tolerance but accepted - calculated 0.48%/),
   ).toBeInTheDocument();
+});
+
+test("keeps monte carlo view unavailable for closed-form results", () => {
+  render(
+    <RiskDistributionVisualizer
+      results={results}
+      calcResults={calcResults}
+      onShowBreakdown={() => {}}
+    />,
+  );
+
+  expect(screen.getByRole("button", { name: "Monte Carlo" })).toBeDisabled();
 });

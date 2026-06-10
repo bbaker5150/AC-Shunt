@@ -1,4 +1,9 @@
 import React, { useEffect, useMemo } from "react";
+import { FontAwesomeIcon } from "@fortawesome/react-fontawesome";
+import {
+  faCheckCircle,
+  faExclamationTriangle,
+} from "@fortawesome/free-solid-svg-icons";
 import {
   unitSystem,
   calculateDerivedUncertainty,
@@ -141,48 +146,31 @@ const MonteCarloCard = ({
     }
   }
 
-  const toneStyle = {
-    good: {
-      border: "1px solid var(--status-good)",
-      backgroundColor: "rgba(76, 175, 80, 0.1)",
-      color: "var(--status-good)",
-    },
-    warn: {
-      border: "1px solid var(--status-warning)",
-      backgroundColor: "rgba(255, 193, 7, 0.12)",
-      color: "var(--status-warning)",
-    },
-  };
-
   return (
     <div className="panel-card" style={{ marginBottom: "20px" }}>
       <div className="panel-card-header">
         <div className="panel-card-title">
-          <span
-            style={{
-              display: "inline-block",
-              padding: "1px 7px",
-              borderRadius: "4px",
-              fontSize: "0.72rem",
-              fontWeight: 700,
-              letterSpacing: "0.04em",
-              backgroundColor: "var(--accent-color, #4a90d9)",
-              color: "#fff",
-            }}
-          >
-            MC
-          </span>
+          <span className="mc-flag">MC</span>
           <span>Monte Carlo Propagation (GUM-S1)</span>
         </div>
         <div className="panel-card-actions">
-          <button
-            type="button"
-            className="button-secondary"
-            style={{ fontSize: "0.85rem" }}
-            onClick={() => onUpdateTestPoint({ propagationMode: "linear" })}
+          <div
+            className="propagation-mode-switch"
+            role="group"
+            aria-label="Propagation method"
           >
-            Use linear (GUM) propagation
-          </button>
+            <button
+              type="button"
+              aria-label="Use linear (GUM) propagation"
+              title="Switch this point back to first-order GUM propagation"
+              onClick={() => onUpdateTestPoint({ propagationMode: "linear" })}
+            >
+              Linear (GUM)
+            </button>
+            <button type="button" className="active" aria-pressed="true">
+              Monte Carlo
+            </button>
+          </div>
         </div>
       </div>
 
@@ -202,79 +190,70 @@ const MonteCarloCard = ({
 
         {mc.status === "done" && native && (
           <>
-            <div
-              style={{
-                display: "grid",
-                gridTemplateColumns: "repeat(auto-fit, minmax(170px, 1fr))",
-                gap: "10px 18px",
-                marginBottom: "10px",
-              }}
-            >
+            <div className="mc-metric-grid">
               <div>
-                <div className="mc-metric-label" style={{ color: "var(--text-color-muted)", fontSize: "0.78rem" }}>
-                  Mean result
-                </div>
-                <strong>
+                <div className="mc-metric-label">Mean result</div>
+                <div className="mc-metric-value">
                   {fmt(native.mean)} {unit}
-                </strong>
-              </div>
-              <div>
-                <div style={{ color: "var(--text-color-muted)", fontSize: "0.78rem" }}>
-                  Std. uncertainty (u)
                 </div>
-                <strong data-testid="mc-standard-uncertainty">
-                  {fmt(native.u)} {unit}
-                </strong>
               </div>
               <div>
-                <div style={{ color: "var(--text-color-muted)", fontSize: "0.78rem" }}>
+                <div className="mc-metric-label">Std. uncertainty (u)</div>
+                <div
+                  className="mc-metric-value"
+                  data-testid="mc-standard-uncertainty"
+                >
+                  {fmt(native.u)} {unit}
+                </div>
+              </div>
+              <div>
+                <div className="mc-metric-label">
                   {Math.round(mc.result.coverageProbability * 100)}% shortest
                   interval
                 </div>
-                <strong>
+                <div className="mc-metric-value">
                   {native.asymmetric
                     ? `+${fmt(native.up, 4)} / −${fmt(native.down, 4)} ${unit}`
                     : `±${fmt((native.up + native.down) / 2, 4)} ${unit}`}
-                </strong>
-                <div style={{ color: "var(--text-color-muted)", fontSize: "0.78rem" }}>
+                </div>
+                <div className="mc-metric-sub">
                   [{fmt(native.low)} … {fmt(native.high)}] {unit}
                 </div>
               </div>
               <div>
-                <div style={{ color: "var(--text-color-muted)", fontSize: "0.78rem" }}>
+                <div className="mc-metric-label">
                   Trials (seed {mc.result.seed})
                 </div>
-                <strong>{mc.result.samplesUsed.toLocaleString()}</strong>
+                <div className="mc-metric-value">
+                  {mc.result.samplesUsed.toLocaleString()}
+                </div>
               </div>
             </div>
 
             {verdict && (
-              <div
-                style={{
-                  ...toneStyle[verdict.tone],
-                  borderRadius: "6px",
-                  padding: "8px 12px",
-                  fontSize: "0.88rem",
-                  marginBottom: "8px",
-                }}
-              >
-                {verdict.text}
+              <div className={`method-callout ${verdict.tone}`} role="status">
+                <div className="method-callout-main">
+                  <FontAwesomeIcon
+                    icon={
+                      verdict.tone === "good"
+                        ? faCheckCircle
+                        : faExclamationTriangle
+                    }
+                    className="method-callout-icon"
+                  />
+                  <span>{verdict.text}</span>
+                </div>
               </div>
             )}
 
-            <p
-              style={{
-                color: "var(--text-color-muted)",
-                fontSize: "0.78rem",
-                margin: 0,
-              }}
-            >
+            <p className="mc-footnote">
               Samples each tolerance component from its configured
               distribution (with input correlations). Risk metrics for this
               point — PFA, PFR, TUR, and guard bands — are integrated
               empirically from this distribution (quadrant counting per GUM-S1)
-              instead of the bivariate-normal closed forms; the budget table
-              remains first-order for reference.
+              instead of the bivariate-normal closed forms. The budget's final
+              results use this distribution; component rows remain first-order
+              decomposition references.
             </p>
           </>
         )}

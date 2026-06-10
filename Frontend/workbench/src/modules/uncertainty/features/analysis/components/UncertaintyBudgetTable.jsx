@@ -200,6 +200,7 @@ const ResultsCard = ({
   isFinal,
   useEffectiveDof,
   onToggleEffectiveDof,
+  method = "linear",
 }) => {
   // When effective DOF is off, ν_eff is not applied to k, so leave it blank.
   const effDofDisplay = useEffectiveDof ? formatDof(results?.effective_dof) : "";
@@ -207,7 +208,12 @@ const ResultsCard = ({
 
   return (
     <aside className={`budget-results-card ${isFinal ? "final" : ""}`}>
-      <div className="budget-results-title">{title}</div>
+      <div className="budget-results-title">
+        {title}
+        {method === "montecarlo" && (
+          <span className="method-chip">Monte Carlo</span>
+        )}
+      </div>
       <div className="budget-results-row">
         <span>Combined Uncertainty</span>
         <strong>
@@ -224,13 +230,14 @@ const ResultsCard = ({
             <input
               type="checkbox"
               checked={!!useEffectiveDof}
+              disabled={method === "montecarlo"}
               onChange={(e) => onToggleEffectiveDof?.(e.target.checked)}
             />
             <span className="direction-toggle-slider"></span>
           </label>
           Effective DOF
         </span>
-        <strong>{effDofDisplay}</strong>
+        <strong>{method === "montecarlo" ? "Empirical" : effDofDisplay}</strong>
       </div>
       <div className="budget-results-row">
         <span>Coverage Factor (k)</span>
@@ -270,6 +277,8 @@ const UncertaintyBudgetTable = ({
   onOpenCorrelation,
   onBudgetSettingsChange,
   useEffectiveDofByGroup = {},
+  propagationMode = "linear",
+  mcSummary = null,
 }) => {
   // Effective DOF is toggled per (sub)budget. Persist the change as a patch to
   // the keyed map (variableType / "equation" / "final"). Default ON.
@@ -699,12 +708,36 @@ const UncertaintyBudgetTable = ({
   );
 
   const finalGroup = groups.find((group) => group.kind === "final");
-  const finalExpanded = finalGroup?.results?.expanded;
+  const usesMonteCarlo =
+    propagationMode === "montecarlo" &&
+    riskResults?.riskMethod === "empirical" &&
+    mcSummary;
+  let mcNative = null;
+  if (usesMonteCarlo) {
+    const convert = (value) => unitSystem.fromBaseUnit(value, derivedUnit);
+    const mean = convert(mcSummary.meanBase);
+    const low = convert(mcSummary.intervalLowBase);
+    const high = convert(mcSummary.intervalHighBase);
+    const combined = convert(mcSummary.uBase);
+    const up = high - mean;
+    const down = mean - low;
+    const expanded = (up + down) / 2;
+    mcNative = {
+      combined,
+      expanded,
+      up,
+      down,
+      k_value: combined > 0 ? expanded / combined : null,
+      effective_dof: null,
+    };
+  }
+  const finalDisplayResults = mcNative || finalGroup?.results;
+  const finalExpanded = finalDisplayResults?.expanded;
   // Coverage factor for the footnote — read from the SAME computed result the
   // expanded uncertainty above uses, never hardcoded. It already tracks the
   // configured confidence and any Type A repeatability that lowers the
   // effective DOF (which raises k via the Student-t quantile).
-  const displayK = finalGroup?.results?.k_value ?? calcResults?.k_value;
+  const displayK = finalDisplayResults?.k_value ?? calcResults?.k_value;
 
   return (
     <div className="budget-stack">
@@ -818,7 +851,9 @@ const UncertaintyBudgetTable = ({
             </div>
             <ResultsCard
               title={group.kind === "final" ? "Final Results" : "Results"}
-              results={group.results}
+              results={
+                group.kind === "final" && mcNative ? mcNative : group.results
+              }
               unit={group.unit}
               sigFigs={group.kind === "final" ? expandedSigFigs : uiSigFigs}
               isFinal={group.kind === "final"}
@@ -828,6 +863,11 @@ const UncertaintyBudgetTable = ({
               onToggleEffectiveDof={(checked) =>
                 handleToggleEffectiveDof(groupDofKey(group), checked)
               }
+              method={
+                group.kind === "final" && usesMonteCarlo
+                  ? "montecarlo"
+                  : "linear"
+              }
             />
           </section>
         </React.Fragment>
@@ -836,15 +876,33 @@ const UncertaintyBudgetTable = ({
       {calcResults && (
         <div className="final-result-display budget-stack-final-display">
           <div className="budget-final-toggles">{renderResultSettings()}</div>
-          <span className="final-result-label">Expanded Uncertainty (U)</span>
+          <span className="final-result-label final-result-label-row">
+            Expanded Uncertainty (U)
+            {usesMonteCarlo && <span className="method-chip">Monte Carlo</span>}
+          </span>
           <div className="final-result-value">
-            +/- {formatNumber(finalExpanded, expandedSigFigs)}
+            {usesMonteCarlo
+              ? `+${formatNumber(mcNative.up, expandedSigFigs)} / -${formatNumber(
+                  mcNative.down,
+                  expandedSigFigs,
+                )}`
+              : `+/- ${formatNumber(finalExpanded, expandedSigFigs)}`}
             <span className="final-result-unit">{derivedUnit}</span>
           </div>
           <span className="final-result-confidence-note">
-            The reported expanded uncertainty uses k={formatNumber(displayK, 4)}{" "}
-            at {confidencePercent}%.
+            {usesMonteCarlo
+              ? `Empirical shortest ${confidencePercent}% coverage interval from the GUM-S1 simulation.`
+              : `The reported expanded uncertainty uses k=${formatNumber(
+                  displayK,
+                  4,
+                )} at ${confidencePercent}%.`}
           </span>
+          {propagationMode === "montecarlo" && !usesMonteCarlo && (
+            <span className="budget-risk-method-note stale">
+              Monte Carlo results are refreshing. Linear GUM totals are shown
+              temporarily.
+            </span>
+          )}
           {renderRiskMetrics()}
         </div>
       )}

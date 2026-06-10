@@ -1,4 +1,4 @@
-import React, { useId, useMemo, useState } from "react";
+import React, { useEffect, useId, useMemo, useState } from "react";
 import { drawFromQuantiles } from "../../../utils/empiricalRisk";
 
 const WIDTH = 920;
@@ -265,6 +265,13 @@ const RiskDistributionVisualizer = ({
   const [riskZoom, setRiskZoom] = useState(1);
   const [mcZoom, setMcZoom] = useState(1);
   const [componentZoom, setComponentZoom] = useState(1);
+  const usesMonteCarlo = results.riskMethod === "empirical";
+  const monteCarloStale =
+    results.riskMethod !== "empirical" && results.mcStale === true;
+
+  useEffect(() => {
+    setMode(usesMonteCarlo ? "montecarlo" : "decision");
+  }, [usesMonteCarlo]);
   const componentOptions = useMemo(
     () => flattenComponents(calcResults, results.nativeUnit),
     [calcResults, results.nativeUnit],
@@ -493,7 +500,10 @@ const RiskDistributionVisualizer = ({
       <header className="risk-viz-header">
         <div>
           <span className="risk-viz-eyebrow">Decision confidence</span>
-          <h3>Tolerance &amp; Uncertainty Visualizer</h3>
+          <h3>
+            Tolerance &amp; Uncertainty Visualizer
+            {usesMonteCarlo && <span className="method-chip">Monte Carlo</span>}
+          </h3>
           <p>
             See how measurement uncertainty interacts with specification and
             acceptance limits.
@@ -511,6 +521,12 @@ const RiskDistributionVisualizer = ({
             type="button"
             className={mode === "montecarlo" ? "active" : ""}
             onClick={() => setMode("montecarlo")}
+            disabled={!usesMonteCarlo}
+            title={
+              usesMonteCarlo
+                ? "View empirical Monte Carlo decision outcomes"
+                : "Enable Monte Carlo propagation on this point to view empirical outcomes"
+            }
           >
             Monte Carlo
           </button>
@@ -524,6 +540,12 @@ const RiskDistributionVisualizer = ({
           </button>
         </div>
       </header>
+      {monteCarloStale && (
+        <div className="budget-risk-method-note stale">
+          Monte Carlo results are out of date. The visualizer is showing linear
+          GUM results until the simulation refreshes.
+        </div>
+      )}
 
       {mode === "decision" && (
         <>

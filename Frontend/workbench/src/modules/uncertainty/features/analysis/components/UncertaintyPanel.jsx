@@ -3214,19 +3214,8 @@ function DetailedView({
               )}
 
               {showMonteCarloSuggestion && (
-                <div
-                  className="measurement-equation-status"
-                  style={{
-                    border: "1px solid var(--status-warning)",
-                    backgroundColor: "rgba(255, 193, 7, 0.12)",
-                    color: "var(--status-warning)",
-                    display: "block",
-                  }}
-                >
-                  <div
-                    className="measurement-equation-status-main"
-                    style={{ marginBottom: "6px" }}
-                  >
+                <div className="method-callout warn">
+                  <div className="method-callout-main">
                     <FontAwesomeIcon icon={faExclamationTriangle} />
                     <span>
                       {isStationaryPointError
@@ -3234,24 +3223,27 @@ function DetailedView({
                         : "The linear (GUM) budget may understate uncertainty at this operating point:"}
                     </span>
                   </div>
-                  {nonlinearityWarnings.map((warning, idx) => (
-                    <div
-                      key={idx}
-                      style={{ fontSize: "0.85rem", margin: "2px 0 2px 24px" }}
+                  {nonlinearityWarnings.length > 0 && (
+                    <ul className="method-callout-list">
+                      {nonlinearityWarnings.map((warning, idx) => (
+                        <li key={idx}>{warning}</li>
+                      ))}
+                    </ul>
+                  )}
+                  <div className="method-callout-actions">
+                    <button
+                      type="button"
+                      className="method-callout-btn"
+                      onClick={() =>
+                        onUpdateTestPoint({ propagationMode: "montecarlo" })
+                      }
                     >
-                      {warning}
-                    </div>
-                  ))}
-                  <button
-                    type="button"
-                    className="button-secondary"
-                    style={{ marginTop: "8px" }}
-                    onClick={() =>
-                      onUpdateTestPoint({ propagationMode: "montecarlo" })
-                    }
-                  >
-                    Re-evaluate with Monte Carlo
-                  </button>
+                      Re-evaluate with Monte Carlo
+                    </button>
+                    <span className="method-callout-hint">
+                      GUM-S1 simulation will drive final budget and risk results.
+                    </span>
+                  </div>
                 </div>
               )}
             </div>
@@ -3682,6 +3674,8 @@ function DetailedView({
               equationString={testPointData.equationString}
               measurementType={testPointData.measurementType}
               riskResults={riskResults}
+              propagationMode={propagationMode}
+              mcSummary={testPointData.mcSummary}
               onShowDerivedBreakdown={onShowDerivedBreakdown}
               onShowRiskBreakdown={onShowRiskBreakdown}
               showContribution={showContribution}
