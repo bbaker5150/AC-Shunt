@@ -232,31 +232,65 @@
 }
 
 .add-point-equation-input {
-  display: grid;
-  grid-template-columns: minmax(0, 1fr) 52px;
+  display: flex;
   align-items: stretch;
 }
 
 .add-point-equation-input input {
+  flex: 1 1 auto;
+  min-width: 0;
   border-top-right-radius: 0;
   border-bottom-right-radius: 0;
+  border-right: 0;
   font-family: ui-monospace, SFMono-Regular, Consolas, "Liberation Mono", monospace;
 }
 
+/* Segmented action group joined to the right edge of the equation input:
+   [ equation input | f(x) | Library ] reads as one continuous control. */
+.add-point-equation-actions {
+  display: flex;
+  flex: 0 0 auto;
+  align-items: stretch;
+}
+
 .add-point-fx-button {
-  width: 52px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 6px;
   height: 40px;
+  padding: 0 12px;
   border: 1px solid var(--border-color);
   border-left: 0;
-  border-radius: 0 6px 6px 0;
+  border-radius: 0;
   background: var(--background-color-secondary);
   color: var(--primary-color);
   font-weight: 700;
+  font-size: 0.85rem;
+  white-space: nowrap;
   cursor: pointer;
+  transition: background 0.15s ease, color 0.15s ease;
 }
 
 .add-point-fx-button:hover {
   background: rgba(var(--primary-rgb), 0.08);
+}
+
+/* The trailing button rounds the group's right corners and reads as a
+   secondary (text) action rather than the primary f(x) symbol toggle. */
+.add-point-fx-button.is-library {
+  border-radius: 0 6px 6px 0;
+  color: var(--text-color);
+  font-weight: 600;
+}
+
+.add-point-fx-button.is-library:hover {
+  color: var(--primary-color);
+}
+
+.add-point-fx-button.is-library svg {
+  font-size: 0.8rem;
+  opacity: 0.85;
 }
 
 .add-point-variable-map {

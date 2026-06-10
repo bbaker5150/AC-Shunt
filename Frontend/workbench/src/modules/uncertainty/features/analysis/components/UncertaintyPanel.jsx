@@ -23,6 +23,7 @@ import {
   faArrowRight,
   faRulerCombined,
   faTools,
+  faBookOpen,
 } from "@fortawesome/free-solid-svg-icons";
 import { formatRangeLabel } from "../../../utils/rangeFormatting";
 import { getNextInstrumentSelection } from "../../../utils/instrumentSelection";
@@ -3087,24 +3088,27 @@ function DetailedView({
                   onChange={(e) => handleEquationChange(e.target.value)}
                   placeholder="e.g. V / R or W * L"
                 />
-                <button
-                  type="button"
-                  className="add-point-fx-button"
-                  title="Insert function or symbol"
-                  ref={symbolButtonRef}
-                  onClick={handleSymbolMenuToggle}
-                >
-                  f(x)
-                </button>
-                <button
-                  type="button"
-                  className="add-point-fx-button"
-                  title="Insert a common metrology equation"
-                  ref={libraryButtonRef}
-                  onClick={handleLibraryMenuToggle}
-                >
-                  Library
-                </button>
+                <div className="measurement-equation-actions">
+                  <button
+                    type="button"
+                    className="add-point-fx-button"
+                    title="Insert function or symbol"
+                    ref={symbolButtonRef}
+                    onClick={handleSymbolMenuToggle}
+                  >
+                    f(x)
+                  </button>
+                  <button
+                    type="button"
+                    className="add-point-fx-button is-library"
+                    title="Insert a common metrology equation"
+                    ref={libraryButtonRef}
+                    onClick={handleLibraryMenuToggle}
+                  >
+                    <FontAwesomeIcon icon={faBookOpen} />
+                    Library
+                  </button>
+                </div>
               </div>
               {symbolMenu}
               {isLibraryOpen &&

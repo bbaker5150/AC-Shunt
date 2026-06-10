@@ -4,6 +4,7 @@ import ReactDOM from "react-dom";
 import Select from "react-select";
 import { FontAwesomeIcon } from "@fortawesome/react-fontawesome";
 import {
+  faBookOpen,
   faCheck,
   faGripHorizontal,
   faLayerGroup,
@@ -14,6 +15,7 @@ import {
 import { v4 as uuidv4 } from "uuid";
 import { unitSystem, unitCategories } from "../../../utils/uncertaintyMath";
 import NotificationModal from "../../../components/modals/NotificationModal";
+import EquationLibraryMenu from "../../analysis/components/EquationLibraryMenu";
 import "./AddTestPointModal.css";
 
 const customSelectStyles = {
@@ -126,11 +128,15 @@ const AddTestPointModal = ({
   const [equationVariables, setEquationVariables] = useState([]);
   const [isSymbolMenuOpen, setIsSymbolMenuOpen] = useState(false);
   const [symbolMenuPosition, setSymbolMenuPosition] = useState({ top: 0, left: 0 });
+  const [isLibraryOpen, setIsLibraryOpen] = useState(false);
+  const [libraryMenuPosition, setLibraryMenuPosition] = useState({ top: 0, left: 0 });
   const [cursorPos, setCursorPos] = useState(null);
 
   const equationInputRef = useRef(null);
   const symbolButtonRef = useRef(null);
   const symbolMenuRef = useRef(null);
+  const libraryButtonRef = useRef(null);
+  const libraryMenuRef = useRef(null);
 
   const groupedUnitOptions = useMemo(() => {
     const allSupportedUnits = Object.keys(unitSystem.units);
@@ -315,6 +321,14 @@ const AddTestPointModal = ({
       ) {
         setIsSymbolMenuOpen(false);
       }
+      if (
+        libraryMenuRef.current &&
+        !libraryMenuRef.current.contains(event.target) &&
+        libraryButtonRef.current &&
+        !libraryButtonRef.current.contains(event.target)
+      ) {
+        setIsLibraryOpen(false);
+      }
     };
     document.addEventListener("mousedown", handleClickOutside);
     return () => document.removeEventListener("mousedown", handleClickOutside);
@@ -358,6 +372,48 @@ const AddTestPointModal = ({
       });
     }
     setIsSymbolMenuOpen((open) => !open);
+  };
+
+  const handleLibraryMenuToggle = () => {
+    const rect = libraryButtonRef.current?.getBoundingClientRect();
+    if (rect) {
+      setLibraryMenuPosition({
+        top: rect.bottom + 6,
+        left: Math.max(12, rect.right - 360),
+      });
+    }
+    setIsLibraryOpen((open) => !open);
+  };
+
+  // Insert a library equation: non-destructive (confirm before replacing a
+  // different non-empty equation), pre-filling the variable map with the
+  // library's suggested names while letting any existing name for the same
+  // symbol win.
+  const handleLibrarySelect = (equation) => {
+    setIsLibraryOpen(false);
+    const current = (formData.equationString || "").trim();
+    if (
+      current &&
+      current !== equation.expression &&
+      !window.confirm(
+        `Replace the current equation with "${equation.name}" (${equation.expression})?`,
+      )
+    ) {
+      return;
+    }
+    setFormData((prev) => {
+      const currentMappings = prev.variableMappings || {};
+      const newMappings = {};
+      Object.entries(equation.variables).forEach(([symbol, suggestedName]) => {
+        newMappings[symbol] = currentMappings[symbol] || suggestedName;
+      });
+      return {
+        ...prev,
+        equationString: equation.expression,
+        variableMappings: newMappings,
+      };
+    });
+    updateEquationVariables(equation.expression);
   };
 
   const handleSymbolClick = (symbol) => {
@@ -480,6 +536,24 @@ const AddTestPointModal = ({
       )
     : null;
 
+  const libraryMenu = isLibraryOpen
+    ? ReactDOM.createPortal(
+        <div
+          className="add-point-symbol-popover"
+          ref={libraryMenuRef}
+          style={{
+            top: libraryMenuPosition.top,
+            left: libraryMenuPosition.left,
+            maxHeight: "60vh",
+            overflowY: "auto",
+          }}
+        >
+          <EquationLibraryMenu onSelect={handleLibrarySelect} />
+        </div>,
+        document.body,
+      )
+    : null;
+
   return ReactDOM.createPortal(
     <>
       {notification && (
@@ -491,6 +565,7 @@ const AddTestPointModal = ({
         />
       )}
       {symbolMenu}
+      {libraryMenu}
 
       <div
         className="modal-content floating-window-content add-point-modal"
@@ -605,15 +680,27 @@ const AddTestPointModal = ({
                         onChange={handleChange}
                         placeholder="e.g., V / I"
                       />
-                      <button
-                        type="button"
-                        className="add-point-fx-button"
-                        ref={symbolButtonRef}
-                        onClick={handleSymbolMenuToggle}
-                        title="Insert function or symbol"
-                      >
-                        f(x)
-                      </button>
+                      <div className="add-point-equation-actions">
+                        <button
+                          type="button"
+                          className="add-point-fx-button"
+                          ref={symbolButtonRef}
+                          onClick={handleSymbolMenuToggle}
+                          title="Insert function or symbol"
+                        >
+                          f(x)
+                        </button>
+                        <button
+                          type="button"
+                          className="add-point-fx-button is-library"
+                          ref={libraryButtonRef}
+                          onClick={handleLibraryMenuToggle}
+                          title="Insert a common metrology equation"
+                        >
+                          <FontAwesomeIcon icon={faBookOpen} />
+                          Library
+                        </button>
+                      </div>
                     </div>
                   </label>
 
