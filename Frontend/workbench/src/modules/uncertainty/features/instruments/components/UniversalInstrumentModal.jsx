@@ -108,6 +108,12 @@ const formatToleranceSummary = (tolerances) => {
     return parts.length > 0 ? <span className="tolerance-badge">{parts.join(" + ")}</span> : <span className="tolerance-badge">Custom Spec</span>;
 };
 
+const getComparableLibraryInstrument = (instrument) => ({
+    manufacturer: instrument?.manufacturer || "",
+    model: instrument?.model || "",
+    functions: instrument?.functions || []
+});
+
 const UniversalInstrumentModal = ({
     isOpen,
     onClose,
@@ -134,6 +140,7 @@ const UniversalInstrumentModal = ({
     const [pendingDelete, setPendingDelete] = useState(null); // { ids: [...] }
     const [pendingInstrumentSave, setPendingInstrumentSave] = useState(false);
     const [libraryInstrumentId, setLibraryInstrumentId] = useState(null);
+    const [initialInstrumentSignature, setInitialInstrumentSignature] = useState("");
 
     const [metaData, setMetaData] = useState({
         name: "", 
@@ -190,6 +197,9 @@ const UniversalInstrumentModal = ({
                         ? loadedInst.id
                         : null);
                 setLibraryInstrumentId(existingLibraryId);
+                setInitialInstrumentSignature(
+                    JSON.stringify(getComparableLibraryInstrument(loadedInst))
+                );
                 setInstrumentDef(JSON.parse(JSON.stringify(loadedInst)));
                 if (loadedInst.functions?.length > 0) setActiveFunctionId(loadedInst.functions[0].id);
                 else setActiveFunctionId(null);
@@ -204,6 +214,13 @@ const UniversalInstrumentModal = ({
                 });
             } else {
                 setLibraryInstrumentId(null);
+                setInitialInstrumentSignature(
+                    JSON.stringify(getComparableLibraryInstrument({
+                        manufacturer: "",
+                        model: "",
+                        functions: []
+                    }))
+                );
                 setMetaData({
                     name: "",
                     measurementArea: defaultMeasurementArea?.name || "",
@@ -260,6 +277,21 @@ const UniversalInstrumentModal = ({
         ),
         [instruments, libraryInstrumentId, instrumentDef.id]
     );
+
+    const linkedLibraryInstrument = useMemo(
+        () => instruments.find(
+            (instrument) =>
+                instrument.id === libraryInstrumentId ||
+                instrument.id === instrumentDef.id
+        ) || null,
+        [instruments, libraryInstrumentId, instrumentDef.id]
+    );
+
+    const hasLibraryChanges = useMemo(() => {
+        if (!linkedLibraryInstrument) return false;
+        return JSON.stringify(getComparableLibraryInstrument(instrumentDef)) !==
+            initialInstrumentSignature;
+    }, [initialInstrumentSignature, instrumentDef, linkedLibraryInstrument]);
 
     // --- Library list multi-select (ctrl = toggle, shift = range) ---
     const handleRowSelect = (e, instId) => {
@@ -342,14 +374,27 @@ const UniversalInstrumentModal = ({
             }
         }
         
+        setInitialInstrumentSignature(
+            JSON.stringify(getComparableLibraryInstrument(newDef))
+        );
         setInstrumentDef(newDef);
         if (newDef.functions?.length > 0) setActiveFunctionId(newDef.functions[0].id);
         setViewMode("edit");
     };
 
     const handleCreateNew = () => {
-        setInstrumentDef({ id: uuidv4(), manufacturer: "", model: "", description: "", functions: [] });
+        const newInstrument = {
+            id: uuidv4(),
+            manufacturer: "",
+            model: "",
+            description: "",
+            functions: []
+        };
+        setInstrumentDef(newInstrument);
         setLibraryInstrumentId(null);
+        setInitialInstrumentSignature(
+            JSON.stringify(getComparableLibraryInstrument(newInstrument))
+        );
         setMetaData(prev => ({...prev, name: "", measurementArea: "", measurementAreaColor: "#3498db"}));
         setActiveFunctionId(null);
         setViewMode("edit");
@@ -490,7 +535,9 @@ const UniversalInstrumentModal = ({
     };
 
     const completeSave = (saveToLibrary = false) => {
-        const savedLibraryId = saveToLibrary ? instrumentDef.id : libraryInstrumentId;
+        const savedLibraryId = saveToLibrary
+            ? linkedLibraryInstrument?.id || instrumentDef.id
+            : libraryInstrumentId || linkedLibraryInstrument?.id || null;
         const finalData = buildSaveData(savedLibraryId);
         console.log("[UniversalInstrumentModal] Saving Data:", finalData);
         onSave(finalData);
@@ -498,9 +545,13 @@ const UniversalInstrumentModal = ({
         if (saveToLibrary && onSaveToLibrary) {
             onSaveToLibrary({
                 ...instrumentDef,
-                description: metaData.name,
-                measurementArea: metaData.measurementArea,
-                measurementAreaColor: metaData.measurementAreaColor,
+                id: savedLibraryId,
+                description: linkedLibraryInstrument?.description || metaData.name,
+                measurementArea:
+                    linkedLibraryInstrument?.measurementArea || metaData.measurementArea,
+                measurementAreaColor:
+                    linkedLibraryInstrument?.measurementAreaColor ||
+                    metaData.measurementAreaColor,
                 type: 'library'
             });
         }
@@ -516,7 +567,7 @@ const UniversalInstrumentModal = ({
         if (
             (effectiveMode === 'uut' || effectiveMode === 'tmde') &&
             onSaveToLibrary &&
-            !isInstrumentInLibrary
+            (!isInstrumentInLibrary || hasLibraryChanges)
         ) {
             setPendingInstrumentSave(true);
             return;
@@ -641,10 +692,15 @@ const UniversalInstrumentModal = ({
                                                                     if (!func) return null;
                                                                     return (
                                                                         <table className="ranges-table">
-                                                                            <thead><tr><th>Min</th><th>Max</th><th>Spec</th></tr></thead>
+                                                                            <thead><tr><th>Min</th><th>Max</th><th>Resolution</th><th>Spec</th></tr></thead>
                                                                             <tbody>
                                                                                 {func.ranges.map((r, i) => (
-                                                                                    <tr key={i}><td>{r.min}</td><td>{r.max}</td><td>{formatToleranceSummary(r.tolerances)}</td></tr>
+                                                                                    <tr key={i}>
+                                                                                        <td>{r.min}</td>
+                                                                                        <td>{r.max}</td>
+                                                                                        <td>{r.resolution ?? 0}</td>
+                                                                                        <td>{formatToleranceSummary(r.tolerances)}</td>
+                                                                                    </tr>
                                                                                 ))}
                                                                             </tbody>
                                                                         </table>
@@ -740,6 +796,8 @@ const UniversalInstrumentModal = ({
                                         setTolerance={handleToleranceUpdate}
                                         isUUT={effectiveMode === 'uut'}
                                         referencePoint={{ unit: activeFunction?.unit }}
+                                        showResolution={true}
+                                        resolutionInTable={true}
                                         showManualComponents={true}
                                     />
                                 </div>
@@ -879,8 +937,10 @@ const UniversalInstrumentModal = ({
                                                             <th style={{width:'25%'}}>
                                                                 Max{activeFunction.unit ? ` (${activeFunction.unit})` : ''}
                                                             </th>
-                                                            {/* Resolution removed */}
-                                                            <th style={{width:'40%'}}>Tolerance</th>
+                                                            <th style={{width:'18%'}}>
+                                                                Resolution{activeFunction.unit ? ` (${activeFunction.unit})` : ''}
+                                                            </th>
+                                                            <th style={{width:'22%'}}>Tolerance</th>
                                                             <th style={{width:'10%'}}></th>
                                                         </tr>
                                                     </thead>
@@ -889,7 +949,7 @@ const UniversalInstrumentModal = ({
                                                             <tr key={range.id}>
                                                                 <td><input type="number" step="any" value={range.min} onChange={e => updateRangeBounds(range.id, 'min', e.target.value)} /></td>
                                                                 <td><input type="number" step="any" value={range.max} onChange={e => updateRangeBounds(range.id, 'max', e.target.value)} /></td>
-                                                                {/* Resolution removed */}
+                                                                <td><input type="number" step="any" value={range.resolution ?? 0} onChange={e => updateRangeBounds(range.id, 'resolution', e.target.value)} /></td>
                                                                 <td>
                                                                     <div className="tolerance-cell" onClick={() => setEditingRange({ ...range })}>
                                                                         {formatToleranceSummary(range.tolerances)}
@@ -952,9 +1012,17 @@ const UniversalInstrumentModal = ({
             <NotificationModal
                 isOpen={pendingInstrumentSave}
                 onClose={() => setPendingInstrumentSave(false)}
-                title="Save Instrument"
-                message={`Do you want to save this ${effectiveMode === 'uut' ? 'UUT' : 'TMDE'} to the instrument library for future use?`}
-                confirmText="Save to Library"
+                title={isInstrumentInLibrary ? "Update Library Instrument" : "Save Instrument"}
+                message={
+                    isInstrumentInLibrary
+                        ? `This ${effectiveMode === 'uut' ? 'UUT' : 'TMDE'} has changes that differ from the library. Do you want to update the library and this session, or only this session?`
+                        : `Do you want to save this ${effectiveMode === 'uut' ? 'UUT' : 'TMDE'} to the instrument library for future use?`
+                }
+                confirmText={
+                    isInstrumentInLibrary
+                        ? "Update Library & Session"
+                        : "Save to Library & Session"
+                }
                 onConfirm={() => completeSave(true)}
                 secondaryText="Session Only"
                 onSecondary={() => completeSave(false)}

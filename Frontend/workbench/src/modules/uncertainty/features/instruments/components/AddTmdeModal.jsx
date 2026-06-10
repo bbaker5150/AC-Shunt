@@ -239,7 +239,8 @@ const AddTmdeModal = ({
               ...prev,
               name: `${instrument.manufacturer} ${instrument.model}`,
               ...specs,
-              measuringResolution: undefined,
+              measuringResolution: matchedData.resolution ?? "",
+              measuringResolutionUnit: matchedData.unit || currentUnit,
             }));
             setNotification(null);
           }
@@ -502,6 +503,7 @@ const AddTmdeModal = ({
             setTolerance={setTmde}
             isUUT={false}
             referencePoint={tmde.measurementPoint}
+            showResolution={true}
             showManualComponents={true}
           />
         </div>
