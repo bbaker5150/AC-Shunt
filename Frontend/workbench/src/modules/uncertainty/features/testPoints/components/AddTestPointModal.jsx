@@ -181,6 +181,12 @@ const AddTestPointModal = ({
   }, [contextUuts, initialData, previousTestPointData, sessionData]);
 
   const handleMouseDown = (e) => {
+    // The f(x) / Library popovers are portaled to <body> at coordinates
+    // captured when they open, so they don't track the modal as it moves.
+    // Dismiss them when a drag begins rather than leaving an orphaned dropdown
+    // floating at the old spot.
+    setIsSymbolMenuOpen(false);
+    setIsLibraryOpen(false);
     setIsDragging(true);
     setDragOffset({
       x: e.clientX - position.x,
@@ -583,9 +589,21 @@ const AddTestPointModal = ({
         <div className="add-point-header" onMouseDown={handleMouseDown}>
           <div className="add-point-title">
             <FontAwesomeIcon icon={faGripHorizontal} className="add-point-drag-icon" />
-            <div>
+            <div className="add-point-title-text">
               <h3>{isEditing ? "Edit Measurement Point" : "Add Measurement Points"}</h3>
-              <span>{isEditing ? "Update point details" : "Batch entry tied to selected UUT context"}</span>
+              <div className="add-point-header-meta">
+                <span className="add-point-header-chip" title="UUT context">
+                  <FontAwesomeIcon icon={faMicroscope} />
+                  <span>
+                    {contextUuts[0]?.description || contextUuts[0]?.name || "No UUT selected"}
+                    {contextUuts.length > 1 ? ` +${contextUuts.length - 1}` : ""}
+                  </span>
+                </span>
+                <span className="add-point-header-chip" title="Measurement area">
+                  <FontAwesomeIcon icon={faLayerGroup} />
+                  <span>{contextArea?.name || contextUuts[0]?.measurementArea || "Unassigned"}</span>
+                </span>
+              </div>
             </div>
           </div>
           <button onClick={onClose} className="modal-close-button" style={{ position: "static" }}>
@@ -594,28 +612,6 @@ const AddTestPointModal = ({
         </div>
 
         <div className="add-point-body">
-          <aside className="add-point-context">
-            <div className="add-point-context-card">
-              <div className="add-point-context-icon">
-                <FontAwesomeIcon icon={faMicroscope} />
-              </div>
-              <div>
-                <span className="add-point-kicker">UUT Context</span>
-                <strong>{contextUuts[0]?.description || contextUuts[0]?.name || "No UUT selected"}</strong>
-                {contextUuts.length > 1 && <small>{contextUuts.length} UUTs selected</small>}
-              </div>
-            </div>
-            <div className="add-point-context-card">
-              <div className="add-point-context-icon">
-                <FontAwesomeIcon icon={faLayerGroup} />
-              </div>
-              <div>
-                <span className="add-point-kicker">Measurement Area</span>
-                <strong>{contextArea?.name || contextUuts[0]?.measurementArea || "Unassigned"}</strong>
-              </div>
-            </div>
-          </aside>
-
           <section className="add-point-main">
             <div className="add-point-section">
               <div className="add-point-section-header">
