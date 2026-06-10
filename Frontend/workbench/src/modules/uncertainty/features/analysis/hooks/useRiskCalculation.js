@@ -26,10 +26,15 @@ import {
   GBMultMgr, 
   PFAwGBMgr, 
   PFRwGBMgr, 
-  CalIntwGBMgr, 
-  CalIntMgr, 
-  CalRelMgr 
+  CalIntwGBMgr,
+  CalIntMgr,
+  CalRelMgr
 } from "../../../utils/uncertaintyMath";
+import {
+  getFreshMcSummary,
+  computeEmpiricalRisk,
+  findEmpiricalGuardBand,
+} from "../../../utils/empiricalRisk";
 
 export const useRiskCalculation = (
   sessionData,
@@ -125,10 +130,8 @@ export const useRiskCalculation = (
 
     const nominalUnit = uutNominal?.unit;
     const targetUnitInfo = unitSystem.units[nominalUnit];
-    const uCal_Base = calcResults.combined_uncertainty_absolute_base;
-    const uCal_Native = uCal_Base / targetUnitInfo.to_si;
-    const U_Base = calcResults.expanded_uncertainty_absolute_base;
-    const U_Native = U_Base / targetUnitInfo.to_si;
+    let uCal_Native = calcResults.combined_uncertainty_absolute_base / targetUnitInfo?.to_si;
+    let U_Native = calcResults.expanded_uncertainty_absolute_base / targetUnitInfo?.to_si;
     const calculatedAverage = parseFloat(calcResults.calculatedNominalValue);
     const riskAverage = Number.isFinite(calculatedAverage) ? calculatedAverage : 0;
 
@@ -138,6 +141,25 @@ export const useRiskCalculation = (
         message: `Invalid UUT unit (${nominalUnit}) for risk analysis.`,
       });
       return;
+    }
+
+    // --- Layer 3: empirical risk context (MC-mode points, fresh summary) ---
+    // Mirrors riskCompute.js so the open panel and the sidebar agree: u_c
+    // comes from the MC distribution, the expanded uncertainty from the
+    // shortest-95% interval half-width (so TUR is interval-based), and
+    // PFA/PFR/guard bands below are quadrant-counted against the empirical
+    // measurement-error distribution.
+    const mcSummary = getFreshMcSummary(testPointData, tmdeTolerancesData);
+    let mcErrorQuantilesNative = null;
+    if (mcSummary) {
+      uCal_Native = mcSummary.uBase / targetUnitInfo.to_si;
+      U_Native =
+        (mcSummary.intervalHighBase - mcSummary.intervalLowBase) /
+        2 /
+        targetUnitInfo.to_si;
+      mcErrorQuantilesNative = mcSummary.quantiles.map(
+        (q) => (q - mcSummary.meanBase) / targetUnitInfo.to_si
+      );
     }
 
     // ... [Logic: UUT Breakdown for TAR] ...
@@ -315,6 +337,35 @@ export const useRiskCalculation = (
     pfr_term1 = validateRiskNum(pfr_term1);
     pfr_term2 = validateRiskNum(pfr_term2);
 
+    // Empirical override: quadrant counts from the MC measurement-error
+    // distribution replace the bivariate-normal integrals (per-side terms
+    // included, so the breakdown display keeps its low/high split).
+    let riskMethod = "closedform";
+    if (mcErrorQuantilesNative) {
+      const empirical = computeEmpiricalRisk({
+        average: riskAverage,
+        LLow,
+        LUp,
+        uCal: uCal_Native,
+        errorQuantiles: mcErrorQuantilesNative,
+        reliability,
+        tur: turResult,
+        reqTur: turNeeded,
+      });
+      if (empirical) {
+        pfaResult = empirical.pfa;
+        pfa_term1 = empirical.pfaLow;
+        pfa_term2 = empirical.pfaHigh;
+        pfrResult = empirical.pfr;
+        pfr_term1 = empirical.pfrLow;
+        pfr_term2 = empirical.pfrHigh;
+        uUUT = empirical.uUUT;
+        uDev = empirical.uDev;
+        cor = empirical.correlation;
+        riskMethod = "empirical";
+      }
+    }
+
     // Measurement resolution is stored in its own unit; convert it into the
     // native nominal unit so the guard-band rounding grid (resUp/resDwn) matches
     // the unit the limits live in — mirroring Excel's FC, which is already in the
@@ -395,6 +446,64 @@ export const useRiskCalculation = (
       gbLow,
       gbHigh
     );
+
+    // Empirical guard band: invert the quadrant-counted PFA instead of the
+    // normal closed form. Asymmetric whenever the error distribution is —
+    // each limit is guarded in proportion to the error mass that can carry an
+    // out-of-tolerance unit past it. Downstream consumers (GB mult, cal
+    // interval managers) run on the overridden limits.
+    if (riskMethod === "empirical" && mcErrorQuantilesNative && pfaRequired > 0) {
+      const empiricalGb = findEmpiricalGuardBand({
+        pfaRequired,
+        average: riskAverage,
+        LLow,
+        LUp,
+        uCal: uCal_Native,
+        errorQuantiles: mcErrorQuantilesNative,
+        reliability,
+        tur: turResult,
+        reqTur: turNeeded,
+      });
+      if (empiricalGb) {
+        gbLow = resDwn(empiricalGb.gbLow, safeRes);
+        gbHigh = resUp(empiricalGb.gbUp, safeRes);
+        gbLowMult = empiricalGb.mult;
+        gbHighMult = empiricalGb.mult;
+        gbMult = GBMultMgr(
+          pfaRequired,
+          uutNominal.value,
+          riskAverage,
+          LLow,
+          LUp,
+          gbLow,
+          gbHigh
+        );
+        const empiricalWithGb = computeEmpiricalRisk({
+          average: riskAverage,
+          LLow,
+          LUp,
+          accLow: gbLow,
+          accUp: gbHigh,
+          uCal: uCal_Native,
+          errorQuantiles: mcErrorQuantilesNative,
+          reliability,
+          tur: turResult,
+          reqTur: turNeeded,
+        });
+        if (empiricalWithGb) {
+          gbPFA = empiricalWithGb.pfa;
+          gbPFAT1 = empiricalWithGb.pfaLow;
+          gbPFAT2 = empiricalWithGb.pfaHigh;
+          gbPFAuUUT = empiricalWithGb.uUUT;
+          gbPFAuDev = empiricalWithGb.uDev;
+          gbPFACor = empiricalWithGb.correlation;
+          gbPFR = empiricalWithGb.pfr;
+          gbPFRT1 = empiricalWithGb.pfrLow;
+          gbPFRT2 = empiricalWithGb.pfrHigh;
+        }
+      }
+    }
+
     let [gbCalInt,gbCalIntObs,gbCalIntPred] = CalIntwGBMgr(
       uutNominal.value,
       riskAverage,
@@ -479,6 +588,14 @@ export const useRiskCalculation = (
     const newRiskMetrics = {
       LLow: LLow,
       LUp: LUp,
+      // "empirical" = PFA/PFR/guard bands quadrant-counted from the point's
+      // Monte Carlo distribution; "closedform" = bivariate-normal workbook
+      // math. Lets the UI label the method for auditability.
+      riskMethod,
+      // Centered measurement-error quantile table (native units) when
+      // empirical — the risk visualizer draws its Monte Carlo cloud from this
+      // so the plotted quadrants match the reported PFA/PFR.
+      errorQuantiles: mcErrorQuantilesNative,
       tur: turResult,
       tar: tarResult,
       pfa: pfaResult * 100,

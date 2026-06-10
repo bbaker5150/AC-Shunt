@@ -1073,6 +1073,11 @@ export function resolveResolutionNative(toleranceObject, nominalUnit) {
   return resRaw;
 }
 
+// Warn when an input's second-order Taylor term ½·|f″|·u² exceeds this
+// fraction of its first-order term |f′|·u. At that point the linear (GUM)
+// budget is measurably understating the input's contribution.
+const NONLINEARITY_WARN_RATIO = 0.1;
+
 export const calculateDerivedUncertainty = (
   equationString,
   variableMappings,
@@ -1156,6 +1161,7 @@ export const calculateDerivedUncertainty = (
     const calculationBreakdown = [];
     const nominalScope = {};
     const uncertaintyInputs = {};
+    const warnings = [];
 
     // --- 3. PROCESS TMDE INPUTS (Build Data Source) ---
     // We collect all data in BASE UNITS to ensure physics are correct (e.g. 1mV * 1kV = 0.001 * 1000 = 1)
@@ -1323,6 +1329,44 @@ export const calculateDerivedUncertainty = (
 
       sumOfSquaresBase += termSquared_base;
 
+      // --- Nonlinearity probe (stationary-point detection) ---
+      // First-order GUM is blind to an input whose ∂f/∂x evaluates to 0 at the
+      // operating point (null/balance measurements, unity power factor, RSS
+      // terms near zero): the input's uncertainty silently vanishes from the
+      // budget. Probe the symbolic second derivative so we can warn when the
+      // ½·|f″|·u² term is non-negligible against the linear term, and hard-fail
+      // below when the WHOLE budget degenerates to zero.
+      let secondOrderTermBase = null;
+      try {
+        const secondDeriv = math
+          .derivative(derivativeNode, variableSymbol)
+          .compile()
+          .evaluate(nominalScope);
+        if (typeof secondDeriv === "number" && Number.isFinite(secondDeriv)) {
+          secondOrderTermBase = 0.5 * Math.abs(secondDeriv) * ui_base ** 2;
+        }
+      } catch {
+        // Not twice-differentiable (or a domain issue) — skip the probe; the
+        // zero-sensitivity check below still applies.
+      }
+
+      let nonlinearityWarning = null;
+      const firstOrderTermBase = Math.abs(contribution_base);
+      if (ui_base > 0) {
+        if (sensitivityCoeffBase === 0) {
+          nonlinearityWarning = `Input '${variableSymbol}' (${variableType}) has zero first-order sensitivity at this operating point, so its uncertainty does not appear in the linear (GUM) budget. The combined uncertainty may be understated.`;
+        } else if (
+          secondOrderTermBase !== null &&
+          secondOrderTermBase > NONLINEARITY_WARN_RATIO * firstOrderTermBase
+        ) {
+          const pct = Math.round(
+            (secondOrderTermBase / firstOrderTermBase) * 100
+          );
+          nonlinearityWarning = `Input '${variableSymbol}' (${variableType}): the second-order Taylor term is ~${pct}% of its first-order contribution at this operating point. The linear (GUM) budget may understate this input.`;
+        }
+      }
+      if (nonlinearityWarning) warnings.push(nonlinearityWarning);
+
       // Convert Sensitivity for Display: d(TargetUnit) / d(InputNativeUnit)
       // ci_display = ci_base * (InputToSi / TargetToSi)
       const inputToSi = unitSystem.units[inputData.unit]?.to_si || 1;
@@ -1347,8 +1391,35 @@ export const calculateDerivedUncertainty = (
         // Stable identity for the correlation map (matches the budget row's type).
         componentId: variableType,
         termSquared_native: termSquared_base, // Used for Pareto, strictly doesn't matter as long as proportional
+        // Stationary-point / nonlinearity diagnostics (null when healthy).
+        secondOrderTerm_base: secondOrderTermBase,
+        nonlinearityWarning,
       });
     });
+
+    // Stationary-point guard: every input's first-order sensitivity is zero
+    // while at least one input actually carries uncertainty. Reporting u_c = 0
+    // here would cascade into U = 0 → TUR = ∞ → PFA ≈ 0 — a confidently wrong
+    // "no risk" answer at exactly the operating points (nulls, bridge balance,
+    // unity power factor) where the linear model is least valid. Fail the same
+    // way the NaN-derivative path does, so the risk row blanks with an
+    // explanation instead of reporting zero uncertainty.
+    if (sumOfSquaresBase === 0) {
+      const anyUncertainInput = variables.some(
+        (sym) => (uncertaintyInputs[variableMappings[sym]]?.ui_base || 0) > 0
+      );
+      if (anyUncertainInput) {
+        return {
+          combinedUncertaintyNative: NaN,
+          breakdown: calculationBreakdown,
+          nominalResult: NaN,
+          error:
+            "The equation is at a stationary point: every input's first-order sensitivity is zero at this operating point, so the linear (GUM) budget would report zero uncertainty and infinite TUR. Offset the nominal from the null/stationary point, or evaluate this point with a higher-order or Monte Carlo method.",
+          degenerate: true,
+          warnings,
+        };
+      }
+    }
 
     // Combined Uncertainty in Base Units
     const combinedUncertaintyBase = math.sqrt(sumOfSquaresBase);
@@ -1372,6 +1443,7 @@ export const calculateDerivedUncertainty = (
       breakdown: calculationBreakdown,
       nominalResult: nominalResultTarget,
       error: null,
+      warnings,
     };
 
   } catch (error) {

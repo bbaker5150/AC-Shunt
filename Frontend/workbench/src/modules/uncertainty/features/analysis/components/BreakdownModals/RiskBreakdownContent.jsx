@@ -25,6 +25,32 @@ const safeExponential = (val, digits = 4) => {
   return num.toExponential(digits);
 };
 
+// Method banner for Monte Carlo-mode points: the displayed risk numbers come
+// from empirical quadrant counting (GUM-S1) rather than the bivariate-normal
+// closed forms derived below, which then serve as the reference model.
+const EmpiricalMethodNote = ({ results }) => {
+  if (results?.riskMethod !== "empirical") return null;
+  return (
+    <div
+      className="breakdown-step"
+      style={{
+        border: "1px solid var(--accent-color, #4a90d9)",
+        borderRadius: "6px",
+        padding: "8px 12px",
+        fontSize: "0.88rem",
+      }}
+    >
+      <strong>Method: empirical (GUM-S1 Monte Carlo).</strong> This point's
+      risk values are quadrant-counted from the measurement-error distribution
+      simulated for this point (seeded, reproducible), not from the
+      bivariate-normal integrals shown below. The UUT bias prior is still
+      normal (same reliability deconvolution); only the measurement-error
+      model is empirical, so the formulas below describe the closed-form
+      reference these numbers replace.
+    </div>
+  );
+};
+
 // ==========================================
 // 1. KEY INPUTS BREAKDOWN
 // ==========================================
@@ -191,6 +217,7 @@ export const TurBreakdown = ({ results, inputs }) => {
 
   return (
     <div className="modal-body-scrollable">
+      <EmpiricalMethodNote results={results} />
       <div className="breakdown-step">
         <h5>Step 1: Formula</h5>
         <p>
@@ -406,6 +433,7 @@ export const PfaBreakdown = ({ results, inputs }) => {
 
   return (
     <div className="modal-body-scrollable">
+      <EmpiricalMethodNote results={results} />
       <div className="breakdown-step">
         <h5>Step 1: Formula</h5>
         <p>
@@ -599,6 +627,7 @@ export const PfrBreakdown = ({ results, inputs }) => {
 
   return (
     <div className="modal-body-scrollable">
+      <EmpiricalMethodNote results={results} />
       <div className="breakdown-step">
         <h5>Step 1: Formula</h5>
         <p>
@@ -993,6 +1022,7 @@ export const GBPFABreakdown = ({ inputs, results }) => {
 
   return (
     <div className="modal-body-scrollable">
+      <EmpiricalMethodNote results={results} />
       <div className="breakdown-step">
         <h5>Step 1: Formula</h5>
         <p>
@@ -1169,6 +1199,7 @@ export const GBPFRBreakdown = ({ inputs, results }) => {
 
   return (
     <div className="modal-body-scrollable">
+      <EmpiricalMethodNote results={results} />
       <div className="breakdown-step">
         <h5>Step 1: Formula</h5>
         <p>

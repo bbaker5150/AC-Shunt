@@ -112,6 +112,8 @@ const symbolCategories = {
 // Sub-components
 import UncertaintyBudgetTable from "./UncertaintyBudgetTable";
 import PercentageBarGraph from "./ContributionPlot";
+import MonteCarloCard from "./MonteCarloCard";
+import EquationLibraryMenu from "./EquationLibraryMenu";
 
 // Utils
 import {
@@ -1573,6 +1575,12 @@ function DetailedView({
   const equationInputRef = useRef(null);
   const symbolMenuRef = useRef(null);
   const symbolButtonRef = useRef(null);
+  const libraryButtonRef = useRef(null);
+  const [isLibraryOpen, setIsLibraryOpen] = useState(false);
+  const [libraryMenuPosition, setLibraryMenuPosition] = useState({
+    top: 0,
+    left: 0,
+  });
 
   // Remembers the friendly name last given to each equation symbol on the
   // active point, so a variable that temporarily disappears while the user
@@ -1909,6 +1917,51 @@ function DetailedView({
       });
     }
     setIsSymbolMenuOpen((open) => !open);
+  };
+
+  const handleLibraryMenuToggle = () => {
+    const rect = libraryButtonRef.current?.getBoundingClientRect();
+    if (rect) {
+      setLibraryMenuPosition({
+        top: rect.bottom + 6,
+        left: Math.max(12, rect.right - 360),
+      });
+    }
+    setIsLibraryOpen((open) => !open);
+  };
+
+  // Insert a library equation: non-destructive (confirm before replacing a
+  // different non-empty equation), and pre-fill the variable map with the
+  // library's suggested names — but an existing/remembered name for the same
+  // symbol wins, so TMDE assignments survive swapping equations.
+  const handleLibrarySelect = (equation) => {
+    setIsLibraryOpen(false);
+    const current = (testPointData.equationString || "").trim();
+    if (
+      current &&
+      current !== equation.expression &&
+      !window.confirm(
+        `Replace the current equation with "${equation.name}" (${equation.expression})?`,
+      )
+    ) {
+      return;
+    }
+    const currentMappings = testPointData.variableMappings || {};
+    const newMappings = {};
+    Object.entries(equation.variables).forEach(([symbol, suggestedName]) => {
+      newMappings[symbol] =
+        currentMappings[symbol] ||
+        rememberedVariableNamesRef.current[symbol] ||
+        suggestedName;
+    });
+    rememberedVariableNamesRef.current = {
+      ...rememberedVariableNamesRef.current,
+      ...newMappings,
+    };
+    onUpdateTestPoint?.({
+      equationString: equation.expression,
+      variableMappings: newMappings,
+    });
   };
 
   const handleSymbolClick = (symbol) => {
@@ -2588,6 +2641,26 @@ function DetailedView({
       calculationError.includes("Input data missing") ||
       calculationError.includes("Internal error"));
 
+  // --- Monte Carlo (GUM-S1) propagation mode ---
+  // Linear stays the default (workbook parity); the MC path is offered when
+  // the Layer-1 nonlinearity detector flags the operating point.
+  const propagationMode =
+    testPointData.propagationMode === "montecarlo" ? "montecarlo" : "linear";
+  const nonlinearityWarnings = useMemo(
+    () =>
+      (calcResults?.calculatedBudgetComponents || [])
+        .filter((c) => c.nonlinearityWarning)
+        .map((c) => c.nonlinearityWarning),
+    [calcResults],
+  );
+  const isStationaryPointError = Boolean(
+    calculationError && /stationary point/i.test(calculationError),
+  );
+  const showMonteCarloSuggestion =
+    isDerived &&
+    propagationMode === "linear" &&
+    (nonlinearityWarnings.length > 0 || isStationaryPointError);
+
   const calculatedNominal = calcResults?.calculatedNominalValue;
   const targetNominal = parseFloat(uutNominal?.value);
 
@@ -3023,8 +3096,32 @@ function DetailedView({
                 >
                   f(x)
                 </button>
+                <button
+                  type="button"
+                  className="add-point-fx-button"
+                  title="Insert a common metrology equation"
+                  ref={libraryButtonRef}
+                  onClick={handleLibraryMenuToggle}
+                >
+                  Library
+                </button>
               </div>
               {symbolMenu}
+              {isLibraryOpen &&
+                ReactDOM.createPortal(
+                  <div
+                    className="add-point-symbol-popover"
+                    style={{
+                      top: libraryMenuPosition.top,
+                      left: libraryMenuPosition.left,
+                      maxHeight: "60vh",
+                      overflowY: "auto",
+                    }}
+                  >
+                    <EquationLibraryMenu onSelect={handleLibrarySelect} />
+                  </div>,
+                  document.body,
+                )}
 
               {equationDisplayData.variables.length > 0 && (
                 <div className="measurement-equation-variable-map">
@@ -3111,8 +3208,60 @@ function DetailedView({
                   </div>
                 </div>
               )}
+
+              {showMonteCarloSuggestion && (
+                <div
+                  className="measurement-equation-status"
+                  style={{
+                    border: "1px solid var(--status-warning)",
+                    backgroundColor: "rgba(255, 193, 7, 0.12)",
+                    color: "var(--status-warning)",
+                    display: "block",
+                  }}
+                >
+                  <div
+                    className="measurement-equation-status-main"
+                    style={{ marginBottom: "6px" }}
+                  >
+                    <FontAwesomeIcon icon={faExclamationTriangle} />
+                    <span>
+                      {isStationaryPointError
+                        ? "This operating point is a stationary point of the equation — the linear (GUM) budget cannot evaluate it."
+                        : "The linear (GUM) budget may understate uncertainty at this operating point:"}
+                    </span>
+                  </div>
+                  {nonlinearityWarnings.map((warning, idx) => (
+                    <div
+                      key={idx}
+                      style={{ fontSize: "0.85rem", margin: "2px 0 2px 24px" }}
+                    >
+                      {warning}
+                    </div>
+                  ))}
+                  <button
+                    type="button"
+                    className="button-secondary"
+                    style={{ marginTop: "8px" }}
+                    onClick={() =>
+                      onUpdateTestPoint({ propagationMode: "montecarlo" })
+                    }
+                  >
+                    Re-evaluate with Monte Carlo
+                  </button>
+                </div>
+              )}
             </div>
           </div>
+        )}
+
+        {isDerived && propagationMode === "montecarlo" && !hasUnassignedVariables && (
+          <MonteCarloCard
+            testPointData={testPointData}
+            tmdeTolerancesData={tmdeTolerancesData}
+            manualComponents={testPointData.components || []}
+            uutNominal={uutNominal}
+            onUpdateTestPoint={onUpdateTestPoint}
+          />
         )}
       </div>
 

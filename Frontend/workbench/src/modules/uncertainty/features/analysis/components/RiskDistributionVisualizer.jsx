@@ -1,4 +1,5 @@
 import React, { useId, useMemo, useState } from "react";
+import { drawFromQuantiles } from "../../../utils/empiricalRisk";
 
 const WIDTH = 920;
 const HEIGHT = 330;
@@ -343,6 +344,15 @@ const RiskDistributionVisualizer = ({
     const trueSigma = Math.max(Math.abs(finite(results.uUUT)), 1e-12);
     const calSigma = Math.abs(finite(results.uCal));
     const observedSigma = Math.sqrt(trueSigma ** 2 + calSigma ** 2);
+    // Layer 3: for Monte Carlo-mode points, draw measurement errors from the
+    // point's ACTUAL simulated distribution (centered quantile table) instead
+    // of a normal — the plotted quadrants then match the reported empirical
+    // PFA/PFR, asymmetry included.
+    const errorQuantiles =
+      Array.isArray(results.errorQuantiles) &&
+      results.errorQuantiles.length > 1
+        ? results.errorQuantiles
+        : null;
     const tolLow = toleranceLow - nominal;
     const tolHigh = toleranceHigh - nominal;
     const accLow = acceptanceLow - nominal;
@@ -364,7 +374,10 @@ const RiskDistributionVisualizer = ({
       const radius = Math.sqrt(-2 * Math.log(1 - rand()));
       const angle = 2 * Math.PI * rand();
       const trueError = trueSigma * radius * Math.cos(angle);
-      const observedError = trueError + calSigma * radius * Math.sin(angle);
+      const measurementError = errorQuantiles
+        ? drawFromQuantiles(errorQuantiles, rand())
+        : calSigma * radius * Math.sin(angle);
+      const observedError = trueError + measurementError;
       const inTolerance = trueError >= tolLow && trueError <= tolHigh;
       const accepted = observedError >= accLow && observedError <= accHigh;
       const outcome = inTolerance
@@ -419,6 +432,7 @@ const RiskDistributionVisualizer = ({
       counts,
       regions,
       correlation: finite(results.correlation, trueSigma / observedSigma),
+      empirical: Boolean(errorQuantiles),
     };
   }, [acceptanceHigh, acceptanceLow, nominal, results, toleranceHigh, toleranceLow]);
 
@@ -902,6 +916,8 @@ const RiskDistributionVisualizer = ({
                   Dots cluster along the diagonal because the observed result
                   follows the true error (correlation ρ ={" "}
                   {formatNumber(monteCarlo.correlation, 3)}).
+                  {monteCarlo.empirical &&
+                    " Measurement errors are drawn from this point's actual Monte Carlo distribution (GUM-S1), so these quadrants match the reported empirical PFA/PFR."}
                 </span>
               </div>
             </div>

@@ -41,6 +41,11 @@ import {
   getUutResolutionComponent,
 } from "../features/analysis/utils/budgetUtils";
 import { reconcileTmdeInstances } from "./tmdeReconcile";
+import {
+  getFreshMcSummary,
+  computeEmpiricalRisk,
+  findEmpiricalGuardBand,
+} from "./empiricalRisk";
 
 const isFilledNumber = (v) =>
   v !== "" && v !== null && v !== undefined && !isNaN(parseFloat(v));
@@ -70,6 +75,7 @@ function computeUncertaintyForPoint(point, sessionData) {
   let combinedUncertaintyAbsoluteBase = NaN;
   let effectiveDof = Infinity;
   let calculatedNominalValue;
+  let mcSummary = null;
   const componentsForBudgetTable = [];
 
   try {
@@ -155,6 +161,18 @@ function computeUncertaintyForPoint(point, sessionData) {
         inputCorrelations,
       );
       effectiveDof = Infinity;
+
+      // Layer 3: a fresh Monte Carlo summary (hash-matched to the point's
+      // CURRENT inputs) supersedes the first-order numbers for MC-mode
+      // points. u_c comes from the empirical distribution and the expanded
+      // uncertainty from the shortest-95% interval half-width, so TUR — and,
+      // below, PFA/PFR — reflect the actual (possibly asymmetric) output
+      // distribution. A stale or absent summary falls through to the linear
+      // numbers; computePointRiskMetrics flags that as mcStale.
+      mcSummary = getFreshMcSummary(point, tmdeTolerancesData);
+      if (mcSummary) {
+        combinedUncertaintyAbsoluteBase = mcSummary.uBase;
+      }
     } else {
       // Direct measurement.
       let totalVariancePPM = 0;
@@ -236,11 +254,21 @@ function computeUncertaintyForPoint(point, sessionData) {
         ? normalQuantile(probability)
         : getKValueFromTDistribution(effectiveDof, probability);
 
+    // Empirical expanded uncertainty: half-width of the shortest coverage
+    // interval (correct for asymmetric outputs); k follows as its ratio to u.
+    const expandedBase = mcSummary
+      ? (mcSummary.intervalHighBase - mcSummary.intervalLowBase) / 2
+      : kValue * combinedUncertaintyAbsoluteBase;
+
     return {
       combined_uncertainty_absolute_base: combinedUncertaintyAbsoluteBase,
-      expanded_uncertainty_absolute_base: kValue * combinedUncertaintyAbsoluteBase,
+      expanded_uncertainty_absolute_base: expandedBase,
       calculated_nominal_value: calculatedNominalValue,
-      k_value: kValue,
+      k_value:
+        mcSummary && combinedUncertaintyAbsoluteBase > 0
+          ? expandedBase / combinedUncertaintyAbsoluteBase
+          : kValue,
+      mcSummary,
     };
   } catch {
     return null;
@@ -413,10 +441,40 @@ export function computePointRiskMetrics(point, sessionData, includeGuardband = f
     return isNaN(n) ? undefined : n;
   };
 
-  const pfa = toNum(pfaArr?.[0]);
-  const pfr = toNum(pfrArr?.[0]);
+  let pfa = toNum(pfaArr?.[0]);
+  let pfr = toNum(pfrArr?.[0]);
   const tur = toNum(turResult);
   const tar = toNum(tarResult);
+
+  // --- Layer 3: empirical PFA/PFR for MC-mode points with a fresh summary ---
+  // Quadrant counting against the actual measurement-error distribution
+  // replaces the bivariate-normal integrals. The UUT bias prior stays normal
+  // (same deconvolution), so for a normal error distribution these converge
+  // to the closed forms above.
+  const mcSummary = calcResults.mcSummary || null;
+  let riskMethod = "closedform";
+  let errorQuantilesNative = null;
+  if (mcSummary) {
+    errorQuantilesNative = mcSummary.quantiles.map(
+      (q) => (q - mcSummary.meanBase) / targetUnitInfo.to_si,
+    );
+    const empirical = computeEmpiricalRisk({
+      average: riskAverage,
+      LLow,
+      LUp,
+      uCal: uCal_Native,
+      errorQuantiles: errorQuantilesNative,
+      reliability,
+      tur: turResult,
+      reqTur: turNeeded,
+    });
+    if (empirical) {
+      pfa = empirical.pfa;
+      pfr = empirical.pfr;
+      riskMethod = "empirical";
+    }
+  }
+  const mcStale = point.propagationMode === "montecarlo" && !mcSummary;
 
   // --- Guardband (mirrors useRiskCalculation lines ~315-399) ---
   // Iterative/convergent, so only computed when requested by the caller to keep
@@ -431,26 +489,86 @@ export function computePointRiskMetrics(point, sessionData, includeGuardband = f
       const safeRes = resolveResolutionNative(uutToleranceData, nominalUnit);
 
       try {
-        const lowMgr = gbLowMgr(
-          pfaRequired,
-          uutNominal.value,
-          riskAverage,
-          LLow,
-          LUp,
-          uCal_Native,
-          reliability,
-        );
-        const upMgr = gbUpMgr(
-          pfaRequired,
-          uutNominal.value,
-          riskAverage,
-          LLow,
-          LUp,
-          uCal_Native,
-          reliability,
-        );
-        const gbLow = resDwn(lowMgr[0], safeRes);
-        const gbHigh = resUp(upMgr[0], safeRes);
+        let gbLow;
+        let gbHigh;
+        let gbPfa;
+        let gbPfr;
+        if (riskMethod === "empirical" && errorQuantilesNative) {
+          // Empirical inversion: guard each limit proportionally to the error
+          // mass that can push an out-of-tolerance unit past it — asymmetric
+          // whenever the error distribution is.
+          const gb = findEmpiricalGuardBand({
+            pfaRequired,
+            average: riskAverage,
+            LLow,
+            LUp,
+            uCal: uCal_Native,
+            errorQuantiles: errorQuantilesNative,
+            reliability,
+            tur: turResult,
+            reqTur: turNeeded,
+          });
+          if (!gb) throw new Error("empirical guard band failed");
+          gbLow = resDwn(gb.gbLow, safeRes);
+          gbHigh = resUp(gb.gbUp, safeRes);
+          const empGb = computeEmpiricalRisk({
+            average: riskAverage,
+            LLow,
+            LUp,
+            accLow: gbLow,
+            accUp: gbHigh,
+            uCal: uCal_Native,
+            errorQuantiles: errorQuantilesNative,
+            reliability,
+            tur: turResult,
+            reqTur: turNeeded,
+          });
+          gbPfa = empGb ? empGb.pfa : undefined;
+          gbPfr = empGb ? empGb.pfr : undefined;
+        } else {
+          const lowMgr = gbLowMgr(
+            pfaRequired,
+            uutNominal.value,
+            riskAverage,
+            LLow,
+            LUp,
+            uCal_Native,
+            reliability,
+          );
+          const upMgr = gbUpMgr(
+            pfaRequired,
+            uutNominal.value,
+            riskAverage,
+            LLow,
+            LUp,
+            uCal_Native,
+            reliability,
+          );
+          gbLow = resDwn(lowMgr[0], safeRes);
+          gbHigh = resUp(upMgr[0], safeRes);
+          const gbPfaArr = PFAwGBMgr(
+            uutNominal.value,
+            riskAverage,
+            LLow,
+            LUp,
+            uCal_Native,
+            reliability,
+            gbLow,
+            gbHigh,
+          );
+          const gbPfrArr = PFRwGBMgr(
+            uutNominal.value,
+            riskAverage,
+            LLow,
+            LUp,
+            uCal_Native,
+            reliability,
+            gbLow,
+            gbHigh,
+          );
+          gbPfa = toNum(gbPfaArr?.[0]);
+          gbPfr = toNum(gbPfrArr?.[0]);
+        }
         const gbMult = GBMultMgr(
           pfaRequired,
           uutNominal.value,
@@ -460,28 +578,6 @@ export function computePointRiskMetrics(point, sessionData, includeGuardband = f
           gbLow,
           gbHigh,
         );
-        const gbPfaArr = PFAwGBMgr(
-          uutNominal.value,
-          riskAverage,
-          LLow,
-          LUp,
-          uCal_Native,
-          reliability,
-          gbLow,
-          gbHigh,
-        );
-        const gbPfrArr = PFRwGBMgr(
-          uutNominal.value,
-          riskAverage,
-          LLow,
-          LUp,
-          uCal_Native,
-          reliability,
-          gbLow,
-          gbHigh,
-        );
-        const gbPfa = toNum(gbPfaArr?.[0]);
-        const gbPfr = toNum(gbPfrArr?.[0]);
         const gbMultNum = toNum(gbMult);
         guardband = {
           gbLow: toNum(gbLow),
@@ -501,6 +597,12 @@ export function computePointRiskMetrics(point, sessionData, includeGuardband = f
     pfr: pfr !== undefined ? pfr * 100 : undefined,
     tur,
     tar,
+    // "empirical" when an MC-mode point's fresh summary drove PFA/PFR;
+    // mcStale marks an MC-mode point falling back to closed-form numbers
+    // because its summary is missing or out of date (UI shows a re-simulate
+    // hint).
+    riskMethod,
+    mcStale,
     ...(guardband || {}),
   };
 }

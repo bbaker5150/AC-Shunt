@@ -210,6 +210,11 @@ const DerivedBreakdownModal = ({ isOpen, onClose, breakdownData }) => {
                                     <li><strong>Total Variance Term (<Latex>{`$${term.quantity} \\cdot (c_{${symbol}} u_{${symbol}})^2$`}</Latex>):</strong> {formatNumberForLatex(term.varianceDerivedSq, 5)}</li>
                                 )}
                             </ul>
+                            {budgetComp?.nonlinearityWarning && (
+                                <p style={{ color: '#b45309', fontWeight: 600, marginTop: '6px' }}>
+                                    ⚠ {budgetComp.nonlinearityWarning}
+                                </p>
+                            )}
                         </div>
                     );
                 })}

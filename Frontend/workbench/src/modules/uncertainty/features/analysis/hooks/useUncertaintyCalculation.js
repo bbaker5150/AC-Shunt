@@ -410,6 +410,7 @@ export const useUncertaintyCalculation = (
                 sensitivityCoefficient: item.ci,
                 derivativeString: item.derivativeString,
                 contribution: item.contribution_native,
+                nonlinearityWarning: item.nonlinearityWarning || null,
                 dof: inputBudgetResults.effective_dof,
                 isCore: true,
                 distribution: distributionLabel,

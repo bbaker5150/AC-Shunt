@@ -366,6 +366,24 @@ const SidebarPointItem = ({
   // point can't currently be evaluated (#1).
   const risk = liveRiskMetrics || point.riskMetrics || {};
 
+  // Layer 3 marker for Monte Carlo-mode points: "MC" when the risk numbers
+  // are empirical (quadrant-counted from the point's simulated distribution),
+  // an amber ↻ when the simulation is out of date and the row is temporarily
+  // showing first-order values.
+  const riskMethodMark = risk.mcStale
+    ? {
+        label: "↻",
+        color: "var(--status-warning)",
+        note: "Monte Carlo results out of date — open the point to re-simulate (showing first-order values)",
+      }
+    : risk.riskMethod === "empirical"
+      ? {
+          label: "MC",
+          color: "var(--accent-color, #4a90d9)",
+          note: "Empirical risk from this point's Monte Carlo distribution",
+        }
+      : null;
+
   // --- COLOR LOGIC (Matches UncertaintyPanel) ---
   const getPfaColor = (val) => {
     if (val === undefined || val === null) return "var(--text-color-muted)";
@@ -534,10 +552,24 @@ const SidebarPointItem = ({
         <span
           className="point-risk-metric point-risk-metric-clickable"
           style={{ color: getPfaColor(risk.pfa), fontWeight: 600 }}
-          title="PFA — Ctrl+click for breakdown"
+          title={`PFA — Ctrl+click for breakdown${
+            riskMethodMark ? ` · ${riskMethodMark.note}` : ""
+          }`}
           onClick={(e) => handleMetricClick(e, "pfa")}
         >
           {risk.pfa !== undefined ? `${Number(risk.pfa).toFixed(2)}%` : "-"}
+          {riskMethodMark && (
+            <sup
+              style={{
+                color: riskMethodMark.color,
+                fontSize: "0.62rem",
+                fontWeight: 700,
+                marginLeft: "2px",
+              }}
+            >
+              {riskMethodMark.label}
+            </sup>
+          )}
         </span>
       )}
       {visibleColumns.pfr && (

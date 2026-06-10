@@ -14,6 +14,90 @@ const makeTmde = (id) => ({
   },
 });
 
+// A TMDE whose floor tolerance gives u = 1/√3 V at the given nominal.
+const makeTmdeAt = (id, variableType, value) => ({
+  id,
+  variableType,
+  measurementPoint: { value, unit: "V" },
+  floor: {
+    high: 1,
+    low: -1,
+    unit: "V",
+    symmetric: true,
+    distribution: "1.7320508075688772",
+  },
+});
+
+describe("calculateDerivedUncertainty stationary-point handling", () => {
+  it("errors (degenerate) when every input has zero sensitivity but nonzero uncertainty", () => {
+    // d/dx (x-5)^2 = 2(x-5) = 0 at the nominal x = 5: a pure null measurement.
+    const result = calculateDerivedUncertainty(
+      "y = (x - 5)^2",
+      { x: "Offset" },
+      [makeTmdeAt("tmde-x", "Offset", 5)],
+      { value: 0, unit: "V" },
+    );
+
+    expect(result.degenerate).toBe(true);
+    expect(result.error).toMatch(/stationary point/i);
+    expect(result.combinedUncertaintyNative).toBeNaN();
+  });
+
+  it("keeps a healthy budget but warns on a zero-sensitivity input", () => {
+    const result = calculateDerivedUncertainty(
+      "y = w + (x - 5)^2",
+      { w: "Length", x: "Offset" },
+      [makeTmdeAt("tmde-w", "Length", 10), makeTmdeAt("tmde-x", "Offset", 5)],
+      { value: 10, unit: "V" },
+    );
+
+    expect(result.error).toBeNull();
+    // Only w contributes: u_c = u_w = 1/√3.
+    expect(result.combinedUncertaintyNative).toBeCloseTo(Math.sqrt(1 / 3), 8);
+    const xItem = result.breakdown.find((b) => b.variable === "x");
+    expect(xItem.nonlinearityWarning).toMatch(/zero first-order sensitivity/i);
+    const wItem = result.breakdown.find((b) => b.variable === "w");
+    expect(wItem.nonlinearityWarning).toBeNull();
+    expect(result.warnings).toHaveLength(1);
+  });
+
+  it("warns when the second-order term is non-negligible against the first-order term", () => {
+    // y = x² at x = 1 with u = 1/√3: first order |2x|·u ≈ 1.155, second order
+    // ½·2·u² ≈ 0.333 → ~29% of first order, well past the 10% threshold.
+    const result = calculateDerivedUncertainty(
+      "y = x^2",
+      { x: "Length" },
+      [makeTmdeAt("tmde-x", "Length", 1)],
+      { value: 1, unit: "V" },
+    );
+
+    expect(result.error).toBeNull();
+    expect(result.combinedUncertaintyNative).toBeCloseTo(2 / Math.sqrt(3), 8);
+    expect(result.breakdown[0].nonlinearityWarning).toMatch(/second-order/i);
+  });
+
+  it("does not error when u_c = 0 because no input carries uncertainty", () => {
+    const result = calculateDerivedUncertainty(
+      "y = (x - 5)^2",
+      { x: "Offset" },
+      [
+        {
+          id: "tmde-x",
+          variableType: "Offset",
+          measurementPoint: { value: 5, unit: "V" },
+          // No tolerance components at all → u = 0 legitimately.
+        },
+      ],
+      { value: 0, unit: "V" },
+    );
+
+    expect(result.degenerate).toBeUndefined();
+    expect(result.error).toBeNull();
+    expect(result.combinedUncertaintyNative).toBe(0);
+    expect(result.warnings).toHaveLength(0);
+  });
+});
+
 describe("calculateDerivedUncertainty input contributors", () => {
   it("additively composes multiple TMDEs assigned to one derived input", () => {
     const result = calculateDerivedUncertainty(
