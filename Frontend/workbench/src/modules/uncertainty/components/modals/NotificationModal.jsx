@@ -19,6 +19,7 @@ const NotificationModal = ({
   isIconConfirm = false,
   secondaryText,
   onSecondary,
+  secondaryIsPrimary = false,
   inputLabel,
   inputPlaceholder = "",
   initialInputValue = "",
@@ -152,7 +153,9 @@ const NotificationModal = ({
 
           {onSecondary && (
             <button
-              className="notification-window-confirm notification-window-confirm--secondary"
+              className={`notification-window-confirm${
+                secondaryIsPrimary ? "" : " notification-window-confirm--secondary"
+              }`}
               onClick={() => onSecondary?.()}
             >
               {secondaryText || "Apply to Session"}

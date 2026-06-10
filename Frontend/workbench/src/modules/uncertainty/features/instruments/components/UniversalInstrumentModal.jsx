@@ -133,6 +133,7 @@ const UniversalInstrumentModal = ({
     // be added here later without touching the call sites.
     const [pendingDelete, setPendingDelete] = useState(null); // { ids: [...] }
     const [pendingInstrumentSave, setPendingInstrumentSave] = useState(false);
+    const [libraryInstrumentId, setLibraryInstrumentId] = useState(null);
 
     const [metaData, setMetaData] = useState({
         name: "", 
@@ -182,6 +183,13 @@ const UniversalInstrumentModal = ({
                 const loadedInst = initialData.instrument || (initialData.functions ? initialData : null) || {
                     id: uuidv4(), manufacturer: "", model: "", description: "", functions: []
                 };
+                const existingLibraryId =
+                    initialData.libraryInstrumentId ||
+                    loadedInst.libraryInstrumentId ||
+                    (instruments.some((instrument) => instrument.id === loadedInst.id)
+                        ? loadedInst.id
+                        : null);
+                setLibraryInstrumentId(existingLibraryId);
                 setInstrumentDef(JSON.parse(JSON.stringify(loadedInst)));
                 if (loadedInst.functions?.length > 0) setActiveFunctionId(loadedInst.functions[0].id);
                 else setActiveFunctionId(null);
@@ -195,6 +203,7 @@ const UniversalInstrumentModal = ({
                     assetId: initialData.assetId || ""
                 });
             } else {
+                setLibraryInstrumentId(null);
                 setMetaData({
                     name: "",
                     measurementArea: defaultMeasurementArea?.name || "",
@@ -242,6 +251,15 @@ const UniversalInstrumentModal = ({
         if (!metaData.name?.trim()) return false;
         return true;
     }, [instrumentDef.manufacturer, instrumentDef.model, metaData.name]);
+
+    const isInstrumentInLibrary = useMemo(
+        () => instruments.some(
+            (instrument) =>
+                instrument.id === libraryInstrumentId ||
+                instrument.id === instrumentDef.id
+        ),
+        [instruments, libraryInstrumentId, instrumentDef.id]
+    );
 
     // --- Library list multi-select (ctrl = toggle, shift = range) ---
     const handleRowSelect = (e, instId) => {
@@ -315,7 +333,8 @@ const UniversalInstrumentModal = ({
         });
 
         if (effectiveMode !== 'library') {
-            newDef.id = uuidv4(); 
+            newDef.libraryInstrumentId = inst.id;
+            setLibraryInstrumentId(inst.id);
             const autoName = `${inst.manufacturer || ''} ${inst.model || ''}`.trim();
             if (autoName) {
                 // If creating UUT/TMDE, default name to Manufacturer + Model
@@ -330,6 +349,7 @@ const UniversalInstrumentModal = ({
 
     const handleCreateNew = () => {
         setInstrumentDef({ id: uuidv4(), manufacturer: "", model: "", description: "", functions: [] });
+        setLibraryInstrumentId(null);
         setMetaData(prev => ({...prev, name: "", measurementArea: "", measurementAreaColor: "#3498db"}));
         setActiveFunctionId(null);
         setViewMode("edit");
@@ -437,9 +457,13 @@ const UniversalInstrumentModal = ({
         setEditingRange(null);
     };
 
-    const buildSaveData = () => {
+    const buildSaveData = (savedLibraryId = libraryInstrumentId) => {
         let finalData = {};
         if (effectiveMode === 'uut' || effectiveMode === 'tmde') {
+            const sessionInstrument = {
+                ...instrumentDef,
+                ...(savedLibraryId ? { libraryInstrumentId: savedLibraryId } : {})
+            };
             finalData = {
                 id: initialData?.id || uuidv4(),
                 description: metaData.name, 
@@ -447,7 +471,8 @@ const UniversalInstrumentModal = ({
                 measurementArea: metaData.measurementArea,
                 measurementAreaId: metaData.measurementAreaId,
                 measurementAreaColor: metaData.measurementAreaColor,
-                instrument: instrumentDef,
+                instrument: sessionInstrument,
+                ...(savedLibraryId ? { libraryInstrumentId: savedLibraryId } : {}),
                 type: effectiveMode
             };
         } else {
@@ -465,7 +490,8 @@ const UniversalInstrumentModal = ({
     };
 
     const completeSave = (saveToLibrary = false) => {
-        const finalData = buildSaveData();
+        const savedLibraryId = saveToLibrary ? instrumentDef.id : libraryInstrumentId;
+        const finalData = buildSaveData(savedLibraryId);
         console.log("[UniversalInstrumentModal] Saving Data:", finalData);
         onSave(finalData);
 
@@ -479,6 +505,7 @@ const UniversalInstrumentModal = ({
             });
         }
 
+        setLibraryInstrumentId(savedLibraryId);
         setPendingInstrumentSave(false);
         onClose();
     };
@@ -488,7 +515,8 @@ const UniversalInstrumentModal = ({
 
         if (
             (effectiveMode === 'uut' || effectiveMode === 'tmde') &&
-            onSaveToLibrary
+            onSaveToLibrary &&
+            !isInstrumentInLibrary
         ) {
             setPendingInstrumentSave(true);
             return;
@@ -927,10 +955,10 @@ const UniversalInstrumentModal = ({
                 title="Save Instrument"
                 message={`Do you want to save this ${effectiveMode === 'uut' ? 'UUT' : 'TMDE'} to the instrument library for future use?`}
                 confirmText="Save to Library"
-                isIconConfirm={true}
                 onConfirm={() => completeSave(true)}
                 secondaryText="Session Only"
                 onSecondary={() => completeSave(false)}
+                secondaryIsPrimary={true}
             />
         </div>,
         document.body
