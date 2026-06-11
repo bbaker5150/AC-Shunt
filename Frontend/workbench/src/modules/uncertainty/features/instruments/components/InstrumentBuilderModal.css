@@ -316,6 +316,38 @@
     border-color: var(--border-color);
 }
 
+.range-resolution-control {
+    display: flex;
+    flex-direction: column;
+    gap: 5px;
+}
+
+.range-resolution-budget-toggle {
+    display: inline-flex;
+    align-items: center;
+    gap: 6px;
+    width: fit-content;
+    color: var(--text-color-muted);
+    font-size: 0.7rem;
+    font-weight: 600;
+    line-height: 1;
+    cursor: pointer;
+    user-select: none;
+}
+
+.ranges-table .range-resolution-budget-toggle input {
+    width: 14px;
+    height: 14px;
+    margin: 0;
+    padding: 0;
+    accent-color: var(--primary-color);
+    cursor: pointer;
+}
+
+.range-resolution-budget-toggle:hover {
+    color: var(--primary-color);
+}
+
 .tolerance-cell {
     padding: 6px 10px;
     background-color: var(--background-color-secondary);

@@ -36,6 +36,35 @@ const renderDirectBudget = (overrides = {}) => {
 };
 
 describe("UncertaintyBudgetTable direct budget actions", () => {
+  it("explains distribution deviations with spec and current values", () => {
+    renderDirectBudget({
+      components: [
+        {
+          id: "accuracy",
+          name: "DMM Accuracy",
+          sourcePointLabel: "10 V",
+          type: "B",
+          value: 1,
+          unit: "V",
+          distribution: "Normal",
+          distributionDivisor: "2",
+          isCore: true,
+          specOverride: true,
+          specBaseline: {
+            distributionOverridden: true,
+            distributionLabel: "Rectangular",
+          },
+        },
+      ],
+    });
+
+    expect(
+      screen.getByTitle(
+        /Distribution changed from Rectangular \(spec\) to Normal \(current\)/i,
+      ),
+    ).toBeInTheDocument();
+  });
+
   it("groups Add and Repeatability under one table settings button", () => {
     const props = renderDirectBudget();
 

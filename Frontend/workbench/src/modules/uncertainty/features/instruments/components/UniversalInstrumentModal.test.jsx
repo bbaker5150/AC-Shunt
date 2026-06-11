@@ -75,7 +75,41 @@ const changeResolution = (value) => {
   fireEvent.change(inputs[2], { target: { value } });
 };
 
+const toggleResolutionBudget = () => {
+  fireEvent.click(
+    screen.getByRole("checkbox", {
+      name: /Use in budget/i,
+    }),
+  );
+};
+
 describe("UniversalInstrumentModal library synchronization", () => {
+  test("stores the resolution budget opt-in on the edited range", () => {
+    const props = renderModal();
+
+    toggleResolutionBudget();
+    fireEvent.click(screen.getByRole("button", { name: /Save configuration/i }));
+    fireEvent.click(screen.getByRole("button", { name: /Session Only/i }));
+
+    expect(props.onSave).toHaveBeenCalledWith(
+      expect.objectContaining({
+        instrument: expect.objectContaining({
+          functions: [
+            expect.objectContaining({
+              ranges: [
+                expect.objectContaining({
+                  tolerances: expect.objectContaining({
+                    includeResolutionInBudget: true,
+                  }),
+                }),
+              ],
+            }),
+          ],
+        }),
+      }),
+    );
+  });
+
   test("offers library-and-session or session-only when linked specs change", () => {
     const props = renderModal();
 

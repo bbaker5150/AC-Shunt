@@ -99,10 +99,22 @@ const buildDeviationTitle = (component) => {
   const base = component.specBaseline || {};
   const parts = [];
   if (base.valueOverridden && base.value != null) {
-    parts.push(`value (spec: ${base.value}${base.unit ? ` ${base.unit}` : ""})`);
+    const currentValue = component.manualRawValue;
+    parts.push(
+      currentValue != null
+        ? `Value changed from ${base.value}${base.unit ? ` ${base.unit}` : ""} (spec) to ${currentValue}${component.manualUnit ? ` ${component.manualUnit}` : ""} (current)`
+        : `Value differs from the ${base.value}${base.unit ? ` ${base.unit}` : ""} instrument spec`,
+    );
   }
-  if (base.distributionOverridden && base.distributionLabel) {
-    parts.push(`distribution (spec: ${base.distributionLabel})`);
+  if (base.distributionOverridden) {
+    const specDistribution = base.distributionLabel || "the instrument spec";
+    const currentDistribution =
+      component.distribution ||
+      component.distributionDivisor ||
+      "the current selection";
+    parts.push(
+      `Distribution changed from ${specDistribution} (spec) to ${currentDistribution} (current)`,
+    );
   }
   if (parts.length === 0) return "Modified from the instrument's found spec.";
   return `Modified from the instrument's found spec — ${parts.join(
@@ -115,18 +127,23 @@ const buildDeviationTitle = (component) => {
 const DeviationFlag = ({ component }) => {
   if (!component.specOverride) return null;
   return (
-    <FontAwesomeIcon
-      icon={faExclamationTriangle}
+    <span
       className="budget-deviation-flag"
       title={buildDeviationTitle(component)}
+      aria-label={buildDeviationTitle(component)}
       style={{
         marginLeft: 6,
-        fontSize: "0.78em",
         color: "var(--status-warning, #e0a106)",
         cursor: "help",
+        display: "inline-flex",
         verticalAlign: "middle",
       }}
-    />
+    >
+      <FontAwesomeIcon
+        icon={faExclamationTriangle}
+        style={{ fontSize: "0.78em" }}
+      />
+    </span>
   );
 };
 

@@ -944,7 +944,7 @@ const ToleranceForm = ({
 
           {/* Opt-in: resolution is excluded from the uncertainty budget unless
               the user explicitly enables it here (#10). */}
-          <label
+          {!resolutionInTable && <label
             style={{
               display: "flex",
               alignItems: "center",
@@ -967,7 +967,7 @@ const ToleranceForm = ({
               }
             />
             <span>Include resolution in uncertainty budget</span>
-          </label>
+          </label>}
         </div>
       )}
     </>

@@ -472,6 +472,29 @@ const UniversalInstrumentModal = ({
         }));
     };
 
+    const updateRangeResolutionBudget = (rangeId, checked) => {
+        setInstrumentDef(prev => ({
+            ...prev,
+            functions: prev.functions.map(f => {
+                if (f.id !== activeFunctionId) return f;
+                return {
+                    ...f,
+                    ranges: f.ranges.map(r =>
+                        r.id === rangeId
+                            ? {
+                                ...r,
+                                tolerances: {
+                                    ...(r.tolerances || {}),
+                                    includeResolutionInBudget: checked,
+                                },
+                            }
+                            : r
+                    ),
+                };
+            })
+        }));
+    };
+
     const handleDeleteRange = (rangeId) => {
         setInstrumentDef(prev => ({
             ...prev,
@@ -949,7 +972,22 @@ const UniversalInstrumentModal = ({
                                                             <tr key={range.id}>
                                                                 <td><input type="number" step="any" value={range.min} onChange={e => updateRangeBounds(range.id, 'min', e.target.value)} /></td>
                                                                 <td><input type="number" step="any" value={range.max} onChange={e => updateRangeBounds(range.id, 'max', e.target.value)} /></td>
-                                                                <td><input type="number" step="any" value={range.resolution ?? 0} onChange={e => updateRangeBounds(range.id, 'resolution', e.target.value)} /></td>
+                                                                <td>
+                                                                    <div className="range-resolution-control">
+                                                                        <input type="number" step="any" value={range.resolution ?? 0} onChange={e => updateRangeBounds(range.id, 'resolution', e.target.value)} />
+                                                                        <label className="range-resolution-budget-toggle" title="Include this range's resolution as a Type B uncertainty component">
+                                                                            <input
+                                                                                type="checkbox"
+                                                                                checked={!!(
+                                                                                    range.tolerances?.includeResolutionInBudget ??
+                                                                                    range.includeResolutionInBudget
+                                                                                )}
+                                                                                onChange={e => updateRangeResolutionBudget(range.id, e.target.checked)}
+                                                                            />
+                                                                            <span>Use in budget</span>
+                                                                        </label>
+                                                                    </div>
+                                                                </td>
                                                                 <td>
                                                                     <div className="tolerance-cell" onClick={() => setEditingRange({ ...range })}>
                                                                         {formatToleranceSummary(range.tolerances)}
