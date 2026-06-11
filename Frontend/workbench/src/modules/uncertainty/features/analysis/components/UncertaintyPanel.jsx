@@ -1941,22 +1941,9 @@ function DetailedView({
     };
   }, [isSymbolMenuOpen, isLibraryOpen, positionEquationMenu]);
 
-  // Insert a library equation: non-destructive (confirm before replacing a
-  // different non-empty equation), and pre-fill the variable map with the
-  // library's suggested names — but an existing/remembered name for the same
-  // symbol wins, so TMDE assignments survive swapping equations.
-  const handleLibrarySelect = (equation) => {
-    setIsLibraryOpen(false);
-    const current = (testPointData.equationString || "").trim();
-    if (
-      current &&
-      current !== equation.expression &&
-      !window.confirm(
-        `Replace the current equation with "${equation.name}" (${equation.expression})?`,
-      )
-    ) {
-      return;
-    }
+  // Apply a library equation while preserving existing/remembered variable
+  // names so TMDE assignments survive swapping equations.
+  const applyLibraryEquation = (equation) => {
     const currentMappings = testPointData.variableMappings || {};
     const newMappings = {};
     Object.entries(equation.variables).forEach(([symbol, suggestedName]) => {
@@ -1973,6 +1960,26 @@ function DetailedView({
       equationString: equation.expression,
       variableMappings: newMappings,
     });
+  };
+
+  const handleLibrarySelect = (equation) => {
+    setIsLibraryOpen(false);
+    const current = (testPointData.equationString || "").trim();
+    if (current && current !== equation.expression) {
+      setNotification({
+        title: "Replace Equation",
+        message: `Replace the current equation with "${equation.name}" (${equation.expression})?`,
+        confirmText: "Replace",
+        secondaryText: "Cancel",
+        onConfirm: () => {
+          applyLibraryEquation(equation);
+          setNotification(null);
+        },
+        onSecondary: () => setNotification(null),
+      });
+      return;
+    }
+    applyLibraryEquation(equation);
   };
 
   const handleSymbolClick = (symbol) => {

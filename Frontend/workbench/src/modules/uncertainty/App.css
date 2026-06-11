@@ -9456,7 +9456,7 @@ body.theme-cyberpunk .notification-window .window-header {
   margin: -12px -12px 8px;
   padding: 12px;
   border-bottom: 1px solid var(--border-color);
-  background: var(--content-background);
+  background: var(--background-color-secondary);
 }
 
 .equation-library-search {
@@ -9494,10 +9494,10 @@ body.theme-cyberpunk .notification-window .window-header {
   gap: 6px;
   height: 34px;
   padding: 0 11px;
-  border: 1px solid var(--primary-color);
+  border: 1px solid var(--border-color);
   border-radius: 6px;
-  background: var(--primary-color);
-  color: #fff;
+  background: var(--input-background);
+  color: var(--primary-color);
   font: inherit;
   font-size: 0.78rem;
   font-weight: 700;
@@ -9508,8 +9508,9 @@ body.theme-cyberpunk .notification-window .window-header {
 }
 
 .equation-library-save-btn:hover:not(:disabled) {
-  box-shadow: 0 4px 10px rgba(var(--primary-rgb), 0.22);
-  transform: translateY(-1px);
+  border-color: var(--primary-color);
+  background: rgba(var(--primary-rgb), 0.06);
+  box-shadow: 0 2px 6px rgba(var(--primary-rgb), 0.1);
 }
 
 .equation-library-save-btn:disabled {
