@@ -2647,19 +2647,11 @@ function DetailedView({
   );
 
   // Save the editor's current equation to the persistent (global) library.
-  // Name via prompt (consistent with the existing confirm() flows); the
-  // measurement area defaults to the point's own area so the entry lands in
-  // the right group.
+  // The measurement area defaults to the point's own area so the entry lands
+  // in the right group.
   const handleSaveCurrentEquation = () => {
     if (!onSaveCustomEquation || !equationValidation) return;
     if (equationValidation.status !== "ok") return;
-
-    const defaultName = "";
-    const name = window.prompt(
-      "Name for this library equation:",
-      defaultName,
-    );
-    if (!name || !name.trim()) return;
 
     const pointArea = (sessionData.measurementAreas || []).find(
       (area) =>
@@ -2676,19 +2668,31 @@ function DetailedView({
       variables[symbol] = mappings[symbol] || symbol;
     });
 
-    onSaveCustomEquation({
-      id:
-        typeof crypto !== "undefined" && crypto.randomUUID
-          ? crypto.randomUUID()
-          : `eq-${Date.now()}`,
-      name: name.trim(),
-      expression: stripEquationPrefix(testPointData.equationString),
-      description: `Saved from the equation editor${pointArea?.name ? ` (${pointArea.name})` : ""}.`,
-      measurementArea: pointArea?.name || "",
-      measurementAreaColor: pointArea?.color || "",
-      variables,
-    });
     setIsLibraryOpen(false);
+    setNotification({
+      title: "Save Library Equation",
+      message: "Name this equation before adding it to your library.",
+      confirmText: "Save Equation",
+      inputLabel: "Equation name",
+      inputPlaceholder: "e.g. Capacitive reactance",
+      validateInput: (rawName) =>
+        String(rawName || "").trim() ? "" : "Enter an equation name.",
+      onConfirm: (name) => {
+        onSaveCustomEquation({
+          id:
+            typeof crypto !== "undefined" && crypto.randomUUID
+              ? crypto.randomUUID()
+              : `eq-${Date.now()}`,
+          name,
+          expression: stripEquationPrefix(testPointData.equationString),
+          description: `Saved from the equation editor${pointArea?.name ? ` (${pointArea.name})` : ""}.`,
+          measurementArea: pointArea?.name || "",
+          measurementAreaColor: pointArea?.color || "",
+          variables,
+        });
+        setNotification(null);
+      },
+    });
   };
 
   const handleDeleteCustomEquation = (equation) => {
