@@ -53,55 +53,25 @@ const EquationLibraryMenu = ({
       .includes(needle);
 
   const renderEntry = (equation, { custom = false } = {}) => (
-    <div
-      key={equation.id || equation.name}
-      style={{ display: "flex", alignItems: "stretch", gap: "2px" }}
-    >
+    <div key={equation.id || equation.name} className="equation-library-entry">
       <button
         type="button"
         className="equation-library-item"
         title={equation.description}
         onClick={() => onSelect(equation)}
-        style={{
-          display: "block",
-          flex: 1,
-          minWidth: 0,
-          textAlign: "left",
-          background: "none",
-          border: "none",
-          borderRadius: "4px",
-          padding: "5px 8px",
-          cursor: "pointer",
-          color: "var(--text-color)",
-        }}
       >
-        <span style={{ fontWeight: 600 }}>{equation.name}</span>
-        <code
-          style={{
-            display: "block",
-            fontSize: "0.8rem",
-            color: "var(--text-color-muted)",
-            overflow: "hidden",
-            textOverflow: "ellipsis",
-            whiteSpace: "nowrap",
-          }}
-        >
+        <span className="equation-library-item-name">{equation.name}</span>
+        <code className="equation-library-item-expression">
           {equation.expression}
         </code>
       </button>
       {custom && onDeleteCustom && (
         <button
           type="button"
+          className="equation-library-delete-btn"
           aria-label={`Delete custom equation ${equation.name}`}
           title="Delete from your equation library"
           onClick={() => onDeleteCustom(equation)}
-          style={{
-            background: "none",
-            border: "none",
-            cursor: "pointer",
-            color: "var(--text-color-muted)",
-            padding: "0 6px",
-          }}
         >
           <FontAwesomeIcon icon={faTrashAlt} size="xs" />
         </button>
@@ -125,23 +95,14 @@ const EquationLibraryMenu = ({
 
   return (
     <>
-      <div
-        style={{
-          display: "flex",
-          gap: "6px",
-          alignItems: "center",
-          padding: "2px 4px 8px",
-          position: "sticky",
-          top: 0,
-        }}
-      >
+      <div className="equation-library-toolbar">
         <input
           type="search"
+          className="equation-library-search"
           value={filter}
           onChange={(e) => setFilter(e.target.value)}
           placeholder="Search equations…"
           aria-label="Search equation library"
-          style={{ flex: 1, minWidth: 0, padding: "4px 8px" }}
         />
         {onSaveCurrent && (
           <button
@@ -155,11 +116,6 @@ const EquationLibraryMenu = ({
                   "Enter a valid equation in the editor to save it"
             }
             onClick={onSaveCurrent}
-            style={{
-              whiteSpace: "nowrap",
-              padding: "4px 8px",
-              cursor: canSaveCurrent ? "pointer" : "not-allowed",
-            }}
           >
             <FontAwesomeIcon icon={faPlus} size="xs" /> Save current
           </button>
@@ -170,13 +126,7 @@ const EquationLibraryMenu = ({
         <div key={`custom-${area}`} className="add-point-symbol-category">
           <h5>
             {area}{" "}
-            <span
-              style={{
-                fontWeight: 400,
-                fontSize: "0.75rem",
-                color: "var(--text-color-muted)",
-              }}
-            >
+            <span className="equation-library-custom-label">
               (custom)
             </span>
           </h5>
@@ -192,13 +142,7 @@ const EquationLibraryMenu = ({
       ))}
 
       {customSections.length === 0 && builtinSections.length === 0 && (
-        <p
-          style={{
-            padding: "8px",
-            color: "var(--text-color-muted)",
-            fontStyle: "italic",
-          }}
-        >
+        <p className="equation-library-empty">
           No equations match “{filter}”.
         </p>
       )}

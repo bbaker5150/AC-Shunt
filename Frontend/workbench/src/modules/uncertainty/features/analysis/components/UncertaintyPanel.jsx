@@ -1555,6 +1555,7 @@ function DetailedView({
   const symbolMenuRef = useRef(null);
   const symbolButtonRef = useRef(null);
   const libraryButtonRef = useRef(null);
+  const libraryMenuRef = useRef(null);
   const [isLibraryOpen, setIsLibraryOpen] = useState(false);
   const [libraryMenuPosition, setLibraryMenuPosition] = useState({
     top: 0,
@@ -1635,6 +1636,14 @@ function DetailedView({
         !symbolButtonRef.current.contains(event.target)
       ) {
         setIsSymbolMenuOpen(false);
+      }
+      if (
+        libraryMenuRef.current &&
+        !libraryMenuRef.current.contains(event.target) &&
+        libraryButtonRef.current &&
+        !libraryButtonRef.current.contains(event.target)
+      ) {
+        setIsLibraryOpen(false);
       }
     }
     document.addEventListener("mousedown", handleClickOutside);
@@ -1888,26 +1897,49 @@ function DetailedView({
   };
 
   const handleSymbolMenuToggle = () => {
-    const rect = symbolButtonRef.current?.getBoundingClientRect();
-    if (rect) {
-      setSymbolMenuPosition({
-        top: rect.bottom + 6,
-        left: Math.max(12, rect.right - 360),
-      });
-    }
+    setIsLibraryOpen(false);
+    positionEquationMenu(symbolButtonRef, setSymbolMenuPosition);
     setIsSymbolMenuOpen((open) => !open);
   };
 
   const handleLibraryMenuToggle = () => {
-    const rect = libraryButtonRef.current?.getBoundingClientRect();
-    if (rect) {
-      setLibraryMenuPosition({
-        top: rect.bottom + 6,
-        left: Math.max(12, rect.right - 360),
-      });
-    }
+    setIsSymbolMenuOpen(false);
+    positionEquationMenu(libraryButtonRef, setLibraryMenuPosition);
     setIsLibraryOpen((open) => !open);
   };
+
+  const positionEquationMenu = useCallback((buttonRef, setPosition) => {
+    const rect = buttonRef.current?.getBoundingClientRect();
+    if (!rect) return;
+    setPosition({
+      top: rect.bottom + 6,
+      left: Math.min(
+        Math.max(12, rect.right - 360),
+        Math.max(12, window.innerWidth - 372),
+      ),
+    });
+  }, []);
+
+  useEffect(() => {
+    if (!isSymbolMenuOpen && !isLibraryOpen) return undefined;
+
+    const updateOpenMenuPosition = () => {
+      if (isSymbolMenuOpen) {
+        positionEquationMenu(symbolButtonRef, setSymbolMenuPosition);
+      }
+      if (isLibraryOpen) {
+        positionEquationMenu(libraryButtonRef, setLibraryMenuPosition);
+      }
+    };
+
+    updateOpenMenuPosition();
+    window.addEventListener("scroll", updateOpenMenuPosition, true);
+    window.addEventListener("resize", updateOpenMenuPosition);
+    return () => {
+      window.removeEventListener("scroll", updateOpenMenuPosition, true);
+      window.removeEventListener("resize", updateOpenMenuPosition);
+    };
+  }, [isSymbolMenuOpen, isLibraryOpen, positionEquationMenu]);
 
   // Insert a library equation: non-destructive (confirm before replacing a
   // different non-empty equation), and pre-fill the variable map with the
@@ -3184,6 +3216,7 @@ function DetailedView({
                 ReactDOM.createPortal(
                   <div
                     className="add-point-symbol-popover"
+                    ref={libraryMenuRef}
                     style={{
                       top: libraryMenuPosition.top,
                       left: libraryMenuPosition.left,
