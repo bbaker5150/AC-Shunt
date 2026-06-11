@@ -298,12 +298,16 @@ const UncertaintyBudgetTable = ({
   const isDirect = measurementType === "direct";
   const [showGuardband, setShowGuardband] = useState(false);
   const [uiSigFigs] = useState(4);
-  const [uncertaintySigFigs, setUncertaintySigFigs] = useState(4);
+  const [uncertaintySigFigsByGroup, setUncertaintySigFigsByGroup] = useState(
+    {},
+  );
   const [expandedSigFigs, setExpandedSigFigs] = useState(5);
   const [riskSigFigs, setRiskSigFigs] = useState(4);
   const [showSettings, setShowSettings] = useState(false);
   const [openSectionSettings, setOpenSectionSettings] = useState(null);
   const settingsRef = useRef(null);
+  const getGroupSigFigs = (group) =>
+    uncertaintySigFigsByGroup[group.id] ?? 4;
 
   useEffect(() => {
     function handleClickOutside(event) {
@@ -516,7 +520,7 @@ const UncertaintyBudgetTable = ({
                     suffix={component.manualUnit || std.unit}
                   />
                 ) : (
-                  `${formatNumber(std.value, uncertaintySigFigs)} ${std.unit}`
+                  `${formatNumber(std.value, getGroupSigFigs(group))} ${std.unit}`
                 )}
               </td>
               <td className="action-cell">{renderActions(component)}</td>
@@ -547,12 +551,12 @@ const UncertaintyBudgetTable = ({
             <td>{row.nominalValue || "N/A"}</td>
             <td>{formatDof(row.dof)}</td>
             <td>
-              {formatNumber(row.standardUncertainty, uncertaintySigFigs)}{" "}
+              {formatNumber(row.standardUncertainty, getGroupSigFigs(group))}{" "}
               {row.unit}
             </td>
             <td>{formatNumber(row.sensitivityCoefficient, 4)}</td>
             <td>
-              {formatNumber(row.contribution, uncertaintySigFigs)}{" "}
+              {formatNumber(row.contribution, getGroupSigFigs(group))}{" "}
               {derivedUnit}
             </td>
           </tr>
@@ -563,7 +567,7 @@ const UncertaintyBudgetTable = ({
       <p className="budget-correlation-note">
         Combined uncertainty includes input correlations (ρ); without
         correlation (RSS) it would be{" "}
-        {formatNumber(group.uncorrelatedCombined, uncertaintySigFigs)}{" "}
+        {formatNumber(group.uncorrelatedCombined, getGroupSigFigs(group))}{" "}
         {group.unit}.
       </p>
     )}
@@ -818,14 +822,15 @@ const UncertaintyBudgetTable = ({
                 type="number"
                 min="1"
                 max="10"
-                value={uncertaintySigFigs}
+                value={getGroupSigFigs(group)}
                 onChange={(event) =>
-                  setUncertaintySigFigs(
-                    Math.min(
+                  setUncertaintySigFigsByGroup((current) => ({
+                    ...current,
+                    [group.id]: Math.min(
                       10,
                       Math.max(1, parseInt(event.target.value, 10) || 1),
                     ),
-                  )
+                  }))
                 }
               />
             </label>
@@ -901,7 +906,7 @@ const UncertaintyBudgetTable = ({
                 group.kind === "final" && mcNative ? mcNative : group.results
               }
               unit={group.unit}
-              sigFigs={uncertaintySigFigs}
+              sigFigs={getGroupSigFigs(group)}
               isFinal={group.kind === "final"}
               useEffectiveDof={
                 (useEffectiveDofByGroup[groupDofKey(group)] ?? true) !== false

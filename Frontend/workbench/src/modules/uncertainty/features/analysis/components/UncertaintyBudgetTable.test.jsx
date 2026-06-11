@@ -95,6 +95,90 @@ describe("UncertaintyBudgetTable direct budget actions", () => {
     expect(screen.getByText("Nominal 12.34567")).toBeInTheDocument();
   });
 
+  it("keeps uncertainty precision independent for each budget table", () => {
+    renderDirectBudget({
+      measurementType: "derived",
+      referencePoint: { name: "Power", unit: "W" },
+      calcResults: {
+        calculatedBudgetGroups: [
+          {
+            id: "voltage-input",
+            kind: "input",
+            label: "Voltage Uncertainty Budget",
+            variableType: "Voltage",
+            unit: "V",
+            components: [
+              {
+                id: "voltage-source",
+                name: "Voltage source",
+                sourcePointLabel: "10 V",
+                type: "B",
+                value: 1.234567,
+                unit: "V",
+                distribution: "Other (Std. Unc.)",
+                isCore: true,
+              },
+            ],
+            results: {
+              combined: 1.234567,
+              effective_dof: Infinity,
+              k_value: 2,
+              expanded: 2.469134,
+            },
+          },
+          {
+            id: "current-input",
+            kind: "input",
+            label: "Current Uncertainty Budget",
+            variableType: "Current",
+            unit: "A",
+            components: [
+              {
+                id: "current-source",
+                name: "Current source",
+                sourcePointLabel: "2 A",
+                type: "B",
+                value: 7.654321,
+                unit: "A",
+                distribution: "Other (Std. Unc.)",
+                isCore: true,
+              },
+            ],
+            results: {
+              combined: 7.654321,
+              effective_dof: Infinity,
+              k_value: 2,
+              expanded: 15.308642,
+            },
+          },
+        ],
+      },
+    });
+
+    expect(screen.getAllByText("1.235 V")).toHaveLength(2);
+    expect(screen.getAllByText("7.654 A")).toHaveLength(2);
+
+    fireEvent.click(
+      screen.getByTitle("Settings for Voltage Uncertainty Budget"),
+    );
+    fireEvent.change(screen.getByLabelText("Uncertainty Sig Figs"), {
+      target: { value: "2" },
+    });
+
+    expect(screen.getAllByText("1.2 V")).toHaveLength(2);
+    expect(screen.getAllByText("7.654 A")).toHaveLength(2);
+
+    fireEvent.click(
+      screen.getByTitle("Settings for Current Uncertainty Budget"),
+    );
+    fireEvent.change(screen.getByLabelText("Uncertainty Sig Figs"), {
+      target: { value: "6" },
+    });
+
+    expect(screen.getAllByText("1.2 V")).toHaveLength(2);
+    expect(screen.getAllByText("7.65432 A")).toHaveLength(2);
+  });
+
   it("uses empirical Monte Carlo values for the final budget totals", () => {
     renderDirectBudget({
       components: [
