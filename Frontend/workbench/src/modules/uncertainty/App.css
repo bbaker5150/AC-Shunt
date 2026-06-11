@@ -9342,9 +9342,7 @@ body.theme-cyberpunk .notification-window .window-header {
   display: flex;
   flex-direction: column;
   gap: 10px;
-  /* Keep the equation editor + status banners compact rather than stretching
-     across the full panel width. */
-  max-width: 560px;
+  max-width: 900px;
 }
 
 .measurement-equation-input-row {
@@ -9734,6 +9732,42 @@ body.theme-cyberpunk .notification-window .window-header {
 
 .measurement-equation-var-grid .var-val {
   font-size: 0.95rem;
+}
+
+.measurement-equation-source-field,
+.measurement-equation-value-field {
+  display: flex;
+  flex-direction: column;
+  gap: 5px;
+  min-width: 0;
+  color: var(--text-color-muted);
+  font-size: 0.68rem;
+  font-weight: 700;
+  letter-spacing: 0.025em;
+  text-transform: uppercase;
+}
+
+.measurement-equation-value-field .var-value-display {
+  min-height: 36px;
+  background: var(--input-background);
+}
+
+.var-value-input {
+  min-width: 0;
+  width: 100%;
+  border: 0;
+  outline: 0;
+  background: transparent;
+  color: var(--primary-color);
+  font-family: ui-monospace, SFMono-Regular, Consolas, "Liberation Mono",
+    monospace;
+  font-size: 0.95rem;
+  font-weight: 700;
+}
+
+.var-value-input:disabled {
+  color: var(--text-color-muted);
+  cursor: not-allowed;
 }
 
 @media (max-width: 760px) {

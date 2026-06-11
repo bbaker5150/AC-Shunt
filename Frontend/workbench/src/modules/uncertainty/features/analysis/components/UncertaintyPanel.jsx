@@ -1542,6 +1542,7 @@ function DetailedView({
   // --- NEW: Local Selection State ---
   const [selectedUutIds, setSelectedUutIds] = useState([]);
   const [selectedTmdeIds, setSelectedTmdeIds] = useState([]);
+  const [equationTmdeSelections, setEquationTmdeSelections] = useState({});
 
   // Industry Grade Highlighting State
   // Industry Grade Highlighting State
@@ -2637,6 +2638,14 @@ function DetailedView({
     };
   }, [isDerived, testPointData, tmdeTolerancesData]);
 
+  const getEquationTmdeLabel = (tmde) =>
+    tmde?.description ||
+    tmde?.name ||
+    (tmde?.instrument
+      ? `${tmde.instrument.manufacturer || ""} ${tmde.instrument.model || ""}`.trim()
+      : "") ||
+    "Unnamed TMDE";
+
   // Live validation of the equation editor's content: hard errors for
   // constructs the engines can't evaluate, warnings for shadowed mathjs
   // symbols and non-differentiable (Monte Carlo-only) equations.
@@ -3260,39 +3269,106 @@ function DetailedView({
                 )}
 
               {equationDisplayData.variables.length > 0 && (
-                <div className="measurement-equation-variable-map">
-                  {equationDisplayData.variables.map((variable) => (
-                    <label key={variable.symbol}>
-                      <span className="measurement-equation-variable-symbol">
-                        {variable.symbol} =
-                      </span>
-                      <input
-                        type="text"
-                        value={variable.name || ""}
-                        placeholder="Display name"
-                        onChange={(e) =>
-                          handleVariableMappingChange(
-                            variable.symbol,
-                            e.target.value,
-                          )
-                        }
-                        aria-label={`Display name for equation variable ${variable.symbol}`}
-                      />
-                      <em
-                        className={`measurement-equation-variable-status ${
+                <div className="var-map-grid measurement-equation-var-grid">
+                  {equationDisplayData.variables.map((variable) => {
+                    const requestedTmdeId =
+                      equationTmdeSelections[variable.symbol];
+                    const selectedTmde =
+                      variable.assignedTmdes.find(
+                        (tmde) => tmde.id === requestedTmdeId,
+                      ) || variable.assignedTmdes[0];
+
+                    return (
+                      <div
+                        key={variable.symbol}
+                        className={`var-card-modern ${
                           variable.isAssigned ? "assigned" : "unassigned"
                         }`}
                       >
-                        {variable.isAssigned
-                          ? `${variable.assignedTmdes.length} TMDE${
-                              variable.assignedTmdes.length > 1 ? "s" : ""
-                            } assigned`
-                          : String(variable.name || "").trim()
-                            ? "No TMDE assigned"
-                            : "Name it to assign a TMDE"}
-                      </em>
-                    </label>
-                  ))}
+                        <div className="var-card-header">
+                          <span className="var-symbol-badge">
+                            {variable.symbol}
+                          </span>
+                          <input
+                            type="text"
+                            className="var-name-input"
+                            value={variable.name || ""}
+                            placeholder="Name this input"
+                            onChange={(e) =>
+                              handleVariableMappingChange(
+                                variable.symbol,
+                                e.target.value,
+                              )
+                            }
+                            aria-label={`Display name for equation variable ${variable.symbol}`}
+                          />
+                        </div>
+                        <div className="var-card-body">
+                          <label className="measurement-equation-source-field">
+                            <span>Measurement standard</span>
+                            <select
+                              className="var-source-select"
+                              value={selectedTmde?.id || ""}
+                              onChange={(e) =>
+                                setEquationTmdeSelections((prev) => ({
+                                  ...prev,
+                                  [variable.symbol]: e.target.value,
+                                }))
+                              }
+                              disabled={!variable.isAssigned}
+                              aria-label={`TMDE for equation variable ${variable.symbol}`}
+                            >
+                              {!variable.isAssigned && (
+                                <option value="">Assign a TMDE below</option>
+                              )}
+                              {variable.assignedTmdes.map((tmde) => (
+                                <option key={tmde.id} value={tmde.id}>
+                                  {getEquationTmdeLabel(tmde)}
+                                </option>
+                              ))}
+                            </select>
+                          </label>
+                          <label className="measurement-equation-value-field">
+                            <span>TMDE value</span>
+                            <div className="var-value-display">
+                              <input
+                                type="number"
+                                step="any"
+                                className="var-value-input"
+                                value={selectedTmde?.measurementPoint?.value ?? ""}
+                                placeholder="Enter value"
+                                disabled={!selectedTmde}
+                                onChange={(e) =>
+                                  handleSourceNominalUpdate(
+                                    selectedTmde.id,
+                                    "value",
+                                    e.target.value,
+                                  )
+                                }
+                                aria-label={`TMDE value for equation variable ${variable.symbol}`}
+                              />
+                              <span className="var-unit">
+                                {selectedTmde?.measurementPoint?.unit || "—"}
+                              </span>
+                            </div>
+                          </label>
+                          <em
+                            className={`measurement-equation-variable-status ${
+                              variable.isAssigned ? "assigned" : "unassigned"
+                            }`}
+                          >
+                            {variable.isAssigned
+                              ? variable.assignedTmdes.length > 1
+                                ? `${variable.assignedTmdes.length} assigned; switch above to compare values`
+                                : "TMDE assigned"
+                              : String(variable.name || "").trim()
+                                ? "Assign a TMDE in the table below"
+                                : "Name this input before assigning a TMDE"}
+                          </em>
+                        </div>
+                      </div>
+                    );
+                  })}
                 </div>
               )}
 
@@ -3434,13 +3510,10 @@ function DetailedView({
                 {/* Direct points toggle usage. Derived points assign each
                     instrument to one mapped input; several instruments may
                     contribute to the same input budget. */}
-                <col style={{ width: isDerived ? "22%" : "50px" }} />
-                <col style={{ width: isDerived ? "26%" : "40%" }} />
-                {isDerived && (
-                  <col style={{ width: "16%" }} />
-                )}
-                <col style={{ width: isDerived ? "20%" : "30%" }} />
+                <col style={{ width: isDerived ? "24%" : "50px" }} />
+                <col style={{ width: isDerived ? "30%" : "40%" }} />
                 <col style={{ width: isDerived ? "22%" : "30%" }} />
+                <col style={{ width: isDerived ? "24%" : "30%" }} />
               </colgroup>
               <thead>
                 <tr>
@@ -3448,7 +3521,6 @@ function DetailedView({
                     {isDerived ? "Assigned Input" : "Use"}
                   </th>
                   <th>Description</th>
-                  {isDerived && <th>Value</th>}
                   <th>Range</th>
                   <th>Specification</th>
                 </tr>
@@ -3456,7 +3528,7 @@ function DetailedView({
               <tbody>
                 {relevantTmdes.length === 0 ? (
                   <tr className="panel-empty-row">
-                    <td colSpan={isDerived ? "5" : "4"}>
+                    <td colSpan="4">
                       No TMDEs defined for this measurement area.
                     </td>
                   </tr>
@@ -3634,60 +3706,6 @@ function DetailedView({
                                 {safeDescription}
                               </div>
                             </td>
-
-                            {isDerived && (
-                              <td
-                                rowSpan={rowSpan}
-                                style={{ verticalAlign: "top" }}
-                                onClick={(e) => e.stopPropagation()}
-                              >
-                                {isChecked ? (
-                                  <div
-                                    style={{
-                                      display: "flex",
-                                      alignItems: "center",
-                                      gap: "4px",
-                                    }}
-                                  >
-                                    <EditableCell
-                                      value={tmdeInstance.measurementPoint?.value}
-                                      type="number"
-                                      placeholder="value"
-                                      onSave={(val) =>
-                                        handleSourceNominalUpdate(
-                                          tmdeInstance.id,
-                                          "value",
-                                          val,
-                                        )
-                                      }
-                                      style={{
-                                        fontFamily: "'Consolas', monospace",
-                                        fontWeight: 700,
-                                        color: "var(--primary-color)",
-                                        backgroundColor: "transparent",
-                                        border: "none",
-                                        padding: 0,
-                                        width: "70px",
-                                      }}
-                                    />
-                                    <span
-                                      style={{
-                                        fontSize: "0.72rem",
-                                        color: "var(--text-color-muted)",
-                                      }}
-                                    >
-                                      {tmdeInstance.measurementPoint?.unit || ""}
-                                    </span>
-                                  </div>
-                                ) : (
-                                  <span
-                                    style={{ color: "var(--text-color-muted)" }}
-                                  >
-                                    —
-                                  </span>
-                                )}
-                              </td>
-                            )}
 
                             <td
                               rowSpan={rowSpan}
