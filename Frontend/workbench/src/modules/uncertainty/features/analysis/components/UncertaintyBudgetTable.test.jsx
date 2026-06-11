@@ -36,20 +36,63 @@ const renderDirectBudget = (overrides = {}) => {
 };
 
 describe("UncertaintyBudgetTable direct budget actions", () => {
-  it("keeps one Add action and Repeatability on the final budget table", () => {
+  it("groups Add and Repeatability under one table settings button", () => {
     const props = renderDirectBudget();
 
-    const addButtons = screen.getAllByTitle(
-      "Add component to Torque Uncertainty Budget",
-    );
-    expect(addButtons).toHaveLength(1);
+    expect(
+      screen.queryByTitle("Repeatability Calculator"),
+    ).not.toBeInTheDocument();
 
-    fireEvent.click(addButtons[0]);
+    fireEvent.click(
+      screen.getByTitle(
+        "Settings for Torque Uncertainty Budget",
+      ),
+    );
+
+    fireEvent.click(
+      screen.getByRole("button", { name: "Add Manual Component" }),
+    );
     expect(props.onAddManualComponent).toHaveBeenCalledOnce();
     expect(props.onAddManualComponent).toHaveBeenCalledWith(null);
 
-    fireEvent.click(screen.getByTitle("Repeatability Calculator"));
+    fireEvent.click(
+      screen.getByTitle(
+        "Settings for Torque Uncertainty Budget",
+      ),
+    );
+    fireEvent.click(screen.getByRole("button", { name: "Repeatability" }));
     expect(props.onOpenRepeatability).toHaveBeenCalledOnce();
+  });
+
+  it("changes uncertainty precision without changing nominal table data", () => {
+    renderDirectBudget({
+      components: [
+        {
+          id: "measurement-equation",
+          name: "Measurement Equation Uncertainty",
+          sourcePointLabel: "Nominal 12.34567",
+          type: "B",
+          value: 1.234567,
+          unit: "V",
+          distribution: "Other (Std. Unc.)",
+          isCore: true,
+        },
+      ],
+      referencePoint: { name: "Voltage", unit: "V" },
+    });
+
+    expect(screen.getByText("1.235 V")).toBeInTheDocument();
+    expect(screen.getByText("Nominal 12.34567")).toBeInTheDocument();
+
+    fireEvent.click(
+      screen.getByTitle("Settings for Voltage Uncertainty Budget"),
+    );
+    fireEvent.change(screen.getByLabelText("Uncertainty Sig Figs"), {
+      target: { value: "2" },
+    });
+
+    expect(screen.getByText("1.2 V")).toBeInTheDocument();
+    expect(screen.getByText("Nominal 12.34567")).toBeInTheDocument();
   });
 
   it("uses empirical Monte Carlo values for the final budget totals", () => {
@@ -92,7 +135,7 @@ describe("UncertaintyBudgetTable direct budget actions", () => {
       screen.getAllByText("Monte Carlo", { selector: ".method-chip" }),
     ).toHaveLength(2);
     expect(screen.getByText("Empirical")).toBeInTheDocument();
-    expect(screen.getByText("1.5000 V")).toBeInTheDocument();
+    expect(screen.getByText("1.500 V")).toBeInTheDocument();
     expect(screen.getByText("+4.0000 / -3.0000")).toBeInTheDocument();
     expect(
       screen.getByText(/Empirical shortest 95% coverage interval/),

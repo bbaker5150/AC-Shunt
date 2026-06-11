@@ -298,15 +298,20 @@ const UncertaintyBudgetTable = ({
   const isDirect = measurementType === "direct";
   const [showGuardband, setShowGuardband] = useState(false);
   const [uiSigFigs] = useState(4);
+  const [uncertaintySigFigs, setUncertaintySigFigs] = useState(4);
   const [expandedSigFigs, setExpandedSigFigs] = useState(5);
   const [riskSigFigs, setRiskSigFigs] = useState(4);
   const [showSettings, setShowSettings] = useState(false);
+  const [openSectionSettings, setOpenSectionSettings] = useState(null);
   const settingsRef = useRef(null);
 
   useEffect(() => {
     function handleClickOutside(event) {
       if (settingsRef.current && !settingsRef.current.contains(event.target)) {
         setShowSettings(false);
+      }
+      if (!event.target.closest(".budget-section-settings-wrap")) {
+        setOpenSectionSettings(null);
       }
     }
     document.addEventListener("mousedown", handleClickOutside);
@@ -511,7 +516,7 @@ const UncertaintyBudgetTable = ({
                     suffix={component.manualUnit || std.unit}
                   />
                 ) : (
-                  `${formatNumber(std.value, uiSigFigs)} ${std.unit}`
+                  `${formatNumber(std.value, uncertaintySigFigs)} ${std.unit}`
                 )}
               </td>
               <td className="action-cell">{renderActions(component)}</td>
@@ -542,11 +547,13 @@ const UncertaintyBudgetTable = ({
             <td>{row.nominalValue || "N/A"}</td>
             <td>{formatDof(row.dof)}</td>
             <td>
-              {formatNumber(row.standardUncertainty, uiSigFigs)} {row.unit}
+              {formatNumber(row.standardUncertainty, uncertaintySigFigs)}{" "}
+              {row.unit}
             </td>
             <td>{formatNumber(row.sensitivityCoefficient, 4)}</td>
             <td>
-              {formatNumber(row.contribution, uiSigFigs)} {derivedUnit}
+              {formatNumber(row.contribution, uncertaintySigFigs)}{" "}
+              {derivedUnit}
             </td>
           </tr>
         ))}
@@ -556,7 +563,8 @@ const UncertaintyBudgetTable = ({
       <p className="budget-correlation-note">
         Combined uncertainty includes input correlations (ρ); without
         correlation (RSS) it would be{" "}
-        {formatNumber(group.uncorrelatedCombined, uiSigFigs)} {group.unit}.
+        {formatNumber(group.uncorrelatedCombined, uncertaintySigFigs)}{" "}
+        {group.unit}.
       </p>
     )}
     </>
@@ -707,6 +715,126 @@ const UncertaintyBudgetTable = ({
     </div>
   );
 
+  const getGroupScope = (group) => ({
+    variableType: group.variableType,
+    label: group.label.replace(/\s+Uncertainty Budget$/i, ""),
+    nominalPoint: group.nominalPoint || {
+      value: group.nominalValue,
+      unit: group.unit,
+    },
+  });
+
+  const runSectionAction = (action) => {
+    setOpenSectionSettings(null);
+    action();
+  };
+
+  const renderSectionSettings = (group) => {
+    const canAddManual =
+      group.kind === "input" ||
+      group.kind === "equation" ||
+      group.kind === "final";
+    const canAddRepeatability =
+      group.kind === "input" || (isDirect && group.kind === "final");
+
+    return (
+      <div className="budget-section-settings-wrap">
+        <button
+          type="button"
+          title={`Settings for ${group.label}`}
+          aria-label={`Settings for ${group.label}`}
+          aria-expanded={openSectionSettings === group.id}
+          onClick={() =>
+            setOpenSectionSettings((open) =>
+              open === group.id ? null : group.id,
+            )
+          }
+        >
+          <FontAwesomeIcon icon={faCog} />
+        </button>
+        {openSectionSettings === group.id && (
+          <div className="budget-settings-menu budget-section-settings-menu">
+            {(canAddManual ||
+              canAddRepeatability ||
+              group.kind === "equation") && <h5>Actions</h5>}
+            {canAddManual && (
+              <button
+                type="button"
+                className="budget-settings-action"
+                onClick={() =>
+                  runSectionAction(() =>
+                    onAddManualComponent?.(
+                      group.kind === "input" ? getGroupScope(group) : null,
+                    ),
+                  )
+                }
+              >
+                <FontAwesomeIcon icon={faPlus} />
+                Add Manual Component
+              </button>
+            )}
+            {canAddRepeatability && (
+              <button
+                type="button"
+                className="budget-settings-action"
+                onClick={(event) =>
+                  runSectionAction(() =>
+                    group.kind === "input"
+                      ? onOpenRepeatability?.(event, getGroupScope(group))
+                      : onOpenRepeatability?.(event),
+                  )
+                }
+              >
+                <FontAwesomeIcon icon={faRedo} />
+                Repeatability
+              </button>
+            )}
+            {group.kind === "equation" && (
+              <>
+                {onOpenCorrelation && components?.length >= 2 && (
+                  <button
+                    type="button"
+                    className="budget-settings-action"
+                    onClick={() => runSectionAction(onOpenCorrelation)}
+                  >
+                    <FontAwesomeIcon icon={faProjectDiagram} />
+                    Input Correlation Matrix
+                  </button>
+                )}
+                <button
+                  type="button"
+                  className="budget-settings-action"
+                  onClick={() => runSectionAction(onShowDerivedBreakdown)}
+                >
+                  <FontAwesomeIcon icon={faCalculator} />
+                  Calculation Breakdown
+                </button>
+              </>
+            )}
+            <h5>Table Precision</h5>
+            <label>
+              Uncertainty Sig Figs
+              <input
+                type="number"
+                min="1"
+                max="10"
+                value={uncertaintySigFigs}
+                onChange={(event) =>
+                  setUncertaintySigFigs(
+                    Math.min(
+                      10,
+                      Math.max(1, parseInt(event.target.value, 10) || 1),
+                    ),
+                  )
+                }
+              />
+            </label>
+          </div>
+        )}
+      </div>
+    );
+  };
+
   const finalGroup = groups.find((group) => group.kind === "final");
   const usesMonteCarlo =
     propagationMode === "montecarlo" &&
@@ -758,89 +886,7 @@ const UncertaintyBudgetTable = ({
               <div className="budget-section-title-row">
                 <h4>{group.label}</h4>
                 <div className="budget-section-title-actions">
-                  {(group.kind === "input" || group.kind === "final") && (
-                    <button
-                      type="button"
-                      title={`Add component to ${group.label}`}
-                      onClick={() =>
-                        group.kind === "input"
-                          ? onAddManualComponent?.({
-                              variableType: group.variableType,
-                              label: group.label.replace(
-                                /\s+Uncertainty Budget$/i,
-                                "",
-                              ),
-                              nominalPoint: group.nominalPoint || {
-                                value: group.nominalValue,
-                                unit: group.unit,
-                              },
-                            })
-                          : onAddManualComponent?.(null)
-                      }
-                    >
-                      <FontAwesomeIcon icon={faPlus} />
-                    </button>
-                  )}
-                  {/* Keep repeatability on the table it contributes to. */}
-                  {(group.kind === "input" ||
-                    (isDirect && group.kind === "final")) && (
-                    <button
-                      type="button"
-                      title={
-                        group.kind === "input"
-                          ? `Repeatability for ${group.label}`
-                          : "Repeatability Calculator"
-                      }
-                      onClick={(e) =>
-                        group.kind === "input"
-                          ? onOpenRepeatability?.(e, {
-                              variableType: group.variableType,
-                              label: group.label.replace(
-                                /\s+Uncertainty Budget$/i,
-                                "",
-                              ),
-                              nominalPoint: group.nominalPoint || {
-                                value: group.nominalValue,
-                                unit: group.unit,
-                              },
-                            })
-                          : onOpenRepeatability?.(e)
-                      }
-                    >
-                      <FontAwesomeIcon icon={faRedo} />
-                    </button>
-                  )}
-                  {/* Derived-equation actions clustered at the table's top-right:
-                      add manual component, the input correlation matrix, and a
-                      single calculation-breakdown button (replaces the old
-                      per-row calculator icons). */}
-                  {group.kind === "equation" && (
-                    <>
-                      <button
-                        type="button"
-                        title="Add Manual Component"
-                        onClick={() => onAddManualComponent?.(null)}
-                      >
-                        <FontAwesomeIcon icon={faPlus} />
-                      </button>
-                      {onOpenCorrelation && components?.length >= 2 && (
-                        <button
-                          type="button"
-                          title="Input Correlation Matrix"
-                          onClick={onOpenCorrelation}
-                        >
-                          <FontAwesomeIcon icon={faProjectDiagram} />
-                        </button>
-                      )}
-                      <button
-                        type="button"
-                        title="View Calculation Breakdown"
-                        onClick={onShowDerivedBreakdown}
-                      >
-                        <FontAwesomeIcon icon={faCalculator} />
-                      </button>
-                    </>
-                  )}
+                  {renderSectionSettings(group)}
                 </div>
               </div>
               <div className="budget-section-table-wrap">
@@ -855,7 +901,7 @@ const UncertaintyBudgetTable = ({
                 group.kind === "final" && mcNative ? mcNative : group.results
               }
               unit={group.unit}
-              sigFigs={group.kind === "final" ? expandedSigFigs : uiSigFigs}
+              sigFigs={uncertaintySigFigs}
               isFinal={group.kind === "final"}
               useEffectiveDof={
                 (useEffectiveDofByGroup[groupDofKey(group)] ?? true) !== false

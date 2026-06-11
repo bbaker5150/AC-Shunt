@@ -4192,7 +4192,7 @@ body.dark-mode .symbol-popout .symbol-button:hover {
   border-radius: 8px;
   background: var(--content-background);
   box-shadow: var(--box-shadow-glow, 0 2px 10px rgba(0, 0, 0, 0.06));
-  overflow: hidden;
+  overflow: visible;
 }
 
 .budget-stack-section.final {
@@ -4208,6 +4208,7 @@ body.dark-mode .symbol-popout .symbol-button:hover {
     color-mix(in srgb, var(--table-header-bg) 45%, var(--content-background)),
     var(--table-header-bg)
   );
+  border-radius: 8px 8px 0 0;
 }
 
 .budget-section-title-row h4 {
@@ -4250,10 +4251,51 @@ body.dark-mode .symbol-popout .symbol-button:hover {
   transform: none;
 }
 
+.budget-section-settings-wrap {
+  position: relative;
+}
+
+.budget-section-title-actions .budget-section-settings-menu {
+  min-width: 245px;
+  text-transform: none;
+  letter-spacing: normal;
+}
+
+.budget-section-title-actions
+  .budget-section-settings-menu
+  .budget-settings-action {
+  width: 100%;
+  height: auto;
+  min-height: 34px;
+  margin-top: 5px;
+  padding: 7px 8px;
+  justify-content: flex-start;
+  gap: 9px;
+  border: 0;
+  border-radius: 6px;
+  color: var(--text-color);
+  font-size: 0.82rem;
+  font-weight: 600;
+  text-align: left;
+}
+
+.budget-section-title-actions
+  .budget-section-settings-menu
+  .budget-settings-action:hover {
+  color: var(--primary-color);
+  background: rgba(var(--primary-rgb), 0.06);
+}
+
+.budget-section-settings-menu .budget-settings-action svg {
+  width: 14px;
+  color: var(--text-color-muted);
+}
+
 .budget-section-table-wrap {
   min-width: 0;
   overflow-x: auto;
   align-self: start;
+  border-radius: 0 0 8px 8px;
 }
 
 .budget-stack-section .uncertainty-budget-table {
