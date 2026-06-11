@@ -419,13 +419,11 @@ const UncertaintyBudgetTable = ({
           }
           style={DIST_SELECT_STYLE}
         >
-          {errorDistributions
-            .filter((d) => d.label !== "Std. Uncertainty")
-            .map((d) => (
-              <option key={d.value} value={d.value}>
-                {d.label}
-              </option>
-            ))}
+          {errorDistributions.map((d) => (
+            <option key={d.value} value={d.value}>
+              {d.label}
+            </option>
+          ))}
         </select>
       );
     }

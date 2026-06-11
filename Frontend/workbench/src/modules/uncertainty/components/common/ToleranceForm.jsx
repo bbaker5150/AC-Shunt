@@ -381,9 +381,7 @@ const ToleranceForm = ({
     const componentData = tolerance[key];
     if (!componentData) return null;
 
-    const distributionOptions = errorDistributions.filter(
-      (d) => d.label !== "Std. Uncertainty"
-    );
+    const distributionOptions = errorDistributions;
 
     const limitsSection = (
       <div className="input-group-asymmetric">
@@ -591,9 +589,7 @@ const ToleranceForm = ({
     presentBandKeys.length > 0
       ? tolerance[presentBandKeys[0]].distribution || "1.732"
       : "1.732";
-  const bandDistributionOptions = errorDistributions.filter(
-    (d) => d.label !== "Std. Uncertainty"
-  );
+  const bandDistributionOptions = errorDistributions;
   const handleBandDistributionChange = (value) => {
     setTolerance((prev) => {
       const next = { ...prev };

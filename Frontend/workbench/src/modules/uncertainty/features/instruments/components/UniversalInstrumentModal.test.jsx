@@ -84,6 +84,34 @@ const toggleResolutionBudget = () => {
 };
 
 describe("UniversalInstrumentModal library synchronization", () => {
+  test("adds a range with no pre-populated tolerance components", () => {
+    const manualInstrument = {
+      ...sessionTmde,
+      libraryInstrumentId: undefined,
+      instrument: {
+        ...sessionTmde.instrument,
+        libraryInstrumentId: undefined,
+        functions: [
+          {
+            ...sessionTmde.instrument.functions[0],
+            ranges: [],
+          },
+        ],
+      },
+    };
+    renderModal({
+      initialData: manualInstrument,
+      instruments: [],
+    });
+
+    fireEvent.click(screen.getByRole("button", { name: /Add Range/i }));
+    fireEvent.click(screen.getByText("Custom Spec"));
+
+    expect(
+      screen.getByText("No tolerance components added."),
+    ).toBeInTheDocument();
+  });
+
   test("stores the resolution budget opt-in on the edited range", () => {
     const props = renderModal();
 

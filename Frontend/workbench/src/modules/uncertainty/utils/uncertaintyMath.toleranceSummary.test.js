@@ -1,5 +1,8 @@
 import { describe, expect, it } from "vitest";
-import { getToleranceErrorSummary } from "./uncertaintyMath";
+import {
+  errorDistributions,
+  getToleranceErrorSummary,
+} from "./uncertaintyMath";
 
 describe("getToleranceErrorSummary", () => {
   it("ignores a textual range label when calculating point tolerance", () => {
@@ -20,5 +23,14 @@ describe("getToleranceErrorSummary", () => {
     expect(
       getToleranceErrorSummary(tolerance, { value: 15, unit: "V" }),
     ).toBe("±0.000675 V");
+  });
+});
+
+describe("errorDistributions", () => {
+  it("offers a normal distribution with k=1", () => {
+    expect(errorDistributions).toContainEqual({
+      value: "1.000",
+      label: "Normal (k=1)",
+    });
   });
 });

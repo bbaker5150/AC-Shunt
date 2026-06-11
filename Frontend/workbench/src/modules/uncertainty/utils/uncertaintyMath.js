@@ -344,7 +344,7 @@ export const errorDistributions = [
   { value: "2.576", label: "Normal (99%)" },
   { value: "3.000", label: "Normal (99.73%)" },
   { value: "4.179", label: "Rayleigh" },
-  { value: "1.000", label: "Std. Uncertainty" },
+  { value: "1.000", label: "Normal (k=1)" },
 ];
 
 // ---------------------------------------------------------------------------

@@ -20,7 +20,7 @@ export const oldErrorDistributions = [
   { value: "2.576", label: "Normal (99%, k=2.576)" },
   { value: "3.000", label: "Normal (99.73%, k=3)" },
   { value: "4.179", label: "Rayleigh" },
-  { value: "1.000", label: "Standard Uncertainty (Input is uᵢ)" },
+  { value: "1.000", label: "Normal (k=1)" },
 ];
 
 export const getBudgetComponentsFromTolerance = (

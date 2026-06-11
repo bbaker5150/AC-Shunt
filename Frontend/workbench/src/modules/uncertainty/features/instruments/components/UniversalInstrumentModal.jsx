@@ -428,32 +428,12 @@ const UniversalInstrumentModal = ({
 
     const handleAddRange = () => {
         if (!activeFunction) return;
-        // Seed a sensible default tolerance so a new range isn't blank. The
-        // reading term is a unit-independent "% of reading"; the floor term is
-        // pre-unit'd to the function's base unit so the absolute term already
-        // matches what the range measures (auto-populate from the range unit).
-        const baseUnit = activeFunction.unit || "";
         const newRange = {
             id: uuidv4(),
             min: 0,
             max: 0,
             resolution: 0,
-            tolerances: {
-                reading: {
-                    high: "",
-                    low: "",
-                    unit: "%",
-                    distribution: "1.732",
-                    symmetric: true,
-                },
-                floor: {
-                    high: "",
-                    low: "",
-                    unit: baseUnit,
-                    distribution: "1.732",
-                    symmetric: true,
-                },
-            },
+            tolerances: {},
         };
         const updatedRanges = [...activeFunction.ranges, newRange];
         setInstrumentDef(prev => ({
