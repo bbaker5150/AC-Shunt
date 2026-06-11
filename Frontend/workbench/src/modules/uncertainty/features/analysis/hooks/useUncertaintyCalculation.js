@@ -154,6 +154,7 @@ export const useUncertaintyCalculation = (
     let effectiveDof = Infinity;
     const componentsForBudgetTable = [];
     let calculatedNominalResult = NaN;
+    let derivedSecondOrder = null;
     let derivedUcInputs_Native = 0;
     let derivedUcInputs_Base = 0;
     let calculatedBudgetGroups = [];
@@ -299,6 +300,11 @@ export const useUncertaintyCalculation = (
         derivedUcInputs_Base = derivedUcInputs_Native * targetUnitInfo.to_si;
 
         calculatedNominalResult = nominalResult;
+        // Second-order Taylor summary (u including ½f″u² terms + mean shift)
+        // for the derived breakdown modal. Display-only diagnostics — the
+        // budget itself stays first-order (Monte Carlo mode is the
+        // authoritative correction path).
+        derivedSecondOrder = derivedCalculationResult.secondOrder || null;
 
         // Unified list of SIGNED contributions in base SI units (equation inputs
         // + non-mapped manual components). combineWithCorrelation applies the
@@ -411,6 +417,12 @@ export const useUncertaintyCalculation = (
                 derivativeString: item.derivativeString,
                 contribution: item.contribution_native,
                 nonlinearityWarning: item.nonlinearityWarning || null,
+                // Second-order Taylor diagnostics for the breakdown modal
+                // (null for inputs the equation is effectively linear in).
+                secondDerivativeString: item.secondDerivativeString || null,
+                secondDerivativeValue: item.secondDerivative_display ?? null,
+                secondOrderContribution: item.secondOrderTerm_native ?? null,
+                secondOrderShift: item.secondOrderShift_native ?? null,
                 dof: inputBudgetResults.effective_dof,
                 isCore: true,
                 distribution: distributionLabel,
@@ -809,6 +821,7 @@ export const useUncertaintyCalculation = (
             : group
         ),
         calculatedNominalValue: calculatedNominalResult,
+        secondOrder: derivedSecondOrder,
       };
 
       setCalcResults(newResults);

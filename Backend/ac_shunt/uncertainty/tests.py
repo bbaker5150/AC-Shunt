@@ -164,6 +164,39 @@ class InstrumentAndBugReportTests(APITestCase):
         self.assertEqual(delete.status_code, status.HTTP_204_NO_CONTENT)
         self.assertEqual(models.Instrument.objects.count(), 0)
 
+    def test_custom_equation_crud(self):
+        payload = {
+            "id": "eq-uuid-1",
+            "name": "Deadweight pressure (corrected)",
+            "expression": "m * g / A0 * (1 - rhoA / rhoM)",
+            "description": "Pressure with air-buoyancy correction.",
+            "measurementArea": "Pressure",
+            "measurementAreaColor": "#16a085",
+            "variables": {
+                "m": "Mass", "g": "Local Gravity", "A0": "Piston Area",
+                "rhoA": "Air Density", "rhoM": "Mass Density",
+            },
+        }
+        post = self.client.post("/api/uncertainty/equations/", payload, format="json")
+        self.assertEqual(post.status_code, status.HTTP_201_CREATED)
+        self.assertEqual(post.data["expression"], payload["expression"])
+
+        listing = self.client.get("/api/uncertainty/equations/")
+        self.assertEqual(len(listing.data), 1)
+        self.assertEqual(listing.data[0]["measurementArea"], "Pressure")
+        self.assertEqual(listing.data[0]["variables"]["rhoM"], "Mass Density")
+
+        # POST with the same id upserts (edit-in-place, like instruments).
+        payload["name"] = "Renamed"
+        self.client.post("/api/uncertainty/equations/", payload, format="json")
+        listing = self.client.get("/api/uncertainty/equations/")
+        self.assertEqual(len(listing.data), 1)
+        self.assertEqual(listing.data[0]["name"], "Renamed")
+
+        delete = self.client.delete("/api/uncertainty/equations/eq-uuid-1/")
+        self.assertEqual(delete.status_code, status.HTTP_204_NO_CONTENT)
+        self.assertEqual(models.CustomEquation.objects.count(), 0)
+
     def test_bug_report_crud(self):
         payload = {
             "id": "1712345000000", "title": "Crash", "type": "Bug",

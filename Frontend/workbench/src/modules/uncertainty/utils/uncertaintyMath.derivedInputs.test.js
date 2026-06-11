@@ -98,6 +98,77 @@ describe("calculateDerivedUncertainty stationary-point handling", () => {
   });
 });
 
+describe("calculateDerivedUncertainty second-order Taylor data", () => {
+  it("exposes per-input second-derivative terms and the aggregate summary", () => {
+    // y = x² at x = 1 with u = 1/√3 (V unit is its own base: to_si = 1).
+    // f″ = 2 ⇒ ½·f″·u² = 1/3; first-order u_c = 2u = 2/√3.
+    const result = calculateDerivedUncertainty(
+      "y = x^2",
+      { x: "Length" },
+      [makeTmdeAt("tmde-x", "Length", 1)],
+      { value: 1, unit: "V" },
+    );
+
+    const item = result.breakdown[0];
+    expect(item.secondDerivativeString).toBe("2");
+    expect(item.secondDerivative_display).toBeCloseTo(2, 10);
+    expect(item.secondOrderTerm_native).toBeCloseTo(1 / 3, 8);
+    expect(item.secondOrderShift_native).toBeCloseTo(1 / 3, 8);
+
+    // Aggregate: u² = (2/√3)² + (1/3)², mean shift Σ½f″u² = 1/3.
+    expect(result.secondOrder).not.toBeNull();
+    expect(result.secondOrder.combinedUncertaintyNative).toBeCloseTo(
+      Math.sqrt(4 / 3 + 1 / 9),
+      8,
+    );
+    expect(result.secondOrder.meanShiftNative).toBeCloseTo(1 / 3, 8);
+  });
+
+  it("carries a negative second derivative's sign into the mean shift", () => {
+    // y = -(x²): f″ = -2 ⇒ shift = -u² = -1/3, |term| still 1/3.
+    const result = calculateDerivedUncertainty(
+      "y = -(x^2)",
+      { x: "Length" },
+      [makeTmdeAt("tmde-x", "Length", 1)],
+      { value: -1, unit: "V" },
+    );
+
+    const item = result.breakdown[0];
+    expect(item.secondOrderTerm_native).toBeCloseTo(1 / 3, 8);
+    expect(item.secondOrderShift_native).toBeCloseTo(-1 / 3, 8);
+    expect(result.secondOrder.meanShiftNative).toBeCloseTo(-1 / 3, 8);
+  });
+
+  it("reports no second-order summary for a linear equation", () => {
+    const result = calculateDerivedUncertainty(
+      "y = x",
+      { x: "Length" },
+      [makeTmde("tmde-a")],
+      { value: 10, unit: "V" },
+    );
+
+    expect(result.error).toBeNull();
+    expect(result.secondOrder).toBeNull();
+    expect(result.breakdown[0].secondOrderTerm_native).toBe(0);
+  });
+
+  it("still provides second-order data on the degenerate (stationary) return", () => {
+    const result = calculateDerivedUncertainty(
+      "y = (x - 5)^2",
+      { x: "Offset" },
+      [makeTmdeAt("tmde-x", "Offset", 5)],
+      { value: 0, unit: "V" },
+    );
+
+    expect(result.degenerate).toBe(true);
+    const item = result.breakdown[0];
+    expect(item.secondDerivativeString).toBeTruthy();
+    expect(item.secondOrderTerm_native).toBeCloseTo(1 / 3, 8);
+    expect(result.secondOrder).not.toBeNull();
+    expect(result.secondOrder.combinedUncertaintyNative).toBeCloseTo(1 / 3, 8);
+  });
+});
+
 describe("calculateDerivedUncertainty input contributors", () => {
   it("additively composes multiple TMDEs assigned to one derived input", () => {
     const result = calculateDerivedUncertainty(

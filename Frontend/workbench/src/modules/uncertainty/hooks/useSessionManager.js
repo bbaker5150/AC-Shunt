@@ -118,6 +118,7 @@ const useSessionManager = () => {
   // --- State ---
   const [sessions, setSessions] = useState([]);
   const [instruments, setInstruments] = useState([]);
+  const [customEquations, setCustomEquations] = useState([]);
   const [bugReports, setBugReports] = useState([]);
   const [selectedSessionId, setSelectedSessionId] = useState(null);
   const [selectedTestPointId, setSelectedTestPointId] = useState(null);
@@ -154,6 +155,13 @@ const useSessionManager = () => {
       setInstruments(Array.isArray(instRes.data) ? instRes.data : []);
     } catch (e) {
       console.error("Failed to load instruments from backend", e);
+    }
+
+    try {
+      const eqRes = await axios.get(`${UNCERTAINTY_API}/equations/`);
+      setCustomEquations(Array.isArray(eqRes.data) ? eqRes.data : []);
+    } catch (e) {
+      console.error("Failed to load custom equations from backend", e);
     }
 
     try {
@@ -274,6 +282,34 @@ const useSessionManager = () => {
       await axios.delete(`${UNCERTAINTY_API}/instruments/${instrumentId}/`);
     } catch (e) {
       console.error("Failed to delete instrument from backend", e);
+    }
+  }, []);
+
+  // --- 2.2.1 Persist Custom Equation (global library, like instruments) ---
+  const saveCustomEquation = useCallback(async (equation) => {
+    setCustomEquations((prev) => {
+      const existingIdx = prev.findIndex((e) => e.id === equation.id);
+      if (existingIdx > -1) {
+        const next = [...prev];
+        next[existingIdx] = equation;
+        return next;
+      }
+      return [...prev, equation];
+    });
+
+    try {
+      await axios.post(`${UNCERTAINTY_API}/equations/`, equation);
+    } catch (e) {
+      console.error("Failed to save custom equation to backend", e);
+    }
+  }, []);
+
+  const deleteCustomEquation = useCallback(async (equationId) => {
+    setCustomEquations((prev) => prev.filter((e) => e.id !== equationId));
+    try {
+      await axios.delete(`${UNCERTAINTY_API}/equations/${equationId}/`);
+    } catch (e) {
+      console.error("Failed to delete custom equation from backend", e);
     }
   }, []);
 
@@ -674,6 +710,9 @@ const useSessionManager = () => {
   return {
     sessions,
     instruments,
+    customEquations,
+    saveCustomEquation,
+    deleteCustomEquation,
     bugReports,
     saveInstrument,
     saveBugReport,

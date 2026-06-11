@@ -170,6 +170,18 @@ def instrument_to_dict(i):
     }
 
 
+def custom_equation_to_dict(eq):
+    return {
+        "id": _coerce_id(eq.id),
+        "name": eq.name,
+        "expression": eq.expression,
+        "description": eq.description,
+        "measurementArea": eq.measurement_area,
+        "measurementAreaColor": eq.measurement_area_color,
+        "variables": eq.variables or {},
+    }
+
+
 def bug_report_to_dict(b):
     return {
         "id": _coerce_id(b.id),
@@ -355,6 +367,21 @@ def save_instrument(data):
             "measurement_area_color": data.get("measurementAreaColor", "") or "",
             "instrument_type": data.get("type", "") or "",
             "functions": data.get("functions") or [],
+        },
+    )
+    return obj
+
+
+def save_custom_equation(data):
+    obj, _ = models.CustomEquation.objects.update_or_create(
+        id=_cid(data.get("id")),
+        defaults={
+            "name": data.get("name", "") or "",
+            "expression": data.get("expression", "") or "",
+            "description": data.get("description", "") or "",
+            "measurement_area": data.get("measurementArea", "") or "",
+            "measurement_area_color": data.get("measurementAreaColor", "") or "",
+            "variables": data.get("variables") or {},
         },
     )
     return obj

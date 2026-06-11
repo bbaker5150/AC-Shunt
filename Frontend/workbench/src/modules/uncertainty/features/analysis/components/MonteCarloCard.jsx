@@ -8,7 +8,11 @@ import {
   unitSystem,
   calculateDerivedUncertainty,
 } from "../../../utils/uncertaintyMath";
-import useMonteCarlo, { MC_RUN_OPTIONS } from "../hooks/useMonteCarlo";
+import {
+  MC_SAMPLE_CHOICES,
+  normalizeMcSampleCount,
+} from "../../../utils/monteCarlo";
+import useMonteCarlo from "../hooks/useMonteCarlo";
 
 const fmt = (v, digits = 5) =>
   Number.isFinite(v) ? parseFloat(v.toPrecision(digits)).toString() : "N/A";
@@ -33,6 +37,7 @@ const MonteCarloCard = ({
   onUpdateTestPoint,
 }) => {
   const unit = uutNominal?.unit || "";
+  const maxSamples = normalizeMcSampleCount(testPointData.mcMaxSamples);
 
   const mc = useMonteCarlo({
     enabled: true,
@@ -41,6 +46,7 @@ const MonteCarloCard = ({
     tmdeTolerances: tmdeTolerancesData,
     manualComponents,
     correlations: testPointData.inputCorrelations,
+    maxSamples,
   });
 
   // First-order result recomputed locally for an apples-to-apples,
@@ -154,6 +160,38 @@ const MonteCarloCard = ({
           <span>Monte Carlo Propagation (GUM-S1)</span>
         </div>
         <div className="panel-card-actions">
+          <label
+            className="mc-trials-select"
+            title="Maximum number of simulated trials. Adaptive batching may stop earlier once the result stabilizes; more trials sharpen the distribution tails used for empirical PFA/PFR."
+            style={{
+              display: "inline-flex",
+              alignItems: "center",
+              gap: "6px",
+              fontSize: "0.82rem",
+              color: "var(--text-color-muted)",
+              marginRight: "10px",
+            }}
+          >
+            Trials
+            <select
+              value={maxSamples}
+              aria-label="Maximum Monte Carlo trials"
+              onChange={(e) =>
+                onUpdateTestPoint({
+                  mcMaxSamples: parseInt(e.target.value, 10),
+                })
+              }
+            >
+              {(MC_SAMPLE_CHOICES.includes(maxSamples)
+                ? MC_SAMPLE_CHOICES
+                : [...MC_SAMPLE_CHOICES, maxSamples].sort((a, b) => a - b)
+              ).map((n) => (
+                <option key={n} value={n}>
+                  {n.toLocaleString()}
+                </option>
+              ))}
+            </select>
+          </label>
           <div
             className="propagation-mode-switch"
             role="group"
@@ -177,8 +215,7 @@ const MonteCarloCard = ({
       <div style={{ padding: "12px 16px" }}>
         {mc.status === "running" && (
           <p style={{ color: "var(--text-color-muted)", margin: 0 }}>
-            Simulating… (up to{" "}
-            {MC_RUN_OPTIONS.maxSamples.toLocaleString()} trials, seeded)
+            Simulating… (up to {maxSamples.toLocaleString()} trials, seeded)
           </p>
         )}
 

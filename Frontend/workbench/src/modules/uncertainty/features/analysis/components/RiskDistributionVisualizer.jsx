@@ -1,5 +1,8 @@
 import React, { useEffect, useId, useMemo, useState } from "react";
-import { drawFromQuantiles } from "../../../utils/empiricalRisk";
+import {
+  drawFromQuantiles,
+  normalizeTwoSided,
+} from "../../../utils/empiricalRisk";
 
 const WIDTH = 920;
 const HEIGHT = 330;
@@ -360,10 +363,19 @@ const RiskDistributionVisualizer = ({
       results.errorQuantiles.length > 1
         ? results.errorQuantiles
         : null;
-    const tolLow = toleranceLow - nominal;
-    const tolHigh = toleranceHigh - nominal;
-    const accLow = acceptanceLow - nominal;
-    const accHigh = acceptanceHigh - nominal;
+    // Center the truth frame exactly where the risk math centered it. For
+    // empirical (Monte Carlo) points that is normalizeTwoSided's symmetrized
+    // frame around the risk average (the MC mean) — using anything else makes
+    // the plotted FA/FR fractions drift from the reported PFA/PFR.
+    const riskAverage = finite(results.riskAverage, nominal);
+    const frame = errorQuantiles
+      ? normalizeTwoSided(riskAverage, toleranceLow, toleranceHigh)
+      : null;
+    const center = frame ? frame.center : nominal;
+    const tolLow = frame ? -frame.L : toleranceLow - nominal;
+    const tolHigh = frame ? frame.L : toleranceHigh - nominal;
+    const accLow = acceptanceLow - center;
+    const accHigh = acceptanceHigh - center;
     const xMax =
       Math.max(Math.abs(tolLow), Math.abs(tolHigh), trueSigma * 3.5) * 1.18;
     const yMax =
@@ -431,6 +443,7 @@ const RiskDistributionVisualizer = ({
       tolHigh,
       accLow,
       accHigh,
+      center,
       xMax,
       yMax,
       toX,
@@ -862,7 +875,8 @@ const RiskDistributionVisualizer = ({
                         textAnchor="middle"
                         className="risk-viz-limit-value"
                       >
-                        {formatNumber(value + nominal)} {results.nativeUnit}
+                        {formatNumber(value + monteCarlo.center)}{" "}
+                        {results.nativeUnit}
                       </text>
                     </g>
                   ))}
@@ -886,7 +900,8 @@ const RiskDistributionVisualizer = ({
                         textAnchor="end"
                         className="risk-viz-limit-label acceptance"
                       >
-                        {label} {formatNumber(value + nominal)} {results.nativeUnit}
+                        {label} {formatNumber(value + monteCarlo.center)}{" "}
+                        {results.nativeUnit}
                       </text>
                     </g>
                   ))}

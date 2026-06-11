@@ -133,7 +133,7 @@ export const useRiskCalculation = (
     let uCal_Native = calcResults.combined_uncertainty_absolute_base / targetUnitInfo?.to_si;
     let U_Native = calcResults.expanded_uncertainty_absolute_base / targetUnitInfo?.to_si;
     const calculatedAverage = parseFloat(calcResults.calculatedNominalValue);
-    const riskAverage = Number.isFinite(calculatedAverage) ? calculatedAverage : 0;
+    let riskAverage = Number.isFinite(calculatedAverage) ? calculatedAverage : 0;
 
     if (!targetUnitInfo || isNaN(targetUnitInfo.to_si)) {
       setNotification({
@@ -160,6 +160,15 @@ export const useRiskCalculation = (
       mcErrorQuantilesNative = mcSummary.quantiles.map(
         (q) => (q - mcSummary.meanBase) / targetUnitInfo.to_si
       );
+      // The MC mean is the corrected estimate of the measurand (JCGM 101): at
+      // a nonlinear operating point it carries the ½f″u² shift that
+      // f(nominals) misses. All risk math below — TUR/TAR centering, PFA/PFR,
+      // guard bands — must run on it, not the first-order value.
+      const mcMeanNative = unitSystem.fromBaseUnit(
+        mcSummary.meanBase,
+        nominalUnit
+      );
+      if (Number.isFinite(mcMeanNative)) riskAverage = mcMeanNative;
     }
 
     // ... [Logic: UUT Breakdown for TAR] ...
@@ -596,6 +605,10 @@ export const useRiskCalculation = (
       // empirical — the risk visualizer draws its Monte Carlo cloud from this
       // so the plotted quadrants match the reported PFA/PFR.
       errorQuantiles: mcErrorQuantilesNative,
+      // The average every risk metric above was computed against (the MC mean
+      // for empirical points, else the first-order calculated value). The
+      // visualizer centers its truth frame here so plot and numbers agree.
+      riskAverage,
       tur: turResult,
       tar: tarResult,
       pfa: pfaResult * 100,
@@ -653,6 +666,13 @@ export const useRiskCalculation = (
     uutToleranceData,
     tmdeTolerancesData,
     testPointData?.uutTolerance?.measuringResolution, // FIXED Dependency
+    // Layer 3 inputs: when MonteCarloCard persists a fresh summary (or the
+    // user toggles MC mode / changes the trial count), the risk metrics must
+    // recompute immediately — otherwise the PFA/PFR cards and the visualizer
+    // keep showing the pre-MC closed-form numbers until an unrelated edit.
+    testPointData?.propagationMode,
+    testPointData?.mcSummary,
+    testPointData?.mcMaxSamples,
     onRiskResultsChange,
   ]);
 

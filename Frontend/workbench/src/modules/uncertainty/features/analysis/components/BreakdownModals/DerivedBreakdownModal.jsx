@@ -209,6 +209,21 @@ const DerivedBreakdownModal = ({ isOpen, onClose, breakdownData }) => {
                                 {term.quantity > 1 && (
                                     <li><strong>Total Variance Term (<Latex>{`$${term.quantity} \\cdot (c_{${symbol}} u_{${symbol}})^2$`}</Latex>):</strong> {formatNumberForLatex(term.varianceDerivedSq, 5)}</li>
                                 )}
+
+                                {/* 2nd-order Taylor term (nonlinear equations): ½·f″·u². */}
+                                {budgetComp?.secondDerivativeString && Number.isFinite(budgetComp?.secondOrderContribution) && budgetComp.secondOrderContribution !== 0 && (() => {
+                                    let secondDerivativeTex = budgetComp.secondDerivativeString;
+                                    try { secondDerivativeTex = math.parse(budgetComp.secondDerivativeString).toTex(); } catch (e) { /* show raw string */ }
+                                    return (
+                                        <li>
+                                            <strong>2nd-Order Taylor Term (<Latex>{`$\\tfrac{1}{2} c''_{${symbol}} u_{${symbol}}^2$`}</Latex>):</strong>
+                                            <ul style={{ listStyleType: 'none', paddingLeft: '10px' }}>
+                                                <li><Latex>{`$$ c''_{${symbol}} = \\frac{\\partial^2 f}{\\partial ${symbol}^2} = ${secondDerivativeTex} = ${formatNumberForLatex(budgetComp.secondDerivativeValue)} $$`}</Latex></li>
+                                                <li><Latex>{`$$ \\left| \\tfrac{1}{2} c''_{${symbol}} u_{${symbol}}^2 \\right| = ${formatNumberForLatex(budgetComp.secondOrderContribution)} \\text{ ${derivedUnit}} $$`}</Latex></li>
+                                            </ul>
+                                        </li>
+                                    );
+                                })()}
                             </ul>
                             {budgetComp?.nonlinearityWarning && (
                                 <p style={{ color: '#b45309', fontWeight: 600, marginTop: '6px' }}>
@@ -232,6 +247,65 @@ const DerivedBreakdownModal = ({ isOpen, onClose, breakdownData }) => {
                     <hr style={{margin: '15px 0'}}/>
                      <strong>Final Combined Uncertainty (<Latex>$u_y$</Latex>): {isNaN(combinedUncertaintyInDerivedUnit) ? 'N/A' : `${combinedUncertaintyInDerivedUnit.toPrecision(5)} ${derivedUnit}`}</strong>
                 </div>
+
+                {/* 2nd-order Taylor series summary — only for nonlinear equations
+                    (at least one input with a non-zero ½f″u² term). Computed from
+                    the same per-term values rendered above so the arithmetic shown
+                    here ties out exactly. */}
+                {(() => {
+                    const components = breakdownData.results.calculatedBudgetComponents || [];
+                    const secondOrderComps = components.filter(
+                        (c) => Number.isFinite(c.secondOrderContribution) && c.secondOrderContribution !== 0
+                    );
+                    if (secondOrderComps.length === 0) return null;
+                    const valuesTex = secondOrderComps
+                        .map((c) => `(${formatNumberForLatex(c.secondOrderContribution)})^2`)
+                        .join(' + ');
+                    const shiftValuesTex = secondOrderComps
+                        .map((c) => formatNumberForLatex(c.secondOrderShift))
+                        .join(' + ');
+                    const sumSecondOrderSquares = secondOrderComps.reduce(
+                        (sum, c) => sum + c.secondOrderContribution ** 2, 0
+                    );
+                    const meanShift = secondOrderComps.reduce(
+                        (sum, c) => sum + (Number.isFinite(c.secondOrderShift) ? c.secondOrderShift : 0), 0
+                    );
+                    const uSecondOrder = Math.sqrt(
+                        (isNaN(sumOfVariancesDerivedUnits) ? 0 : sumOfVariancesDerivedUnits) +
+                        sumSecondOrderSquares
+                    );
+                    const linearMean = parseFloat(breakdownData.results.calculatedNominalValue);
+                    const correctedMean = Number.isFinite(linearMean)
+                        ? linearMean + meanShift
+                        : NaN;
+                    return (
+                        <div className="breakdown-step">
+                            <h5>2nd-Order Taylor Series (Nonlinearity Correction)</h5>
+                            <p>
+                                The equation is nonlinear at this operating point, so the first-order
+                                (GUM) budget above is incomplete. Including the diagonal second-order
+                                Taylor terms:
+                            </p>
+                            <Latex>{`$$ u_y^{(2)} = \\sqrt{\\sum_i (c_i u_i)^2 + \\sum_i \\left( \\tfrac{1}{2} c''_i u_i^2 \\right)^2} $$`}</Latex>
+                            <Latex>{`$$ u_y^{(2)} = \\sqrt{${formatNumberForLatex(sumOfVariancesDerivedUnits, 5)} + ${valuesTex}} = \\mathbf{${formatNumberForLatex(uSecondOrder, 5)}} \\text{ (${derivedUnit})} $$`}</Latex>
+                            <p>
+                                The second-order terms also shift the expected result away from{' '}
+                                <Latex>{`$f(\\bar{x})$`}</Latex> (the corrected mean):
+                            </p>
+                            <Latex>{`$$ \\Delta y = \\sum_i \\tfrac{1}{2} c''_i u_i^2 = ${shiftValuesTex} = \\mathbf{${formatNumberForLatex(meanShift, 5)}} \\text{ (${derivedUnit})} $$`}</Latex>
+                            {Number.isFinite(correctedMean) && (
+                                <Latex>{`$$ E[y] \\approx f(\\bar{x}) + \\Delta y = ${formatNumberForLatex(linearMean, 6)} + ${formatNumberForLatex(meanShift, 5)} = \\mathbf{${formatNumberForLatex(correctedMean, 6)}} \\text{ (${derivedUnit})} $$`}</Latex>
+                            )}
+                            <p style={{ color: 'var(--text-color-muted)', fontSize: '0.9em' }}>
+                                These second-order values are diagnostic (diagonal terms only,
+                                symmetric input distributions assumed). For the authoritative
+                                result at a nonlinear or stationary operating point, switch the
+                                point to Monte Carlo propagation — its mean and uncertainty include
+                                all higher-order effects and feed the risk analysis directly.
+                            </p>
+                        </div>
+                    );
+                })()}
             </div>
         </div>,
         document.body

@@ -929,6 +929,9 @@ function App() {
   const {
     sessions,
     instruments,
+    customEquations,
+    saveCustomEquation,
+    deleteCustomEquation,
     bugReports,
     saveInstrument,
     saveBugReport,
@@ -4748,6 +4751,9 @@ function App() {
                     onDecrementTmdeQuantity={decrementTmdeQuantity}
                     onDeleteUut={handleDeleteUut}
                     instruments={instruments}
+                    customEquations={customEquations}
+                    onSaveCustomEquation={saveCustomEquation}
+                    onDeleteCustomEquation={deleteCustomEquation}
                     onDeleteTestPoint={handleDeleteTestPoint}
                     currentUutSelection={currentUutSelection}
                     setCurrentUutSelection={setCurrentUutSelection}

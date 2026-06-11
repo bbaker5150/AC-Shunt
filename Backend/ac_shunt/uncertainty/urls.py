@@ -25,6 +25,9 @@ urlpatterns = [
     path("instruments/", views.instruments, name="instruments"),
     path("instruments/<str:instrument_id>/", views.instrument_detail, name="instrument-detail"),
 
+    path("equations/", views.equations, name="equations"),
+    path("equations/<str:equation_id>/", views.equation_detail, name="equation-detail"),
+
     path("bug_reports/", views.bug_reports, name="bug-reports"),
     path("bug_reports/<str:report_id>/", views.bug_report_detail, name="bug-report-detail"),
 ]

@@ -3,6 +3,9 @@ import {
   runMonteCarloPropagation,
   buildMonteCarloInputs,
   distributionFromDivisor,
+  computeMcInputsHash,
+  normalizeMcSampleCount,
+  DEFAULT_MC_MAX_SAMPLES,
 } from "./monteCarlo";
 import { calculateDerivedUncertainty, correlationKey } from "./uncertaintyMath";
 
@@ -276,5 +279,38 @@ describe("buildMonteCarloInputs bridge", () => {
     );
     expect(inputs).toHaveLength(1);
     expect(missingTypes).toEqual(["Weight"]);
+  });
+});
+
+describe("computeMcInputsHash trial-count semantics", () => {
+  const base = {
+    equationString: "y = x",
+    variableMappings: { x: "Length" },
+    correlations: {},
+    tmdeTolerances: [],
+    manualComponents: [],
+  };
+
+  it("treats a missing trial count as the default (back-compat with saved points)", () => {
+    expect(computeMcInputsHash(base)).toBe(
+      computeMcInputsHash({ ...base, maxSamples: DEFAULT_MC_MAX_SAMPLES })
+    );
+    expect(computeMcInputsHash(base)).toBe(
+      computeMcInputsHash({ ...base, maxSamples: "not-a-number" })
+    );
+  });
+
+  it("changes the hash when the trial count changes", () => {
+    expect(computeMcInputsHash({ ...base, maxSamples: 100000 })).not.toBe(
+      computeMcInputsHash({ ...base, maxSamples: 400000 })
+    );
+  });
+
+  it("normalizes trial counts into a sane range", () => {
+    expect(normalizeMcSampleCount(undefined)).toBe(DEFAULT_MC_MAX_SAMPLES);
+    expect(normalizeMcSampleCount(0)).toBe(DEFAULT_MC_MAX_SAMPLES);
+    expect(normalizeMcSampleCount(100000)).toBe(100000);
+    expect(normalizeMcSampleCount(1)).toBe(10000);
+    expect(normalizeMcSampleCount(1e9)).toBe(5000000);
   });
 });

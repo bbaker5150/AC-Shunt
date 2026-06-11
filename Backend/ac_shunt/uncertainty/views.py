@@ -107,6 +107,32 @@ def instrument_detail(request, instrument_id):
 
 
 # --------------------------------------------------------------------------- #
+# Custom equations (global measurement-equation library)
+# --------------------------------------------------------------------------- #
+@api_view(["GET", "POST"])
+@permission_classes([AllowAny])
+def equations(request):
+    if request.method == "GET":
+        return Response(
+            [
+                serializers.custom_equation_to_dict(e)
+                for e in models.CustomEquation.objects.all()
+            ]
+        )
+    obj = serializers.save_custom_equation(request.data)
+    return Response(
+        serializers.custom_equation_to_dict(obj), status=status.HTTP_201_CREATED
+    )
+
+
+@api_view(["DELETE"])
+@permission_classes([AllowAny])
+def equation_detail(request, equation_id):
+    models.CustomEquation.objects.filter(pk=str(equation_id)).delete()
+    return Response(status=status.HTTP_204_NO_CONTENT)
+
+
+# --------------------------------------------------------------------------- #
 # Bug reports
 # --------------------------------------------------------------------------- #
 @api_view(["GET", "POST"])

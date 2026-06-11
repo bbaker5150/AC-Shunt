@@ -88,4 +88,27 @@ describe("MonteCarloCard", () => {
       propagationMode: "linear",
     });
   });
+
+  it("persists a user-selected trial count", () => {
+    const onUpdateTestPoint = vi.fn();
+    render(<MonteCarloCard {...baseProps({ onUpdateTestPoint })} />);
+
+    const select = screen.getByLabelText("Maximum Monte Carlo trials");
+    // Default ceiling matches the engine default.
+    expect(select).toHaveValue("400000");
+
+    fireEvent.change(select, { target: { value: "100000" } });
+    expect(onUpdateTestPoint).toHaveBeenCalledWith({ mcMaxSamples: 100000 });
+  });
+
+  it("reflects the point's persisted trial count", () => {
+    render(
+      <MonteCarloCard
+        {...baseProps({ testPointData: { mcMaxSamples: 1000000 } })}
+      />,
+    );
+    expect(screen.getByLabelText("Maximum Monte Carlo trials")).toHaveValue(
+      "1000000",
+    );
+  });
 });

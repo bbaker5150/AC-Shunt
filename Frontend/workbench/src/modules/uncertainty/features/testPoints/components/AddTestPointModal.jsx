@@ -14,6 +14,8 @@ import {
 } from "@fortawesome/free-solid-svg-icons";
 import { v4 as uuidv4 } from "uuid";
 import { unitSystem, unitCategories } from "../../../utils/uncertaintyMath";
+// Shared, engine-verified f(x) symbol catalog.
+import { symbolCategories } from "../../../utils/equationSymbols";
 import NotificationModal from "../../../components/modals/NotificationModal";
 import EquationLibraryMenu from "../../analysis/components/EquationLibraryMenu";
 import "./AddTestPointModal.css";
@@ -40,40 +42,6 @@ const customSelectStyles = {
   singleValue: (base) => ({ ...base, color: "var(--text-color)" }),
   input: (base) => ({ ...base, margin: 0, padding: 0, color: "var(--text-color)" }),
   indicatorsContainer: (base) => ({ ...base, height: "40px" }),
-};
-
-const symbolCategories = {
-  Operators: [
-    { symbol: "+", title: "Add" },
-    { symbol: "-", title: "Subtract" },
-    { symbol: "*", title: "Multiply" },
-    { symbol: "/", title: "Divide" },
-    { symbol: "^", title: "Power" },
-    { symbol: "()", title: "Parentheses" },
-    { symbol: "%", title: "Percent" },
-  ],
-  Functions: [
-    { symbol: "sqrt()", title: "Square Root" },
-    { symbol: "abs()", title: "Absolute Value" },
-    { symbol: "log()", title: "Log base 10" },
-    { symbol: "ln()", title: "Natural Log" },
-    { symbol: "exp()", title: "Exponential" },
-    { symbol: "mod()", title: "Modulus" },
-  ],
-  Trigonometry: [
-    { symbol: "sin()", title: "Sine" },
-    { symbol: "cos()", title: "Cosine" },
-    { symbol: "tan()", title: "Tangent" },
-    { symbol: "asin()", title: "Arcsine" },
-    { symbol: "acos()", title: "Arccosine" },
-    { symbol: "atan()", title: "Arctangent" },
-  ],
-  Constants: [
-    { symbol: "pi", title: "Pi" },
-    { symbol: "e", title: "Euler constant" },
-    { symbol: "i", title: "Imaginary unit" },
-    { symbol: "Infinity", title: "Infinity" },
-  ],
 };
 
 const createPointRow = (overrides = {}) => ({

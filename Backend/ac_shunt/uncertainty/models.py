@@ -222,6 +222,34 @@ class Instrument(models.Model):
         return self.description or f"{self.manufacturer} {self.model}".strip()
 
 
+class CustomEquation(models.Model):
+    """Global measurement-equation library entry (not session-scoped).
+
+    Mirrors ``Instrument``: the client owns the id (uuid or numeric string),
+    saves whole entries with POST upserts, and groups entries by measurement
+    area in the UI. ``variables`` maps each equation symbol to its suggested
+    display name (e.g. ``{"V": "Voltage", "Idc": "Current"}``) so inserting an
+    equation pre-fills the variable map exactly like the built-in library.
+    """
+
+    id = models.CharField(max_length=64, primary_key=True)
+    name = models.CharField(max_length=255, blank=True, default="")
+    expression = models.TextField(blank=True, default="")
+    description = models.TextField(blank=True, default="")
+    measurement_area = models.CharField(max_length=255, blank=True, default="")
+    measurement_area_color = models.CharField(max_length=32, blank=True, default="")
+    variables = models.JSONField(default=dict, blank=True)
+
+    created_at = models.DateTimeField(auto_now_add=True)
+    updated_at = models.DateTimeField(auto_now=True)
+
+    class Meta:
+        ordering = ["measurement_area", "name"]
+
+    def __str__(self):
+        return self.name or self.expression
+
+
 class BugReport(models.Model):
     id = models.CharField(max_length=64, primary_key=True)
     title = models.CharField(max_length=255, blank=True, default="")

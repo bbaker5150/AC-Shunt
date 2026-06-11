@@ -339,7 +339,18 @@ export function computePointRiskMetrics(point, sessionData, includeGuardband = f
   const U_Native =
     calcResults.expanded_uncertainty_absolute_base / targetUnitInfo.to_si;
   const calculatedAverage = parseFloat(calcResults.calculated_nominal_value);
-  const riskAverage = Number.isFinite(calculatedAverage) ? calculatedAverage : 0;
+  let riskAverage = Number.isFinite(calculatedAverage) ? calculatedAverage : 0;
+  // Layer 3: for MC-mode points the MC mean is the corrected estimate of the
+  // measurand (JCGM 101) — it carries the nonlinear ½f″u² shift that
+  // f(nominals) misses. Center every risk metric on it, mirroring
+  // useRiskCalculation so the sidebar matches the open panel.
+  if (calcResults.mcSummary) {
+    const mcMeanNative = unitSystem.fromBaseUnit(
+      calcResults.mcSummary.meanBase,
+      nominalUnit,
+    );
+    if (Number.isFinite(mcMeanNative)) riskAverage = mcMeanNative;
+  }
 
   // TMDE tolerance span (for TAR), mirroring useRiskCalculation.
   let tmdeToleranceHigh_Native = 0;

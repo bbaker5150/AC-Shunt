@@ -17,6 +17,7 @@ import {
   buildMonteCarloInputs,
   runMonteCarloPropagation,
   computeMcInputsHash,
+  normalizeMcSampleCount,
 } from "../../../utils/monteCarlo";
 
 const DEBOUNCE_MS = 400;
@@ -25,7 +26,8 @@ const DEBOUNCE_MS = 400;
 // of the contract: reported numbers must reproduce across sessions/machines.
 // quantileCount: compact output-distribution table persisted with the point
 // (mcSummary) so the risk pipeline can resample measurement errors without
-// re-running the simulation.
+// re-running the simulation. maxSamples here is only the default ceiling —
+// the caller can override it per point (user-selectable trial count).
 export const MC_RUN_OPTIONS = {
   seed: 0x5eed,
   adaptive: true,
@@ -44,11 +46,14 @@ export default function useMonteCarlo({
   tmdeTolerances,
   manualComponents,
   correlations,
+  maxSamples,
 }) {
   const [state, setState] = useState(IDLE);
   const workerRef = useRef(null);
   const requestIdRef = useRef(0);
   const cacheRef = useRef({ hash: null, result: null });
+
+  const effectiveMaxSamples = normalizeMcSampleCount(maxSamples);
 
   const hash = useMemo(() => {
     if (!enabled) return null;
@@ -58,6 +63,7 @@ export default function useMonteCarlo({
       correlations,
       tmdeTolerances,
       manualComponents,
+      maxSamples: effectiveMaxSamples,
     });
   }, [
     enabled,
@@ -66,6 +72,7 @@ export default function useMonteCarlo({
     tmdeTolerances,
     manualComponents,
     correlations,
+    effectiveMaxSamples,
   ]);
 
   useEffect(
@@ -117,6 +124,12 @@ export default function useMonteCarlo({
         inputs,
         correlations: correlations || {},
         ...MC_RUN_OPTIONS,
+        maxSamples: effectiveMaxSamples,
+        // Keep at least a few adaptive batches even for small trial caps.
+        batchSize: Math.min(
+          MC_RUN_OPTIONS.batchSize,
+          Math.max(10000, Math.floor(effectiveMaxSamples / 4)),
+        ),
       };
 
       const finish = (result, error) => {

@@ -70,6 +70,9 @@ function Analysis({
 
   // Global Data Props (Lifted from App.js)
   instruments,
+  customEquations = [],
+  onSaveCustomEquation,
+  onDeleteCustomEquation,
   setRiskResults: parentSetRiskResults,
 
   // Sidebar-driven risk breakdown request (a metric key the user clicked in the
@@ -825,6 +828,10 @@ function Analysis({
                 handleOpenSessionEditor={handleOpenSessionEditor}
                 onUpdateTestPoint={onDataSave}
                 onApplyToSessionPoints={onApplyToSessionPoints}
+                // Custom equation library (global, instrument-library style)
+                customEquations={customEquations}
+                onSaveCustomEquation={onSaveCustomEquation}
+                onDeleteCustomEquation={onDeleteCustomEquation}
                 onOpenCorrelation={() => setCorrelationModalOpen(true)}
                 onDefineTestPoint={handleDefineTestPoint}
                 onDeleteTestPoint={onDeleteTestPoint}

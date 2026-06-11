@@ -76,45 +76,18 @@ const customUnitSelectStyles = {
   }),
 };
 
-const symbolCategories = {
-  Operators: [
-    { symbol: "+", title: "Add" },
-    { symbol: "-", title: "Subtract" },
-    { symbol: "*", title: "Multiply" },
-    { symbol: "/", title: "Divide" },
-    { symbol: "^", title: "Power" },
-    { symbol: "()", title: "Parentheses" },
-    { symbol: "%", title: "Percent" },
-  ],
-  Functions: [
-    { symbol: "sqrt()", title: "Square Root" },
-    { symbol: "abs()", title: "Absolute Value" },
-    { symbol: "log()", title: "Log base 10" },
-    { symbol: "ln()", title: "Natural Log" },
-    { symbol: "exp()", title: "Exponential" },
-    { symbol: "mod()", title: "Modulus" },
-  ],
-  Trigonometry: [
-    { symbol: "sin()", title: "Sine" },
-    { symbol: "cos()", title: "Cosine" },
-    { symbol: "tan()", title: "Tangent" },
-    { symbol: "asin()", title: "Arcsine" },
-    { symbol: "acos()", title: "Arccosine" },
-    { symbol: "atan()", title: "Arctangent" },
-  ],
-  Constants: [
-    { symbol: "pi", title: "Pi" },
-    { symbol: "e", title: "Euler constant" },
-    { symbol: "i", title: "Imaginary unit" },
-    { symbol: "Infinity", title: "Infinity" },
-  ],
-};
+// Shared, engine-verified f(x) symbol catalog (see utils/equationSymbols.js).
+import { symbolCategories } from "../../../utils/equationSymbols";
 
 // Sub-components
 import UncertaintyBudgetTable from "./UncertaintyBudgetTable";
 import PercentageBarGraph from "./ContributionPlot";
 import MonteCarloCard from "./MonteCarloCard";
 import EquationLibraryMenu from "./EquationLibraryMenu";
+import {
+  validateEquation,
+  stripEquationPrefix,
+} from "../../../utils/equationValidation";
 
 // Utils
 import {
@@ -1546,6 +1519,11 @@ function DetailedView({
   activeRangeIndices = {},
   onRangeSelectionChange,
 
+  // Custom equation library (global, persisted like the instrument library)
+  customEquations = [],
+  onSaveCustomEquation,
+  onDeleteCustomEquation,
+
   // NEW PROPS FOR ACTIONS
   onAddTmde,
   onEditUut,
@@ -2620,6 +2598,71 @@ function DetailedView({
     };
   }, [isDerived, testPointData, tmdeTolerancesData]);
 
+  // Live validation of the equation editor's content: hard errors for
+  // constructs the engines can't evaluate, warnings for shadowed mathjs
+  // symbols and non-differentiable (Monte Carlo-only) equations.
+  const equationValidation = useMemo(
+    () =>
+      isDerived ? validateEquation(testPointData.equationString || "") : null,
+    [isDerived, testPointData.equationString],
+  );
+
+  // Save the editor's current equation to the persistent (global) library.
+  // Name via prompt (consistent with the existing confirm() flows); the
+  // measurement area defaults to the point's own area so the entry lands in
+  // the right group.
+  const handleSaveCurrentEquation = () => {
+    if (!onSaveCustomEquation || !equationValidation) return;
+    if (equationValidation.status !== "ok") return;
+
+    const defaultName = "";
+    const name = window.prompt(
+      "Name for this library equation:",
+      defaultName,
+    );
+    if (!name || !name.trim()) return;
+
+    const pointArea = (sessionData.measurementAreas || []).find(
+      (area) =>
+        area.id ===
+        resolvePointAreaId(
+          testPointData,
+          sessionData.uuts || [],
+          sessionData.measurementAreas || [],
+        ),
+    );
+    const mappings = testPointData.variableMappings || {};
+    const variables = {};
+    equationValidation.variables.forEach((symbol) => {
+      variables[symbol] = mappings[symbol] || symbol;
+    });
+
+    onSaveCustomEquation({
+      id:
+        typeof crypto !== "undefined" && crypto.randomUUID
+          ? crypto.randomUUID()
+          : `eq-${Date.now()}`,
+      name: name.trim(),
+      expression: stripEquationPrefix(testPointData.equationString),
+      description: `Saved from the equation editor${pointArea?.name ? ` (${pointArea.name})` : ""}.`,
+      measurementArea: pointArea?.name || "",
+      measurementAreaColor: pointArea?.color || "",
+      variables,
+    });
+    setIsLibraryOpen(false);
+  };
+
+  const handleDeleteCustomEquation = (equation) => {
+    if (!onDeleteCustomEquation) return;
+    if (
+      window.confirm(
+        `Delete "${equation.name}" from your equation library? This affects all sessions.`,
+      )
+    ) {
+      onDeleteCustomEquation(equation.id);
+    }
+  };
+
   const hasMeasurementPoint =
     isDerived ||
     (uutNominal &&
@@ -3110,6 +3153,32 @@ function DetailedView({
                   </button>
                 </div>
               </div>
+              {equationValidation &&
+                (equationValidation.status === "invalid" ||
+                  equationValidation.warnings.length > 0) && (
+                <div
+                  className="measurement-equation-validation"
+                  role="status"
+                  style={{ marginTop: "6px", fontSize: "0.84rem" }}
+                >
+                  {equationValidation.status === "invalid" ? (
+                    <span style={{ color: "var(--status-bad, #dc2626)" }}>
+                      <FontAwesomeIcon icon={faExclamationTriangle} />{" "}
+                      {equationValidation.error}
+                    </span>
+                  ) : (
+                    equationValidation.warnings.map((warning, idx) => (
+                      <span
+                        key={idx}
+                        style={{ display: "block", color: "#b45309" }}
+                      >
+                        <FontAwesomeIcon icon={faExclamationTriangle} />{" "}
+                        {warning}
+                      </span>
+                    ))
+                  )}
+                </div>
+              )}
               {symbolMenu}
               {isLibraryOpen &&
                 ReactDOM.createPortal(
@@ -3122,7 +3191,26 @@ function DetailedView({
                       overflowY: "auto",
                     }}
                   >
-                    <EquationLibraryMenu onSelect={handleLibrarySelect} />
+                    <EquationLibraryMenu
+                      onSelect={handleLibrarySelect}
+                      customEquations={customEquations}
+                      onDeleteCustom={
+                        onDeleteCustomEquation
+                          ? handleDeleteCustomEquation
+                          : undefined
+                      }
+                      onSaveCurrent={
+                        onSaveCustomEquation
+                          ? handleSaveCurrentEquation
+                          : undefined
+                      }
+                      canSaveCurrent={equationValidation?.status === "ok"}
+                      saveDisabledReason={
+                        equationValidation?.status === "empty"
+                          ? "Enter an equation in the editor first"
+                          : equationValidation?.error || ""
+                      }
+                    />
                   </div>,
                   document.body,
                 )}

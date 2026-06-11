@@ -399,12 +399,29 @@ export function runMonteCarloPropagation({
   return result;
 }
 
+// User-selectable trial-count ceiling for a point's simulation. The default
+// matches the original fixed cap; more trials trade runtime for smoother
+// distribution tails (empirical PFA resolves smaller probabilities).
+export const DEFAULT_MC_MAX_SAMPLES = 400000;
+export const MC_SAMPLE_CHOICES = [
+  50000, 100000, 200000, 400000, 1000000, 2000000,
+];
+
+// Normalize a persisted/typed trial count to a sane simulation cap. Anything
+// non-numeric falls back to the default, so points saved before this setting
+// existed hash identically to "default" and stay fresh.
+export function normalizeMcSampleCount(value) {
+  const n = parseInt(value, 10);
+  if (!Number.isFinite(n) || n <= 0) return DEFAULT_MC_MAX_SAMPLES;
+  return Math.min(Math.max(n, 10000), 5000000);
+}
+
 /**
  * Canonical hash of everything that feeds a Monte Carlo run for a derived
  * point. Shared by useMonteCarlo (to key its cache), the persisted mcSummary,
  * and the risk pipeline (to detect a stale summary after the user edits the
- * equation, TMDEs, manual components, or correlations). All consumers MUST
- * pass the RECONCILED TMDE instance list so the hashes agree.
+ * equation, TMDEs, manual components, correlations, or trial count). All
+ * consumers MUST pass the RECONCILED TMDE instance list so the hashes agree.
  */
 export function computeMcInputsHash({
   equationString,
@@ -412,6 +429,7 @@ export function computeMcInputsHash({
   correlations,
   tmdeTolerances,
   manualComponents,
+  maxSamples,
 }) {
   if (!equationString) return null;
   try {
@@ -421,6 +439,7 @@ export function computeMcInputsHash({
       cor: correlations || {},
       tmde: tmdeTolerances || [],
       man: manualComponents || [],
+      n: normalizeMcSampleCount(maxSamples),
     });
   } catch {
     return null;

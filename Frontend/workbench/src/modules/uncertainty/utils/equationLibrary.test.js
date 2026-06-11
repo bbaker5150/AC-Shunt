@@ -1,6 +1,7 @@
 import { describe, expect, it } from "vitest";
 import * as math from "mathjs";
 import { equationLibrary } from "./equationLibrary";
+import { validateEquation } from "./equationValidation";
 
 // Mirror of the equation editor's variable extraction (UncertaintyPanel
 // handleEquationChange): a symbol that exists on the mathjs namespace is NOT
@@ -53,6 +54,17 @@ describe("equationLibrary", () => {
           Object.keys(equation.variables).forEach((symbol) => {
             expect(() => math.derivative(node, symbol)).not.toThrow();
           });
+        });
+
+        it("passes the editor's validation with no errors or shadowed-symbol warnings", () => {
+          const result = validateEquation(equation.expression);
+          expect(result.status).toBe("ok");
+          expect(result.nonDifferentiable).toEqual([]);
+          // Library entries must not trip the shadowed-constant warning —
+          // that's exactly the trap the symbol-naming rule exists to avoid.
+          expect(
+            result.warnings.filter((w) => /constant/i.test(w)),
+          ).toEqual([]);
         });
       });
     });

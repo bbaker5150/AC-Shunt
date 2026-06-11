@@ -59,6 +59,7 @@ export function getFreshMcSummary(point, reconciledTmdeTolerances) {
     correlations: point.inputCorrelations,
     tmdeTolerances: reconciledTmdeTolerances,
     manualComponents: point.components,
+    maxSamples: point.mcMaxSamples,
   });
   return hash && summary.hash === hash ? summary : null;
 }
@@ -86,7 +87,10 @@ export function drawFromQuantiles(quantiles, p) {
 // re-center on the band midpoint (or the average, when it lies inside the
 // band), then collapse to a symmetric ±L truth frame. Returns null when the
 // limits don't form a valid two-sided band (threshold cases stay closed-form).
-function normalizeTwoSided(average, LLow, LUp) {
+// Exported so the risk visualizer can draw its Monte Carlo cloud in the SAME
+// truth frame the quadrant counting uses — otherwise the plotted FA/FR
+// fractions drift from the reported empirical PFA/PFR.
+export function normalizeTwoSided(average, LLow, LUp) {
   if (!Number.isFinite(LLow) || !Number.isFinite(LUp) || LLow >= LUp) {
     return null;
   }

@@ -1158,6 +1158,11 @@ export const calculateDerivedUncertainty = (
     }
 
     let sumOfSquaresBase = 0;
+    // Second-order (Taylor) aggregates across all inputs: Σ(½f″ᵢuᵢ²)² for the
+    // GUM second-order variance term and Σ½f″ᵢuᵢ² for the mean-value shift.
+    let sumSecondOrderSquaresBase = 0;
+    let secondOrderShiftBase = 0;
+    let hasSecondOrderTerms = false;
     const calculationBreakdown = [];
     const nominalScope = {};
     const uncertaintyInputs = {};
@@ -1337,12 +1342,14 @@ export const calculateDerivedUncertainty = (
       // ½·|f″|·u² term is non-negligible against the linear term, and hard-fail
       // below when the WHOLE budget degenerates to zero.
       let secondOrderTermBase = null;
+      let secondDerivativeString = null;
+      let secondDerivativeBase = null;
       try {
-        const secondDeriv = math
-          .derivative(derivativeNode, variableSymbol)
-          .compile()
-          .evaluate(nominalScope);
+        const secondDerivNode = math.derivative(derivativeNode, variableSymbol);
+        const secondDeriv = secondDerivNode.compile().evaluate(nominalScope);
         if (typeof secondDeriv === "number" && Number.isFinite(secondDeriv)) {
+          secondDerivativeString = secondDerivNode.toString();
+          secondDerivativeBase = secondDeriv;
           secondOrderTermBase = 0.5 * Math.abs(secondDeriv) * ui_base ** 2;
         }
       } catch {
@@ -1394,8 +1401,44 @@ export const calculateDerivedUncertainty = (
         // Stationary-point / nonlinearity diagnostics (null when healthy).
         secondOrderTerm_base: secondOrderTermBase,
         nonlinearityWarning,
+        // Second-order Taylor data for the breakdown modal: the symbolic
+        // ∂²f/∂x², its value scaled to display units (d²(target)/d(input)²),
+        // the |½·f″·u²| magnitude in the derived unit, and the SIGNED mean
+        // shift ½·f″·u² this input induces (E[y] correction).
+        secondDerivativeString,
+        secondDerivative_display:
+          secondDerivativeBase === null
+            ? null
+            : secondDerivativeBase * ((inputToSi * inputToSi) / targetToSi),
+        secondOrderTerm_native:
+          secondOrderTermBase === null
+            ? null
+            : secondOrderTermBase / targetToSi,
+        secondOrderShift_native:
+          secondDerivativeBase === null
+            ? null
+            : (0.5 * secondDerivativeBase * ui_base ** 2) / targetToSi,
       });
+      if (secondOrderTermBase !== null) {
+        sumSecondOrderSquaresBase += secondOrderTermBase ** 2;
+        secondOrderShiftBase += 0.5 * secondDerivativeBase * ui_base ** 2;
+        if (secondOrderTermBase > 0) hasSecondOrderTerms = true;
+      }
     });
+
+    // Second-order Taylor summary (display units). Null for effectively
+    // linear equations so the UI adds nothing. The variance follows the GUM
+    // higher-order note (diagonal terms): u² ≈ Σ(cᵢuᵢ)² + Σ(½f″ᵢuᵢ²)², and
+    // the mean shift is E[y] − f(x̄) ≈ Σ½f″ᵢuᵢ².
+    const secondOrder = hasSecondOrderTerms
+      ? {
+          combinedUncertaintyNative: unitSystem.fromBaseUnit(
+            Math.sqrt(sumOfSquaresBase + sumSecondOrderSquaresBase),
+            targetUnit
+          ),
+          meanShiftNative: secondOrderShiftBase / targetToSi,
+        }
+      : null;
 
     // Stationary-point guard: every input's first-order sensitivity is zero
     // while at least one input actually carries uncertainty. Reporting u_c = 0
@@ -1417,6 +1460,7 @@ export const calculateDerivedUncertainty = (
             "The equation is at a stationary point: every input's first-order sensitivity is zero at this operating point, so the linear (GUM) budget would report zero uncertainty and infinite TUR. Offset the nominal from the null/stationary point, or evaluate this point with a higher-order or Monte Carlo method.",
           degenerate: true,
           warnings,
+          secondOrder,
         };
       }
     }
@@ -1444,6 +1488,7 @@ export const calculateDerivedUncertainty = (
       nominalResult: nominalResultTarget,
       error: null,
       warnings,
+      secondOrder,
     };
 
   } catch (error) {
