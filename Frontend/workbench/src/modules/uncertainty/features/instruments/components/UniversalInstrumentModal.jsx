@@ -975,7 +975,11 @@ const UniversalInstrumentModal = ({
                                                                 <td>
                                                                     <div className="range-resolution-control">
                                                                         <input type="number" step="any" value={range.resolution ?? 0} onChange={e => updateRangeBounds(range.id, 'resolution', e.target.value)} />
-                                                                        <label className="range-resolution-budget-toggle" title="Include this range's resolution as a Type B uncertainty component">
+                                                                        <label
+                                                                            className="range-resolution-budget-toggle"
+                                                                            title="Include this range's resolution as a Type B uncertainty component"
+                                                                            aria-label="Include this range's resolution in the uncertainty budget"
+                                                                        >
                                                                             <input
                                                                                 type="checkbox"
                                                                                 checked={!!(
@@ -984,7 +988,6 @@ const UniversalInstrumentModal = ({
                                                                                 )}
                                                                                 onChange={e => updateRangeResolutionBudget(range.id, e.target.checked)}
                                                                             />
-                                                                            <span>Use in budget</span>
                                                                         </label>
                                                                     </div>
                                                                 </td>

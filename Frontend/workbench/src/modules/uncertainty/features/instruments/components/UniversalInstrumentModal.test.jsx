@@ -78,7 +78,7 @@ const changeResolution = (value) => {
 const toggleResolutionBudget = () => {
   fireEvent.click(
     screen.getByRole("checkbox", {
-      name: /Use in budget/i,
+      name: /Include this range's resolution in the uncertainty budget/i,
     }),
   );
 };

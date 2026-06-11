@@ -317,22 +317,20 @@
 }
 
 .range-resolution-control {
-    display: flex;
-    flex-direction: column;
-    gap: 5px;
+    display: grid;
+    grid-template-columns: minmax(0, 1fr) 18px;
+    align-items: center;
+    gap: 6px;
 }
 
 .range-resolution-budget-toggle {
-    display: inline-flex;
+    display: flex;
     align-items: center;
-    gap: 6px;
-    width: fit-content;
+    justify-content: center;
+    width: 18px;
+    height: 24px;
     color: var(--text-color-muted);
-    font-size: 0.7rem;
-    font-weight: 600;
-    line-height: 1;
     cursor: pointer;
-    user-select: none;
 }
 
 .ranges-table .range-resolution-budget-toggle input {
@@ -342,10 +340,6 @@
     padding: 0;
     accent-color: var(--primary-color);
     cursor: pointer;
-}
-
-.range-resolution-budget-toggle:hover {
-    color: var(--primary-color);
 }
 
 .tolerance-cell {
