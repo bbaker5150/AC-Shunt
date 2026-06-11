@@ -81,6 +81,7 @@ import {
   getToleranceErrorSummary,
   getAbsoluteLimits,
   getTmdeAbsoluteLimits,
+  getTmdeAbsoluteLimitEntries,
 } from "./utils/uncertaintyMath";
 import { computeRiskMetricsMap } from "./utils/riskCompute";
 import {
@@ -105,8 +106,8 @@ const getSidebarGridTemplate = (visibleColumns) => {
   if (visibleColumns.highLimit) parts.push("minmax(60px, 0.8fr)");
 
   // TMDE (standard) limit columns
-  if (visibleColumns.tmdeLow) parts.push("minmax(60px, 0.8fr)");
-  if (visibleColumns.tmdeHigh) parts.push("minmax(60px, 0.8fr)");
+  if (visibleColumns.tmdeLow) parts.push("minmax(90px, 1fr)");
+  if (visibleColumns.tmdeHigh) parts.push("minmax(90px, 1fr)");
 
   // Fixed widths for Risk Columns
   if (visibleColumns.pfa) parts.push("55px");
@@ -136,8 +137,8 @@ const getMinSidebarWidth = (visibleColumns) => {
   if (visibleColumns.tolerance) width += 90;
   if (visibleColumns.lowLimit) width += 70;
   if (visibleColumns.highLimit) width += 70;
-  if (visibleColumns.tmdeLow) width += 70;
-  if (visibleColumns.tmdeHigh) width += 70;
+  if (visibleColumns.tmdeLow) width += 100;
+  if (visibleColumns.tmdeHigh) width += 100;
   if (visibleColumns.pfa) width += 60;
   if (visibleColumns.pfr) width += 60;
   if (visibleColumns.tur) width += 60;
@@ -263,6 +264,16 @@ const getPointLimitSortValue = (point, key) => {
 };
 
 const getPointTmdeLimitSortValue = (point, key) => {
+  if (point.measurementType === "derived") {
+    const values = getTmdeAbsoluteLimitEntries(point.tmdeTolerances)
+      .map((entry) =>
+        parseSortableNumber(key === "tmdeLow" ? entry.low : entry.high),
+      )
+      .filter((value) => value !== null);
+    if (values.length === 0) return null;
+    return key === "tmdeLow" ? Math.min(...values) : Math.max(...values);
+  }
+
   const limits = getTmdeAbsoluteLimits(
     point.tmdeTolerances,
     point.testPointInfo?.parameter,
@@ -429,13 +440,47 @@ const SidebarPointItem = ({
   }, [point.uutTolerance, point.testPointInfo]);
 
   const tmdeLimitsData = React.useMemo(() => {
+    if (point.measurementType === "derived") {
+      const entries = getTmdeAbsoluteLimitEntries(point.tmdeTolerances).map(
+        (entry) => {
+          const inputLabel = entry.variableType
+            ? `${entry.variableType} · ${entry.description}`
+            : entry.description;
+          const quantityLabel = entry.quantity > 1 ? ` ×${entry.quantity}` : "";
+          return {
+            ...entry,
+            label: `${inputLabel}${quantityLabel}`,
+            shortLow: entry.low.split(" ")[0],
+            shortHigh: entry.high.split(" ")[0],
+          };
+        },
+      );
+      return { low: "-", high: "-", entries };
+    }
+
     const ptParam = point.testPointInfo?.parameter;
     const limits = getTmdeAbsoluteLimits(point.tmdeTolerances, ptParam);
-    if (!limits || limits.low === "N/A") return { low: "-", high: "-" };
+    if (!limits || limits.low === "N/A") {
+      return { low: "-", high: "-", entries: [] };
+    }
     const shortLow = limits.low.split(" ")[0];
     const shortHigh = limits.high.split(" ")[0];
-    return { low: shortLow, high: shortHigh };
-  }, [point.tmdeTolerances, point.testPointInfo]);
+    return { low: shortLow, high: shortHigh, entries: [] };
+  }, [
+    point.measurementType,
+    point.tmdeTolerances,
+    point.testPointInfo,
+  ]);
+
+  const tmdeLimitsTitle = React.useMemo(() => {
+    if (tmdeLimitsData.entries.length === 0) return null;
+    return tmdeLimitsData.entries
+      .map(
+        (entry) =>
+          `${entry.label}: ${entry.low} to ${entry.high}`,
+      )
+      .join("\n");
+  }, [tmdeLimitsData]);
 
   return (
     <div
@@ -530,18 +575,45 @@ const SidebarPointItem = ({
 
       {/* TMDE Low Limit */}
       {visibleColumns.tmdeLow && (
-        <span className="point-metric" title={`TMDE Low: ${tmdeLimitsData.low}`}>
-          {tmdeLimitsData.low}
+        <span
+          className={`point-metric ${
+            tmdeLimitsData.entries.length > 0 ? "point-metric-list" : ""
+          }`}
+          title={tmdeLimitsTitle || `TMDE Low: ${tmdeLimitsData.low}`}
+        >
+          {tmdeLimitsData.entries.length > 0
+            ? tmdeLimitsData.entries.map((entry) => (
+                <span
+                  className="point-metric-entry"
+                  key={`${entry.id}-${entry.label}`}
+                >
+                  <strong>{entry.label}</strong>
+                  {entry.shortLow}
+                </span>
+              ))
+            : tmdeLimitsData.low}
         </span>
       )}
 
       {/* TMDE High Limit */}
       {visibleColumns.tmdeHigh && (
         <span
-          className="point-metric"
-          title={`TMDE High: ${tmdeLimitsData.high}`}
+          className={`point-metric ${
+            tmdeLimitsData.entries.length > 0 ? "point-metric-list" : ""
+          }`}
+          title={tmdeLimitsTitle || `TMDE High: ${tmdeLimitsData.high}`}
         >
-          {tmdeLimitsData.high}
+          {tmdeLimitsData.entries.length > 0
+            ? tmdeLimitsData.entries.map((entry) => (
+                <span
+                  className="point-metric-entry"
+                  key={`${entry.id}-${entry.label}`}
+                >
+                  <strong>{entry.label}</strong>
+                  {entry.shortHigh}
+                </span>
+              ))
+            : tmdeLimitsData.high}
         </span>
       )}
 

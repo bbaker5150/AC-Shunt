@@ -1391,6 +1391,34 @@ body:not(.dark-mode) .uncertainty-module .measurement-point-list {
   white-space: nowrap;
 }
 
+.point-metric-list {
+  display: flex;
+  flex-direction: column;
+  align-items: stretch;
+  gap: 2px;
+  overflow: visible;
+  white-space: normal;
+}
+
+.point-metric-entry {
+  display: flex;
+  min-width: 0;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 4px;
+  line-height: 1.2;
+}
+
+.point-metric-entry strong {
+  min-width: 0;
+  overflow: hidden;
+  color: var(--text-color);
+  font-size: 0.58rem;
+  font-weight: 650;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
 /* Shared style for risk metric columns (PFA, PFR, TUR, TAR) */
 .point-risk-metric {
   font-size: 0.65rem;

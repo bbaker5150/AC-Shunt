@@ -8,6 +8,7 @@ import {
   normalQuantile,
   snapLimitsToResolution,
   getTmdeAbsoluteLimits,
+  getTmdeAbsoluteLimitEntries,
 } from "./uncertaintyMath";
 import { computePointRiskMetrics } from "./riskCompute";
 
@@ -160,6 +161,43 @@ describe("getTmdeAbsoluteLimits", () => {
         unit: "psig",
       }),
     ).toEqual({ high: "N/A", low: "N/A" });
+  });
+});
+
+describe("getTmdeAbsoluteLimitEntries", () => {
+  test("preserves the limits and labels of every derived TMDE", () => {
+    const entries = getTmdeAbsoluteLimitEntries([
+      {
+        id: "tmde-a",
+        variableType: "Voltage",
+        description: "Meter A",
+        measurementPoint: { value: "10", unit: "V" },
+        reading: { high: "1", low: "-1", unit: "%" },
+      },
+      {
+        id: "tmde-b",
+        variableType: "Resistance",
+        description: "Meter B",
+        measurementPoint: { value: "100", unit: "ohm" },
+        reading: { high: "2", low: "-2", unit: "%" },
+      },
+    ]);
+
+    expect(entries).toHaveLength(2);
+    expect(entries[0]).toMatchObject({
+      id: "tmde-a",
+      variableType: "Voltage",
+      description: "Meter A",
+      low: "9.900000 V",
+      high: "10.10000 V",
+    });
+    expect(entries[1]).toMatchObject({
+      id: "tmde-b",
+      variableType: "Resistance",
+      description: "Meter B",
+      low: "98.00000 ohm",
+      high: "102.0000 ohm",
+    });
   });
 });
 

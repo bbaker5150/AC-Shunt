@@ -1055,6 +1055,53 @@ export const getTmdeAbsoluteLimits = (tmdeTolerances, uutNominal) => {
   };
 };
 
+// Per-standard limits for derived-point displays. Unlike
+// getTmdeAbsoluteLimits, this does not combine the standards into one TAR band;
+// it preserves each assigned TMDE so the UI can show and compare them.
+export const getTmdeAbsoluteLimitEntries = (tmdeTolerances) => {
+  if (!Array.isArray(tmdeTolerances)) return [];
+
+  return tmdeTolerances.flatMap((tmde, index) => {
+    const referencePoint = tmde?.measurementPoint;
+    if (
+      !referencePoint ||
+      referencePoint.value === "" ||
+      referencePoint.value === null ||
+      referencePoint.value === undefined ||
+      !referencePoint.unit
+    ) {
+      return [];
+    }
+
+    let limits;
+    try {
+      limits = getAbsoluteLimits(tmde.tolerance || tmde, referencePoint);
+    } catch {
+      return [];
+    }
+    if (!limits || limits.low === "N/A" || limits.high === "N/A") return [];
+
+    return [
+      {
+        id: tmde.id || tmde.sourceId || `tmde-${index}`,
+        variableType: tmde.variableType || "",
+        description:
+          tmde.description ||
+          tmde.name ||
+          (tmde.instrument
+            ? `${tmde.instrument.manufacturer || ""} ${
+                tmde.instrument.model || ""
+              }`.trim()
+            : "") ||
+          "TMDE",
+        quantity: parseInt(tmde.quantity, 10) || 1,
+        low: limits.low,
+        high: limits.high,
+      },
+    ];
+  });
+};
+
 // Resolve a tolerance object's measuring resolution into the nominal unit's
 // grid spacing. Returns 0 when no usable resolution is present (snap is a no-op).
 export function resolveResolutionNative(toleranceObject, nominalUnit) {
