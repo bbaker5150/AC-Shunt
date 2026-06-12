@@ -93,6 +93,10 @@ import {
   getRemainingCutPoints,
   preparePointForPaste,
 } from "./utils/pointClipboard";
+import {
+  getSidebarPointRange,
+  getVisibleSidebarPointOrder,
+} from "./utils/sidebarPointSelection";
 
 const getSidebarGridTemplate = (visibleColumns) => {
   const parts = [];
@@ -1394,8 +1398,9 @@ function App() {
 
   // --- NEW: Sidebar Multi-Select State ---
   const [selectedSidebarPointIds, setSelectedSidebarPointIds] = useState([]);
-  // Anchor for shift-click range selection (the last point clicked without shift).
-  const [sidebarSelectionAnchorId, setSidebarSelectionAnchorId] = useState(null);
+  // Anchor for shift-click range selection. Context disambiguates a point that
+  // is rendered under more than one UUT branch.
+  const [sidebarSelectionAnchor, setSidebarSelectionAnchor] = useState(null);
 
   // --- Global UUT Selection State ---
   const [currentUutSelection, setCurrentUutSelection] = useState([]);
@@ -2219,19 +2224,16 @@ function App() {
     setRiskResults(null);
     // Multi-Select Logic
     let newSelection = [];
-    const anchorId = sidebarSelectionAnchorId;
-    const anchorIdx = anchorId ? flatSidebarPointIds.indexOf(anchorId) : -1;
-    const targetIdx = flatSidebarPointIds.indexOf(tpId);
+    const runIds = getSidebarPointRange(
+      visibleSidebarPointOrder,
+      sidebarSelectionAnchor,
+      { pointId: tpId, contextUutId },
+    );
 
-    if (e && e.shiftKey && anchorIdx !== -1 && targetIdx !== -1) {
+    if (e && e.shiftKey && runIds.length > 0) {
       // Shift-click: select the contiguous run between the anchor (last plain
       // click) and this point, in visual order — up or down. Ctrl+Shift unions
       // the run with the existing selection; plain Shift replaces it.
-      const [lo, hi] =
-        anchorIdx <= targetIdx
-          ? [anchorIdx, targetIdx]
-          : [targetIdx, anchorIdx];
-      const runIds = flatSidebarPointIds.slice(lo, hi + 1);
       newSelection =
         e.ctrlKey || e.metaKey
           ? Array.from(new Set([...selectedSidebarPointIds, ...runIds]))
@@ -2243,10 +2245,10 @@ function App() {
       } else {
         newSelection = [...selectedSidebarPointIds, tpId];
       }
-      setSidebarSelectionAnchorId(tpId);
+      setSidebarSelectionAnchor({ pointId: tpId, contextUutId });
     } else {
       newSelection = [tpId];
-      setSidebarSelectionAnchorId(tpId);
+      setSidebarSelectionAnchor({ pointId: tpId, contextUutId });
     }
 
     setSelectedSidebarPointIds(newSelection);
@@ -3350,23 +3352,29 @@ function App() {
     });
   }, [currentSessionData, currentTestPoints]);
 
-  // Flat, top-to-bottom order of every point id as it visually appears in the
-  // sidebar. Drives shift-click range selection (slice between anchor & target).
-  // Mirrors the JSX render order: area → UUT → range points → uncategorized →
-  // area-level unassigned points.
-  const flatSidebarPointIds = useMemo(() => {
-    const ids = [];
-    (sidebarData || []).forEach((area) => {
-      (area.uutGroups || []).forEach((group) => {
-        (group.rangeGroups || []).forEach((range) => {
-          (range.points || []).forEach((p) => ids.push(p.id));
-        });
-        (group.uncategorizedPoints || []).forEach((p) => ids.push(p.id));
-      });
-      (area.unassignedPoints || []).forEach((p) => ids.push(p.id));
-    });
-    return ids;
-  }, [sidebarData]);
+  // Exact top-to-bottom order of the point rows currently visible in the
+  // sidebar. Shift-click must follow the active sort and skip collapsed rows.
+  const visibleSidebarPointOrder = useMemo(
+    () =>
+      getVisibleSidebarPointOrder(
+        sidebarData,
+        {
+          expandedAreas,
+          expandedUuts,
+          expandedRanges,
+          uutsShowingAllRanges,
+        },
+        sortSidebarPoints,
+      ),
+    [
+      expandedAreas,
+      expandedRanges,
+      expandedUuts,
+      sidebarData,
+      sortSidebarPoints,
+      uutsShowingAllRanges,
+    ],
+  );
 
   // --- LOGIC: Compute Data to Display ---
   const displayData = useMemo(() => {
