@@ -1023,6 +1023,7 @@ function App() {
     addSession,
     deleteSession,
     updateSession,
+    undoLastSessionChange,
     importSession,
     saveTestPoint,
     updateTestPointData,
@@ -1801,8 +1802,23 @@ function App() {
     const handleKeyDown = (e) => {
       const key = e.key.toLowerCase();
       const isTextEntry =
-        document.activeElement.tagName === "INPUT" ||
-        document.activeElement.tagName === "TEXTAREA";
+        document.activeElement?.tagName === "INPUT" ||
+        document.activeElement?.tagName === "TEXTAREA" ||
+        document.activeElement?.isContentEditable;
+
+      if (
+        (e.ctrlKey || e.metaKey) &&
+        !e.altKey &&
+        !e.shiftKey &&
+        key === "z" &&
+        !isTextEntry
+      ) {
+        if (undoLastSessionChange()) {
+          e.preventDefault();
+          showToast("Undid the last change.");
+        }
+        return;
+      }
 
       if ((e.ctrlKey || e.metaKey) && key === "c" && !isTextEntry) {
         let handled = false;
@@ -1934,6 +1950,8 @@ function App() {
     handleDeleteTestPoint,
     handlePastePoint,
     handlePasteUut,
+    showToast,
+    undoLastSessionChange,
   ]);
 
   useEffect(() => {

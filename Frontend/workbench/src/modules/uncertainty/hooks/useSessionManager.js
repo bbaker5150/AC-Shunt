@@ -2,6 +2,30 @@ import { useState, useEffect, useMemo, useCallback, useRef } from "react";
 import axios from "axios";
 import { UNCERTAINTY_API } from "../constants/constants";
 
+const MAX_UNDO_STEPS = 50;
+const UNDO_COALESCE_MS = 800;
+
+const cloneSession = (session) => {
+  if (typeof structuredClone === "function") return structuredClone(session);
+  return JSON.parse(JSON.stringify(session));
+};
+
+const getSessionChangeGroup = (previousSession, updatedSession) => {
+  const keys = new Set([
+    ...Object.keys(previousSession || {}),
+    ...Object.keys(updatedSession || {}),
+  ]);
+  const changedKeys = [...keys]
+    .filter(
+      (key) =>
+        JSON.stringify(previousSession?.[key]) !==
+        JSON.stringify(updatedSession?.[key]),
+    )
+    .sort();
+
+  return changedKeys.length > 0 ? `session:${changedKeys.join(",")}` : null;
+};
+
 export const prepareImportedSession = (
   loadedSession,
   existingSessions,
@@ -122,16 +146,66 @@ const useSessionManager = () => {
   const [bugReports, setBugReports] = useState([]);
   const [selectedSessionId, setSelectedSessionId] = useState(null);
   const [selectedTestPointId, setSelectedTestPointId] = useState(null);
+  const sessionsRef = useRef([]);
+  const selectedSessionIdRef = useRef(null);
+  const selectedTestPointIdRef = useRef(null);
+  const undoHistoryRef = useRef(new Map());
   const persistTimersRef = useRef(new Map());
   const pendingPersistRef = useRef(new Map());
   const persistQueuesRef = useRef(new Map());
+
+  useEffect(() => {
+    selectedSessionIdRef.current = selectedSessionId;
+  }, [selectedSessionId]);
+
+  useEffect(() => {
+    selectedTestPointIdRef.current = selectedTestPointId;
+  }, [selectedTestPointId]);
+
+  const replaceSessions = useCallback((updater) => {
+    const nextSessions =
+      typeof updater === "function" ? updater(sessionsRef.current) : updater;
+    sessionsRef.current = nextSessions;
+    setSessions(nextSessions);
+    return nextSessions;
+  }, []);
+
+  const recordUndoSnapshot = useCallback((session, groupKey) => {
+    if (!session || !groupKey) return;
+
+    const sessionKey = String(session.id);
+    const now = Date.now();
+    const history = undoHistoryRef.current.get(sessionKey) || {
+      entries: [],
+      lastGroupKey: null,
+      lastRecordedAt: 0,
+    };
+    const shouldCoalesce =
+      history.lastGroupKey === groupKey &&
+      now - history.lastRecordedAt <= UNDO_COALESCE_MS;
+
+    if (!shouldCoalesce) {
+      history.entries.push({
+        session: cloneSession(session),
+        selectedTestPointId: selectedTestPointIdRef.current,
+      });
+      if (history.entries.length > MAX_UNDO_STEPS) {
+        history.entries.splice(0, history.entries.length - MAX_UNDO_STEPS);
+      }
+    }
+
+    history.lastGroupKey = groupKey;
+    history.lastRecordedAt = now;
+    undoHistoryRef.current.set(sessionKey, history);
+  }, []);
 
   // --- 1. Load Data (Sessions) ---
   const loadData = useCallback(async () => {
     try {
       const res = await axios.get(`${UNCERTAINTY_API}/sessions/`);
       const loaded = Array.isArray(res.data) ? res.data : [];
-      setSessions(loaded);
+      undoHistoryRef.current.clear();
+      replaceSessions(loaded);
       if (loaded.length > 0) {
         setSelectedSessionId((prev) =>
           prev && loaded.find((s) => s.id === prev) ? prev : loaded[0].id
@@ -142,7 +216,7 @@ const useSessionManager = () => {
     } catch (err) {
       console.error("Failed to load sessions from backend", err);
     }
-  }, []);
+  }, [replaceSessions]);
 
   useEffect(() => {
     loadData();
@@ -376,7 +450,7 @@ const useSessionManager = () => {
       console.error("Failed to delete session image", e);
     }
 
-    setSessions((prev) => {
+    replaceSessions((prev) => {
       const session = prev.find((s) => s.id === sessionId);
       if (!session) return prev;
       const updatedImages = (session.noteImages || []).filter(
@@ -385,7 +459,7 @@ const useSessionManager = () => {
       const updatedSession = { ...session, noteImages: updatedImages };
       return prev.map((s) => (s.id === sessionId ? updatedSession : s));
     });
-  }, []);
+  }, [replaceSessions]);
 
   const deleteSessionFromDisk = useCallback(async (sessionId) => {
     try {
@@ -398,8 +472,17 @@ const useSessionManager = () => {
   // --- 5. CRUD Operations ---
   const updateSession = useCallback(
     (updatedSession, newImages = []) => {
-      setSessions((prevSessions) =>
-        prevSessions.map((s) => (s.id === updatedSession.id ? updatedSession : s))
+      const previousSession = sessionsRef.current.find(
+        (session) => session.id === updatedSession.id,
+      );
+      const changeGroup = getSessionChangeGroup(previousSession, updatedSession);
+      if (!changeGroup) return;
+
+      recordUndoSnapshot(previousSession, changeGroup);
+      replaceSessions((prevSessions) =>
+        prevSessions.map((session) =>
+          session.id === updatedSession.id ? updatedSession : session,
+        ),
       );
       if (newImages.length > 0) {
         persistSession(updatedSession, newImages);
@@ -407,22 +490,57 @@ const useSessionManager = () => {
         persistSessionDebounced(updatedSession);
       }
     },
-    [persistSession, persistSessionDebounced]
+    [
+      persistSession,
+      persistSessionDebounced,
+      recordUndoSnapshot,
+      replaceSessions,
+    ],
   );
+
+  const undoLastSessionChange = useCallback(() => {
+    const sessionId = selectedSessionIdRef.current;
+    if (sessionId == null) return false;
+
+    const history = undoHistoryRef.current.get(String(sessionId));
+    const undoEntry = history?.entries.pop();
+    if (!undoEntry) return false;
+
+    history.lastGroupKey = null;
+    history.lastRecordedAt = 0;
+    const restoredSession = undoEntry.session;
+    replaceSessions((prevSessions) =>
+      prevSessions.map((session) =>
+        session.id === restoredSession.id ? restoredSession : session,
+      ),
+    );
+
+    const restoredPointId =
+      undoEntry.selectedTestPointId != null &&
+      restoredSession.testPoints?.some(
+        (point) => point.id === undoEntry.selectedTestPointId,
+      )
+        ? undoEntry.selectedTestPointId
+        : null;
+    selectedTestPointIdRef.current = restoredPointId;
+    setSelectedTestPointId(restoredPointId);
+    persistSessionDebounced(restoredSession, 0);
+    return true;
+  }, [persistSessionDebounced, replaceSessions]);
 
   const addSession = useCallback(() => {
     const newSession = createNewSession();
-    setSessions((prev) => [newSession, ...prev]);
+    replaceSessions((prev) => [newSession, ...prev]);
     setSelectedSessionId(newSession.id);
     setSelectedTestPointId(null);
     persistSession(newSession);
     return newSession;
-  }, [createNewSession, persistSession]);
+  }, [createNewSession, persistSession, replaceSessions]);
 
   const deleteSession = useCallback(
     (sessionId) => {
       deleteSessionFromDisk(sessionId);
-      setSessions((prev) => {
+      replaceSessions((prev) => {
         const newSessions = prev.filter((s) => s.id !== sessionId);
         if (selectedSessionId === sessionId) {
           if (newSessions.length === 0) {
@@ -435,7 +553,7 @@ const useSessionManager = () => {
         return newSessions;
       });
     },
-    [deleteSessionFromDisk, selectedSessionId]
+    [deleteSessionFromDisk, replaceSessions, selectedSessionId]
   );
 
   const importSession = useCallback(
@@ -450,7 +568,7 @@ const useSessionManager = () => {
         loadedSession,
         sessions,
       );
-      setSessions((prev) => [importedSession, ...prev]);
+      replaceSessions((prev) => [importedSession, ...prev]);
       setSelectedSessionId(importedSession.id);
       setSelectedTestPointId(importedSession.testPoints?.[0]?.id || null);
 
@@ -466,7 +584,7 @@ const useSessionManager = () => {
       await Promise.all(saves);
       return importedSession;
     },
-    [persistSession, selectedSessionId, sessions]
+    [persistSession, replaceSessions, selectedSessionId, sessions]
   );
 
   // --- 6. Workflow Redesign CRUD (Area, UUT, TMDE) ---
@@ -657,20 +775,38 @@ const useSessionManager = () => {
 
   const updateTestPointData = useCallback(
     (updatedData) => {
-      setSessions((prevSessions) => {
-        const session = prevSessions.find((s) => s.id === selectedSessionId);
-        if (!session) return prevSessions;
-        const updatedTestPoints = session.testPoints.map((tp) =>
-          tp.id === selectedTestPointId ? { ...tp, ...updatedData } : tp
-        );
-        const updatedSession = { ...session, testPoints: updatedTestPoints };
-        persistSessionDebounced(updatedSession, 700);
-        return prevSessions.map((s) =>
-          s.id === selectedSessionId ? updatedSession : s
-        );
-      });
+      const session = sessionsRef.current.find(
+        (item) => item.id === selectedSessionId,
+      );
+      if (!session) return;
+
+      const updatedTestPoints = session.testPoints.map((testPoint) =>
+        testPoint.id === selectedTestPointId
+          ? { ...testPoint, ...updatedData }
+          : testPoint,
+      );
+      const updatedSession = { ...session, testPoints: updatedTestPoints };
+      if (!getSessionChangeGroup(session, updatedSession)) return;
+
+      const updatedKeys = Object.keys(updatedData).sort().join(",");
+      recordUndoSnapshot(
+        session,
+        `point:${selectedTestPointId}:${updatedKeys}`,
+      );
+      replaceSessions((prevSessions) =>
+        prevSessions.map((item) =>
+          item.id === selectedSessionId ? updatedSession : item,
+        ),
+      );
+      persistSessionDebounced(updatedSession, 700);
     },
-    [selectedSessionId, selectedTestPointId, persistSessionDebounced]
+    [
+      persistSessionDebounced,
+      recordUndoSnapshot,
+      replaceSessions,
+      selectedSessionId,
+      selectedTestPointId,
+    ],
   );
 
   const deleteTmdeDefinition = (tmdeId) => {
@@ -733,13 +869,14 @@ const useSessionManager = () => {
     addSession,
     deleteSession,
     updateSession,
+    undoLastSessionChange,
     importSession,
     saveTestPoint,
     deleteTestPoint,
     updateTestPointData,
     deleteTmdeDefinition,
     decrementTmdeQuantity,
-    setSessions,
+    setSessions: replaceSessions,
 
     addMeasurementArea,
     updateMeasurementArea,

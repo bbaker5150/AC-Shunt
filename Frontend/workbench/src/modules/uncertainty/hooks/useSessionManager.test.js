@@ -1,5 +1,38 @@
-import { describe, expect, it } from "vitest";
-import { prepareImportedSession } from "./useSessionManager";
+import { act, renderHook, waitFor } from "@testing-library/react";
+import axios from "axios";
+import { beforeEach, describe, expect, it, vi } from "vitest";
+import useSessionManager, {
+  prepareImportedSession,
+} from "./useSessionManager";
+
+vi.mock("axios", () => ({
+  default: {
+    delete: vi.fn(),
+    get: vi.fn(),
+    post: vi.fn(),
+    put: vi.fn(),
+  },
+}));
+
+beforeEach(() => {
+  vi.clearAllMocks();
+  axios.delete.mockResolvedValue({});
+  axios.post.mockResolvedValue({});
+  axios.put.mockResolvedValue({});
+  axios.get.mockImplementation((url) =>
+    Promise.resolve({
+      data: url.endsWith("/sessions/")
+        ? [
+            {
+              id: 1,
+              name: "Original",
+              testPoints: [],
+            },
+          ]
+        : [],
+    }),
+  );
+});
 
 describe("prepareImportedSession", () => {
   it("always creates a separate session without changing nested IDs", () => {
@@ -32,5 +65,31 @@ describe("prepareImportedSession", () => {
       id: 100,
       name: "Torque Session",
     });
+  });
+});
+
+describe("session undo history", () => {
+  it("restores the active session's previous snapshot", async () => {
+    const { result } = renderHook(() => useSessionManager());
+
+    await waitFor(() => {
+      expect(result.current.currentSessionData?.name).toBe("Original");
+    });
+
+    act(() => {
+      result.current.updateSession({
+        ...result.current.currentSessionData,
+        name: "Edited",
+      });
+    });
+    expect(result.current.currentSessionData.name).toBe("Edited");
+
+    let didUndo = false;
+    act(() => {
+      didUndo = result.current.undoLastSessionChange();
+    });
+
+    expect(didUndo).toBe(true);
+    expect(result.current.currentSessionData.name).toBe("Original");
   });
 });
